@@ -1,0 +1,156 @@
+import { useState, useEffect } from 'react'
+import { Link } from 'react-router-dom'
+import { api, MarketIndex, MarketStatus } from '../services/api'
+import { useSettings } from '../SettingsContext'
+
+function formatNumber(value: number, decimals: number = 2): string {
+  return value.toLocaleString('en-US', { 
+    minimumFractionDigits: decimals,
+    maximumFractionDigits: decimals 
+  })
+}
+
+export default function Markets() {
+  const [indices, setIndices] = useState<MarketIndex[]>([])
+  const [marketHours, setMarketHours] = useState<MarketStatus[]>([])
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
+  const [lastUpdate, setLastUpdate] = useState<Date | null>(null)
+  const { timezone } = useSettings()
+
+  const fetchData = async () => {
+    try {
+      setLoading(true)
+      const [indicesData, hoursData] = await Promise.all([
+        api.market.indices(),
+        api.market.hours(timezone),
+      ])
+      setIndices(indicesData)
+      setMarketHours(hoursData)
+      setLastUpdate(new Date())
+      setError(null)
+    } catch (err) {
+      setError('Failed to load market data')
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  useEffect(() => {
+    fetchData()
+    
+    const interval = setInterval(fetchData, 60000)
+    return () => clearInterval(interval)
+  }, [timezone])
+
+  if (loading && !indices.length) {
+    return <div style={{ textAlign: 'center', padding: '40px' }}>Loading market data...</div>
+  }
+
+  return (
+    <div>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '24px' }}>
+        <div>
+          <h2 style={{ fontSize: '24px', fontWeight: '600' }}>Market Indices</h2>
+          {lastUpdate && (
+            <p style={{ color: 'var(--text-secondary)', fontSize: '12px', marginTop: '4px' }}>
+              Last updated: {lastUpdate.toLocaleTimeString()}
+            </p>
+          )}
+        </div>
+        <button className="btn btn-primary" onClick={fetchData} disabled={loading}>
+          {loading ? 'Refreshing...' : 'Refresh'}
+        </button>
+      </div>
+
+      {error && (
+        <div className="card" style={{ background: 'rgba(248, 81, 73, 0.1)', marginBottom: '20px' }}>
+          <p style={{ color: 'var(--accent-red)' }}>{error}</p>
+        </div>
+      )}
+
+      <div className="grid grid-2">
+        {indices.map((index) => {
+          const isPositive = index.change >= 0
+          const changeClass = isPositive ? 'positive' : 'negative'
+          
+          return (
+            <div key={index.symbol} className="card">
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+                <div>
+                  <p style={{ color: 'var(--text-secondary)', fontSize: '12px', marginBottom: '4px' }}>
+                    {index.symbol}
+                  </p>
+                  <p style={{ fontSize: '16px', fontWeight: '600', marginBottom: '8px' }}>
+                    {index.name}
+                  </p>
+                </div>
+                <div style={{ textAlign: 'right' }}>
+                  <p style={{ fontSize: '24px', fontWeight: '600' }}>
+                    {formatNumber(index.price)}
+                  </p>
+                </div>
+              </div>
+              <div style={{ display: 'flex', gap: '16px', marginTop: '12px' }}>
+                <span className={changeClass}>
+                  {isPositive ? '+' : ''}{formatNumber(index.change)}
+                </span>
+                <span className={changeClass}>
+                  {isPositive ? '+' : ''}{formatNumber(index.change_percent)}%
+                </span>
+              </div>
+            </div>
+          )
+        })}
+      </div>
+
+      <div className="card" style={{ marginTop: '24px' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
+          <h3>Market Hours</h3>
+          <Link to="/settings" style={{ color: 'var(--accent-blue)', fontSize: '12px', textDecoration: 'none' }}>
+            Change timezone
+          </Link>
+        </div>
+        <p style={{ color: 'var(--text-secondary)', fontSize: '12px', marginBottom: '12px' }}>
+          Times shown in your timezone ({marketHours[0]?.timezone || 'CET'})
+        </p>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '16px' }}>
+          {marketHours.map((market) => (
+            <div 
+              key={market.market} 
+              style={{ 
+                padding: '16px',
+                background: 'var(--bg-tertiary)',
+                borderRadius: '8px',
+                borderLeft: `4px solid ${market.is_open ? 'var(--accent-green)' : 'var(--accent-red)'}`
+              }}
+            >
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
+                <p style={{ fontWeight: '600' }}>{market.name}</p>
+                <span 
+                  style={{ 
+                    fontSize: '12px',
+                    padding: '4px 8px',
+                    borderRadius: '4px',
+                    background: market.is_open ? 'rgba(63, 185, 80, 0.2)' : 'rgba(139, 148, 158, 0.2)',
+                    color: market.is_open ? 'var(--accent-green)' : 'var(--text-secondary)'
+                  }}
+                >
+                  {market.status}
+                </span>
+              </div>
+              <p style={{ color: 'var(--text-secondary)', fontSize: '12px' }}>
+                {market.open_time} - {market.close_time} ({market.timezone})
+              </p>
+              {market.local_time && (
+                <p style={{ color: 'var(--text-primary)', fontSize: '12px', marginTop: '4px' }}>
+                  Local time: {market.local_time}
+                </p>
+              )}
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
+  )
+}
