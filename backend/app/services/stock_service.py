@@ -1,5 +1,6 @@
 import requests
 import json
+import importlib
 from datetime import datetime, timezone, timedelta
 from typing import Optional, Dict, Any, List
 import logging
@@ -21,6 +22,12 @@ _DIVIDEND_CACHE: Dict[str, tuple] = {}
 _DIVIDEND_CACHE_TTL = 86400 * 30
 
 _sector_cache: Dict[str, Optional[str]] = {}
+
+_ANALYST_CACHE: Dict[str, tuple] = {}
+_ANALYST_CACHE_TTL = 3600
+
+_PRICE_TARGETS_CACHE: Dict[str, tuple] = {}
+_PRICE_TARGETS_CACHE_TTL = 3600
 
 _session = None
 
@@ -284,13 +291,116 @@ class StockService:
             logger.error(f"Error fetching extended quote for {ticker}: {e}")
             return None
 
-    def get_analyst_recommendations(self, ticker: str) -> Optional[dict]:
-        return None
+    def get_analyst_recommendations(self, ticker: str) -> Optional[List[Dict[str, Any]]]:
+        ticker_upper = ticker.upper()
+
+        if ticker_upper in _ANALYST_CACHE:
+            data, timestamp = _ANALYST_CACHE[ticker_upper]
+            if datetime.now().timestamp() - timestamp < _ANALYST_CACHE_TTL:
+                return data
+
+        try:
+            yf = importlib.import_module('yfinance')
+            yf_ticker = yf.Ticker(ticker_upper)
+            
+            recs_df = getattr(yf_ticker, 'recommendations', None)
+            if recs_df is None or (hasattr(recs_df, 'empty') and recs_df.empty):
+                recs_df = getattr(yf_ticker, 'recommendations_summary', None)
+
+            if recs_df is None:
+                _ANALYST_CACHE[ticker_upper] = (None, datetime.now().timestamp())
+                return None
+
+            if hasattr(recs_df, 'empty') and recs_df.empty:
+                _ANALYST_CACHE[ticker_upper] = (None, datetime.now().timestamp())
+                return None
+
+            records: List[Dict[str, Any]] = []
+
+            if hasattr(recs_df, 'reset_index'):
+                try:
+                    records = recs_df.reset_index().to_dict(orient='records')
+                except Exception:
+                    records = []
+            elif isinstance(recs_df, list):
+                records = recs_df
+            elif isinstance(recs_df, dict):
+                records = recs_df.get('trend', [])
+
+            normalized: List[Dict[str, Any]] = []
+            for item in records:
+                if not isinstance(item, dict):
+                    continue
+
+                period = item.get('period') or item.get('index') or item.get('Date') or item.get('date')
+                if not period:
+                    continue
+
+                strong_buy = int(item.get('strongBuy', item.get('strong_buy', 0)) or 0)
+                buy = int(item.get('buy', 0) or 0)
+                hold = int(item.get('hold', 0) or 0)
+                sell = int(item.get('sell', 0) or 0)
+                strong_sell = int(item.get('strongSell', item.get('strong_sell', 0)) or 0)
+
+                normalized.append({
+                    'period': str(period),
+                    'strong_buy': strong_buy,
+                    'buy': buy,
+                    'hold': hold,
+                    'sell': sell,
+                    'strong_sell': strong_sell,
+                    'total_analysts': strong_buy + buy + hold + sell + strong_sell,
+                })
+
+            if not normalized:
+                _ANALYST_CACHE[ticker_upper] = (None, datetime.now().timestamp())
+                return None
+
+            _ANALYST_CACHE[ticker_upper] = (normalized, datetime.now().timestamp())
+            return normalized
+
+        except Exception as e:
+            logger.error(f"Error fetching analyst recommendations for {ticker}: {e}")
+            _ANALYST_CACHE[ticker_upper] = (None, datetime.now().timestamp())
+            return None
 
     def get_price_targets(self, ticker: str) -> Optional[Dict[str, Any]]:
+        ticker_upper = ticker.upper()
+
+        if ticker_upper in _PRICE_TARGETS_CACHE:
+            data, timestamp = _PRICE_TARGETS_CACHE[ticker_upper]
+            if datetime.now().timestamp() - timestamp < _PRICE_TARGETS_CACHE_TTL:
+                return data
+
+        try:
+            yf = importlib.import_module('yfinance')
+            yf_ticker = yf.Ticker(ticker_upper)
+            info = getattr(yf_ticker, 'info', None)
+
+            if isinstance(info, dict):
+                target_avg = info.get('targetMeanPrice')
+                target_high = info.get('targetHighPrice')
+                target_low = info.get('targetLowPrice')
+                current = info.get('currentPrice') or info.get('regularMarketPrice')
+                num_analysts = info.get('numberOfAnalystOpinions')
+
+                if any(v is not None for v in [target_avg, target_high, target_low]):
+                    result = {
+                        'current': current,
+                        'targetAvg': target_avg,
+                        'targetHigh': target_high,
+                        'targetLow': target_low,
+                        'numberOfAnalysts': num_analysts,
+                    }
+                    _PRICE_TARGETS_CACHE[ticker_upper] = (result, datetime.now().timestamp())
+                    return result
+
+        except Exception as e:
+            logger.error(f"Error fetching analyst price targets for {ticker}: {e}")
+
         quote_data = self.get_quote_extended(ticker)
         if quote_data:
-            return {
+            result = {
                 'current': None,
                 'targetAvg': None,
                 'targetHigh': quote_data.get('fifty_two_week_high'),
@@ -298,6 +408,10 @@ class StockService:
                 'numberOfAnalysts': None,
                 'note': '52-week range (analyst targets unavailable)',
             }
+            _PRICE_TARGETS_CACHE[ticker_upper] = (result, datetime.now().timestamp())
+            return result
+
+        _PRICE_TARGETS_CACHE[ticker_upper] = (None, datetime.now().timestamp())
         return None
 
     def get_latest_rating(self, ticker: str) -> Optional[Dict[str, Any]]:

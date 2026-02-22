@@ -78,7 +78,7 @@ export interface Dividend {
 }
 
 export interface AnalystData {
-  recommendations: Record<string, unknown> | null
+  recommendations: AnalystRecommendation[] | null
   price_targets: {
     current: number | null
     targetAvg: number | null
@@ -96,6 +96,16 @@ export interface AnalystData {
     price_action?: string
     price_target?: string
   } | null
+}
+
+export interface AnalystRecommendation {
+  period: string
+  strong_buy: number
+  buy: number
+  hold: number
+  sell: number
+  strong_sell: number
+  total_analysts?: number
 }
 
 export interface MarketStatus {

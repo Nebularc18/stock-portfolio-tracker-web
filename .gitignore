@@ -104,3 +104,6 @@ tmp/
 temp/
 *.tmp
 *.temp
+
+# Documentation
+docs/

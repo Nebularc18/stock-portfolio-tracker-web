@@ -5,6 +5,7 @@ import CompanyProfileComponent from '../components/CompanyProfile'
 import FinancialMetricsComponent from '../components/FinancialMetrics'
 import PeerCompanies from '../components/PeerCompanies'
 import RecommendationChart from '../components/RecommendationChart'
+import YfinanceAnalystPanel from '../components/YfinanceAnalystPanel'
 
 function formatCurrency(value: number | null, currency: string = 'USD'): string {
   if (value === null) return '-'
@@ -557,101 +558,16 @@ export default function StockDetail() {
 
       {activeTab === 'analyst' && (
         <div>
+          <YfinanceAnalystPanel
+            priceTargets={analystData?.price_targets || null}
+            recommendations={analystData?.recommendations || null}
+            currency={stock?.currency || 'USD'}
+            currentPrice={stock?.current_price ?? null}
+          />
+
           <RecommendationChart recommendations={recommendations} loading={finnhubLoading} />
-          
-          {analystData?.latest_rating && (
-            <div className="card" style={{ marginBottom: '20px' }}>
-              <h3 style={{ marginBottom: '16px' }}>Senaste Betyg</h3>
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(6, 1fr)', gap: '16px' }}>
-                <div>
-                  <p style={{ color: 'var(--text-secondary)', fontSize: '12px' }}>Datum</p>
-                  <p>{analystData.latest_rating.date}</p>
-                </div>
-                <div>
-                  <p style={{ color: 'var(--text-secondary)', fontSize: '12px' }}>Analytiker</p>
-                  <p>{analystData.latest_rating.analyst}</p>
-                </div>
-                <div>
-                  <p style={{ color: 'var(--text-secondary)', fontSize: '12px' }}>Betygshändelse</p>
-                  <p style={{ 
-                    fontWeight: '600',
-                    color: analystData.latest_rating.rating_action?.toLowerCase().includes('uppgrader') ? 'var(--accent-green)' :
-                           analystData.latest_rating.rating_action?.toLowerCase().includes('nedgrader') ? 'var(--accent-red)' : undefined
-                  }}>
-                    {analystData.latest_rating.rating_action}
-                  </p>
-                </div>
-                <div>
-                  <p style={{ color: 'var(--text-secondary)', fontSize: '12px' }}>Betyg</p>
-                  <p style={{ fontWeight: '600' }}>{analystData.latest_rating.rating || '-'}</p>
-                </div>
-                <div>
-                  <p style={{ color: 'var(--text-secondary)', fontSize: '12px' }}>Prishändelse</p>
-                  <p style={{ 
-                    fontWeight: '600',
-                    color: analystData.latest_rating.price_action?.toLowerCase().includes('höj') ? 'var(--accent-green)' :
-                           analystData.latest_rating.price_action?.toLowerCase().includes('sänk') ? 'var(--accent-red)' : undefined
-                  }}>
-                    {analystData.latest_rating.price_action || '-'}
-                  </p>
-                </div>
-                <div>
-                  <p style={{ color: 'var(--text-secondary)', fontSize: '12px' }}>Prismål</p>
-                  <p style={{ fontWeight: '600' }}>{analystData.latest_rating.price_target || '-'}</p>
-                </div>
-              </div>
-            </div>
-          )}
-          
-          {analystData?.price_targets && (
-            <div className="card">
-              <h3 style={{ marginBottom: '16px' }}>
-                {analystData.price_targets.note ? '52-Week Range' : 'Price Targets'}
-              </h3>
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '16px' }}>
-                <div>
-                  <p style={{ color: 'var(--text-secondary)', fontSize: '12px' }}>Current</p>
-                  <p style={{ fontSize: '20px', fontWeight: '600' }}>
-                    {formatCurrency(stock.current_price, stock.currency)}
-                  </p>
-                </div>
-                <div>
-                  <p style={{ color: 'var(--text-secondary)', fontSize: '12px' }}>Target (Avg)</p>
-                  <p style={{ fontSize: '20px', fontWeight: '600', color: 'var(--accent-green)' }}>
-                    {formatCurrency(analystData.price_targets.targetAvg, stock.currency) || '-'}
-                  </p>
-                </div>
-                <div>
-                  <p style={{ color: 'var(--text-secondary)', fontSize: '12px' }}>
-                    {analystData.price_targets.note ? '52W High' : 'High'}
-                  </p>
-                  <p style={{ color: analystData.price_targets.note ? 'var(--accent-green)' : undefined }}>
-                    {formatCurrency(analystData.price_targets.targetHigh, stock.currency)}
-                  </p>
-                </div>
-                <div>
-                  <p style={{ color: 'var(--text-secondary)', fontSize: '12px' }}>
-                    {analystData.price_targets.note ? '52W Low' : 'Low'}
-                  </p>
-                  <p style={{ color: analystData.price_targets.note ? 'var(--accent-red)' : undefined }}>
-                    {formatCurrency(analystData.price_targets.targetLow, stock.currency)}
-                  </p>
-                </div>
-              </div>
-              {analystData.price_targets.note && (
-                <p style={{ color: 'var(--text-secondary)', fontSize: '12px', marginTop: '16px' }}>
-                  {analystData.price_targets.note}
-                </p>
-              )}
-              {analystData.price_targets.numberOfAnalysts && (
-                <p style={{ color: 'var(--text-secondary)', fontSize: '12px', marginTop: '16px' }}>
-                  Based on {analystData.price_targets.numberOfAnalysts} analysts
-                </p>
-              )}
-            </div>
-          )}
-          
-          {!analystData?.price_targets && !recommendations.length && (
+
+          {!analystData?.price_targets && !analystData?.recommendations?.length && !recommendations.length && !finnhubLoading && (
             <div className="card">
               <p style={{ color: 'var(--text-secondary)', textAlign: 'center', padding: '40px' }}>
                 No analyst data available
