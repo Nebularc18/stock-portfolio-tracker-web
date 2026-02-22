@@ -1,12 +1,37 @@
 import requests
 import json
 import importlib
+import os
 from datetime import datetime, timezone, timedelta
 from typing import Optional, Dict, Any, List
 import logging
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
+
+CACHE_DIR = os.path.join(os.path.dirname(__file__), '..', '..', 'data', 'cache')
+os.makedirs(CACHE_DIR, exist_ok=True)
+
+def _load_file_cache(filename: str) -> Optional[Any]:
+    filepath = os.path.join(CACHE_DIR, filename)
+    if not os.path.exists(filepath):
+        return None
+    try:
+        with open(filepath, 'r') as f:
+            data = json.load(f)
+        if datetime.now().timestamp() - data.get('timestamp', 0) < data.get('ttl', 3600):
+            return data.get('value')
+        return None
+    except Exception:
+        return None
+
+def _save_file_cache(filename: str, value: Any, ttl: int = 3600):
+    filepath = os.path.join(CACHE_DIR, filename)
+    try:
+        with open(filepath, 'w') as f:
+            json.dump({'value': value, 'timestamp': datetime.now().timestamp(), 'ttl': ttl}, f)
+    except Exception as e:
+        logger.warning(f"Failed to save cache {filename}: {e}")
 
 CURRENCY_MAP = {
     ".ST": "SEK", ".SE": "SEK", ".TO": "CAD", ".L": "GBP",
@@ -293,6 +318,11 @@ class StockService:
 
     def get_analyst_recommendations(self, ticker: str) -> Optional[List[Dict[str, Any]]]:
         ticker_upper = ticker.upper()
+        cache_file = f"analyst_recs_{ticker_upper}.json"
+
+        cached = _load_file_cache(cache_file)
+        if cached is not None:
+            return cached
 
         if ticker_upper in _ANALYST_CACHE:
             data, timestamp = _ANALYST_CACHE[ticker_upper]
@@ -357,6 +387,7 @@ class StockService:
                 return None
 
             _ANALYST_CACHE[ticker_upper] = (normalized, datetime.now().timestamp())
+            _save_file_cache(cache_file, normalized, _ANALYST_CACHE_TTL)
             return normalized
 
         except Exception as e:
@@ -366,6 +397,11 @@ class StockService:
 
     def get_price_targets(self, ticker: str) -> Optional[Dict[str, Any]]:
         ticker_upper = ticker.upper()
+        cache_file = f"price_targets_{ticker_upper}.json"
+
+        cached = _load_file_cache(cache_file)
+        if cached is not None:
+            return cached
 
         if ticker_upper in _PRICE_TARGETS_CACHE:
             data, timestamp = _PRICE_TARGETS_CACHE[ticker_upper]
@@ -393,6 +429,7 @@ class StockService:
                         'numberOfAnalysts': num_analysts,
                     }
                     _PRICE_TARGETS_CACHE[ticker_upper] = (result, datetime.now().timestamp())
+                    _save_file_cache(cache_file, result, _PRICE_TARGETS_CACHE_TTL)
                     return result
 
         except Exception as e:

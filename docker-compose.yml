@@ -29,6 +29,7 @@ services:
         condition: service_healthy
     volumes:
       - ./backend:/app
+      - cache_data:/app/data/cache
 
   frontend:
     build: ./frontend
@@ -39,3 +40,4 @@ services:
 
 volumes:
   postgres_data:
+  cache_data:

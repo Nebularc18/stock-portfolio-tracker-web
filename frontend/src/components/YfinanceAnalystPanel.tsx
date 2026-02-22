@@ -105,7 +105,7 @@ export default function YfinanceAnalystPanel({
     .slice(-4)
 
   return (
-    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: '16px' }}>
+    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: '16px', marginBottom: '20px' }}>
       <div className="card" style={{ marginBottom: 0 }}>
         <h3 style={{ marginBottom: '18px' }}>Analyst Price Targets</h3>
 

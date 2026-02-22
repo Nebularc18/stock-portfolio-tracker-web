@@ -1,7 +1,32 @@
 import os
 import requests
 import time
+import json
 from typing import Optional, Dict, Any, List, Tuple
+
+CACHE_DIR = os.path.join(os.path.dirname(__file__), '..', '..', 'data', 'cache')
+os.makedirs(CACHE_DIR, exist_ok=True)
+
+def _load_file_cache(filename: str) -> Optional[Any]:
+    filepath = os.path.join(CACHE_DIR, filename)
+    if not os.path.exists(filepath):
+        return None
+    try:
+        with open(filepath, 'r') as f:
+            data = json.load(f)
+        if time.time() - data.get('timestamp', 0) < data.get('ttl', 3600):
+            return data.get('value')
+        return None
+    except Exception:
+        return None
+
+def _save_file_cache(filename: str, value: Any, ttl: int = 3600):
+    filepath = os.path.join(CACHE_DIR, filename)
+    try:
+        with open(filepath, 'w') as f:
+            json.dump({'value': value, 'timestamp': time.time(), 'ttl': ttl}, f)
+    except Exception:
+        pass
 
 FINNHUB_TICKER_MAP = {
     ".ST": ".ST",
@@ -172,7 +197,12 @@ class FinnhubService:
     
     def get_recommendation_trends(self, ticker: str) -> Optional[List[Dict[str, Any]]]:
         ticker_upper = ticker.upper()
-        
+        cache_file = f"finnhub_recs_{ticker_upper}.json"
+
+        cached = _load_file_cache(cache_file)
+        if cached is not None:
+            return cached
+
         if ticker_upper in _CACHE_RECOMMENDATIONS:
             cached_data, timestamp = _CACHE_RECOMMENDATIONS[ticker_upper]
             if time.time() - timestamp < _CACHE_TTL_RECOMMENDATIONS:
@@ -204,6 +234,7 @@ class FinnhubService:
             })
         
         _CACHE_RECOMMENDATIONS[ticker_upper] = (result, time.time())
+        _save_file_cache(cache_file, result, _CACHE_TTL_RECOMMENDATIONS)
         return result
     
     def clear_cache(self, ticker: Optional[str] = None):

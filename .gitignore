@@ -107,3 +107,6 @@ temp/
 
 # Documentation
 docs/
+
+# Cache files
+data/cache/
