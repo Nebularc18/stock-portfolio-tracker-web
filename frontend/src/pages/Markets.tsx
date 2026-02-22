@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react'
 import { Link } from 'react-router-dom'
-import { api, MarketIndex, MarketStatus } from '../services/api'
+import { LineChart, Line, ResponsiveContainer, YAxis } from 'recharts'
+import { api, MarketIndex, MarketStatus, SparklineData } from '../services/api'
 import { useSettings } from '../SettingsContext'
 
 function formatNumber(value: number, decimals: number = 2): string {
@@ -10,9 +11,32 @@ function formatNumber(value: number, decimals: number = 2): string {
   })
 }
 
+function MiniSparkline({ data, isPositive }: { data: number[]; isPositive: boolean }) {
+  const chartData = data.map((value, index) => ({ value, index }))
+  const color = isPositive ? '#22c55e' : '#ef4444'
+  
+  return (
+    <div style={{ width: 80, height: 30 }}>
+      <ResponsiveContainer width="100%" height="100%">
+        <LineChart data={chartData}>
+          <YAxis domain={['dataMin', 'dataMax']} hide />
+          <Line 
+            type="monotone" 
+            dataKey="value" 
+            stroke={color} 
+            strokeWidth={1.5} 
+            dot={false}
+          />
+        </LineChart>
+      </ResponsiveContainer>
+    </div>
+  )
+}
+
 export default function Markets() {
   const [indices, setIndices] = useState<MarketIndex[]>([])
   const [marketHours, setMarketHours] = useState<MarketStatus[]>([])
+  const [sparklines, setSparklines] = useState<Record<string, SparklineData>>({})
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [lastUpdate, setLastUpdate] = useState<Date | null>(null)
@@ -21,12 +45,14 @@ export default function Markets() {
   const fetchData = async () => {
     try {
       setLoading(true)
-      const [indicesData, hoursData] = await Promise.all([
+      const [indicesData, hoursData, sparklineData] = await Promise.all([
         api.market.indices(),
         api.market.hours(timezone),
+        api.market.sparklines().catch(() => ({})),
       ])
       setIndices(indicesData)
       setMarketHours(hoursData)
+      setSparklines(sparklineData)
       setLastUpdate(new Date())
       setError(null)
     } catch (err) {
@@ -73,6 +99,7 @@ export default function Markets() {
         {indices.map((index) => {
           const isPositive = index.change >= 0
           const changeClass = isPositive ? 'positive' : 'negative'
+          const sparkline = sparklines[index.symbol]
           
           return (
             <div key={index.symbol} className="card">
@@ -85,10 +112,15 @@ export default function Markets() {
                     {index.name}
                   </p>
                 </div>
-                <div style={{ textAlign: 'right' }}>
-                  <p style={{ fontSize: '24px', fontWeight: '600' }}>
-                    {formatNumber(index.price)}
-                  </p>
+                <div style={{ textAlign: 'right', display: 'flex', alignItems: 'center', gap: '12px' }}>
+                  {sparkline && (
+                    <MiniSparkline data={sparkline.prices} isPositive={sparkline.is_positive} />
+                  )}
+                  <div>
+                    <p style={{ fontSize: '24px', fontWeight: '600' }}>
+                      {formatNumber(index.price)}
+                    </p>
+                  </div>
                 </div>
               </div>
               <div style={{ display: 'flex', gap: '16px', marginTop: '12px' }}>

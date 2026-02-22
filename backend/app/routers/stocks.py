@@ -273,3 +273,61 @@ def delete_manual_dividend(ticker: str, dividend_id: str, db: Session = Depends(
     stock.manual_dividends = filtered_divs
     db.commit()
     return {"message": "Dividend deleted"}
+
+
+class SuppressDividendCreate(BaseModel):
+    date: str
+    amount: Optional[float] = None
+    currency: Optional[str] = None
+
+
+@router.post("/{ticker}/suppress-dividend")
+def suppress_broker_dividend(ticker: str, data: SuppressDividendCreate, db: Session = Depends(get_db)):
+    stock = db.query(Stock).filter(Stock.ticker == ticker.upper()).first()
+    if not stock:
+        raise HTTPException(status_code=404, detail="Stock not found")
+    
+    suppressed = stock.suppressed_dividends or []
+    
+    for s in suppressed:
+        if s.get("date") == data.date:
+            return {"message": "Dividend already suppressed"}
+    
+    suppression = {
+        "id": str(uuid.uuid4()),
+        "date": data.date,
+        "amount": data.amount,
+        "currency": data.currency or stock.currency,
+        "suppressed_at": datetime.utcnow().isoformat(),
+    }
+    suppressed.append(suppression)
+    stock.suppressed_dividends = suppressed
+    
+    db.commit()
+    return {"message": "Dividend suppressed", "suppression": suppression}
+
+
+@router.delete("/{ticker}/suppress-dividend/{date}")
+def restore_broker_dividend(ticker: str, date: str, db: Session = Depends(get_db)):
+    stock = db.query(Stock).filter(Stock.ticker == ticker.upper()).first()
+    if not stock:
+        raise HTTPException(status_code=404, detail="Stock not found")
+    
+    suppressed = stock.suppressed_dividends or []
+    filtered = [s for s in suppressed if s.get("date") != date]
+    
+    if len(filtered) == len(suppressed):
+        raise HTTPException(status_code=404, detail="Suppression not found")
+    
+    stock.suppressed_dividends = filtered
+    db.commit()
+    return {"message": "Dividend restored"}
+
+
+@router.get("/{ticker}/suppressed-dividends")
+def get_suppressed_dividends(ticker: str, db: Session = Depends(get_db)):
+    stock = db.query(Stock).filter(Stock.ticker == ticker.upper()).first()
+    if not stock:
+        raise HTTPException(status_code=404, detail="Stock not found")
+    
+    return stock.suppressed_dividends or []

@@ -58,10 +58,14 @@ def get_portfolio_summary(db: Session = Depends(get_db)):
 @router.post("/refresh-all")
 def refresh_all_prices(db: Session = Depends(get_db)):
     from app.services.stock_service import StockService
+    from app.services.exchange_rate_service import ExchangeRateService
     stock_service = StockService()
     
     stocks = db.query(Stock).all()
     updated = 0
+    total_value_sek = 0
+    
+    rates = ExchangeRateService.get_rates()
     
     for stock in stocks:
         info = stock_service.get_stock_info(stock.ticker)
@@ -73,6 +77,26 @@ def refresh_all_prices(db: Session = Depends(get_db)):
             stock.dividend_per_share = info.get('dividend_per_share')
             stock.last_updated = datetime.utcnow()
             updated += 1
+            
+            if stock.current_price and stock.quantity:
+                value = stock.current_price * stock.quantity
+                if stock.currency == 'SEK':
+                    total_value_sek += value
+                elif stock.currency == 'USD' and rates.get('USD_SEK'):
+                    total_value_sek += value * rates['USD_SEK']
+                elif stock.currency == 'EUR' and rates.get('EUR_SEK'):
+                    total_value_sek += value * rates['EUR_SEK']
+                else:
+                    total_value_sek += value
+    
+    if updated > 0 and total_value_sek > 0:
+        today = datetime.utcnow().replace(hour=0, minute=0, second=0, microsecond=0)
+        existing = db.query(PortfolioHistory).filter(PortfolioHistory.date >= today).first()
+        if existing:
+            existing.total_value = total_value_sek
+        else:
+            history_entry = PortfolioHistory(total_value=total_value_sek, date=datetime.utcnow())
+            db.add(history_entry)
     
     db.commit()
     

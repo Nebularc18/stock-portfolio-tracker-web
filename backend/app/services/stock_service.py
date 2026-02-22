@@ -17,6 +17,11 @@ CURRENCY_MAP = {
 _TICKER_CACHE: Dict[str, tuple] = {}
 _CACHE_TTL = 300
 
+_DIVIDEND_CACHE: Dict[str, tuple] = {}
+_DIVIDEND_CACHE_TTL = 86400 * 30
+
+_sector_cache: Dict[str, Optional[str]] = {}
+
 _session = None
 
 def get_session():
@@ -202,6 +207,13 @@ class StockService:
 
     def get_dividends(self, ticker: str, years: int = 5) -> list:
         ticker = ticker.upper()
+        cache_key = f"{ticker}_{years}"
+        
+        if cache_key in _DIVIDEND_CACHE:
+            cached_data, timestamp = _DIVIDEND_CACHE[cache_key]
+            if datetime.now().timestamp() - timestamp < _DIVIDEND_CACHE_TTL:
+                return cached_data
+        
         session = get_session()
         
         try:
@@ -232,6 +244,8 @@ class StockService:
                 })
             
             result_list.sort(key=lambda x: x['date'], reverse=True)
+            
+            _DIVIDEND_CACHE[cache_key] = (result_list, datetime.now().timestamp())
             return result_list
             
         except Exception as e:

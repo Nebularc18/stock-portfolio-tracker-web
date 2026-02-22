@@ -23,6 +23,7 @@ services:
       - "8000:8000"
     environment:
       DATABASE_URL: postgresql://portfolio:portfolio@postgres:5432/portfolio
+      FINNHUB_API_KEY: ${FINNHUB_API_KEY:-}
     depends_on:
       postgres:
         condition: service_healthy

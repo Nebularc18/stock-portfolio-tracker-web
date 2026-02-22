@@ -93,6 +93,8 @@ export interface AnalystData {
     rating_action: string
     rating: string
     previous_rating?: string
+    price_action?: string
+    price_target?: string
   } | null
 }
 
@@ -105,6 +107,71 @@ export interface MarketStatus {
   close_time: string
   timezone: string
   local_time?: string
+}
+
+export interface SparklineData {
+  prices: number[]
+  dates: string[]
+  is_positive: boolean
+  start_value: number
+  end_value: number
+  change_percent: number
+}
+
+export interface CompanyProfile {
+  name: string | null
+  ticker: string | null
+  industry: string | null
+  country: string | null
+  currency: string | null
+  exchange: string | null
+  logo: string | null
+  website: string | null
+  market_cap: number | null
+  shares_outstanding: number | null
+  ipo_date: string | null
+  phone: string | null
+}
+
+export interface FinancialMetrics {
+  pe_ttm: number | null
+  pe_annual: number | null
+  ps_ttm: number | null
+  pb_annual: number | null
+  dividend_yield: number | null
+  dividend_per_share_annual: number | null
+  dividend_per_share_ttm: number | null
+  dividend_yield_ttm: number | null
+  dividend_growth_5y: number | null
+  roe_ttm: number | null
+  roa_ttm: number | null
+  net_margin_ttm: number | null
+  gross_margin_ttm: number | null
+  operating_margin_ttm: number | null
+  eps_ttm: number | null
+  book_value_per_share: number | null
+  cash_flow_per_share: number | null
+  revenue_growth_ttm: number | null
+  revenue_growth_3y: number | null
+  eps_growth_ttm: number | null
+  eps_growth_3y: number | null
+  beta: number | null
+  '52_week_high': number | null
+  '52_week_low': number | null
+  '52_week_high_date': string | null
+  '52_week_low_date': string | null
+  avg_volume_10d: number | null
+  avg_volume_3m: number | null
+}
+
+export interface RecommendationTrend {
+  period: string
+  strong_buy: number
+  buy: number
+  hold: number
+  sell: number
+  strong_sell: number
+  total_analysts: number
 }
 
 export const api = {
@@ -127,6 +194,12 @@ export const api = {
       fetchAPI(`/stocks/${ticker}/manual-dividends/${dividendId}`, { method: 'PUT', body: JSON.stringify(data) }) as Promise<Stock>,
     deleteManualDividend: (ticker: string, dividendId: string) =>
       fetchAPI(`/stocks/${ticker}/manual-dividends/${dividendId}`, { method: 'DELETE' }),
+    suppressDividend: (ticker: string, data: { date: string; amount?: number; currency?: string }) =>
+      fetchAPI(`/stocks/${ticker}/suppress-dividend`, { method: 'POST', body: JSON.stringify(data) }),
+    restoreDividend: (ticker: string, date: string) =>
+      fetchAPI(`/stocks/${ticker}/suppress-dividend/${date}`, { method: 'DELETE' }),
+    getSuppressedDividends: (ticker: string) =>
+      fetchAPI(`/stocks/${ticker}/suppressed-dividends`) as Promise<ManualDividend[]>,
   },
   
   portfolio: {
@@ -145,5 +218,13 @@ export const api = {
     marketHours: (market: string, timezone?: string) => fetchAPI(`/market/hours/${market}${timezone ? `?timezone=${encodeURIComponent(timezone)}` : ''}`) as Promise<MarketStatus>,
     openMarkets: () => fetchAPI('/market/open-markets') as Promise<{ open_markets: string[] }>,
     shouldRefresh: () => fetchAPI('/market/should-refresh') as Promise<{ should_refresh: boolean }>,
+    sparklines: () => fetchAPI('/market/indices/sparklines') as Promise<Record<string, SparklineData>>,
+  },
+  
+  finnhub: {
+    profile: (ticker: string) => fetchAPI(`/finnhub/profile/${ticker}`) as Promise<CompanyProfile>,
+    metrics: (ticker: string) => fetchAPI(`/finnhub/metrics/${ticker}`) as Promise<FinancialMetrics>,
+    peers: (ticker: string) => fetchAPI(`/finnhub/peers/${ticker}`) as Promise<string[]>,
+    recommendations: (ticker: string) => fetchAPI(`/finnhub/recommendations/${ticker}`) as Promise<RecommendationTrend[]>,
   },
 }

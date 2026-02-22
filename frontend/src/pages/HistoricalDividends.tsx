@@ -1,0 +1,240 @@
+import { useState, useEffect } from 'react'
+import { Link } from 'react-router-dom'
+import { api, Stock } from '../services/api'
+
+const MONTH_NAMES: Record<number, string> = {
+  1: 'Jan', 2: 'Feb', 3: 'Mar', 4: 'Apr',
+  5: 'May', 6: 'Jun', 7: 'Jul', 8: 'Aug',
+  9: 'Sep', 10: 'Oct', 11: 'Nov', 12: 'Dec'
+}
+
+function formatCurrency(value: number, currency: string = 'USD'): string {
+  return new Intl.NumberFormat('en-US', {
+    style: 'currency',
+    currency,
+    minimumFractionDigits: 2,
+  }).format(value)
+}
+
+interface DividendWithStock {
+  ticker: string
+  name: string | null
+  currency: string
+  quantity: number
+  date: string
+  amount: number
+  dividendCurrency: string
+}
+
+interface YearlyData {
+  total: number
+  months: Record<number, DividendWithStock[]>
+}
+
+export default function HistoricalDividends() {
+  const [stocks, setStocks] = useState<Stock[]>([])
+  const [exchangeRates, setExchangeRates] = useState<Record<string, number | null>>({})
+  const [loading, setLoading] = useState(true)
+  const [selectedYear, setSelectedYear] = useState<number>(new Date().getFullYear() - 1)
+  const [dividendsByYear, setDividendsByYear] = useState<Record<number, YearlyData>>({})
+  const [availableYears, setAvailableYears] = useState<number[]>([])
+
+  useEffect(() => {
+    const fetchData = async () => {
+      try {
+        setLoading(true)
+        const [stocksData, ratesData] = await Promise.all([
+          api.stocks.list(),
+          api.market.exchangeRates(),
+        ])
+        setStocks(stocksData)
+        setExchangeRates(ratesData)
+      } catch (err) {
+        console.error('Failed to load data:', err)
+      } finally {
+        setLoading(false)
+      }
+    }
+    fetchData()
+  }, [])
+
+  useEffect(() => {
+    if (stocks.length === 0) return
+
+    const fetchDividends = async () => {
+      setLoading(true)
+      try {
+        const currentYear = new Date().getFullYear()
+        const years = Array.from({ length: currentYear - 2000 + 1 }, (_, i) => currentYear - i)
+        setAvailableYears(years)
+
+        const allDividends: DividendWithStock[] = []
+        
+        for (const stock of stocks) {
+          try {
+            const divs = await api.stocks.dividends(stock.ticker, 25)
+            for (const div of divs) {
+              allDividends.push({
+                ticker: stock.ticker,
+                name: stock.name,
+                currency: stock.currency,
+                quantity: stock.quantity,
+                date: div.date,
+                amount: div.amount,
+                dividendCurrency: div.currency || stock.currency,
+              })
+            }
+          } catch (err) {
+            console.error(`Failed to fetch dividends for ${stock.ticker}:`, err)
+          }
+        }
+
+        const byYear: Record<number, YearlyData> = {}
+        
+        for (const div of allDividends) {
+          const year = parseInt(div.date.split('-')[0])
+          if (!byYear[year]) {
+            byYear[year] = { total: 0, months: {} }
+          }
+          const month = parseInt(div.date.split('-')[1])
+          if (!byYear[year].months[month]) {
+            byYear[year].months[month] = []
+          }
+          byYear[year].months[month].push(div)
+        }
+
+        setDividendsByYear(byYear)
+      } catch (err) {
+        console.error('Failed to fetch dividends:', err)
+      } finally {
+        setLoading(false)
+      }
+    }
+
+    fetchDividends()
+  }, [stocks])
+
+  const convertToSEK = (amount: number, currency: string): number => {
+    if (currency === 'SEK') return amount
+    const rate = exchangeRates[`${currency}_SEK`]
+    if (rate) return amount * rate
+    return amount
+  }
+
+  const yearData = dividendsByYear[selectedYear]
+  const sortedMonths = yearData?.months ? Object.keys(yearData.months).map(Number).sort((a, b) => a - b) : []
+
+  let yearTotalSEK = 0
+  if (yearData) {
+    for (const monthDivs of Object.values(yearData.months)) {
+      for (const div of monthDivs) {
+        yearTotalSEK += convertToSEK(div.amount * div.quantity, div.dividendCurrency)
+      }
+    }
+  }
+
+  if (loading && stocks.length === 0) {
+    return <div style={{ textAlign: 'center', padding: '40px' }}>Loading dividend history...</div>
+  }
+
+  return (
+    <div>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '24px' }}>
+        <h2 style={{ fontSize: '24px', fontWeight: '600' }}>Dividend History</h2>
+        <div style={{ display: 'flex', gap: '12px', alignItems: 'center' }}>
+          <label style={{ color: 'var(--text-secondary)', fontSize: '14px' }}>Year:</label>
+          <select
+            value={selectedYear}
+            onChange={(e) => setSelectedYear(parseInt(e.target.value))}
+            style={{
+              padding: '8px 12px',
+              border: '1px solid var(--border-color)',
+              borderRadius: '6px',
+              background: 'var(--bg-tertiary)',
+              color: 'var(--text-primary)',
+              fontSize: '14px',
+            }}
+          >
+            {availableYears.map((year) => (
+              <option key={year} value={year}>
+                {year}
+              </option>
+            ))}
+          </select>
+        </div>
+      </div>
+
+      {stocks.length === 0 ? (
+        <div className="card" style={{ textAlign: 'center', padding: '40px' }}>
+          <p style={{ color: 'var(--text-secondary)' }}>No stocks in portfolio. Add stocks from the Stocks page.</p>
+        </div>
+      ) : !yearData || Object.keys(yearData.months).length === 0 ? (
+        <div className="card" style={{ textAlign: 'center', padding: '40px' }}>
+          <p style={{ color: 'var(--text-secondary)' }}>No dividends found for {selectedYear}.</p>
+        </div>
+      ) : (
+        <>
+          <div className="card" style={{ marginBottom: '24px' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <h3 style={{ fontSize: '16px' }}>Total {selectedYear}</h3>
+              <span style={{ fontSize: '24px', fontWeight: '600', color: 'var(--accent-green)' }}>
+                {formatCurrency(yearTotalSEK, 'SEK')}
+              </span>
+            </div>
+          </div>
+
+          {sortedMonths.map((month) => {
+            const monthDivs = yearData.months[month]
+            let monthTotal = 0
+            for (const div of monthDivs) {
+              monthTotal += convertToSEK(div.amount * div.quantity, div.dividendCurrency)
+            }
+
+            return (
+              <div key={month} className="card" style={{ marginBottom: '16px' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
+                  <h4 style={{ color: 'var(--text-secondary)', fontSize: '14px' }}>{MONTH_NAMES[month]}</h4>
+                  <span style={{ color: 'var(--accent-green)', fontWeight: '600' }}>
+                    {formatCurrency(monthTotal, 'SEK')}
+                  </span>
+                </div>
+                <table>
+                  <thead>
+                    <tr>
+                      <th>Stock</th>
+                      <th>Date</th>
+                      <th>Per Share</th>
+                      <th>Total (SEK)</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {monthDivs
+                      .sort((a, b) => a.date.localeCompare(b.date))
+                      .map((div, i) => {
+                        const totalSEK = convertToSEK(div.amount * div.quantity, div.dividendCurrency)
+                        return (
+                          <tr key={`${div.ticker}-${i}`}>
+                            <td>
+                              <Link to={`/stocks/${div.ticker}`} style={{ color: 'var(--accent-blue)', textDecoration: 'none', fontWeight: '600' }}>
+                                {div.ticker}
+                              </Link>
+                              <span style={{ color: 'var(--text-secondary)', marginLeft: '8px', fontSize: '12px' }}>
+                                {div.name}
+                              </span>
+                            </td>
+                            <td>{div.date}</td>
+                            <td>{formatCurrency(div.amount, div.dividendCurrency)}</td>
+                            <td style={{ color: 'var(--accent-green)' }}>{formatCurrency(totalSEK, 'SEK')}</td>
+                          </tr>
+                        )
+                      })}
+                  </tbody>
+                </table>
+              </div>
+            )
+          })}
+        </>
+      )}
+    </div>
+  )
+}

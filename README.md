@@ -5,11 +5,17 @@ A modern web-based stock portfolio tracker built with React, FastAPI, and Postgr
 ## Features
 
 - **Portfolio Dashboard**: Overview of total value, cost, gain/loss, and return percentage
+- **Daily Change**: See daily portfolio change in SEK
+- **Portfolio Value Chart**: Track portfolio value over time (90 days)
 - **Holdings Management**: Add, edit, and delete stock positions with exchange support
-- **Dividend Tracking**: View current year dividends and 5-year dividend history
+- **Performance Page**: Detailed performance analysis with sorting, best/worst performers, and CSV export
+- **Dividend Tracking**: View current year dividends and historical dividend history by year/month
 - **Manual Dividends**: Add, edit, and delete manual dividend entries
+- **Suppress Dividends**: Hide unwanted broker dividends and restore them later
 - **Sector & Portfolio Distribution**: Interactive pie charts showing allocation
 - **Market Data**: Real-time market indices (OMX, S&P 500, NASDAQ, etc.)
+- **Sparkline Charts**: Mini charts showing index trends
+- **Swedish Indices in Header**: OMX30 and OMXPI displayed in navigation
 - **Market Hours**: View market open/close times in your local timezone
 - **Multi-Exchange Support**: 14 stock exchanges with automatic currency detection
 - **Stock Detail View**: Comprehensive stock information with analyst data

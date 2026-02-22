@@ -1,6 +1,10 @@
 import { useState, useEffect } from 'react'
 import { useParams, Link, useNavigate } from 'react-router-dom'
-import { api, Stock, Dividend, AnalystData, ManualDividend } from '../services/api'
+import { api, Stock, Dividend, AnalystData, ManualDividend, CompanyProfile, FinancialMetrics, RecommendationTrend } from '../services/api'
+import CompanyProfileComponent from '../components/CompanyProfile'
+import FinancialMetricsComponent from '../components/FinancialMetrics'
+import PeerCompanies from '../components/PeerCompanies'
+import RecommendationChart from '../components/RecommendationChart'
 
 function formatCurrency(value: number | null, currency: string = 'USD'): string {
   if (value === null) return '-'
@@ -22,9 +26,10 @@ export default function StockDetail() {
   const [dividends, setDividends] = useState<Dividend[]>([])
   const [upcomingDividends, setUpcomingDividends] = useState<Dividend[]>([])
   const [analystData, setAnalystData] = useState<AnalystData | null>(null)
+  const [suppressedDividends, setSuppressedDividends] = useState<ManualDividend[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
-  const [activeTab, setActiveTab] = useState<'overview' | 'dividends' | 'analyst'>('overview')
+  const [activeTab, setActiveTab] = useState<'overview' | 'profile' | 'dividends' | 'analyst'>('overview')
   const [showEditModal, setShowEditModal] = useState(false)
   const [editQuantity, setEditQuantity] = useState('')
   const [editPurchasePrice, setEditPurchasePrice] = useState('')
@@ -34,6 +39,11 @@ export default function StockDetail() {
   const [divDate, setDivDate] = useState('')
   const [divAmount, setDivAmount] = useState('')
   const [divNote, setDivNote] = useState('')
+  const [companyProfile, setCompanyProfile] = useState<CompanyProfile | null>(null)
+  const [financialMetrics, setFinancialMetrics] = useState<FinancialMetrics | null>(null)
+  const [peers, setPeers] = useState<string[]>([])
+  const [recommendations, setRecommendations] = useState<RecommendationTrend[]>([])
+  const [finnhubLoading, setFinnhubLoading] = useState(false)
 
   useEffect(() => {
     if (!ticker) return
@@ -41,16 +51,18 @@ export default function StockDetail() {
     const fetchData = async () => {
       try {
         setLoading(true)
-        const [stockData, divData, upcomingData, analystInfo] = await Promise.all([
+        const [stockData, divData, upcomingData, analystInfo, suppressedData] = await Promise.all([
           api.stocks.get(ticker),
           api.stocks.dividends(ticker),
           api.stocks.upcomingDividends(ticker),
           api.stocks.analyst(ticker),
+          api.stocks.getSuppressedDividends(ticker).catch(() => []),
         ])
         setStock(stockData)
         setDividends(divData)
         setUpcomingDividends(upcomingData)
         setAnalystData(analystInfo)
+        setSuppressedDividends(suppressedData)
         setError(null)
       } catch (err: any) {
         setError(err.message || 'Failed to load stock data')
@@ -59,7 +71,28 @@ export default function StockDetail() {
       }
     }
     
+    const fetchFinnhubData = async () => {
+      try {
+        setFinnhubLoading(true)
+        const [profile, metrics, peersData, recs] = await Promise.all([
+          api.finnhub.profile(ticker).catch(() => null),
+          api.finnhub.metrics(ticker).catch(() => null),
+          api.finnhub.peers(ticker).catch(() => []),
+          api.finnhub.recommendations(ticker).catch(() => []),
+        ])
+        setCompanyProfile(profile)
+        setFinancialMetrics(metrics)
+        setPeers(peersData)
+        setRecommendations(recs)
+      } catch (err) {
+        console.error('Failed to load Finnhub data', err)
+      } finally {
+        setFinnhubLoading(false)
+      }
+    }
+    
     fetchData()
+    fetchFinnhubData()
   }, [ticker])
 
   const handleRefresh = async () => {
@@ -166,6 +199,31 @@ export default function StockDetail() {
     }
   }
 
+  const handleSuppressDividend = async (date: string, amount: number) => {
+    if (!ticker) return
+    try {
+      await api.stocks.suppressDividend(ticker, { date, amount, currency: stock?.currency })
+      const suppressed = await api.stocks.getSuppressedDividends(ticker)
+      setSuppressedDividends(suppressed)
+    } catch (err) {
+      console.error('Failed to suppress dividend', err)
+    }
+  }
+
+  const handleRestoreDividend = async (date: string) => {
+    if (!ticker) return
+    try {
+      await api.stocks.restoreDividend(ticker, date)
+      setSuppressedDividends(suppressedDividends.filter(d => d.date !== date))
+    } catch (err) {
+      console.error('Failed to restore dividend', err)
+    }
+  }
+
+  const isDividendSuppressed = (date: string) => {
+    return suppressedDividends.some(s => s.date === date)
+  }
+
   if (loading) {
     return <div style={{ textAlign: 'center', padding: '40px' }}>Loading...</div>
   }
@@ -244,7 +302,7 @@ export default function StockDetail() {
 
       <div style={{ marginBottom: '24px', borderBottom: '1px solid var(--border-color)' }}>
         <div style={{ display: 'flex', gap: '24px' }}>
-          {(['overview', 'dividends', 'analyst'] as const).map((tab) => (
+          {(['overview', 'profile', 'dividends', 'analyst'] as const).map((tab) => (
             <button
               key={tab}
               onClick={() => setActiveTab(tab)}
@@ -320,6 +378,14 @@ export default function StockDetail() {
               </tbody>
             </table>
           </div>
+        </div>
+      )}
+
+      {activeTab === 'profile' && (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
+          <CompanyProfileComponent profile={companyProfile} loading={finnhubLoading} />
+          <FinancialMetricsComponent metrics={financialMetrics} loading={finnhubLoading} />
+          <PeerCompanies peers={peers} loading={finnhubLoading} />
         </div>
       )}
 
@@ -415,43 +481,123 @@ export default function StockDetail() {
                   <tr>
                     <th>Date</th>
                     <th>Amount</th>
+                    <th>Actions</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {dividends.slice(0, 20).map((div, i) => (
-                    <tr key={i}>
-                      <td>{formatDate(div.date)}</td>
-                      <td>{formatCurrency(div.amount, div.currency || stock.currency)}</td>
-                    </tr>
-                  ))}
+                  {dividends.slice(0, 20).map((div, i) => {
+                    const suppressed = isDividendSuppressed(div.date)
+                    return (
+                      <tr key={i} style={{ opacity: suppressed ? 0.5 : 1 }}>
+                        <td>{formatDate(div.date)}</td>
+                        <td style={{ color: suppressed ? 'var(--text-secondary)' : 'var(--accent-green)' }}>
+                          {formatCurrency(div.amount, div.currency || stock.currency)}
+                          {suppressed && <span style={{ marginLeft: '8px', fontSize: '12px' }}>(suppressed)</span>}
+                        </td>
+                        <td>
+                          {suppressed ? (
+                            <button 
+                              className="btn btn-secondary" 
+                              style={{ padding: '4px 8px', fontSize: '12px' }}
+                              onClick={() => handleRestoreDividend(div.date)}
+                            >
+                              Restore
+                            </button>
+                          ) : (
+                            <button 
+                              className="btn btn-secondary" 
+                              style={{ padding: '4px 8px', fontSize: '12px' }}
+                              onClick={() => handleSuppressDividend(div.date, div.amount)}
+                            >
+                              Hide
+                            </button>
+                          )}
+                        </td>
+                      </tr>
+                    )
+                  })}
                 </tbody>
               </table>
             )}
           </div>
+          
+          {suppressedDividends.length > 0 && (
+            <div className="card" style={{ marginTop: '20px' }}>
+              <h3 style={{ marginBottom: '16px', color: 'var(--text-secondary)' }}>Suppressed Dividends</h3>
+              <table>
+                <thead>
+                  <tr>
+                    <th>Date</th>
+                    <th>Amount</th>
+                    <th>Actions</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {suppressedDividends.map((div) => (
+                    <tr key={div.id}>
+                      <td>{formatDate(div.date)}</td>
+                      <td>{formatCurrency(div.amount || 0, div.currency || stock.currency)}</td>
+                      <td>
+                        <button 
+                          className="btn btn-secondary" 
+                          style={{ padding: '4px 8px', fontSize: '12px' }}
+                          onClick={() => handleRestoreDividend(div.date)}
+                        >
+                          Restore
+                        </button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
         </div>
       )}
 
       {activeTab === 'analyst' && (
         <div>
+          <RecommendationChart recommendations={recommendations} loading={finnhubLoading} />
+          
           {analystData?.latest_rating && (
             <div className="card" style={{ marginBottom: '20px' }}>
-              <h3 style={{ marginBottom: '16px' }}>Latest Rating</h3>
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '16px' }}>
+              <h3 style={{ marginBottom: '16px' }}>Senaste Betyg</h3>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(6, 1fr)', gap: '16px' }}>
                 <div>
-                  <p style={{ color: 'var(--text-secondary)', fontSize: '12px' }}>Date</p>
+                  <p style={{ color: 'var(--text-secondary)', fontSize: '12px' }}>Datum</p>
                   <p>{analystData.latest_rating.date}</p>
                 </div>
                 <div>
-                  <p style={{ color: 'var(--text-secondary)', fontSize: '12px' }}>Analyst</p>
+                  <p style={{ color: 'var(--text-secondary)', fontSize: '12px' }}>Analytiker</p>
                   <p>{analystData.latest_rating.analyst}</p>
                 </div>
                 <div>
-                  <p style={{ color: 'var(--text-secondary)', fontSize: '12px' }}>Action</p>
-                  <p>{analystData.latest_rating.rating_action}</p>
+                  <p style={{ color: 'var(--text-secondary)', fontSize: '12px' }}>Betygshändelse</p>
+                  <p style={{ 
+                    fontWeight: '600',
+                    color: analystData.latest_rating.rating_action?.toLowerCase().includes('uppgrader') ? 'var(--accent-green)' :
+                           analystData.latest_rating.rating_action?.toLowerCase().includes('nedgrader') ? 'var(--accent-red)' : undefined
+                  }}>
+                    {analystData.latest_rating.rating_action}
+                  </p>
                 </div>
                 <div>
-                  <p style={{ color: 'var(--text-secondary)', fontSize: '12px' }}>Rating</p>
+                  <p style={{ color: 'var(--text-secondary)', fontSize: '12px' }}>Betyg</p>
                   <p style={{ fontWeight: '600' }}>{analystData.latest_rating.rating || '-'}</p>
+                </div>
+                <div>
+                  <p style={{ color: 'var(--text-secondary)', fontSize: '12px' }}>Prishändelse</p>
+                  <p style={{ 
+                    fontWeight: '600',
+                    color: analystData.latest_rating.price_action?.toLowerCase().includes('höj') ? 'var(--accent-green)' :
+                           analystData.latest_rating.price_action?.toLowerCase().includes('sänk') ? 'var(--accent-red)' : undefined
+                  }}>
+                    {analystData.latest_rating.price_action || '-'}
+                  </p>
+                </div>
+                <div>
+                  <p style={{ color: 'var(--text-secondary)', fontSize: '12px' }}>Prismål</p>
+                  <p style={{ fontWeight: '600' }}>{analystData.latest_rating.price_target || '-'}</p>
                 </div>
               </div>
             </div>
@@ -505,10 +651,10 @@ export default function StockDetail() {
             </div>
           )}
           
-          {!analystData?.price_targets && (
+          {!analystData?.price_targets && !recommendations.length && (
             <div className="card">
               <p style={{ color: 'var(--text-secondary)', textAlign: 'center', padding: '40px' }}>
-                No price data available
+                No analyst data available
               </p>
             </div>
           )}

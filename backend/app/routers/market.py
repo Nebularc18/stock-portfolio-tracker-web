@@ -136,3 +136,54 @@ def get_specific_market_hours(market: str, timezone: str = None):
     if "error" in status:
         return status
     return status
+
+
+@router.get("/indices/sparklines")
+def get_index_sparklines():
+    session = get_session()
+    sparklines = {}
+    
+    for symbol in MARKET_INDICES.keys():
+        try:
+            url = f"https://query1.finance.yahoo.com/v8/finance/chart/{symbol}?interval=1d&range=30d"
+            response = session.get(url, timeout=10)
+            
+            if response.status_code != 200:
+                continue
+            
+            data = response.json()
+            
+            if 'chart' not in data or 'result' not in data['chart'] or not data['chart']['result']:
+                continue
+            
+            result = data['chart']['result'][0]
+            quote = result.get('indicators', {}).get('quote', [{}])[0]
+            timestamps = result.get('timestamp', [])
+            closes = quote.get('close', [])
+            
+            prices = []
+            dates = []
+            for i, (ts, price) in enumerate(zip(timestamps, closes)):
+                if price is not None:
+                    prices.append(price)
+                    from datetime import datetime
+                    dates.append(datetime.fromtimestamp(ts).strftime('%Y-%m-%d'))
+            
+            if len(prices) >= 2:
+                start_price = prices[0]
+                end_price = prices[-1]
+                change_percent = ((end_price - start_price) / start_price) * 100 if start_price else 0
+                
+                sparklines[symbol] = {
+                    "prices": prices,
+                    "dates": dates,
+                    "is_positive": end_price >= start_price,
+                    "start_value": start_price,
+                    "end_value": end_price,
+                    "change_percent": change_percent,
+                }
+        except Exception as e:
+            logger.error(f"Error fetching sparkline for {symbol}: {e}")
+            continue
+    
+    return sparklines
