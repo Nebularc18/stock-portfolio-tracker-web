@@ -80,6 +80,11 @@ def detect_currency(ticker: str) -> str:
 
 def fetch_yahoo_quote(ticker: str) -> Optional[Dict]:
     ticker = ticker.upper()
+    cache_file = f"quote_{ticker}.json"
+    
+    cached = _load_file_cache(cache_file)
+    if cached is not None:
+        return cached
     
     if ticker in _TICKER_CACHE:
         data, timestamp = _TICKER_CACHE[ticker]
@@ -137,6 +142,7 @@ def fetch_yahoo_quote(ticker: str) -> Optional[Dict]:
         }
         
         _TICKER_CACHE[ticker] = (result_data, datetime.now().timestamp())
+        _save_file_cache(cache_file, result_data, _CACHE_TTL)
         
         return result_data
         
@@ -147,6 +153,15 @@ def fetch_yahoo_quote(ticker: str) -> Optional[Dict]:
 
 def fetch_yahoo_sector(ticker: str) -> Optional[str]:
     ticker = ticker.upper()
+    cache_file = f"sector_{ticker}.json"
+    
+    cached = _load_file_cache(cache_file)
+    if cached is not None:
+        return cached
+    
+    if ticker in _sector_cache:
+        return _sector_cache[ticker]
+    
     session = get_session()
     
     try:
@@ -158,13 +173,20 @@ def fetch_yahoo_sector(ticker: str) -> Optional[str]:
         
         data = response.json()
         
+        sector = None
         if 'quotes' in data and data['quotes']:
             for quote in data['quotes']:
                 if quote.get('symbol', '').upper() == ticker:
-                    return quote.get('sector')
-            return data['quotes'][0].get('sector')
+                    sector = quote.get('sector')
+                    break
+            if sector is None:
+                sector = data['quotes'][0].get('sector')
         
-        return None
+        if sector:
+            _sector_cache[ticker] = sector
+            _save_file_cache(cache_file, sector, 86400)
+        
+        return sector
         
     except Exception as e:
         logger.error(f"Error fetching sector for {ticker}: {e}")
@@ -240,6 +262,11 @@ class StockService:
     def get_dividends(self, ticker: str, years: int = 5) -> list:
         ticker = ticker.upper()
         cache_key = f"{ticker}_{years}"
+        cache_file = f"dividends_{cache_key}.json"
+        
+        cached = _load_file_cache(cache_file)
+        if cached is not None:
+            return cached
         
         if cache_key in _DIVIDEND_CACHE:
             cached_data, timestamp = _DIVIDEND_CACHE[cache_key]
@@ -278,6 +305,7 @@ class StockService:
             result_list.sort(key=lambda x: x['date'], reverse=True)
             
             _DIVIDEND_CACHE[cache_key] = (result_list, datetime.now().timestamp())
+            _save_file_cache(cache_file, result_list, _DIVIDEND_CACHE_TTL)
             return result_list
             
         except Exception as e:

@@ -94,6 +94,11 @@ class FinnhubService:
     
     def get_company_profile(self, ticker: str) -> Optional[Dict[str, Any]]:
         ticker_upper = ticker.upper()
+        cache_file = f"finnhub_profile_{ticker_upper}.json"
+        
+        cached = _load_file_cache(cache_file)
+        if cached is not None:
+            return cached
         
         if ticker_upper in _CACHE_PROFILE:
             cached_data, timestamp = _CACHE_PROFILE[ticker_upper]
@@ -123,10 +128,16 @@ class FinnhubService:
         }
         
         _CACHE_PROFILE[ticker_upper] = (result, time.time())
+        _save_file_cache(cache_file, result, _CACHE_TTL_PROFILE)
         return result
     
     def get_basic_financials(self, ticker: str) -> Optional[Dict[str, Any]]:
         ticker_upper = ticker.upper()
+        cache_file = f"finnhub_metrics_{ticker_upper}.json"
+        
+        cached = _load_file_cache(cache_file)
+        if cached is not None:
+            return cached
         
         if ticker_upper in _CACHE_METRICS:
             cached_data, timestamp = _CACHE_METRICS[ticker_upper]
@@ -174,10 +185,16 @@ class FinnhubService:
         }
         
         _CACHE_METRICS[ticker_upper] = (result, time.time())
+        _save_file_cache(cache_file, result, _CACHE_TTL_METRICS)
         return result
     
     def get_peers(self, ticker: str) -> Optional[List[str]]:
         ticker_upper = ticker.upper()
+        cache_file = f"finnhub_peers_{ticker_upper}.json"
+        
+        cached = _load_file_cache(cache_file)
+        if cached is not None:
+            return cached
         
         if ticker_upper in _CACHE_PEERS:
             cached_data, timestamp = _CACHE_PEERS[ticker_upper]
@@ -193,6 +210,7 @@ class FinnhubService:
         
         result = [p for p in data if p != finnhub_ticker]
         _CACHE_PEERS[ticker_upper] = (result, time.time())
+        _save_file_cache(cache_file, result, _CACHE_TTL_PEERS)
         return result
     
     def get_recommendation_trends(self, ticker: str) -> Optional[List[Dict[str, Any]]]:

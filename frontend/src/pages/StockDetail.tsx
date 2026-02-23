@@ -45,6 +45,8 @@ export default function StockDetail() {
   const [peers, setPeers] = useState<string[]>([])
   const [recommendations, setRecommendations] = useState<RecommendationTrend[]>([])
   const [finnhubLoading, setFinnhubLoading] = useState(false)
+  const [analystDataLoading, setAnalystDataLoading] = useState(false)
+  const [analystDataLoaded, setAnalystDataLoaded] = useState(false)
 
   useEffect(() => {
     if (!ticker) return
@@ -52,17 +54,15 @@ export default function StockDetail() {
     const fetchData = async () => {
       try {
         setLoading(true)
-        const [stockData, divData, upcomingData, analystInfo, suppressedData] = await Promise.all([
+        const [stockData, divData, upcomingData, suppressedData] = await Promise.all([
           api.stocks.get(ticker),
           api.stocks.dividends(ticker),
           api.stocks.upcomingDividends(ticker),
-          api.stocks.analyst(ticker),
           api.stocks.getSuppressedDividends(ticker).catch(() => []),
         ])
         setStock(stockData)
         setDividends(divData)
         setUpcomingDividends(upcomingData)
-        setAnalystData(analystInfo)
         setSuppressedDividends(suppressedData)
         setError(null)
       } catch (err: any) {
@@ -75,16 +75,14 @@ export default function StockDetail() {
     const fetchFinnhubData = async () => {
       try {
         setFinnhubLoading(true)
-        const [profile, metrics, peersData, recs] = await Promise.all([
+        const [profile, metrics, peersData] = await Promise.all([
           api.finnhub.profile(ticker).catch(() => null),
           api.finnhub.metrics(ticker).catch(() => null),
           api.finnhub.peers(ticker).catch(() => []),
-          api.finnhub.recommendations(ticker).catch(() => []),
         ])
         setCompanyProfile(profile)
         setFinancialMetrics(metrics)
         setPeers(peersData)
-        setRecommendations(recs)
       } catch (err) {
         console.error('Failed to load Finnhub data', err)
       } finally {
@@ -95,6 +93,29 @@ export default function StockDetail() {
     fetchData()
     fetchFinnhubData()
   }, [ticker])
+
+  useEffect(() => {
+    if (!ticker || analystDataLoaded || activeTab !== 'analyst') return
+
+    const fetchAnalystData = async () => {
+      try {
+        setAnalystDataLoading(true)
+        const [analystInfo, recs] = await Promise.all([
+          api.stocks.analyst(ticker).catch(() => null),
+          api.finnhub.recommendations(ticker).catch(() => []),
+        ])
+        setAnalystData(analystInfo)
+        setRecommendations(recs)
+        setAnalystDataLoaded(true)
+      } catch (err) {
+        console.error('Failed to load analyst data', err)
+      } finally {
+        setAnalystDataLoading(false)
+      }
+    }
+
+    fetchAnalystData()
+  }, [ticker, activeTab, analystDataLoaded])
 
   const handleRefresh = async () => {
     if (!ticker) return
@@ -558,21 +579,31 @@ export default function StockDetail() {
 
       {activeTab === 'analyst' && (
         <div>
-          <YfinanceAnalystPanel
-            priceTargets={analystData?.price_targets || null}
-            recommendations={analystData?.recommendations || null}
-            currency={stock?.currency || 'USD'}
-            currentPrice={stock?.current_price ?? null}
-          />
-
-          <RecommendationChart recommendations={recommendations} loading={finnhubLoading} />
-
-          {!analystData?.price_targets && !analystData?.recommendations?.length && !recommendations.length && !finnhubLoading && (
+          {analystDataLoading ? (
             <div className="card">
               <p style={{ color: 'var(--text-secondary)', textAlign: 'center', padding: '40px' }}>
-                No analyst data available
+                Loading analyst data...
               </p>
             </div>
+          ) : (
+            <>
+              <YfinanceAnalystPanel
+                priceTargets={analystData?.price_targets || null}
+                recommendations={analystData?.recommendations || null}
+                currency={stock?.currency || 'USD'}
+                currentPrice={stock?.current_price ?? null}
+              />
+
+              <RecommendationChart recommendations={recommendations} loading={finnhubLoading} />
+
+              {!analystData?.price_targets && !analystData?.recommendations?.length && !recommendations.length && !finnhubLoading && !analystDataLoading && (
+                <div className="card">
+                  <p style={{ color: 'var(--text-secondary)', textAlign: 'center', padding: '40px' }}>
+                    No analyst data available
+                  </p>
+                </div>
+              )}
+            </>
           )}
         </div>
       )}
