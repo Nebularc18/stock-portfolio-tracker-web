@@ -90,6 +90,14 @@ export default function YfinanceAnalystPanel({
     if (value === null) return null
     return ((value - rangeMin) / range) * 100
   }
+  const clampPercent = (value: number | null, min = 6, max = 94) => {
+    if (value === null) return null
+    return Math.min(max, Math.max(min, value))
+  }
+  const currentPercent = valueToPercent(currentPrice)
+  const clampedCurrentPercent = clampPercent(currentPercent)
+  const showCurrent = currentPrice !== null && hasAnalystTargets && currentPercent !== null
+  const lowHighMarginTop = showCurrent ? 44 : 18
 
   const sortedRecommendations = (recommendations || [])
     .map(rec => ({
@@ -156,16 +164,16 @@ export default function YfinanceAnalystPanel({
                 }} />
               )}
 
-              {currentPrice !== null && hasAnalystTargets && (
+              {showCurrent && (
                 <div style={{
                   position: 'absolute',
-                  left: `${valueToPercent(currentPrice)}%`,
+                  left: `${currentPercent}%`,
                   top: '50%',
-                  width: 14,
-                  height: 14,
-                  borderRadius: '50%',
+                  width: 12,
+                  height: 12,
                   background: 'var(--text-primary)',
-                  transform: 'translate(-50%, -50%)',
+                  transform: 'translate(-50%, -50%) rotate(45deg)',
+                  borderRadius: 2,
                   border: '2px solid var(--bg-primary)'
                 }} />
               )}
@@ -192,28 +200,29 @@ export default function YfinanceAnalystPanel({
               </div>
             )}
 
-            {currentPrice !== null && hasAnalystTargets && (
-              <div style={{
-                position: 'absolute',
-                left: `${valueToPercent(currentPrice)}%`,
-                bottom: -6,
-                transform: 'translate(-50%, 100%)'
-              }}>
-                <div style={{ width: 2, height: 16, background: 'var(--text-primary)', margin: '0 auto 4px' }} />
+            {showCurrent && (
+              <div style={{ position: 'relative', height: 36, marginTop: 10 }}>
                 <div style={{
-                  background: 'var(--bg-tertiary)',
-                  border: '1px solid var(--border-color)',
-                  borderRadius: 8,
-                  padding: '6px 10px',
-                  textAlign: 'center'
+                  position: 'absolute',
+                  left: `clamp(72px, ${clampedCurrentPercent}%, calc(100% - 72px))`,
+                  transform: 'translateX(-50%)'
                 }}>
-                  <div style={{ fontWeight: 700 }}>{formatCurrency(currentPrice, currency)}</div>
-                  <div style={{ fontSize: 12, color: 'var(--text-secondary)' }}>Current</div>
+                  <div style={{
+                    background: 'var(--bg-tertiary)',
+                    border: '1px solid var(--border-color)',
+                    borderRadius: 8,
+                    padding: '6px 10px',
+                    textAlign: 'center',
+                    width: 144
+                  }}>
+                    <div style={{ fontWeight: 700 }}>{formatCurrency(currentPrice, currency)}</div>
+                    <div style={{ fontSize: 12, color: 'var(--text-secondary)' }}>Current</div>
+                  </div>
                 </div>
               </div>
             )}
 
-            <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: '18px' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: `${lowHighMarginTop}px` }}>
               <div>
                 <div style={{ fontSize: 20, fontWeight: 600 }}>{formatCurrency(targetLow, currency)}</div>
                 <div style={{ fontSize: 12, color: 'var(--text-secondary)' }}>Low</div>

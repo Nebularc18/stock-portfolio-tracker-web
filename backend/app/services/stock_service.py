@@ -6,6 +6,8 @@ from datetime import datetime, timezone, timedelta
 from typing import Optional, Dict, Any, List
 import logging
 
+from app.services.finnhub_service import finnhub_service
+
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
@@ -357,6 +359,20 @@ class StockService:
             if datetime.now().timestamp() - timestamp < _ANALYST_CACHE_TTL:
                 return data
 
+        normalized = self._get_yfinance_recommendations(ticker_upper)
+        
+        if not normalized:
+            normalized = self._get_finnhub_recommendations(ticker_upper)
+
+        if normalized:
+            _ANALYST_CACHE[ticker_upper] = (normalized, datetime.now().timestamp())
+            _save_file_cache(cache_file, normalized, _ANALYST_CACHE_TTL)
+            return normalized
+
+        _ANALYST_CACHE[ticker_upper] = (None, datetime.now().timestamp())
+        return None
+
+    def _get_yfinance_recommendations(self, ticker_upper: str) -> Optional[List[Dict[str, Any]]]:
         try:
             yf = importlib.import_module('yfinance')
             yf_ticker = yf.Ticker(ticker_upper)
@@ -365,12 +381,7 @@ class StockService:
             if recs_df is None or (hasattr(recs_df, 'empty') and recs_df.empty):
                 recs_df = getattr(yf_ticker, 'recommendations_summary', None)
 
-            if recs_df is None:
-                _ANALYST_CACHE[ticker_upper] = (None, datetime.now().timestamp())
-                return None
-
-            if hasattr(recs_df, 'empty') and recs_df.empty:
-                _ANALYST_CACHE[ticker_upper] = (None, datetime.now().timestamp())
+            if recs_df is None or (hasattr(recs_df, 'empty') and recs_df.empty):
                 return None
 
             records: List[Dict[str, Any]] = []
@@ -410,17 +421,34 @@ class StockService:
                     'total_analysts': strong_buy + buy + hold + sell + strong_sell,
                 })
 
-            if not normalized:
-                _ANALYST_CACHE[ticker_upper] = (None, datetime.now().timestamp())
-                return None
-
-            _ANALYST_CACHE[ticker_upper] = (normalized, datetime.now().timestamp())
-            _save_file_cache(cache_file, normalized, _ANALYST_CACHE_TTL)
-            return normalized
+            return normalized if normalized else None
 
         except Exception as e:
-            logger.error(f"Error fetching analyst recommendations for {ticker}: {e}")
-            _ANALYST_CACHE[ticker_upper] = (None, datetime.now().timestamp())
+            logger.warning(f"yfinance recommendations failed for {ticker_upper}: {e}")
+            return None
+
+    def _get_finnhub_recommendations(self, ticker_upper: str) -> Optional[List[Dict[str, Any]]]:
+        try:
+            finnhub_recs = finnhub_service.get_recommendation_trends(ticker_upper)
+            if not finnhub_recs:
+                return None
+            
+            normalized: List[Dict[str, Any]] = []
+            for item in finnhub_recs:
+                normalized.append({
+                    'period': item.get('period', ''),
+                    'strong_buy': item.get('strong_buy', 0),
+                    'buy': item.get('buy', 0),
+                    'hold': item.get('hold', 0),
+                    'sell': item.get('sell', 0),
+                    'strong_sell': item.get('strong_sell', 0),
+                    'total_analysts': item.get('total_analysts', 0),
+                })
+            
+            return normalized if normalized else None
+
+        except Exception as e:
+            logger.warning(f"Finnhub recommendations failed for {ticker_upper}: {e}")
             return None
 
     def get_price_targets(self, ticker: str) -> Optional[Dict[str, Any]]:
