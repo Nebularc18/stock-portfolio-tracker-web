@@ -32,13 +32,17 @@ class ExchangeRateService:
         
         if key in EXCHANGE_PAIRS:
             try:
+                logger.info(f"[YFINANCE] Fetching exchange rate for {key} via {EXCHANGE_PAIRS[key]}")
                 ticker = yf.Ticker(EXCHANGE_PAIRS[key])
                 price = ticker.info.get('currentPrice') or ticker.info.get('regularMarketPrice')
                 if price:
+                    logger.info(f"[YFINANCE] Successfully got exchange rate for {key}: {price}")
                     _cache[key] = (float(price), datetime.now().timestamp())
                     return float(price)
+                else:
+                    logger.warning(f"[YFINANCE] No price returned for exchange rate {key}")
             except Exception as e:
-                logger.error(f"Error fetching exchange rate {key}: {e}")
+                logger.error(f"[YFINANCE] Error fetching exchange rate {key}: {e}")
         
         inverse_key = f"{to_currency}_{from_currency}"
         if inverse_key in EXCHANGE_PAIRS:

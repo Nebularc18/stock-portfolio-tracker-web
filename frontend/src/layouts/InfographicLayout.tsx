@@ -1,16 +1,29 @@
-import { useState, useEffect } from 'react'
 import { Link, useLocation, Outlet } from 'react-router-dom'
-import { api, MarketIndex } from '../services/api'
+import { useHeaderData } from '../contexts/HeaderDataContext'
 
 export default function InfographicLayout() {
   const location = useLocation()
-  const [indices, setIndices] = useState<MarketIndex[]>([])
-  
-  useEffect(() => {
-    api.market.indices().then(data => {
-      setIndices(data.filter(i => i.symbol === '^OMXS30' || i.symbol === '^OMXSPI'))
-    })
-  }, [])
+  const { indices, exchangeRates } = useHeaderData()
+
+  const indexLabel = (symbol: string, name: string) => {
+    switch (symbol) {
+      case '^OMXS30':
+        return 'OMX STOCKHOLM 30'
+      case '^OMXSPI':
+        return 'OMX STOCKHOLM PI'
+      case '^GSPC':
+        return 'S&P 500'
+      case '^IXIC':
+        return 'NASDAQ'
+      default:
+        return name || symbol
+    }
+  }
+
+  const formatFx = (value: number | null | undefined) => {
+    if (value === null || value === undefined || Number.isNaN(value)) return '-'
+    return value.toFixed(4)
+  }
   
   const links = [
     { to: '/', label: 'Dashboard', icon: '📊' },
@@ -99,7 +112,7 @@ export default function InfographicLayout() {
               </p>
             </div>
             
-            <div style={{ display: 'flex', gap: 24 }}>
+            <div style={{ display: 'flex', gap: 24, flexWrap: 'wrap' }}>
               {indices.map(idx => (
                 <div key={idx.symbol} style={{
                   background: 'rgba(255,255,255,0.05)',
@@ -108,7 +121,7 @@ export default function InfographicLayout() {
                   textAlign: 'center',
                 }}>
                   <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.5)', marginBottom: 4 }}>
-                    {idx.symbol === '^OMXS30' ? 'OMX STOCKHOLM 30' : 'OMX STOCKHOLM PI'}
+                    {indexLabel(idx.symbol, idx.name)}
                   </div>
                   <div style={{ fontSize: 28, fontWeight: 300 }}>
                     {idx.price.toLocaleString('en-US', { maximumFractionDigits: 0 })}
@@ -126,6 +139,28 @@ export default function InfographicLayout() {
                   </div>
                 </div>
               ))}
+
+              <div style={{
+                background: 'rgba(255,255,255,0.05)',
+                borderRadius: 16,
+                padding: '16px 24px',
+                textAlign: 'center',
+                minWidth: 180,
+              }}>
+                <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.5)', marginBottom: 6 }}>
+                  FX SEK
+                </div>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', gap: 16, fontSize: 18 }}>
+                    <span style={{ color: 'rgba(255,255,255,0.6)' }}>USD/SEK</span>
+                    <span>{formatFx(exchangeRates.USD_SEK)}</span>
+                  </div>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', gap: 16, fontSize: 18 }}>
+                    <span style={{ color: 'rgba(255,255,255,0.6)' }}>EUR/SEK</span>
+                    <span>{formatFx(exchangeRates.EUR_SEK)}</span>
+                  </div>
+                </div>
+              </div>
             </div>
           </header>
           

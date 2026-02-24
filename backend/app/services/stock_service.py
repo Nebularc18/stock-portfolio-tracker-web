@@ -372,17 +372,34 @@ class StockService:
         _ANALYST_CACHE[ticker_upper] = (None, datetime.now().timestamp())
         return None
 
+    def get_all_analyst_recommendations(self, ticker: str) -> Dict[str, Optional[List[Dict[str, Any]]]]:
+        ticker_upper = ticker.upper()
+        
+        yfinance_recs = self._get_yfinance_recommendations(ticker_upper)
+        finnhub_recs = self._get_finnhub_recommendations(ticker_upper)
+        
+        return {
+            'yfinance': yfinance_recs,
+            'finnhub': finnhub_recs,
+        }
+
     def _get_yfinance_recommendations(self, ticker_upper: str) -> Optional[List[Dict[str, Any]]]:
+        logger.info(f"[YFINANCE] Attempting to fetch recommendations for {ticker_upper}")
         try:
             yf = importlib.import_module('yfinance')
             yf_ticker = yf.Ticker(ticker_upper)
             
+            logger.info(f"[YFINANCE] Calling recommendations attribute for {ticker_upper}")
             recs_df = getattr(yf_ticker, 'recommendations', None)
             if recs_df is None or (hasattr(recs_df, 'empty') and recs_df.empty):
+                logger.info(f"[YFINANCE] recommendations empty, trying recommendations_summary for {ticker_upper}")
                 recs_df = getattr(yf_ticker, 'recommendations_summary', None)
 
             if recs_df is None or (hasattr(recs_df, 'empty') and recs_df.empty):
+                logger.warning(f"[YFINANCE] No recommendations data returned for {ticker_upper}")
                 return None
+            
+            logger.info(f"[YFINANCE] Successfully got recommendations for {ticker_upper}")
 
             records: List[Dict[str, Any]] = []
 
@@ -465,16 +482,20 @@ class StockService:
                 return data
 
         try:
+            logger.info(f"[YFINANCE] Attempting to fetch price targets for {ticker_upper}")
             yf = importlib.import_module('yfinance')
             yf_ticker = yf.Ticker(ticker_upper)
+            logger.info(f"[YFINANCE] Calling info attribute for {ticker_upper}")
             info = getattr(yf_ticker, 'info', None)
 
             if isinstance(info, dict):
+                logger.info(f"[YFINANCE] Successfully got info dict for {ticker_upper}")
                 target_avg = info.get('targetMeanPrice')
                 target_high = info.get('targetHighPrice')
                 target_low = info.get('targetLowPrice')
                 current = info.get('currentPrice') or info.get('regularMarketPrice')
                 num_analysts = info.get('numberOfAnalystOpinions')
+                logger.info(f"[YFINANCE] Price targets for {ticker_upper}: avg={target_avg}, high={target_high}, low={target_low}, analysts={num_analysts}")
 
                 if any(v is not None for v in [target_avg, target_high, target_low]):
                     result = {

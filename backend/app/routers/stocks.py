@@ -171,12 +171,13 @@ def get_analyst_data(ticker: str, db: Session = Depends(get_db)):
     if not stock:
         raise HTTPException(status_code=404, detail="Stock not found")
     
-    recommendations = stock_service.get_analyst_recommendations(ticker)
+    all_recommendations = stock_service.get_all_analyst_recommendations(ticker)
     price_targets = stock_service.get_price_targets(ticker)
     latest_rating = stock_service.get_latest_rating(ticker)
     
     return {
-        "recommendations": recommendations,
+        "recommendations": all_recommendations.get('yfinance'),
+        "finnhub_recommendations": all_recommendations.get('finnhub'),
         "price_targets": price_targets,
         "latest_rating": latest_rating,
     }

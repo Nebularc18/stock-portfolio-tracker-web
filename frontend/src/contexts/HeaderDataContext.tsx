@@ -1,0 +1,103 @@
+import { createContext, useContext, useState, useEffect, ReactNode } from 'react'
+import { api, MarketIndex, HeaderMarketData } from '../services/api'
+
+interface HeaderDataContextType {
+  indices: MarketIndex[]
+  exchangeRates: Record<string, number | null>
+  loading: boolean
+  refresh: () => Promise<void>
+}
+
+const HeaderDataContext = createContext<HeaderDataContextType | null>(null)
+
+const CACHE_KEY = 'header_market_data'
+const CACHE_TTL = 4 * 60 * 1000
+
+interface CachedData {
+  data: HeaderMarketData
+  timestamp: number
+}
+
+function loadFromCache(): HeaderMarketData | null {
+  try {
+    const cached = localStorage.getItem(CACHE_KEY)
+    if (!cached) return null
+    
+    const parsed: CachedData = JSON.parse(cached)
+    if (Date.now() - parsed.timestamp > CACHE_TTL) {
+      return null
+    }
+    return parsed.data
+  } catch {
+    return null
+  }
+}
+
+function saveToCache(data: HeaderMarketData) {
+  try {
+    const cacheEntry: CachedData = {
+      data,
+      timestamp: Date.now(),
+    }
+    localStorage.setItem(CACHE_KEY, JSON.stringify(cacheEntry))
+  } catch {
+    // Ignore cache errors
+  }
+}
+
+export function HeaderDataProvider({ children }: { children: ReactNode }) {
+  const [indices, setIndices] = useState<MarketIndex[]>([])
+  const [exchangeRates, setExchangeRates] = useState<Record<string, number | null>>({})
+  const [loading, setLoading] = useState(true)
+
+  const fetchData = async (forceRefresh = false) => {
+    if (!forceRefresh) {
+      const cached = loadFromCache()
+      if (cached) {
+        setIndices(cached.indices)
+        setExchangeRates(cached.exchange_rates)
+        setLoading(false)
+        return
+      }
+    }
+
+    try {
+      const data = await api.market.header()
+      setIndices(data.indices)
+      setExchangeRates(data.exchange_rates)
+      saveToCache(data)
+    } catch (error) {
+      console.error('Failed to fetch header data:', error)
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  useEffect(() => {
+    fetchData()
+    
+    const interval = setInterval(() => {
+      fetchData(true)
+    }, CACHE_TTL)
+    
+    return () => clearInterval(interval)
+  }, [])
+
+  const refresh = async () => {
+    await fetchData(true)
+  }
+
+  return (
+    <HeaderDataContext.Provider value={{ indices, exchangeRates, loading, refresh }}>
+      {children}
+    </HeaderDataContext.Provider>
+  )
+}
+
+export function useHeaderData() {
+  const context = useContext(HeaderDataContext)
+  if (!context) {
+    throw new Error('useHeaderData must be used within a HeaderDataProvider')
+  }
+  return context
+}

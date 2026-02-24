@@ -1,10 +1,9 @@
 import { useState, useEffect } from 'react'
 import { useParams, Link, useNavigate } from 'react-router-dom'
-import { api, Stock, Dividend, AnalystData, ManualDividend, CompanyProfile, FinancialMetrics, RecommendationTrend } from '../services/api'
+import { api, Stock, Dividend, AnalystData, ManualDividend, CompanyProfile, FinancialMetrics } from '../services/api'
 import CompanyProfileComponent from '../components/CompanyProfile'
 import FinancialMetricsComponent from '../components/FinancialMetrics'
 import PeerCompanies from '../components/PeerCompanies'
-import RecommendationChart from '../components/RecommendationChart'
 import YfinanceAnalystPanel from '../components/YfinanceAnalystPanel'
 
 function formatCurrency(value: number | null, currency: string = 'USD'): string {
@@ -43,7 +42,6 @@ export default function StockDetail() {
   const [companyProfile, setCompanyProfile] = useState<CompanyProfile | null>(null)
   const [financialMetrics, setFinancialMetrics] = useState<FinancialMetrics | null>(null)
   const [peers, setPeers] = useState<string[]>([])
-  const [recommendations, setRecommendations] = useState<RecommendationTrend[]>([])
   const [finnhubLoading, setFinnhubLoading] = useState(false)
   const [analystDataLoading, setAnalystDataLoading] = useState(false)
   const [analystDataLoaded, setAnalystDataLoaded] = useState(false)
@@ -100,12 +98,8 @@ export default function StockDetail() {
     const fetchAnalystData = async () => {
       try {
         setAnalystDataLoading(true)
-        const [analystInfo, recs] = await Promise.all([
-          api.stocks.analyst(ticker).catch(() => null),
-          api.finnhub.recommendations(ticker).catch(() => []),
-        ])
+        const analystInfo = await api.stocks.analyst(ticker).catch(() => null)
         setAnalystData(analystInfo)
-        setRecommendations(recs)
         setAnalystDataLoaded(true)
       } catch (err) {
         console.error('Failed to load analyst data', err)
@@ -590,13 +584,12 @@ export default function StockDetail() {
               <YfinanceAnalystPanel
                 priceTargets={analystData?.price_targets || null}
                 recommendations={analystData?.recommendations || null}
+                finnhubRecommendations={analystData?.finnhub_recommendations || null}
                 currency={stock?.currency || 'USD'}
                 currentPrice={stock?.current_price ?? null}
               />
 
-              <RecommendationChart recommendations={recommendations} loading={finnhubLoading} />
-
-              {!analystData?.price_targets && !analystData?.recommendations?.length && !recommendations.length && !finnhubLoading && !analystDataLoading && (
+              {!analystData?.price_targets && !analystData?.recommendations?.length && !analystData?.finnhub_recommendations?.length && !finnhubLoading && !analystDataLoading && (
                 <div className="card">
                   <p style={{ color: 'var(--text-secondary)', textAlign: 'center', padding: '40px' }}>
                     No analyst data available

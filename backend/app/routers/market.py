@@ -4,6 +4,7 @@ import requests
 import logging
 
 from app.services.market_hours_service import MarketHoursService
+from app.services.market_data_service import get_header_market_data
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -77,6 +78,11 @@ def fetch_index_data(symbol: str) -> dict | None:
         return None
 
 
+@router.get("/header")
+def get_header_data():
+    return get_header_market_data()
+
+
 @router.get("/indices")
 def get_market_indices() -> List[dict]:
     results = []
@@ -99,6 +105,7 @@ def get_exchange_rates():
     
     pairs = [
         ("USDSEK=X", "USD_SEK"),
+        ("EURSEK=X", "EUR_SEK"),
         ("SEKUSD=X", "SEK_USD"),
         ("USDEUR=X", "USD_EUR"),
         ("EURUSD=X", "EUR_USD"),

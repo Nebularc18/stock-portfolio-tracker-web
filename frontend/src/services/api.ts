@@ -79,6 +79,7 @@ export interface Dividend {
 
 export interface AnalystData {
   recommendations: AnalystRecommendation[] | null
+  finnhub_recommendations: AnalystRecommendation[] | null
   price_targets: {
     current: number | null
     targetAvg: number | null
@@ -126,6 +127,12 @@ export interface SparklineData {
   start_value: number
   end_value: number
   change_percent: number
+}
+
+export interface HeaderMarketData {
+  indices: MarketIndex[]
+  exchange_rates: Record<string, number | null>
+  updated_at: string
 }
 
 export interface CompanyProfile {
@@ -220,6 +227,7 @@ export const api = {
   },
   
   market: {
+    header: () => fetchAPI('/market/header') as Promise<HeaderMarketData>,
     indices: () => fetchAPI('/market/indices') as Promise<MarketIndex[]>,
     exchangeRates: () => fetchAPI('/market/exchange-rates') as Promise<Record<string, number | null>>,
     convert: (amount: number, from: string, to: string) => 
