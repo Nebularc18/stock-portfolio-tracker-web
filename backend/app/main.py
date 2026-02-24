@@ -58,6 +58,13 @@ class PortfolioHistory(Base):
     date = Column(DateTime, default=datetime.utcnow)
 
 
+class UserSettings(Base):
+    __tablename__ = "user_settings"
+
+    id = Column(Integer, primary_key=True, index=True)
+    display_currency = Column(String, default="SEK")
+
+
 Base.metadata.create_all(bind=engine)
 
 
@@ -132,7 +139,7 @@ class MarketIndex(BaseModel):
 
 
 from app.services.stock_service import StockService
-from app.routers import stocks, portfolio, market, finnhub
+from app.routers import stocks, portfolio, market, finnhub, settings
 
 stock_service = StockService()
 
@@ -140,6 +147,7 @@ app.include_router(stocks.router, prefix="/api/stocks", tags=["stocks"])
 app.include_router(portfolio.router, prefix="/api/portfolio", tags=["portfolio"])
 app.include_router(market.router, prefix="/api/market", tags=["market"])
 app.include_router(finnhub.router, prefix="/api/finnhub", tags=["finnhub"])
+app.include_router(settings.router, prefix="/api/settings", tags=["settings"])
 
 
 @app.get("/")

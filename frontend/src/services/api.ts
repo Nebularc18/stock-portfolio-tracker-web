@@ -56,6 +56,7 @@ export interface PortfolioSummary {
   total_cost: number
   total_gain_loss: number
   total_gain_loss_percent: number
+  display_currency: string
   stocks: Array<{
     ticker: string
     name: string | null
@@ -227,7 +228,7 @@ export const api = {
   },
   
   market: {
-    header: () => fetchAPI('/market/header') as Promise<HeaderMarketData>,
+    header: (force: boolean = false) => fetchAPI(`/market/header${force ? '?force=true' : ''}`) as Promise<HeaderMarketData>,
     indices: () => fetchAPI('/market/indices') as Promise<MarketIndex[]>,
     exchangeRates: () => fetchAPI('/market/exchange-rates') as Promise<Record<string, number | null>>,
     convert: (amount: number, from: string, to: string) => 

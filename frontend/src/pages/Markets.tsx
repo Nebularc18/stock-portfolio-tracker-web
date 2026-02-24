@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom'
 import { LineChart, Line, ResponsiveContainer, YAxis } from 'recharts'
 import { api, MarketIndex, MarketStatus, SparklineData } from '../services/api'
 import { useSettings } from '../SettingsContext'
+import { formatTimeInTimezone } from '../utils/time'
 
 function formatNumber(value: number, decimals: number = 2): string {
   return value.toLocaleString('en-US', { 
@@ -80,7 +81,7 @@ export default function Markets() {
           <h2 style={{ fontSize: '24px', fontWeight: '600' }}>Market Indices</h2>
           {lastUpdate && (
             <p style={{ color: 'var(--text-secondary)', fontSize: '12px', marginTop: '4px' }}>
-              Last updated: {lastUpdate.toLocaleTimeString()}
+              Last updated: {formatTimeInTimezone(lastUpdate, timezone)}
             </p>
           )}
         </div>

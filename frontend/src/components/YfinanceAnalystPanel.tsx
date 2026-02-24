@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { AnalystRecommendation, AnalystData } from '../services/api'
 
 interface Props {
@@ -192,6 +192,21 @@ export default function YfinanceAnalystPanel({
   currency,
   currentPrice,
 }: Props) {
+  const targetsContainerRef = useRef<HTMLDivElement | null>(null)
+  const [targetsContainerWidth, setTargetsContainerWidth] = useState(0)
+
+  useEffect(() => {
+    const node = targetsContainerRef.current
+    if (!node) return
+
+    const updateWidth = () => setTargetsContainerWidth(node.clientWidth)
+    updateWidth()
+
+    const observer = new ResizeObserver(updateWidth)
+    observer.observe(node)
+    return () => observer.disconnect()
+  }, [])
+
   const hasAnalystTargets = Boolean(
     (priceTargets?.targetLow || priceTargets?.targetHigh || priceTargets?.targetAvg) && !priceTargets?.note
   )
@@ -228,7 +243,30 @@ export default function YfinanceAnalystPanel({
   const clampedAvgPercent = clampPercent(avgPercent)
   const showCurrent = currentPrice !== null && hasAnalystTargets && currentPercent !== null
   const currentLabelMarginTop = targetAvg !== null ? 26 : 14
-  const lowHighMarginTop = showCurrent ? 28 : 20
+  const lowHighMarginTop = showCurrent ? 44 : 20
+  const labelWidth = 144
+  const labelHalf = labelWidth / 2
+
+  const getLabelLayout = (percent: number | null) => {
+    if (percent === null || targetsContainerWidth <= 0) {
+      return { centerPx: null as number | null, pointerPx: labelHalf }
+    }
+
+    const markerPx = (percent / 100) * targetsContainerWidth
+    const centerPx = Math.min(
+      Math.max(markerPx, labelHalf),
+      Math.max(labelHalf, targetsContainerWidth - labelHalf)
+    )
+    const pointerPx = Math.min(
+      labelWidth - 10,
+      Math.max(10, labelHalf + (markerPx - centerPx))
+    )
+
+    return { centerPx, pointerPx }
+  }
+
+  const avgLayout = getLabelLayout(avgPercent)
+  const currentLayout = getLabelLayout(currentPercent)
 
   return (
     <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: '16px', marginBottom: '20px' }}>
@@ -236,13 +274,14 @@ export default function YfinanceAnalystPanel({
         <h3 style={{ marginBottom: '18px' }}>{hasAnalystTargets ? 'Analyst Price Targets' : '52-Week Range'}</h3>
 
         {hasPriceTargets ? (
-          <div style={{ position: 'relative', paddingTop: targetAvg !== null ? '96px' : '46px', paddingBottom: '44px' }}>
+          <div ref={targetsContainerRef} style={{ position: 'relative', paddingTop: targetAvg !== null ? '96px' : '46px', paddingBottom: '44px' }}>
             {targetAvg !== null && (
               <div style={{
                 position: 'absolute',
-                left: `clamp(72px, ${clampedAvgPercent}%, calc(100% - 72px))`,
+                left: avgLayout.centerPx !== null ? `${avgLayout.centerPx}px` : `clamp(72px, ${clampedAvgPercent}%, calc(100% - 72px))`,
                 top: 0,
-                transform: 'translateX(-50%)'
+                transform: 'translateX(-50%)',
+                width: labelWidth,
               }}>
                 <div style={{
                   background: 'rgba(88, 166, 255, 0.08)',
@@ -250,12 +289,12 @@ export default function YfinanceAnalystPanel({
                   borderRadius: 8,
                   padding: '6px 10px',
                   textAlign: 'center',
-                  width: 144
+                  width: labelWidth,
                 }}>
                   <div style={{ fontWeight: 700 }}>{avgLabel}</div>
                   <div style={{ fontSize: 12, color: 'var(--text-secondary)' }}>Average</div>
                 </div>
-                <div style={{ width: 2, height: 14, background: 'rgba(88, 166, 255, 0.6)', margin: '4px auto 0' }} />
+                <div style={{ width: 2, height: 14, background: 'rgba(88, 166, 255, 0.6)', marginTop: 4, marginLeft: avgLayout.pointerPx }} />
               </div>
             )}
 
@@ -323,20 +362,20 @@ export default function YfinanceAnalystPanel({
               <div style={{ position: 'relative', height: 36, marginTop: currentLabelMarginTop }}>
                 <div style={{
                   position: 'absolute',
-                  left: `clamp(72px, ${clampedCurrentPercent}%, calc(100% - 72px))`,
+                  left: currentLayout.centerPx !== null ? `${currentLayout.centerPx}px` : `clamp(72px, ${clampedCurrentPercent}%, calc(100% - 72px))`,
                   transform: 'translateX(-50%)',
                   display: 'flex',
                   flexDirection: 'column',
-                  alignItems: 'center'
+                  width: labelWidth,
                 }}>
-                  <div style={{ width: 2, height: 14, background: '#f59e0b', marginBottom: 4 }} />
+                  <div style={{ width: 2, height: 14, background: '#f59e0b', marginBottom: 4, marginLeft: currentLayout.pointerPx }} />
                   <div style={{
                     background: 'var(--bg-tertiary)',
                     border: '1px solid var(--border-color)',
                     borderRadius: 8,
                     padding: '6px 10px',
                     textAlign: 'center',
-                    width: 144
+                    width: labelWidth,
                   }}>
                     <div style={{ fontWeight: 700 }}>{formatCurrency(currentPrice, currency)}</div>
                     <div style={{ fontSize: 12, color: 'var(--text-secondary)' }}>Current</div>

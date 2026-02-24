@@ -1,6 +1,8 @@
 import { useState, useEffect } from 'react'
 import { Link } from 'react-router-dom'
 import { api, Stock } from '../services/api'
+import { useSettings } from '../SettingsContext'
+import { formatTimeInTimezone } from '../utils/time'
 
 function formatCurrency(value: number | null, currency: string = 'USD'): string {
   if (value === null) return '-'
@@ -43,12 +45,15 @@ export default function Stocks() {
   const [editQuantity, setEditQuantity] = useState('')
   const [editPurchasePrice, setEditPurchasePrice] = useState('')
   const [saving, setSaving] = useState(false)
+  const [lastUpdate, setLastUpdate] = useState<Date | null>(null)
+  const { timezone } = useSettings()
 
   const fetchStocks = async () => {
     try {
       setLoading(true)
       const data = await api.stocks.list()
       setStocks(data)
+      setLastUpdate(new Date())
       setError(null)
     } catch (err) {
       setError('Failed to load stocks')
@@ -165,7 +170,12 @@ export default function Stocks() {
   return (
     <div>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '24px' }}>
-        <h2 style={{ fontSize: '24px', fontWeight: '600' }}>Stocks</h2>
+        <div>
+          <h2 style={{ fontSize: '24px', fontWeight: '600' }}>Stocks</h2>
+          <p style={{ color: 'var(--text-secondary)', fontSize: '12px', marginTop: '4px' }}>
+            Last updated: {formatTimeInTimezone(lastUpdate, timezone)}
+          </p>
+        </div>
         <div style={{ display: 'flex', gap: '12px' }}>
           {stocks.length > 0 && (
             <button className="btn btn-secondary" onClick={handleRefreshAll}>

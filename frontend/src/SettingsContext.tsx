@@ -1,8 +1,11 @@
-import { createContext, useContext, useState, ReactNode } from 'react'
+import { createContext, useContext, useState, useEffect, ReactNode } from 'react'
 
 interface SettingsContextType {
   timezone: string
   setTimezone: (tz: string) => void
+  displayCurrency: string
+  setDisplayCurrency: (currency: string) => void
+  loading: boolean
 }
 
 const SettingsContext = createContext<SettingsContextType | null>(null)
@@ -18,19 +21,54 @@ const TIMEZONES = [
   { id: 'Australia/Sydney', label: 'Sydney (AEST/AEDT)' },
 ]
 
+const SUPPORTED_CURRENCIES = [
+  { code: 'SEK', label: 'Swedish Krona' },
+  { code: 'EUR', label: 'Euro' },
+  { code: 'USD', label: 'US Dollar' },
+]
+
 export function SettingsProvider({ children }: { children: ReactNode }) {
   const [timezone, setTimezoneState] = useState(() => {
     const saved = localStorage.getItem('userTimezone')
     return saved || 'Europe/Stockholm'
   })
+  const [displayCurrency, setDisplayCurrencyState] = useState(() => {
+    const saved = localStorage.getItem('displayCurrency')
+    return saved || 'SEK'
+  })
+  const [loading, setLoading] = useState(true)
+
+  useEffect(() => {
+    fetch('/api/settings')
+      .then(res => res.json())
+      .then(data => {
+        if (data.display_currency) {
+          setDisplayCurrencyState(data.display_currency)
+          localStorage.setItem('displayCurrency', data.display_currency)
+        }
+      })
+      .catch(() => {})
+      .finally(() => setLoading(false))
+  }, [])
 
   const setTimezone = (tz: string) => {
     setTimezoneState(tz)
     localStorage.setItem('userTimezone', tz)
   }
 
+  const setDisplayCurrency = (currency: string) => {
+    setDisplayCurrencyState(currency)
+    localStorage.setItem('displayCurrency', currency)
+    
+    fetch('/api/settings', {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ display_currency: currency }),
+    }).catch(() => {})
+  }
+
   return (
-    <SettingsContext.Provider value={{ timezone, setTimezone }}>
+    <SettingsContext.Provider value={{ timezone, setTimezone, displayCurrency, setDisplayCurrency, loading }}>
       {children}
     </SettingsContext.Provider>
   )
@@ -44,4 +82,4 @@ export function useSettings() {
   return context
 }
 
-export { TIMEZONES }
+export { TIMEZONES, SUPPORTED_CURRENCIES }

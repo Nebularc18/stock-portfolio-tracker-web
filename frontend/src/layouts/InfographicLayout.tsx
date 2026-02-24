@@ -1,14 +1,19 @@
 import { Link, useLocation, Outlet } from 'react-router-dom'
 import { useHeaderData } from '../contexts/HeaderDataContext'
+import { useSettings } from '../SettingsContext'
+import { formatTimeInTimezone } from '../utils/time'
 
 export default function InfographicLayout() {
   const location = useLocation()
-  const { indices, exchangeRates } = useHeaderData()
+  const { indices, exchangeRates, lastUpdated, loading, refresh } = useHeaderData()
+  const { timezone } = useSettings()
 
   const indexLabel = (symbol: string, name: string) => {
     switch (symbol) {
       case '^OMXS30':
         return 'OMX STOCKHOLM 30'
+      case '^OMXS30GI':
+        return 'OMX STOCKHOLM 30 GI'
       case '^OMXSPI':
         return 'OMX STOCKHOLM PI'
       case '^GSPC':
@@ -110,6 +115,9 @@ export default function InfographicLayout() {
               <p style={{ fontSize: 13, color: 'rgba(255,255,255,0.5)', marginTop: 4 }}>
                 Real-time investment analytics
               </p>
+              <p style={{ fontSize: 12, color: 'rgba(255,255,255,0.45)', marginTop: 6 }}>
+                Header updated: {formatTimeInTimezone(lastUpdated, timezone)}
+              </p>
             </div>
             
             <div style={{ display: 'flex', gap: 24, flexWrap: 'wrap' }}>
@@ -161,6 +169,15 @@ export default function InfographicLayout() {
                   </div>
                 </div>
               </div>
+
+              <button
+                className="btn btn-secondary"
+                onClick={refresh}
+                disabled={loading}
+                style={{ alignSelf: 'center', height: 42 }}
+              >
+                {loading ? 'Refreshing...' : 'Refresh Header'}
+              </button>
             </div>
           </header>
           

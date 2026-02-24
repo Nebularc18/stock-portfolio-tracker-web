@@ -1,4 +1,4 @@
-from fastapi import APIRouter
+from fastapi import APIRouter, Query
 from typing import List
 import requests
 import logging
@@ -11,6 +11,7 @@ logger = logging.getLogger(__name__)
 
 MARKET_INDICES = {
     "^OMXS30": "OMX Stockholm 30",
+    "^OMXS30GI": "OMX Stockholm 30 GI",
     "^OMXSPI": "OMX Stockholm PI",
     "^GSPC": "S&P 500",
     "^DJI": "Dow Jones",
@@ -79,8 +80,8 @@ def fetch_index_data(symbol: str) -> dict | None:
 
 
 @router.get("/header")
-def get_header_data():
-    return get_header_market_data()
+def get_header_data(force: bool = Query(False)):
+    return get_header_market_data(force_refresh=force)
 
 
 @router.get("/indices")

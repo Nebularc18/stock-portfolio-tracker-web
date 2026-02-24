@@ -14,6 +14,40 @@ EXCHANGE_PAIRS = {
     "GBP_USD": "GBPUSD=X",
     "EUR_SEK": "EURSEK=X",
     "SEK_EUR": "SEKEUR=X",
+    "USD_CAD": "USDCAD=X",
+    "CAD_USD": "CADUSD=X",
+    "USD_AUD": "USDAUD=X",
+    "AUD_USD": "AUDUSD=X",
+    "USD_CHF": "USDCHF=X",
+    "CHF_USD": "CHFUSD=X",
+    "USD_JPY": "USDJPY=X",
+    "JPY_USD": "JPYUSD=X",
+    "USD_HKD": "USDHKD=X",
+    "HKD_USD": "HKDUSD=X",
+    "USD_NZD": "USDNZD=X",
+    "NZD_USD": "NZDUSD=X",
+    "USD_KRW": "USDKRW=X",
+    "KRW_USD": "KRWUSD=X",
+    "EUR_GBP": "EURGBP=X",
+    "GBP_EUR": "GBPEUR=X",
+    "EUR_CAD": "EURCAD=X",
+    "CAD_EUR": "CADEUR=X",
+    "EUR_AUD": "EURAUD=X",
+    "AUD_EUR": "AUDEUR=X",
+    "EUR_CHF": "EURCHF=X",
+    "CHF_EUR": "CHFEUR=X",
+    "EUR_JPY": "EURJPY=X",
+    "JPY_EUR": "JPYEUR=X",
+    "SEK_GBP": "SEKGBP=X",
+    "GBP_SEK": "GBPSEK=X",
+    "SEK_CAD": "SEKCAD=X",
+    "CAD_SEK": "CADSEK=X",
+    "SEK_AUD": "SEKAUD=X",
+    "AUD_SEK": "AUDSEK=X",
+    "SEK_CHF": "SEKCHF=X",
+    "CHF_SEK": "CHFSEK=X",
+    "SEK_JPY": "SEKJPY=X",
+    "JPY_SEK": "JPYSEK=X",
 }
 
 _cache: Dict[str, tuple] = {}
@@ -59,15 +93,39 @@ class ExchangeRateService:
         return None
 
     @staticmethod
-    def get_all_rates() -> Dict[str, Optional[float]]:
+    def get_rates_for_currencies(currencies: set, display_currency: str) -> Dict[str, Optional[float]]:
+        needed_pairs = set()
+        for currency in currencies:
+            if currency != display_currency:
+                key = f"{currency}_{display_currency}"
+                inverse_key = f"{display_currency}_{currency}"
+                if key in EXCHANGE_PAIRS:
+                    needed_pairs.add(key)
+                elif inverse_key in EXCHANGE_PAIRS:
+                    needed_pairs.add(inverse_key)
+        
         rates = {}
-        for pair, symbol in EXCHANGE_PAIRS.items():
+        now = datetime.now().timestamp()
+        
+        for pair in needed_pairs:
+            if pair in _cache:
+                rate, timestamp = _cache[pair]
+                if now - timestamp < _cache_ttl:
+                    rates[pair] = rate
+                    continue
+            
             try:
-                ticker = yf.Ticker(symbol)
-                price = ticker.info.get('currentPrice') or ticker.info.get('regularMarketPrice')
-                rates[pair] = float(price) if price else None
-            except Exception:
+                ticker = yf.Ticker(EXCHANGE_PAIRS[pair])
+                price = ticker.fast_info.last_price if hasattr(ticker, 'fast_info') else None
+                if not price:
+                    price = ticker.info.get('currentPrice') or ticker.info.get('regularMarketPrice')
+                if price:
+                    rates[pair] = float(price)
+                    _cache[pair] = (float(price), now)
+            except Exception as e:
+                logger.error(f"Error fetching {pair}: {e}")
                 rates[pair] = None
+        
         return rates
 
     @staticmethod

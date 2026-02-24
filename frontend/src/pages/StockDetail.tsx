@@ -5,6 +5,8 @@ import CompanyProfileComponent from '../components/CompanyProfile'
 import FinancialMetricsComponent from '../components/FinancialMetrics'
 import PeerCompanies from '../components/PeerCompanies'
 import YfinanceAnalystPanel from '../components/YfinanceAnalystPanel'
+import { useSettings } from '../SettingsContext'
+import { formatTimeInTimezone } from '../utils/time'
 
 function formatCurrency(value: number | null, currency: string = 'USD'): string {
   if (value === null) return '-'
@@ -45,6 +47,8 @@ export default function StockDetail() {
   const [finnhubLoading, setFinnhubLoading] = useState(false)
   const [analystDataLoading, setAnalystDataLoading] = useState(false)
   const [analystDataLoaded, setAnalystDataLoaded] = useState(false)
+  const [lastUpdate, setLastUpdate] = useState<Date | null>(null)
+  const { timezone } = useSettings()
 
   useEffect(() => {
     if (!ticker) return
@@ -62,6 +66,7 @@ export default function StockDetail() {
         setDividends(divData)
         setUpcomingDividends(upcomingData)
         setSuppressedDividends(suppressedData)
+        setLastUpdate(new Date())
         setError(null)
       } catch (err: any) {
         setError(err.message || 'Failed to load stock data')
@@ -116,6 +121,7 @@ export default function StockDetail() {
     try {
       const updated = await api.stocks.refresh(ticker)
       setStock(updated)
+      setLastUpdate(new Date())
     } catch (err) {
       console.error('Failed to refresh', err)
     }
@@ -282,6 +288,9 @@ export default function StockDetail() {
                 {stock.sector}
               </p>
             )}
+            <p style={{ color: 'var(--text-secondary)', fontSize: '12px', marginTop: '8px' }}>
+              Last updated: {formatTimeInTimezone(stock.last_updated || lastUpdate, timezone)}
+            </p>
           </div>
           <div style={{ display: 'flex', gap: '8px' }}>
             <button className="btn btn-secondary" onClick={openEditModal}>

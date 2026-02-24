@@ -130,9 +130,9 @@ def _fetch_all_quotes(symbols: List[str]) -> Dict[str, Dict]:
     
     return results
 
-def get_header_market_data() -> Dict[str, Any]:
+def get_header_market_data(force_refresh: bool = False) -> Dict[str, Any]:
     cached = _load_cache('market_header.json')
-    if cached is not None:
+    if cached is not None and not force_refresh:
         return cached
     
     all_symbols = list(HEADER_INDICES.keys()) + list(HEADER_FX.keys())
@@ -158,7 +158,7 @@ def get_header_market_data() -> Dict[str, Any]:
     result = {
         'indices': indices,
         'exchange_rates': exchange_rates,
-        'updated_at': datetime.now().isoformat(),
+        'updated_at': datetime.utcnow().isoformat() + 'Z',
     }
     
     _save_cache('market_header.json', result, HEADER_CACHE_TTL)

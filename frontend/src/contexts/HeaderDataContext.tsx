@@ -4,6 +4,7 @@ import { api, MarketIndex, HeaderMarketData } from '../services/api'
 interface HeaderDataContextType {
   indices: MarketIndex[]
   exchangeRates: Record<string, number | null>
+  lastUpdated: string | null
   loading: boolean
   refresh: () => Promise<void>
 }
@@ -48,6 +49,7 @@ function saveToCache(data: HeaderMarketData) {
 export function HeaderDataProvider({ children }: { children: ReactNode }) {
   const [indices, setIndices] = useState<MarketIndex[]>([])
   const [exchangeRates, setExchangeRates] = useState<Record<string, number | null>>({})
+  const [lastUpdated, setLastUpdated] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
 
   const fetchData = async (forceRefresh = false) => {
@@ -56,15 +58,17 @@ export function HeaderDataProvider({ children }: { children: ReactNode }) {
       if (cached) {
         setIndices(cached.indices)
         setExchangeRates(cached.exchange_rates)
+        setLastUpdated(cached.updated_at)
         setLoading(false)
         return
       }
     }
 
     try {
-      const data = await api.market.header()
+      const data = await api.market.header(forceRefresh)
       setIndices(data.indices)
       setExchangeRates(data.exchange_rates)
+      setLastUpdated(data.updated_at)
       saveToCache(data)
     } catch (error) {
       console.error('Failed to fetch header data:', error)
@@ -88,7 +92,7 @@ export function HeaderDataProvider({ children }: { children: ReactNode }) {
   }
 
   return (
-    <HeaderDataContext.Provider value={{ indices, exchangeRates, loading, refresh }}>
+    <HeaderDataContext.Provider value={{ indices, exchangeRates, lastUpdated, loading, refresh }}>
       {children}
     </HeaderDataContext.Provider>
   )
