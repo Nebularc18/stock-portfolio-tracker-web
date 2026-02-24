@@ -65,7 +65,16 @@ export default function Markets() {
     }
   }
 
-  const scheduleNextRefresh = () => {
+  const scheduleNextRefresh = async () => {
+    try {
+      const { should_refresh } = await api.market.shouldRefresh()
+      if (!should_refresh) {
+        return
+      }
+    } catch {
+      return
+    }
+    
     const msUntilNext = getTimeUntilNextInterval(15)
     const nextTime = new Date(Date.now() + msUntilNext)
     setNextRefresh(nextTime)

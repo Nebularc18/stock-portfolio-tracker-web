@@ -1,4 +1,4 @@
-import { createContext, useContext, useState, useEffect, ReactNode } from 'react'
+import { createContext, useContext, useState, useEffect, useRef, ReactNode } from 'react'
 import { api, MarketIndex, HeaderMarketData } from '../services/api'
 
 interface HeaderDataContextType {
@@ -50,8 +50,18 @@ export function HeaderDataProvider({ children }: { children: ReactNode }) {
   const [exchangeRates, setExchangeRates] = useState<Record<string, number | null>>({})
   const [lastUpdated, setLastUpdated] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
+  const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null)
 
   const fetchData = async (forceRefresh = false) => {
+    try {
+      const { should_refresh } = await api.market.shouldRefresh()
+      if (!should_refresh && !forceRefresh) {
+        return
+      }
+    } catch {
+      return
+    }
+
     if (!forceRefresh) {
       const cached = loadFromCache()
       if (cached) {
@@ -78,6 +88,16 @@ export function HeaderDataProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     fetchData()
+    
+    intervalRef.current = setInterval(() => {
+      fetchData()
+    }, 4 * 60 * 1000)
+    
+    return () => {
+      if (intervalRef.current) {
+        clearInterval(intervalRef.current)
+      }
+    }
   }, [])
 
   return (

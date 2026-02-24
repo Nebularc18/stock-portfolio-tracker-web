@@ -41,24 +41,6 @@ MARKET_CONFIG = {
         "close_time": "17:30",
         "days": [0, 1, 2, 3, 4],
     },
-    "JP": {
-        "name": "Tokyo (TSE)",
-        "exchanges": ["TSE"],
-        "timezone": "Asia/Tokyo",
-        "display_tz": "JST",
-        "open_time": "09:00",
-        "close_time": "15:00",
-        "days": [0, 1, 2, 3, 4],
-    },
-    "HK": {
-        "name": "Hong Kong (HKEX)",
-        "exchanges": ["HKEX"],
-        "timezone": "Asia/Hong_Kong",
-        "display_tz": "HKT",
-        "open_time": "09:30",
-        "close_time": "16:00",
-        "days": [0, 1, 2, 3, 4],
-    },
 }
 
 
@@ -179,8 +161,38 @@ class MarketHoursService:
         return open_markets
 
     @staticmethod
+    def is_within_post_close_window(market: str, minutes_after_close: int = 30) -> bool:
+        if market not in MARKET_CONFIG:
+            return False
+        
+        config = MARKET_CONFIG[market]
+        
+        try:
+            from zoneinfo import ZoneInfo
+            from datetime import timedelta
+            
+            tz = ZoneInfo(config["timezone"])
+            now = datetime.now(tz)
+            
+            if now.weekday() not in config["days"]:
+                return False
+            
+            close_parts = config["close_time"].split(":")
+            close_time = time(int(close_parts[0]), int(close_parts[1]))
+            
+            close_dt = datetime.combine(now.date(), close_time, tzinfo=tz)
+            window_end = close_dt + timedelta(minutes=minutes_after_close)
+            
+            return close_dt <= now <= window_end
+        except Exception as e:
+            logger.error(f"Error checking post-close window for {market}: {e}")
+            return False
+
+    @staticmethod
     def should_refresh() -> bool:
         for market in ["SE", "US"]:
             if MarketHoursService.is_market_open(market):
+                return True
+            if MarketHoursService.is_within_post_close_window(market):
                 return True
         return False

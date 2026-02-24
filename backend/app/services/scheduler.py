@@ -12,6 +12,11 @@ def refresh_all_stocks():
     from app.main import get_db, Stock, StockPriceHistory
     from app.services.stock_service import StockService
     from app.services.exchange_rate_service import ExchangeRateService
+    from app.services.market_hours_service import MarketHoursService
+    
+    if not MarketHoursService.should_refresh():
+        logger.info("Skipping refresh - no markets are open")
+        return
     
     db = next(get_db())
     try:
