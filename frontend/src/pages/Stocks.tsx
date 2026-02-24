@@ -120,24 +120,6 @@ export default function Stocks() {
     }
   }
 
-  const handleRefreshStock = async (ticker: string) => {
-    try {
-      await api.stocks.refresh(ticker)
-      await fetchStocks()
-    } catch (err) {
-      setError('Failed to refresh stock')
-    }
-  }
-
-  const handleRefreshAll = async () => {
-    try {
-      await api.portfolio.refreshAll()
-      await fetchStocks()
-    } catch (err) {
-      setError('Failed to refresh all stocks')
-    }
-  }
-
   const openEditModal = (stock: Stock) => {
     setEditStock(stock)
     setEditQuantity(stock.quantity.toString())
@@ -173,19 +155,12 @@ export default function Stocks() {
         <div>
           <h2 style={{ fontSize: '24px', fontWeight: '600' }}>Stocks</h2>
           <p style={{ color: 'var(--text-secondary)', fontSize: '12px', marginTop: '4px' }}>
-            Last updated: {formatTimeInTimezone(lastUpdate, timezone)}
+            Last updated: {formatTimeInTimezone(lastUpdate, timezone)} · Auto-refresh every 10 min
           </p>
         </div>
-        <div style={{ display: 'flex', gap: '12px' }}>
-          {stocks.length > 0 && (
-            <button className="btn btn-secondary" onClick={handleRefreshAll}>
-              Refresh All
-            </button>
-          )}
-          <button className="btn btn-primary" onClick={() => setShowAddForm(!showAddForm)}>
-            {showAddForm ? 'Cancel' : 'Add Stock'}
-          </button>
-        </div>
+        <button className="btn btn-primary" onClick={() => setShowAddForm(!showAddForm)}>
+          {showAddForm ? 'Cancel' : 'Add Stock'}
+        </button>
       </div>
 
       {error && (
@@ -345,13 +320,6 @@ export default function Stocks() {
                            onClick={() => openEditModal(stock)}
                          >
                            Edit
-                         </button>
-                         <button 
-                           className="btn btn-secondary" 
-                           style={{ padding: '6px 12px', fontSize: '12px' }}
-                           onClick={() => handleRefreshStock(stock.ticker)}
-                         >
-                           Refresh
                          </button>
                          <button 
                            className="btn btn-danger" 

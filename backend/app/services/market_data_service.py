@@ -25,7 +25,7 @@ HEADER_FX = {
     "EURSEK=X": "EUR_SEK",
 }
 
-HEADER_CACHE_TTL = 300
+HEADER_CACHE_TTL = 900
 
 _session = None
 

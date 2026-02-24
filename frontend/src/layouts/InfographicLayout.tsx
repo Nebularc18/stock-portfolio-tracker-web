@@ -5,7 +5,7 @@ import { formatTimeInTimezone } from '../utils/time'
 
 export default function InfographicLayout() {
   const location = useLocation()
-  const { indices, exchangeRates, lastUpdated, loading, refresh } = useHeaderData()
+  const { indices, exchangeRates, lastUpdated } = useHeaderData()
   const { timezone } = useSettings()
 
   const indexLabel = (symbol: string, name: string) => {
@@ -169,15 +169,6 @@ export default function InfographicLayout() {
                   </div>
                 </div>
               </div>
-
-              <button
-                className="btn btn-secondary"
-                onClick={refresh}
-                disabled={loading}
-                style={{ alignSelf: 'center', height: 42 }}
-              >
-                {loading ? 'Refreshing...' : 'Refresh Header'}
-              </button>
             </div>
           </header>
           

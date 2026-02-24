@@ -82,11 +82,6 @@ export default function Dashboard() {
     fetchData()
   }, [])
 
-  const handleRefresh = async () => {
-    await api.portfolio.refreshAll()
-    await fetchData()
-  }
-
   const convertToCurrency = (amount: number, currency: string): number => {
     if (currency === displayCurrency) return amount
     const rate = exchangeRates[`${currency}_${displayCurrency}`]
@@ -143,16 +138,11 @@ export default function Dashboard() {
 
   return (
     <div>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '24px' }}>
-        <div>
-          <h2 style={{ fontSize: '24px', fontWeight: '600' }}>Dashboard</h2>
-          <p style={{ color: 'var(--text-secondary)', fontSize: '12px', marginTop: '4px' }}>
-            Last updated: {formatTimeInTimezone(lastUpdate, timezone)}
-          </p>
-        </div>
-        <button className="btn btn-primary" onClick={handleRefresh}>
-          Refresh Prices
-        </button>
+      <div style={{ marginBottom: '24px' }}>
+        <h2 style={{ fontSize: '24px', fontWeight: '600' }}>Dashboard</h2>
+        <p style={{ color: 'var(--text-secondary)', fontSize: '12px', marginTop: '4px' }}>
+          Last updated: {formatTimeInTimezone(lastUpdate, timezone)} · Auto-refresh every 10 min
+        </p>
       </div>
 
       <div className="grid grid-4" style={{ marginBottom: '24px' }}>

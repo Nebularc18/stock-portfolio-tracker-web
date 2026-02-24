@@ -1,9 +1,9 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { Link } from 'react-router-dom'
 import { LineChart, Line, ResponsiveContainer, YAxis } from 'recharts'
 import { api, MarketIndex, MarketStatus, SparklineData } from '../services/api'
 import { useSettings } from '../SettingsContext'
-import { formatTimeInTimezone } from '../utils/time'
+import { formatTimeInTimezone, getTimeUntilNextInterval } from '../utils/time'
 
 function formatNumber(value: number, decimals: number = 2): string {
   return value.toLocaleString('en-US', { 
@@ -41,7 +41,9 @@ export default function Markets() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [lastUpdate, setLastUpdate] = useState<Date | null>(null)
+  const [nextRefresh, setNextRefresh] = useState<Date | null>(null)
   const { timezone } = useSettings()
+  const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   const fetchData = async () => {
     try {
@@ -63,11 +65,26 @@ export default function Markets() {
     }
   }
 
+  const scheduleNextRefresh = () => {
+    const msUntilNext = getTimeUntilNextInterval(15)
+    const nextTime = new Date(Date.now() + msUntilNext)
+    setNextRefresh(nextTime)
+    
+    timeoutRef.current = setTimeout(() => {
+      fetchData()
+      scheduleNextRefresh()
+    }, msUntilNext)
+  }
+
   useEffect(() => {
     fetchData()
+    scheduleNextRefresh()
     
-    const interval = setInterval(fetchData, 60000)
-    return () => clearInterval(interval)
+    return () => {
+      if (timeoutRef.current) {
+        clearTimeout(timeoutRef.current)
+      }
+    }
   }, [timezone])
 
   if (loading && !indices.length) {
@@ -78,10 +95,11 @@ export default function Markets() {
     <div>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '24px' }}>
         <div>
-          <h2 style={{ fontSize: '24px', fontWeight: '600' }}>Market Indices</h2>
+          <h2 style={{ fontSize: '24px', fontWeight: '600' }}>Markets</h2>
           {lastUpdate && (
             <p style={{ color: 'var(--text-secondary)', fontSize: '12px', marginTop: '4px' }}>
               Last updated: {formatTimeInTimezone(lastUpdate, timezone)}
+              {nextRefresh && <span> · Next: {formatTimeInTimezone(nextRefresh, timezone)}</span>}
             </p>
           )}
         </div>
@@ -96,48 +114,7 @@ export default function Markets() {
         </div>
       )}
 
-      <div className="grid grid-2">
-        {indices.map((index) => {
-          const isPositive = index.change >= 0
-          const changeClass = isPositive ? 'positive' : 'negative'
-          const sparkline = sparklines[index.symbol]
-          
-          return (
-            <div key={index.symbol} className="card">
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
-                <div>
-                  <p style={{ color: 'var(--text-secondary)', fontSize: '12px', marginBottom: '4px' }}>
-                    {index.symbol}
-                  </p>
-                  <p style={{ fontSize: '16px', fontWeight: '600', marginBottom: '8px' }}>
-                    {index.name}
-                  </p>
-                </div>
-                <div style={{ textAlign: 'right', display: 'flex', alignItems: 'center', gap: '12px' }}>
-                  {sparkline && (
-                    <MiniSparkline data={sparkline.prices} isPositive={sparkline.is_positive} />
-                  )}
-                  <div>
-                    <p style={{ fontSize: '24px', fontWeight: '600' }}>
-                      {formatNumber(index.price)}
-                    </p>
-                  </div>
-                </div>
-              </div>
-              <div style={{ display: 'flex', gap: '16px', marginTop: '12px' }}>
-                <span className={changeClass}>
-                  {isPositive ? '+' : ''}{formatNumber(index.change)}
-                </span>
-                <span className={changeClass}>
-                  {isPositive ? '+' : ''}{formatNumber(index.change_percent)}%
-                </span>
-              </div>
-            </div>
-          )
-        })}
-      </div>
-
-      <div className="card" style={{ marginTop: '24px' }}>
+      <div className="card" style={{ marginBottom: '24px' }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
           <h3>Market Hours</h3>
           <Link to="/settings" style={{ color: 'var(--accent-blue)', fontSize: '12px', textDecoration: 'none' }}>
@@ -183,6 +160,48 @@ export default function Markets() {
             </div>
           ))}
         </div>
+      </div>
+
+      <h3 style={{ marginBottom: '16px' }}>Market Indices</h3>
+      <div className="grid grid-2">
+        {indices.map((index) => {
+          const isPositive = index.change >= 0
+          const changeClass = isPositive ? 'positive' : 'negative'
+          const sparkline = sparklines[index.symbol]
+          
+          return (
+            <div key={index.symbol} className="card">
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+                <div>
+                  <p style={{ color: 'var(--text-secondary)', fontSize: '12px', marginBottom: '4px' }}>
+                    {index.symbol}
+                  </p>
+                  <p style={{ fontSize: '16px', fontWeight: '600', marginBottom: '8px' }}>
+                    {index.name}
+                  </p>
+                </div>
+                <div style={{ textAlign: 'right', display: 'flex', alignItems: 'center', gap: '12px' }}>
+                  {sparkline && (
+                    <MiniSparkline data={sparkline.prices} isPositive={sparkline.is_positive} />
+                  )}
+                  <div>
+                    <p style={{ fontSize: '24px', fontWeight: '600' }}>
+                      {formatNumber(index.price)}
+                    </p>
+                  </div>
+                </div>
+              </div>
+              <div style={{ display: 'flex', gap: '16px', marginTop: '12px' }}>
+                <span className={changeClass}>
+                  {isPositive ? '+' : ''}{formatNumber(index.change)}
+                </span>
+                <span className={changeClass}>
+                  {isPositive ? '+' : ''}{formatNumber(index.change_percent)}%
+                </span>
+              </div>
+            </div>
+          )
+        })}
       </div>
     </div>
   )

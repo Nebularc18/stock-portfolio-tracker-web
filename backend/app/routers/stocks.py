@@ -6,7 +6,7 @@ from typing import Optional
 import uuid
 import logging
 
-from app.main import get_db, Stock, StockCreate, StockUpdate, StockResponse
+from app.main import get_db, Stock, StockCreate, StockUpdate, StockResponse, StockPriceHistory
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -332,3 +332,25 @@ def get_suppressed_dividends(ticker: str, db: Session = Depends(get_db)):
         raise HTTPException(status_code=404, detail="Stock not found")
     
     return stock.suppressed_dividends or []
+
+
+@router.get("/{ticker}/price-history")
+def get_stock_price_history(ticker: str, days: int = 30, db: Session = Depends(get_db)):
+    ticker_upper = ticker.upper()
+    stock = db.query(Stock).filter(Stock.ticker == ticker_upper).first()
+    if not stock:
+        raise HTTPException(status_code=404, detail="Stock not found")
+    
+    from datetime import timedelta
+    start_date = datetime.utcnow() - timedelta(days=days)
+    
+    history = db.query(StockPriceHistory).filter(
+        StockPriceHistory.ticker == ticker_upper,
+        StockPriceHistory.recorded_at >= start_date
+    ).order_by(StockPriceHistory.recorded_at.asc()).all()
+    
+    return [{
+        "date": h.recorded_at.isoformat(),
+        "price": h.price,
+        "currency": h.currency
+    } for h in history]

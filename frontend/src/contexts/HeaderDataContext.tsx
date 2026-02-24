@@ -6,7 +6,6 @@ interface HeaderDataContextType {
   exchangeRates: Record<string, number | null>
   lastUpdated: string | null
   loading: boolean
-  refresh: () => Promise<void>
 }
 
 const HeaderDataContext = createContext<HeaderDataContextType | null>(null)
@@ -79,20 +78,10 @@ export function HeaderDataProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     fetchData()
-    
-    const interval = setInterval(() => {
-      fetchData(true)
-    }, CACHE_TTL)
-    
-    return () => clearInterval(interval)
   }, [])
 
-  const refresh = async () => {
-    await fetchData(true)
-  }
-
   return (
-    <HeaderDataContext.Provider value={{ indices, exchangeRates, lastUpdated, loading, refresh }}>
+    <HeaderDataContext.Provider value={{ indices, exchangeRates, lastUpdated, loading }}>
       {children}
     </HeaderDataContext.Provider>
   )

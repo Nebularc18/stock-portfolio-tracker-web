@@ -3,7 +3,7 @@ from sqlalchemy.orm import Session
 from datetime import datetime
 from typing import List, Optional
 
-from app.main import get_db, Stock, PortfolioHistory, UserSettings
+from app.main import get_db, Stock, PortfolioHistory, UserSettings, StockPriceHistory
 from app.services.exchange_rate_service import ExchangeRateService
 
 router = APIRouter()
@@ -116,6 +116,24 @@ def refresh_all_prices(db: Session = Depends(get_db)):
             stock.dividend_per_share = info.get('dividend_per_share')
             stock.last_updated = datetime.utcnow()
             updated += 1
+            
+            if stock.current_price:
+                today = datetime.utcnow().replace(hour=0, minute=0, second=0, microsecond=0)
+                existing_price = db.query(StockPriceHistory).filter(
+                    StockPriceHistory.ticker == stock.ticker,
+                    StockPriceHistory.recorded_at >= today
+                ).first()
+                
+                if existing_price:
+                    existing_price.price = stock.current_price
+                else:
+                    price_history = StockPriceHistory(
+                        ticker=stock.ticker,
+                        price=stock.current_price,
+                        currency=stock.currency,
+                        recorded_at=datetime.utcnow()
+                    )
+                    db.add(price_history)
             
             if stock.current_price and stock.quantity:
                 value = stock.current_price * stock.quantity

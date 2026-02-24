@@ -1,12 +1,15 @@
 import os
 from datetime import datetime
 from typing import List, Optional, Any
+import logging
 
 from fastapi import FastAPI, HTTPException, Depends
 from pydantic import BaseModel
 from sqlalchemy import create_engine, Column, Integer, String, Float, DateTime, ForeignKey, JSON
 from sqlalchemy.orm import sessionmaker, relationship, declarative_base
 from sqlalchemy.pool import NullPool
+
+logger = logging.getLogger(__name__)
 
 DATABASE_URL = os.getenv("DATABASE_URL", "postgresql://portfolio:portfolio@localhost:5432/portfolio")
 
@@ -56,6 +59,16 @@ class PortfolioHistory(Base):
     id = Column(Integer, primary_key=True, index=True)
     total_value = Column(Float)
     date = Column(DateTime, default=datetime.utcnow)
+
+
+class StockPriceHistory(Base):
+    __tablename__ = "stock_price_history"
+
+    id = Column(Integer, primary_key=True, index=True)
+    ticker = Column(String, index=True, nullable=False)
+    price = Column(Float, nullable=False)
+    currency = Column(String, nullable=False)
+    recorded_at = Column(DateTime, default=datetime.utcnow, index=True)
 
 
 class UserSettings(Base):
@@ -158,3 +171,17 @@ def read_root():
 @app.get("/health")
 def health_check():
     return {"status": "healthy"}
+
+
+@app.on_event("startup")
+async def startup_event():
+    from app.services.scheduler import start_scheduler
+    start_scheduler()
+    logger.info("Application started")
+
+
+@app.on_event("shutdown")
+async def shutdown_event():
+    from app.services.scheduler import stop_scheduler
+    stop_scheduler()
+    logger.info("Application shutdown")

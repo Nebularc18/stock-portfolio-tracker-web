@@ -116,17 +116,6 @@ export default function StockDetail() {
     fetchAnalystData()
   }, [ticker, activeTab, analystDataLoaded])
 
-  const handleRefresh = async () => {
-    if (!ticker) return
-    try {
-      const updated = await api.stocks.refresh(ticker)
-      setStock(updated)
-      setLastUpdate(new Date())
-    } catch (err) {
-      console.error('Failed to refresh', err)
-    }
-  }
-
   const openEditModal = () => {
     if (stock) {
       setEditQuantity(stock.quantity.toString())
@@ -289,7 +278,7 @@ export default function StockDetail() {
               </p>
             )}
             <p style={{ color: 'var(--text-secondary)', fontSize: '12px', marginTop: '8px' }}>
-              Last updated: {formatTimeInTimezone(stock.last_updated || lastUpdate, timezone)}
+              Last updated: {formatTimeInTimezone(stock.last_updated || lastUpdate, timezone)} · Auto-refresh every 10 min
             </p>
           </div>
           <div style={{ display: 'flex', gap: '8px' }}>
@@ -298,9 +287,6 @@ export default function StockDetail() {
             </button>
             <button className="btn btn-danger" onClick={handleDelete}>
               Delete
-            </button>
-            <button className="btn btn-primary" onClick={handleRefresh}>
-              Refresh
             </button>
           </div>
         </div>

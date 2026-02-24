@@ -19,8 +19,6 @@ MARKET_INDICES = {
     "^FTSE": "FTSE 100",
     "^GDAXI": "DAX",
     "^STOXX50E": "Euro Stoxx 50",
-    "^N225": "Nikkei 225",
-    "^HSI": "Hang Seng",
 }
 
 _session = None

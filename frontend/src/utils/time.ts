@@ -45,3 +45,21 @@ export function formatDateTimeInTimezone(date: Date | string | null, timezone: s
     })
   }
 }
+
+export function getTimeUntilNextInterval(intervalMinutes: number): number {
+  const now = new Date()
+  const currentMinutes = now.getMinutes()
+  const currentSeconds = now.getSeconds()
+  const currentMs = now.getMilliseconds()
+  
+  const minutesUntilNext = intervalMinutes - (currentMinutes % intervalMinutes)
+  const msUntilNext = (minutesUntilNext * 60 - currentSeconds) * 1000 - currentMs
+  
+  return msUntilNext
+}
+
+export function getNextAlignedTime(intervalMinutes: number): Date {
+  const now = new Date()
+  const msUntilNext = getTimeUntilNextInterval(intervalMinutes)
+  return new Date(now.getTime() + msUntilNext)
+}
