@@ -51,10 +51,10 @@ _DIVIDEND_CACHE_TTL = 86400 * 30
 _sector_cache: Dict[str, Optional[str]] = {}
 
 _ANALYST_CACHE: Dict[str, tuple] = {}
-_ANALYST_CACHE_TTL = 3600
+_ANALYST_CACHE_TTL = 43200
 
 _PRICE_TARGETS_CACHE: Dict[str, tuple] = {}
-_PRICE_TARGETS_CACHE_TTL = 3600
+_PRICE_TARGETS_CACHE_TTL = 43200
 
 _session = None
 
@@ -374,14 +374,29 @@ class StockService:
 
     def get_all_analyst_recommendations(self, ticker: str) -> Dict[str, Optional[List[Dict[str, Any]]]]:
         ticker_upper = ticker.upper()
+        cache_file = f"all_analyst_recs_{ticker_upper}.json"
+        
+        cached = _load_file_cache(cache_file)
+        if cached is not None:
+            return cached
+        
+        if ticker_upper in _ANALYST_CACHE:
+            data, timestamp = _ANALYST_CACHE[ticker_upper]
+            if datetime.now().timestamp() - timestamp < _ANALYST_CACHE_TTL:
+                return data
         
         yfinance_recs = self._get_yfinance_recommendations(ticker_upper)
         finnhub_recs = self._get_finnhub_recommendations(ticker_upper)
         
-        return {
+        result = {
             'yfinance': yfinance_recs,
             'finnhub': finnhub_recs,
         }
+        
+        _ANALYST_CACHE[ticker_upper] = (result, datetime.now().timestamp())
+        _save_file_cache(cache_file, result, _ANALYST_CACHE_TTL)
+        
+        return result
 
     def _get_yfinance_recommendations(self, ticker_upper: str) -> Optional[List[Dict[str, Any]]]:
         logger.info(f"[YFINANCE] Attempting to fetch recommendations for {ticker_upper}")

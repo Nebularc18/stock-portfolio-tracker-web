@@ -14,6 +14,7 @@ os.makedirs(CACHE_DIR, exist_ok=True)
 
 HEADER_INDICES = {
     "^OMXS30": "OMX Stockholm 30",
+    "^OMXS30GI": "OMX Stockholm 30 GI",
     "^OMXSPI": "OMX Stockholm PI",
     "^GSPC": "S&P 500",
     "^IXIC": "NASDAQ",
