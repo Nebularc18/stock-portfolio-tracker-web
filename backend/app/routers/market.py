@@ -24,6 +24,11 @@ MARKET_INDICES = {
 _session = None
 
 def get_session():
+    """Get or create a shared requests session with default headers.
+    
+    Returns:
+        requests.Session: Session with User-Agent and Accept headers configured.
+    """
     global _session
     if _session is None:
         _session = requests.Session()
@@ -36,10 +41,19 @@ def get_session():
 
 
 def fetch_index_data(symbol: str) -> dict | None:
+    """Fetch current price and change data for a market index.
+    
+    Args:
+        symbol: Yahoo Finance symbol for the index (e.g., '^GSPC' for S&P 500).
+    
+    Returns:
+        dict: Contains symbol, price, change, and change_percent fields.
+        None: If data could not be fetched or parsed.
+    """
     session = get_session()
     
     try:
-        url = f"https://query1.finance.yahoo.com/v8/finance/chart/{symbol}?interval=1d&range=2d"
+        url = f"https://query1.finance.yahoo.com/v8/finance/chart/{symbol}?interval=1d&range=5d"
         response = session.get(url, timeout=10)
         
         if response.status_code != 200:
@@ -53,18 +67,26 @@ def fetch_index_data(symbol: str) -> dict | None:
         
         result = data['chart']['result'][0]
         quote = result.get('indicators', {}).get('quote', [{}])[0]
+        meta = result.get('meta', {})
         
         closes = quote.get('close', [])
         prices = [p for p in closes if p is not None]
         
-        if len(prices) < 2:
-            return None
-        
-        current = prices[-1]
-        previous = prices[-2]
-        
-        change = current - previous
-        change_percent = (change / previous) * 100
+        if len(prices) >= 2:
+            current = prices[-1]
+            previous = prices[-2]
+            change = current - previous
+            change_percent = (change / previous) * 100 if previous != 0 else 0
+        else:
+            current_price = meta.get('regularMarketPrice')
+            previous_close = meta.get('chartPreviousClose')
+            
+            if current_price is None or previous_close is None:
+                return None
+            
+            current = current_price
+            change = current_price - previous_close
+            change_percent = (change / previous_close) * 100 if previous_close != 0 else 0
         
         return {
             "symbol": symbol,
@@ -79,11 +101,35 @@ def fetch_index_data(symbol: str) -> dict | None:
 
 @router.get("/header")
 def get_header_data(force: bool = Query(False)):
+    """Retrieve market data for the header component.
+    
+    Args:
+        force: If True, bypass cache and force refresh.
+    
+    Returns:
+        dict: Header market data with indices and exchange rates.
+    """
     return get_header_market_data(force_refresh=force)
+
+
+@router.get("/should-refresh")
+def should_refresh():
+    """Check if market data should be refreshed.
+    
+    Returns:
+        dict: Contains 'should_refresh' boolean based on market hours.
+    """
+    return {"should_refresh": MarketHoursService.should_refresh()}
 
 
 @router.get("/indices")
 def get_market_indices() -> List[dict]:
+    """Retrieve current data for all tracked market indices.
+    
+    Returns:
+        List[dict]: List of index data with symbol, name, price, change,
+            and change_percent fields.
+    """
     results = []
     
     for symbol, name in MARKET_INDICES.items():
@@ -99,6 +145,12 @@ def get_market_indices() -> List[dict]:
 
 @router.get("/exchange-rates")
 def get_exchange_rates():
+    """Retrieve current exchange rates for major currency pairs.
+    
+    Returns:
+        dict: Mapping of currency pair names to exchange rates
+            (e.g., {'USD_SEK': 10.5, 'EUR_SEK': 11.2}).
+    """
     session = get_session()
     rates = {}
     
@@ -133,11 +185,29 @@ def get_exchange_rates():
 
 @router.get("/hours")
 def get_market_hours(timezone: str = None):
+    """Retrieve status for all tracked markets.
+    
+    Args:
+        timezone: Optional timezone for status times (defaults to market local).
+    
+    Returns:
+        dict: Market status for all tracked markets with open/close times.
+    """
     return MarketHoursService.get_all_markets_status(timezone)
 
 
 @router.get("/hours/{market}")
 def get_specific_market_hours(market: str, timezone: str = None):
+    """Retrieve status for a specific market.
+    
+    Args:
+        market: Market identifier (e.g., 'SE' for Sweden, 'US' for USA).
+        timezone: Optional timezone for status times.
+    
+    Returns:
+        dict: Market status with open, close, and is_open fields,
+            or error message if market not found.
+    """
     status = MarketHoursService.get_market_status(market.upper(), timezone)
     if "error" in status:
         return status
@@ -146,6 +216,13 @@ def get_specific_market_hours(market: str, timezone: str = None):
 
 @router.get("/indices/sparklines")
 def get_index_sparklines():
+    """Retrieve 30-day price sparkline data for all market indices.
+    
+    Returns:
+        dict: Mapping of index symbols to sparkline data containing
+            prices, dates, is_positive, start_value, end_value,
+            and change_percent fields.
+    """
     session = get_session()
     sparklines = {}
     

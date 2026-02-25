@@ -9,6 +9,11 @@ scheduler = BackgroundScheduler()
 
 
 def refresh_all_stocks():
+    """Refresh all stock prices in the portfolio.
+    
+    Only refreshes if markets are open or within post-close window.
+    Updates current prices and records daily price history.
+    """
     from app.main import get_db, Stock, StockPriceHistory
     from app.services.stock_service import StockService
     from app.services.exchange_rate_service import ExchangeRateService
@@ -72,6 +77,10 @@ def refresh_all_stocks():
 
 
 def start_scheduler():
+    """Start the background scheduler for stock refresh.
+    
+    Schedules stock refresh every 10 minutes at :00, :10, :20, :30, :40, :50.
+    """
     scheduler.add_job(
         refresh_all_stocks,
         CronTrigger(minute='0,10,20,30,40,50'),
@@ -83,5 +92,6 @@ def start_scheduler():
 
 
 def stop_scheduler():
+    """Stop the background scheduler."""
     scheduler.shutdown()
     logger.info("Stock refresh scheduler stopped")

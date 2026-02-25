@@ -57,6 +57,15 @@ _cache_ttl = 3600
 class ExchangeRateService:
     @staticmethod
     def get_rate(from_currency: str, to_currency: str) -> Optional[float]:
+        """Get exchange rate between two currencies.
+        
+        Args:
+            from_currency: Source currency code (e.g., 'USD').
+            to_currency: Target currency code (e.g., 'SEK').
+        
+        Returns:
+            float: Exchange rate, or None if unavailable.
+        """
         key = f"{from_currency}_{to_currency}"
         
         if key in _cache:
@@ -94,6 +103,15 @@ class ExchangeRateService:
 
     @staticmethod
     def get_rates_for_currencies(currencies: set, display_currency: str) -> Dict[str, Optional[float]]:
+        """Get exchange rates for multiple currencies to display currency.
+        
+        Args:
+            currencies: Set of currency codes to convert from.
+            display_currency: Target currency code.
+        
+        Returns:
+            dict: Mapping of currency pairs to exchange rates.
+        """
         needed_pairs = set()
         for currency in currencies:
             if currency != display_currency:
@@ -130,6 +148,16 @@ class ExchangeRateService:
 
     @staticmethod
     def convert(amount: float, from_currency: str, to_currency: str) -> Optional[float]:
+        """Convert an amount from one currency to another.
+        
+        Args:
+            amount: The monetary amount to convert.
+            from_currency: Source currency code.
+            to_currency: Target currency code.
+        
+        Returns:
+            float: Converted amount, or None if rate unavailable.
+        """
         if from_currency == to_currency:
             return amount
         

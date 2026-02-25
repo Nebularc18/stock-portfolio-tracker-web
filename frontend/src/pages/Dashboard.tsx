@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import { Link } from 'react-router-dom'
 import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip, LineChart, Line, XAxis, YAxis, CartesianGrid } from 'recharts'
 import { api, PortfolioSummary, Dividend, Stock } from '../services/api'
@@ -38,7 +38,7 @@ export default function Dashboard() {
   const [error, setError] = useState<string | null>(null)
   const { displayCurrency, timezone } = useSettings()
 
-  const fetchData = async () => {
+  const fetchData = useCallback(async () => {
     try {
       setLoading(true)
       const [summaryData, distributionData, stocksData, ratesData, historyData] = await Promise.all([
@@ -76,11 +76,11 @@ export default function Dashboard() {
     } finally {
       setLoading(false)
     }
-  }
+  }, [])
 
   useEffect(() => {
     fetchData()
-  }, [])
+  }, [fetchData])
 
   const convertToCurrency = (amount: number, currency: string): number => {
     if (currency === displayCurrency) return amount
@@ -328,7 +328,7 @@ export default function Dashboard() {
         <div className="card">
           <h3 style={{ marginBottom: '8px' }}>Dividends {new Date().getFullYear()}</h3>
           <p style={{ color: 'var(--text-secondary)', fontSize: '12px', marginBottom: '16px' }}>
-            Total: <span style={{ color: 'var(--accent-green)', fontWeight: '600' }}>{formatCurrency(totalDividends)}</span>
+            Total: <span style={{ color: 'var(--accent-green)', fontWeight: '600' }}>{formatCurrency(totalDividends, currency)}</span>
           </p>
           <table>
             <thead>
@@ -348,7 +348,7 @@ export default function Dashboard() {
                       </Link>
                     </td>
                     <td>{div.date}</td>
-                    <td style={{ color: 'var(--accent-green)' }}>{formatCurrency(div.amount)}</td>
+                    <td style={{ color: 'var(--accent-green)' }}>{formatCurrency(div.amount, div.currency || currency)}</td>
                   </tr>
                 ))
               )}

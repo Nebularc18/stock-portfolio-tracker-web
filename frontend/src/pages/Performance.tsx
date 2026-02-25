@@ -17,6 +17,17 @@ function formatPercent(value: number | null): string {
   return `${sign}${value.toFixed(2)}%`
 }
 
+function sanitizeCsvCell(value: string | number | null | undefined): string {
+  if (value === null || value === undefined) return '""'
+  const str = String(value)
+  const escaped = str.replace(/"/g, '""')
+  const quoted = `"${escaped}"`
+  if (/^[\u0000-\u001F\s]*[=+\-@]/.test(str)) {
+    return `"\t${escaped}"`
+  }
+  return quoted
+}
+
 type SortField = 'ticker' | 'name' | 'value' | 'cost' | 'gain' | 'gainPercent' | 'dailyChange' | 'dailyChangePercent'
 type SortOrder = 'asc' | 'desc'
 
@@ -69,7 +80,7 @@ export default function Performance() {
   const convertToSEK = (amount: number, currency: string): number => {
     if (currency === 'SEK') return amount
     const rate = exchangeRates[`${currency}_SEK`]
-    if (rate) return amount * rate
+    if (rate != null) return amount * rate
     return amount
   }
 
@@ -78,10 +89,10 @@ export default function Performance() {
     const cost = (stock.purchase_price || 0) * stock.quantity
     const gain = value - cost
     const gainPercent = cost > 0 ? (gain / cost) * 100 : 0
-    const dailyChange = stock.current_price && stock.previous_close
+    const dailyChange = stock.current_price != null && stock.previous_close != null
       ? (stock.current_price - stock.previous_close) * stock.quantity
       : null
-    const dailyChangePercent = stock.current_price && stock.previous_close
+    const dailyChangePercent = stock.current_price != null && stock.previous_close != null && stock.previous_close !== 0
       ? ((stock.current_price - stock.previous_close) / stock.previous_close) * 100
       : null
 
@@ -102,7 +113,7 @@ export default function Performance() {
       valueSEK: convertToSEK(value, stock.currency),
       costSEK: convertToSEK(cost, stock.currency),
       gainSEK: convertToSEK(gain, stock.currency),
-      dailyChangeSEK: dailyChange ? convertToSEK(dailyChange, stock.currency) : null,
+      dailyChangeSEK: dailyChange != null ? convertToSEK(dailyChange, stock.currency) : null,
     }
   })
 
@@ -181,26 +192,29 @@ export default function Performance() {
   const exportToCSV = () => {
     const headers = ['Ticker', 'Name', 'Quantity', 'Currency', 'Purchase Price', 'Current Price', 'Value', 'Cost', 'Gain', 'Gain %', 'Daily Change', 'Daily Change %']
     const rows = sortedData.map(s => [
-      s.ticker,
-      s.name || '',
-      s.quantity,
-      s.currency,
-      s.purchasePrice?.toFixed(2) || '',
-      s.currentPrice?.toFixed(2) || '',
-      s.value.toFixed(2),
-      s.cost.toFixed(2),
-      s.gain.toFixed(2),
-      s.gainPercent.toFixed(2) + '%',
-      s.dailyChange?.toFixed(2) || '',
-      s.dailyChangePercent?.toFixed(2) + '%' || '',
+      sanitizeCsvCell(s.ticker),
+      sanitizeCsvCell(s.name),
+      sanitizeCsvCell(s.quantity),
+      sanitizeCsvCell(s.currency),
+      sanitizeCsvCell(s.purchasePrice?.toFixed(2)),
+      sanitizeCsvCell(s.currentPrice?.toFixed(2)),
+      sanitizeCsvCell(s.value.toFixed(2)),
+      sanitizeCsvCell(s.cost.toFixed(2)),
+      sanitizeCsvCell(s.gain.toFixed(2)),
+      sanitizeCsvCell(s.gainPercent.toFixed(2) + '%'),
+      sanitizeCsvCell(s.dailyChange?.toFixed(2)),
+      sanitizeCsvCell(s.dailyChangePercent != null ? s.dailyChangePercent.toFixed(2) + '%' : ''),
     ])
     
-    const csvContent = [headers.join(','), ...rows.map(r => r.join(','))].join('\n')
+    const csvContent = [headers.map(sanitizeCsvCell).join(','), ...rows.map(r => r.join(','))].join('\n')
     const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' })
+    const url = URL.createObjectURL(blob)
     const link = document.createElement('a')
-    link.href = URL.createObjectURL(blob)
+    link.href = url
     link.download = `portfolio_performance_${new Date().toISOString().split('T')[0]}.csv`
     link.click()
+    URL.revokeObjectURL(url)
+    link.remove()
   }
 
   if (loading) {
@@ -331,10 +345,10 @@ export default function Performance() {
                 <td className={stock.gainPercent >= 0 ? 'positive' : 'negative'}>
                   {formatPercent(stock.gainPercent)}
                 </td>
-                <td className={stock.dailyChangeSEK && stock.dailyChangeSEK >= 0 ? 'positive' : 'negative'}>
+                <td className={stock.dailyChangeSEK != null ? (stock.dailyChangeSEK >= 0 ? 'positive' : 'negative') : ''}>
                   {stock.dailyChangeSEK !== null ? formatCurrency(stock.dailyChangeSEK, 'SEK') : '-'}
                 </td>
-                <td className={stock.dailyChangePercent && stock.dailyChangePercent >= 0 ? 'positive' : 'negative'}>
+                <td className={stock.dailyChangePercent != null ? (stock.dailyChangePercent >= 0 ? 'positive' : 'negative') : ''}>
                   {formatPercent(stock.dailyChangePercent)}
                 </td>
               </tr>

@@ -92,7 +92,7 @@ export default function RecommendationChart({ recommendations, loading }: Props)
                 background: 'var(--bg-tertiary)'
               }}>
                 {segments.map((seg, segIndex) => {
-                  const height = (seg.value / total) * barHeight
+                  const height = total > 0 ? (seg.value / total) * barHeight : 0
                   return (
                     <div
                       key={seg.key}

@@ -11,7 +11,7 @@ interface HeaderDataContextType {
 const HeaderDataContext = createContext<HeaderDataContextType | null>(null)
 
 const CACHE_KEY = 'header_market_data'
-const CACHE_TTL = 4 * 60 * 1000
+const CACHE_TTL = 15 * 60 * 1000
 
 interface CachedData {
   data: HeaderMarketData
@@ -53,12 +53,17 @@ export function HeaderDataProvider({ children }: { children: ReactNode }) {
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null)
 
   const fetchData = async (forceRefresh = false) => {
+    let shouldRefresh = true
+    
     try {
-      const { should_refresh } = await api.market.shouldRefresh()
-      if (!should_refresh && !forceRefresh) {
-        return
-      }
+      const result = await api.market.shouldRefresh()
+      shouldRefresh = result.should_refresh
     } catch {
+      // Continue with refresh if endpoint fails
+    }
+
+    if (!shouldRefresh && !forceRefresh) {
+      setLoading(false)
       return
     }
 
@@ -91,7 +96,7 @@ export function HeaderDataProvider({ children }: { children: ReactNode }) {
     
     intervalRef.current = setInterval(() => {
       fetchData()
-    }, 4 * 60 * 1000)
+    }, CACHE_TTL)
     
     return () => {
       if (intervalRef.current) {
