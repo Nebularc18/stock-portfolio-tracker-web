@@ -39,7 +39,7 @@ def fetch_index_data(symbol: str) -> dict | None:
     session = get_session()
     
     try:
-        url = f"https://query1.finance.yahoo.com/v8/finance/chart/{symbol}?interval=1d&range=2d"
+        url = f"https://query1.finance.yahoo.com/v8/finance/chart/{symbol}?interval=1d&range=5d"
         response = session.get(url, timeout=10)
         
         if response.status_code != 200:
@@ -53,18 +53,26 @@ def fetch_index_data(symbol: str) -> dict | None:
         
         result = data['chart']['result'][0]
         quote = result.get('indicators', {}).get('quote', [{}])[0]
+        meta = result.get('meta', {})
         
         closes = quote.get('close', [])
         prices = [p for p in closes if p is not None]
         
-        if len(prices) < 2:
-            return None
-        
-        current = prices[-1]
-        previous = prices[-2]
-        
-        change = current - previous
-        change_percent = (change / previous) * 100 if previous != 0 else 0
+        if len(prices) >= 2:
+            current = prices[-1]
+            previous = prices[-2]
+            change = current - previous
+            change_percent = (change / previous) * 100 if previous != 0 else 0
+        else:
+            current_price = meta.get('regularMarketPrice')
+            previous_close = meta.get('chartPreviousClose')
+            
+            if current_price is None or previous_close is None:
+                return None
+            
+            current = current_price
+            change = current_price - previous_close
+            change_percent = (change / previous_close) * 100 if previous_close != 0 else 0
         
         return {
             "symbol": symbol,
@@ -84,7 +92,8 @@ def get_header_data(force: bool = Query(False)):
 
 @router.get("/should-refresh")
 def should_refresh():
-    return {"should_refresh": True}
+    from app.services.market_hours_service import MarketHoursService
+    return {"should_refresh": MarketHoursService.should_refresh()}
 
 
 @router.get("/indices")

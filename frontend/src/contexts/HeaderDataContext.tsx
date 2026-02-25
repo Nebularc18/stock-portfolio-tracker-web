@@ -11,7 +11,7 @@ interface HeaderDataContextType {
 const HeaderDataContext = createContext<HeaderDataContextType | null>(null)
 
 const CACHE_KEY = 'header_market_data'
-const CACHE_TTL = 4 * 60 * 1000
+const CACHE_TTL = 15 * 60 * 1000
 
 interface CachedData {
   data: HeaderMarketData
@@ -91,7 +91,7 @@ export function HeaderDataProvider({ children }: { children: ReactNode }) {
     
     intervalRef.current = setInterval(() => {
       fetchData()
-    }, 4 * 60 * 1000)
+    }, 15 * 60 * 1000)
     
     return () => {
       if (intervalRef.current) {
