@@ -82,6 +82,11 @@ def get_header_data(force: bool = Query(False)):
     return get_header_market_data(force_refresh=force)
 
 
+@router.get("/should-refresh")
+def should_refresh():
+    return {"should_refresh": True}
+
+
 @router.get("/indices")
 def get_market_indices() -> List[dict]:
     results = []

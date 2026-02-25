@@ -63,7 +63,7 @@ def _save_cache(filename: str, value: Any, ttl: int = 300):
 
 def _fetch_single_quote(symbol: str) -> Optional[Dict]:
     session = _get_session()
-    url = f"https://query1.finance.yahoo.com/v8/finance/chart/{symbol}?interval=1d&range=2d"
+    url = f"https://query1.finance.yahoo.com/v8/finance/chart/{symbol}?interval=1d&range=5d"
     
     try:
         response = session.get(url, timeout=10)
@@ -83,8 +83,12 @@ def _fetch_single_quote(symbol: str) -> Optional[Dict]:
         
         result = data['chart']['result'][0]
         quote = result.get('indicators', {}).get('quote', [{}])[0]
+        meta = result.get('meta', {})
         closes = quote.get('close', [])
         prices = [p for p in closes if p is not None]
+        
+        current_price = meta.get('regularMarketPrice')
+        previous_close = meta.get('chartPreviousClose')
         
         if len(prices) >= 2:
             current = prices[-1]
@@ -97,11 +101,20 @@ def _fetch_single_quote(symbol: str) -> Optional[Dict]:
                 'change': change,
                 'change_percent': change_percent,
             }
+        elif current_price is not None and previous_close is not None:
+            change = current_price - previous_close
+            change_percent = (change / previous_close) * 100 if previous_close else 0
+            
+            return {
+                'price': current_price,
+                'change': change,
+                'change_percent': change_percent,
+            }
         elif len(prices) == 1:
             return {
                 'price': prices[0],
-                'change': 0,
-                'change_percent': 0,
+                'change': None,
+                'change_percent': None,
             }
         
         return None
