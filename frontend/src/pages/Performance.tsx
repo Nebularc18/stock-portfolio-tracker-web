@@ -11,12 +11,28 @@ function formatCurrency(value: number | null, currency: string = 'USD'): string 
   }).format(value)
 }
 
+/**
+ * Format a percentage value as a signed string with two decimals.
+ *
+ * @param value - The percentage to format, or `null` to indicate no value
+ * @returns `"-"` if `value` is `null`, otherwise the percentage formatted with a leading `+` for non-negative values, two decimal places, and a trailing `%` (e.g., `"+12.34%"` or `"-5.67%"`)
+ */
 function formatPercent(value: number | null): string {
   if (value === null) return '-'
   const sign = value >= 0 ? '+' : ''
   return `${sign}${value.toFixed(2)}%`
 }
 
+/**
+ * Escape and quote a value for safe inclusion in a CSV cell.
+ *
+ * Converts null or undefined to `""`, doubles any internal quotes, wraps the result in quotes,
+ * and when the cell begins with `=`, `+`, `-`, or `@` prefixes the content with a tab (inside the quotes)
+ * to prevent CSV formula injection.
+ *
+ * @param value - The cell value to sanitize; may be a string, number, null, or undefined
+ * @returns The sanitized CSV cell as a quoted string
+ */
 function sanitizeCsvCell(value: string | number | null | undefined): string {
   if (value === null || value === undefined) return '""'
   const str = String(value)
@@ -51,6 +67,13 @@ interface PerformanceData {
   dailyChangeSEK: number | null
 }
 
+/**
+ * Renders the portfolio performance dashboard with sortable holdings, summary metrics, and CSV export.
+ *
+ * The component loads stocks and exchange rates on mount, computes per-stock and aggregate performance (including SEK conversions), and provides interactive sorting and a CSV export of the current table view.
+ *
+ * @returns A React element containing the performance UI: summary cards, best/worst performers, and a sortable holdings table with an export-to-CSV action.
+ */
 export default function Performance() {
   const [stocks, setStocks] = useState<Stock[]>([])
   const [exchangeRates, setExchangeRates] = useState<Record<string, number | null>>({})

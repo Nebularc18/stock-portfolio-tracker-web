@@ -31,6 +31,13 @@ function formatPeriod(period: string): string {
   }
 }
 
+/**
+ * Renders a stacked bar chart of analyst recommendations with per-period tooltips and a legend.
+ *
+ * @param recommendations - Array of recommendation trend objects to display (up to the first 4 periods); if `null` or empty, the component renders nothing.
+ * @param loading - When `true`, renders a loading card instead of the chart.
+ * @returns The chart card JSX element, or `null` when there is no data to render.
+ */
 export default function RecommendationChart({ recommendations, loading }: Props) {
   const [hoveredBar, setHoveredBar] = useState<number | null>(null)
 

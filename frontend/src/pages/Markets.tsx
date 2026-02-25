@@ -34,6 +34,15 @@ function MiniSparkline({ data, isPositive }: { data: number[]; isPositive: boole
   )
 }
 
+/**
+ * Render the Markets view showing market indices, market hours, sparklines, and refresh controls.
+ *
+ * Fetches indices, market hours, and optional sparklines on mount, displays loading and error states,
+ * allows manual refreshes, and schedules subsequent refreshes based on server instruction and a
+ * 15-minute interval cadence. Uses the user's timezone from settings for time formatting.
+ *
+ * @returns The Markets component UI as a JSX element
+ */
 export default function Markets() {
   const [indices, setIndices] = useState<MarketIndex[]>([])
   const [marketHours, setMarketHours] = useState<MarketStatus[]>([])

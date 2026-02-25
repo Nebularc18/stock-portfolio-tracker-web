@@ -30,7 +30,16 @@ const EXCHANGES = [
   { code: 'SW', name: 'Switzerland', suffix: '.SW', currency: 'CHF' },
 ]
 
-export default function Stocks() {
+/**
+  * Render the Stocks management UI for viewing and managing a portfolio of stocks.
+  *
+  * The component loads and displays the user's stocks, shows last update time, and provides
+  * controls to add, edit, and delete stocks. It handles data fetching, optimistic UI state
+  * for add/edit operations, basic validation for inputs, and displays errors.
+  *
+  * @returns The rendered Stocks UI as a React element
+  */
+ export default function Stocks() {
   const [stocks, setStocks] = useState<Stock[]>([])
   const [loading, setLoading] = useState(true)
   const [showAddForm, setShowAddForm] = useState(false)

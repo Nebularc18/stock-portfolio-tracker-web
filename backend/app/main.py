@@ -83,6 +83,14 @@ Base.metadata.create_all(bind=engine)
 
 
 def get_db():
+    """
+    Yield a SQLAlchemy database session for use as a dependency.
+    
+    This generator provides a SessionLocal instance to callers and guarantees the session is closed after use.
+    
+    Returns:
+        db (Session): A SQLAlchemy Session instance that will be closed automatically when the dependency scope ends.
+    """
     db = SessionLocal()
     try:
         yield db
@@ -92,6 +100,11 @@ def get_db():
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    """
+    Manage application lifespan by starting the background scheduler on startup and stopping it on shutdown.
+    
+    Calls start_scheduler() before yielding control to the application and calls stop_scheduler() after shutdown; logs both lifecycle events.
+    """
     from app.services.scheduler import start_scheduler, stop_scheduler
     start_scheduler()
     logger.info("Application started")
@@ -181,4 +194,10 @@ def read_root():
 
 @app.get("/health")
 def health_check():
+    """
+    Return a minimal health status payload for the service.
+    
+    Returns:
+        dict: A JSON-serializable mapping with a single key "status" set to "healthy".
+    """
     return {"status": "healthy"}

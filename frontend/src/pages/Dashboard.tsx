@@ -26,7 +26,16 @@ interface Distribution {
   by_stock: Record<string, number>
 }
 
-export default function Dashboard() {
+/**
+   * Renders the portfolio Dashboard and manages loading, refreshing, and state for portfolio data.
+   *
+   * This component fetches and stores portfolio summary, distribution, holdings, exchange rates,
+   * portfolio history, and recent dividends; it displays summary cards, a 90-day value chart,
+   * distribution pies, holdings table, and annual dividends with retry on failure.
+   *
+   * @returns The React element for the portfolio dashboard UI
+   */
+  export default function Dashboard() {
   const [summary, setSummary] = useState<PortfolioSummary | null>(null)
   const [distribution, setDistribution] = useState<Distribution | null>(null)
   const [dividendsByStock, setDividendsByStock] = useState<Record<string, Dividend[]>>({})

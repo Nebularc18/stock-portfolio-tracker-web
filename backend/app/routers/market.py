@@ -36,6 +36,17 @@ def get_session():
 
 
 def fetch_index_data(symbol: str) -> dict | None:
+    """
+    Fetches the latest price and change information for the given market symbol from Yahoo Finance.
+    
+    Returns:
+        dict: A mapping with the following keys:
+            - "symbol" (str): The requested ticker symbol.
+            - "price" (float): The most recent price.
+            - "change" (float): Difference between the most recent and previous price.
+            - "change_percent" (float): Percent change relative to the previous price.
+        None: If the data cannot be retrieved or required fields are missing.
+    """
     session = get_session()
     
     try:
@@ -87,16 +98,44 @@ def fetch_index_data(symbol: str) -> dict | None:
 
 @router.get("/header")
 def get_header_data(force: bool = Query(False)):
+    """
+    Retrieve market header data, optionally forcing a cache refresh.
+    
+    Parameters:
+        force (bool): If True, bypass cached data and fetch fresh market header information.
+    
+    Returns:
+        dict: Market header data.
+    """
     return get_header_market_data(force_refresh=force)
 
 
 @router.get("/should-refresh")
 def should_refresh():
+    """
+    Indicates whether market data should be refreshed.
+    
+    Returns:
+        dict: A mapping with key "should_refresh" whose value is `True` if markets should refresh, `False` otherwise.
+    """
     return {"should_refresh": MarketHoursService.should_refresh()}
 
 
 @router.get("/indices")
 def get_market_indices() -> List[dict]:
+    """
+    Collects the latest market index snapshots for the configured indices.
+    
+    Only indices for which fresh data could be retrieved are included; indices with no available data are omitted.
+    
+    Returns:
+        List[dict]: A list of dictionaries, each containing the keys:
+            - 'symbol' (str): The index symbol.
+            - 'price' (float): The latest price.
+            - 'change' (float): The absolute change from the previous close.
+            - 'change_percent' (float): The percent change from the previous close.
+            - 'name' (str): Human-readable index name from MARKET_INDICES.
+    """
     results = []
     
     for symbol, name in MARKET_INDICES.items():

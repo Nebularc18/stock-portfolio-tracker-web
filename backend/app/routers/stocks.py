@@ -28,12 +28,33 @@ class ManualDividendUpdate(BaseModel):
 
 @router.get("", response_model=list[StockResponse])
 def get_stocks(db: Session = Depends(get_db)):
+    """
+    Retrieve all stocks from the database.
+    
+    Returns:
+        list[Stock]: List of Stock ORM instances currently stored in the database.
+    """
     stocks = db.query(Stock).all()
     return stocks
 
 
 @router.get("/validate/{ticker}")
 def validate_ticker(ticker: str):
+    """
+    Validate a stock ticker and return basic stock metadata.
+    
+    Queries the stock service to confirm the ticker is valid and fetches its name and currency.
+    
+    Returns:
+        dict: {
+            "valid": True,
+            "name": str or None,
+            "currency": str or None
+        }
+    
+    Raises:
+        HTTPException: with status_code 404 when the ticker is invalid.
+    """
     from app.services.stock_service import StockService
     stock_service = StockService()
     
@@ -52,6 +73,18 @@ def validate_ticker(ticker: str):
 
 @router.get("/{ticker}", response_model=StockResponse)
 def get_stock(ticker: str, db: Session = Depends(get_db)):
+    """
+    Retrieve a Stock ORM instance by ticker symbol.
+    
+    Parameters:
+        ticker (str): Stock ticker symbol (case-insensitive; will be uppercased).
+    
+    Returns:
+        Stock: The matching Stock ORM object.
+    
+    Raises:
+        HTTPException: 404 if no stock with the given ticker is found.
+    """
     stock = db.query(Stock).filter(Stock.ticker == ticker.upper()).first()
     if not stock:
         raise HTTPException(status_code=404, detail="Stock not found")
@@ -182,6 +215,19 @@ def get_upcoming_dividends(ticker: str, db: Session = Depends(get_db)):
 
 @router.get("/{ticker}/analyst")
 def get_analyst_data(ticker: str, db: Session = Depends(get_db)):
+    """
+    Retrieve analyst recommendations, price targets, and the latest analyst rating for a stock.
+    
+    Raises:
+        HTTPException: 404 if the stock with the given ticker is not found.
+    
+    Returns:
+        dict: A mapping containing:
+            - "recommendations": YFinance recommendations data or None.
+            - "finnhub_recommendations": Finnhub recommendations data or None.
+            - "price_targets": Price target information or None.
+            - "latest_rating": The most recent analyst rating or None.
+    """
     from app.services.stock_service import StockService
     stock_service = StockService()
     
@@ -203,6 +249,18 @@ def get_analyst_data(ticker: str, db: Session = Depends(get_db)):
 
 @router.post("/{ticker}/manual-dividends", response_model=StockResponse)
 def add_manual_dividend(ticker: str, dividend_data: ManualDividendCreate, db: Session = Depends(get_db)):
+    """
+    Add a manually recorded dividend to the stock identified by ticker.
+    
+    Creates a new manual dividend entry (with a generated `id` and an `added_at` UTC timestamp) and appends it to the stock's `manual_dividends`. If the provided dividend omits `currency` the stock's currency is used; if `note` is omitted an empty string is used. Raises an HTTP 404 if the stock does not exist.
+    
+    Parameters:
+        ticker (str): Stock ticker symbol (case-insensitive).
+        dividend_data (ManualDividendCreate): Dividend details; `currency` defaults to the stock's currency if not provided, `note` defaults to an empty string.
+    
+    Returns:
+        Stock: The updated Stock ORM instance with the new manual dividend included.
+    """
     stock = db.query(Stock).filter(Stock.ticker == ticker.upper()).first()
     if not stock:
         raise HTTPException(status_code=404, detail="Stock not found")

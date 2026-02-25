@@ -11,6 +11,15 @@ CACHE_DIR = os.path.join(os.path.dirname(__file__), '..', '..', 'data', 'cache')
 os.makedirs(CACHE_DIR, exist_ok=True)
 
 def _load_file_cache(filename: str) -> Optional[Any]:
+    """
+    Load a cached value from a JSON file in the module cache directory.
+    
+    Parameters:
+        filename (str): Cache filename located inside the module's CACHE_DIR (relative filename, not a full path).
+    
+    Returns:
+        Optional[Any]: The stored `value` from the cache if the file exists and the entry is not expired (based on its `timestamp` and `ttl`), otherwise `None`.
+    """
     filepath = os.path.join(CACHE_DIR, filename)
     if not os.path.exists(filepath):
         return None
@@ -25,6 +34,16 @@ def _load_file_cache(filename: str) -> Optional[Any]:
         return None
 
 def _save_file_cache(filename: str, value: Any, ttl: int = 3600):
+    """
+    Persist a cache entry to the module cache directory as a JSON file.
+    
+    Writes a JSON object with keys `value`, `timestamp` (current epoch seconds), and `ttl` to CACHE_DIR/<filename>. On write failure the function logs a warning and returns without raising.
+    
+    Parameters:
+        filename (str): Name of the cache file to create or overwrite (relative to CACHE_DIR).
+        value (Any): The value to store in the cache; must be JSON-serializable.
+        ttl (int): Time-to-live in seconds to record alongside the cached value.
+    """
     filepath = os.path.join(CACHE_DIR, filename)
     try:
         with open(filepath, 'w') as f:

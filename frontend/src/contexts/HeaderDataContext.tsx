@@ -45,6 +45,14 @@ function saveToCache(data: HeaderMarketData) {
   }
 }
 
+/**
+ * Supplies header market data to descendant components via HeaderDataContext.
+ *
+ * The provider fetches market header data (market indices, exchange rates, and last-updated timestamp), serves cached data when available and valid, and periodically refreshes the data in the background.
+ *
+ * @param children - React nodes rendered inside the provider
+ * @returns The context provider element that exposes { indices, exchangeRates, lastUpdated, loading } to descendants
+ */
 export function HeaderDataProvider({ children }: { children: ReactNode }) {
   const [indices, setIndices] = useState<MarketIndex[]>([])
   const [exchangeRates, setExchangeRates] = useState<Record<string, number | null>>({})

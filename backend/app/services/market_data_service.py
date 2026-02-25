@@ -62,6 +62,21 @@ def _save_cache(filename: str, value: Any, ttl: int = 300):
         logger.warning(f"Failed to save cache {filename}: {e}")
 
 def _fetch_single_quote(symbol: str) -> Optional[Dict]:
+    """
+    Fetches the most recent price and change metrics for a ticker symbol from Yahoo Finance.
+    
+    Queries Yahoo Finance's chart API and returns a dictionary containing the last known price and its absolute and percentage change when sufficient data is available; returns `None` if the quote cannot be obtained or parsed.
+    
+    Parameters:
+        symbol (str): Ticker symbol to query (e.g., 'AAPL').
+    
+    Returns:
+        dict: A mapping with keys:
+            - 'price' (float): Latest price used for calculations.
+            - 'change' (float): Absolute change between latest and previous price.
+            - 'change_percent' (float): Percentage change (change / previous * 100).
+        `None` if data is missing, rate-limited, or an error occurred.
+    """
     session = _get_session()
     url = f"https://query1.finance.yahoo.com/v8/finance/chart/{symbol}?interval=1d&range=5d"
     
