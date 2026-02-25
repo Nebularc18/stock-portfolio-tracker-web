@@ -64,7 +64,7 @@ def fetch_index_data(symbol: str) -> dict | None:
         previous = prices[-2]
         
         change = current - previous
-        change_percent = (change / previous) * 100
+        change_percent = (change / previous) * 100 if previous != 0 else 0
         
         return {
             "symbol": symbol,

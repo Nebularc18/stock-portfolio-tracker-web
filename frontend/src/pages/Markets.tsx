@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect, useRef, useCallback } from 'react'
 import { Link } from 'react-router-dom'
 import { LineChart, Line, ResponsiveContainer, YAxis } from 'recharts'
 import { api, MarketIndex, MarketStatus, SparklineData } from '../services/api'
@@ -45,7 +45,7 @@ export default function Markets() {
   const { timezone } = useSettings()
   const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
-  const fetchData = async () => {
+  const fetchData = useCallback(async () => {
     try {
       setLoading(true)
       const [indicesData, hoursData, sparklineData] = await Promise.all([
@@ -63,9 +63,9 @@ export default function Markets() {
     } finally {
       setLoading(false)
     }
-  }
+  }, [timezone])
 
-  const scheduleNextRefresh = async () => {
+  const scheduleNextRefresh = useCallback(async () => {
     try {
       const { should_refresh } = await api.market.shouldRefresh()
       if (!should_refresh) {
@@ -83,7 +83,7 @@ export default function Markets() {
       fetchData()
       scheduleNextRefresh()
     }, msUntilNext)
-  }
+  }, [fetchData])
 
   useEffect(() => {
     fetchData()
@@ -94,7 +94,7 @@ export default function Markets() {
         clearTimeout(timeoutRef.current)
       }
     }
-  }, [timezone])
+  }, [fetchData, scheduleNextRefresh])
 
   if (loading && !indices.length) {
     return <div style={{ textAlign: 'center', padding: '40px' }}>Loading market data...</div>

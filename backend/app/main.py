@@ -1,4 +1,5 @@
 import os
+from contextlib import asynccontextmanager
 from datetime import datetime
 from typing import List, Optional, Any
 import logging
@@ -89,7 +90,17 @@ def get_db():
         db.close()
 
 
-app = FastAPI(title="Stock Portfolio API")
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    from app.services.scheduler import start_scheduler, stop_scheduler
+    start_scheduler()
+    logger.info("Application started")
+    yield
+    stop_scheduler()
+    logger.info("Application shutdown")
+
+
+app = FastAPI(title="Stock Portfolio API", lifespan=lifespan)
 
 
 class StockCreate(BaseModel):
@@ -171,17 +182,3 @@ def read_root():
 @app.get("/health")
 def health_check():
     return {"status": "healthy"}
-
-
-@app.on_event("startup")
-async def startup_event():
-    from app.services.scheduler import start_scheduler
-    start_scheduler()
-    logger.info("Application started")
-
-
-@app.on_event("shutdown")
-async def shutdown_event():
-    from app.services.scheduler import stop_scheduler
-    stop_scheduler()
-    logger.info("Application shutdown")

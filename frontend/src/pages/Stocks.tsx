@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import { Link } from 'react-router-dom'
 import { api, Stock } from '../services/api'
 import { useSettings } from '../SettingsContext'
@@ -48,7 +48,7 @@ export default function Stocks() {
   const [lastUpdate, setLastUpdate] = useState<Date | null>(null)
   const { timezone } = useSettings()
 
-  const fetchStocks = async () => {
+  const fetchStocks = useCallback(async () => {
     try {
       setLoading(true)
       const data = await api.stocks.list()
@@ -60,11 +60,11 @@ export default function Stocks() {
     } finally {
       setLoading(false)
     }
-  }
+  }, [])
 
   useEffect(() => {
     fetchStocks()
-  }, [])
+  }, [fetchStocks])
 
   const getFullTicker = (ticker: string, exchange: string) => {
     const ex = EXCHANGES.find(e => e.code === exchange)

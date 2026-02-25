@@ -32,6 +32,23 @@ def get_stocks(db: Session = Depends(get_db)):
     return stocks
 
 
+@router.get("/validate/{ticker}")
+def validate_ticker(ticker: str):
+    from app.services.stock_service import StockService
+    stock_service = StockService()
+    
+    is_valid = stock_service.validate_ticker(ticker)
+    if not is_valid:
+        raise HTTPException(status_code=404, detail="Invalid ticker symbol")
+    
+    info = stock_service.get_stock_info(ticker)
+    return {
+        "valid": True,
+        "name": info.get("name") if info else None,
+        "currency": info.get("currency") if info else None,
+    }
+
+
 @router.get("/{ticker}", response_model=StockResponse)
 def get_stock(ticker: str, db: Session = Depends(get_db)):
     stock = db.query(Stock).filter(Stock.ticker == ticker.upper()).first()
@@ -180,23 +197,6 @@ def get_analyst_data(ticker: str, db: Session = Depends(get_db)):
         "finnhub_recommendations": all_recommendations.get('finnhub'),
         "price_targets": price_targets,
         "latest_rating": latest_rating,
-    }
-
-
-@router.get("/validate/{ticker}")
-def validate_ticker(ticker: str):
-    from app.services.stock_service import StockService
-    stock_service = StockService()
-    
-    is_valid = stock_service.validate_ticker(ticker)
-    if not is_valid:
-        raise HTTPException(status_code=404, detail="Invalid ticker symbol")
-    
-    info = stock_service.get_stock_info(ticker)
-    return {
-        "valid": True,
-        "name": info.get("name") if info else None,
-        "currency": info.get("currency") if info else None,
     }
 
 

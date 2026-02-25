@@ -2,7 +2,10 @@ import os
 import requests
 import time
 import json
+import logging
 from typing import Optional, Dict, Any, List, Tuple
+
+logger = logging.getLogger(__name__)
 
 CACHE_DIR = os.path.join(os.path.dirname(__file__), '..', '..', 'data', 'cache')
 os.makedirs(CACHE_DIR, exist_ok=True)
@@ -17,7 +20,8 @@ def _load_file_cache(filename: str) -> Optional[Any]:
         if time.time() - data.get('timestamp', 0) < data.get('ttl', 3600):
             return data.get('value')
         return None
-    except Exception:
+    except Exception as e:
+        logger.warning(f"Failed to load cache file {filename}: {e}")
         return None
 
 def _save_file_cache(filename: str, value: Any, ttl: int = 3600):
@@ -25,8 +29,8 @@ def _save_file_cache(filename: str, value: Any, ttl: int = 3600):
     try:
         with open(filepath, 'w') as f:
             json.dump({'value': value, 'timestamp': time.time(), 'ttl': ttl}, f)
-    except Exception:
-        pass
+    except Exception as e:
+        logger.warning(f"Failed to save cache file {filename}: {e}")
 
 FINNHUB_TICKER_MAP = {
     ".ST": ".ST",

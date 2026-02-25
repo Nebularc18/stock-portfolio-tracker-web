@@ -192,7 +192,7 @@ export default function Performance() {
       s.gain.toFixed(2),
       s.gainPercent.toFixed(2) + '%',
       s.dailyChange?.toFixed(2) || '',
-      s.dailyChangePercent?.toFixed(2) + '%' || '',
+      s.dailyChangePercent != null ? s.dailyChangePercent.toFixed(2) + '%' : '',
     ])
     
     const csvContent = [headers.join(','), ...rows.map(r => r.join(','))].join('\n')
