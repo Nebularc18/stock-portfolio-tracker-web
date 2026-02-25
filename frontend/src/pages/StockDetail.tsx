@@ -56,6 +56,9 @@ export default function StockDetail() {
   useEffect(() => {
     if (!ticker) return
     
+    setVerificationResult(null)
+    setMarketstackStatus(null)
+    
     const fetchData = async () => {
       try {
         setLoading(true)
@@ -564,7 +567,7 @@ export default function StockDetail() {
               )}
             </div>
             
-            {!marketstackStatus?.api_configured ? (
+            {marketstackStatus && marketstackStatus.api_configured === false ? (
               <p style={{ color: 'var(--text-secondary)', textAlign: 'center', padding: '20px' }}>
                 Marketstack API not configured. Set MARKETSTACK_API_KEY environment variable.
               </p>

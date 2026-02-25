@@ -156,7 +156,15 @@ class MarketstackService:
         use_cache: bool = True
     ) -> Optional[List[DividendData]]:
         ticker_upper = ticker.upper()
-        cache_file = f"marketstack_dividends_{ticker_upper}.json"
+        
+        effective_date_from = date_from
+        if not effective_date_from:
+            effective_date_from = (datetime.now() - timedelta(days=365)).strftime('%Y-%m-%d')
+        
+        effective_date_to = date_to or ''
+        
+        cache_key = f"{ticker_upper}_{effective_date_from}_{effective_date_to}".replace('-', '')
+        cache_file = f"marketstack_dividends_{cache_key}.json"
         
         if use_cache:
             cached = _load_file_cache(cache_file)
@@ -168,8 +176,7 @@ class MarketstackService:
         if date_from:
             params['date_from'] = date_from
         else:
-            one_year_ago = (datetime.now() - timedelta(days=365)).strftime('%Y-%m-%d')
-            params['date_from'] = one_year_ago
+            params['date_from'] = effective_date_from
         
         if date_to:
             params['date_to'] = date_to
@@ -322,7 +329,10 @@ class MarketstackService:
         if ticker:
             ticker_upper = ticker.upper()
             for filename in os.listdir(CACHE_DIR):
-                if ticker_upper in filename and 'marketstack' in filename:
+                if 'marketstack' not in filename:
+                    continue
+                parts = filename.replace('.json', '').split('_')
+                if len(parts) >= 3 and parts[2].upper() == ticker_upper:
                     filepath = os.path.join(CACHE_DIR, filename)
                     try:
                         os.remove(filepath)

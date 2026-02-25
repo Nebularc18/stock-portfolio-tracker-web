@@ -1,17 +1,11 @@
 from fastapi import APIRouter, HTTPException
 from typing import Optional, Dict, Any, List
-from pydantic import BaseModel
 
 from app.services.marketstack_service import marketstack_service
 from app.services.stock_service import StockService
 
 router = APIRouter()
 stock_service = StockService()
-
-
-class VerifyRequest(BaseModel):
-    date_from: Optional[str] = None
-    date_to: Optional[str] = None
 
 
 @router.get("/status")
@@ -30,13 +24,6 @@ def get_dividends(
         raise HTTPException(
             status_code=503, 
             detail="Marketstack API key not configured. Set MARKETSTACK_API_KEY environment variable."
-        )
-    
-    remaining = marketstack_service.get_usage_status().get('calls_remaining', 0)
-    if remaining <= 0:
-        raise HTTPException(
-            status_code=429,
-            detail=f"Monthly API limit reached. Limit: 100 calls/month."
         )
     
     dividends = marketstack_service.fetch_dividends(
@@ -68,13 +55,6 @@ def verify_dividends(ticker: str, use_cache: bool = True) -> Dict[str, Any]:
             detail="Marketstack API key not configured. Set MARKETSTACK_API_KEY environment variable."
         )
     
-    remaining = marketstack_service.get_usage_status().get('calls_remaining', 0)
-    if remaining <= 0:
-        raise HTTPException(
-            status_code=429,
-            detail=f"Monthly API limit reached. Limit: 100 calls/month."
-        )
-    
     yahoo_dividends = stock_service.get_dividends(ticker, years=1)
     
     result = marketstack_service.verify_dividends(
@@ -82,6 +62,12 @@ def verify_dividends(ticker: str, use_cache: bool = True) -> Dict[str, Any]:
         yahoo_dividends,
         use_cache=use_cache
     )
+    
+    if result is None:
+        raise HTTPException(
+            status_code=429,
+            detail=f"Monthly API limit reached and no cached data available. Limit: 100 calls/month."
+        )
     
     return {
         'ticker': result.ticker,
