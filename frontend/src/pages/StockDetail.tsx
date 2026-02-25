@@ -125,7 +125,7 @@ export default function StockDetail() {
   useEffect(() => {
     if (activeTab !== 'dividends') return
     api.marketstack.status().then(setMarketstackStatus).catch(() => null)
-  }, [activeTab])
+  }, [activeTab, ticker])
 
   const handleVerifyDividends = async () => {
     if (!ticker) return
@@ -586,13 +586,13 @@ export default function StockDetail() {
                     <span style={{ color: 'var(--text-secondary)', fontSize: '12px' }}>Marketstack</span>
                     <p style={{ fontSize: '20px', fontWeight: '600' }}>{verificationResult.summary.marketstack_count}</p>
                   </div>
-                  <div style={{ padding: '12px 16px', background: 'var(--accent-green)', borderRadius: '8px', opacity: 0.15 }}>
+                  <div style={{ padding: '12px 16px', background: 'rgba(34, 197, 94, 0.15)', borderRadius: '8px' }}>
                     <span style={{ color: 'var(--accent-green)', fontSize: '12px' }}>Matches</span>
                     <p style={{ fontSize: '20px', fontWeight: '600', color: 'var(--accent-green)' }}>{verificationResult.summary.match_count}</p>
                   </div>
-                  <div style={{ padding: '12px 16px', background: verificationResult.summary.discrepancy_count > 0 ? 'var(--accent-red)' : 'var(--card-bg-alt)', borderRadius: '8px', opacity: verificationResult.summary.discrepancy_count > 0 ? 1 : 0.5 }}>
-                    <span style={{ color: verificationResult.summary.discrepancy_count > 0 ? 'var(--accent-red)' : 'var(--text-secondary)', fontSize: '12px' }}>Discrepancies</span>
-                    <p style={{ fontSize: '20px', fontWeight: '600', color: verificationResult.summary.discrepancy_count > 0 ? 'var(--accent-red)' : 'var(--text-primary)' }}>{verificationResult.summary.discrepancy_count}</p>
+                  <div style={{ padding: '12px 16px', background: verificationResult.summary.discrepancy_count > 0 ? 'var(--accent-red)' : 'var(--card-bg-alt)', borderRadius: '8px' }}>
+                    <span style={{ color: verificationResult.summary.discrepancy_count > 0 ? '#ffffff' : 'var(--text-secondary)', fontSize: '12px' }}>Discrepancies</span>
+                    <p style={{ fontSize: '20px', fontWeight: '600', color: verificationResult.summary.discrepancy_count > 0 ? '#ffffff' : 'var(--text-primary)' }}>{verificationResult.summary.discrepancy_count}</p>
                   </div>
                 </div>
                 
@@ -661,7 +661,7 @@ export default function StockDetail() {
                 <button 
                   className="btn btn-primary" 
                   onClick={handleVerifyDividends}
-                  disabled={verificationLoading || (marketstackStatus?.calls_remaining ?? 0) <= 0}
+                  disabled={verificationLoading || (marketstackStatus !== null && (marketstackStatus.calls_remaining ?? 0) <= 0)}
                 >
                   Verify Dividends (1 API call)
                 </button>

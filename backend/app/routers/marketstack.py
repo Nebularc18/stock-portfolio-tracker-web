@@ -63,12 +63,6 @@ def verify_dividends(ticker: str, use_cache: bool = True) -> Dict[str, Any]:
         use_cache=use_cache
     )
     
-    if result is None:
-        raise HTTPException(
-            status_code=429,
-            detail=f"Monthly API limit reached and no cached data available. Limit: 100 calls/month."
-        )
-    
     return {
         'ticker': result.ticker,
         'verified_at': result.verified_at,

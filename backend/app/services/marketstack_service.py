@@ -3,6 +3,7 @@ import requests
 import time
 import json
 import logging
+import threading
 from datetime import datetime, timezone, timedelta
 from typing import Optional, Dict, Any, List
 from dataclasses import dataclass, asdict
@@ -15,6 +16,8 @@ os.makedirs(CACHE_DIR, exist_ok=True)
 MONTHLY_CALL_LIMIT = 100
 VERIFICATION_CACHE_TTL = 86400 * 30
 USAGE_FILE = "marketstack_usage.json"
+
+_usage_lock = threading.Lock()
 
 
 @dataclass
@@ -97,10 +100,11 @@ def _save_usage(usage: Dict[str, Any]):
 
 
 def _increment_usage() -> int:
-    usage = _load_usage()
-    usage['calls_used'] = usage.get('calls_used', 0) + 1
-    _save_usage(usage)
-    return usage['calls_used']
+    with _usage_lock:
+        usage = _load_usage()
+        usage['calls_used'] = usage.get('calls_used', 0) + 1
+        _save_usage(usage)
+        return usage['calls_used']
 
 
 def get_remaining_calls() -> int:
@@ -110,8 +114,11 @@ def get_remaining_calls() -> int:
 
 class MarketstackService:
     def __init__(self):
-        self.api_key = os.environ.get('MARKETSTACK_API_KEY')
         self.base_url = "https://api.marketstack.com/v2"
+    
+    @property
+    def api_key(self) -> Optional[str]:
+        return os.environ.get('MARKETSTACK_API_KEY')
     
     def is_configured(self) -> bool:
         return bool(self.api_key)
@@ -172,11 +179,7 @@ class MarketstackService:
                 return [DividendData(**d) for d in cached]
         
         params = {'symbols': ticker_upper}
-        
-        if date_from:
-            params['date_from'] = date_from
-        else:
-            params['date_from'] = effective_date_from
+        params['date_from'] = effective_date_from
         
         if date_to:
             params['date_to'] = date_to
@@ -336,8 +339,8 @@ class MarketstackService:
                     filepath = os.path.join(CACHE_DIR, filename)
                     try:
                         os.remove(filepath)
-                    except Exception:
-                        pass
+                    except OSError as e:
+                        logger.warning(f"Failed to delete cache file {filepath}: {e}")
 
 
 marketstack_service = MarketstackService()
