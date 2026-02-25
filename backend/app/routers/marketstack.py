@@ -1,7 +1,7 @@
 from fastapi import APIRouter, HTTPException
 from typing import Optional, Dict, Any, List
 
-from app.services.marketstack_service import marketstack_service
+from app.services.marketstack_service import marketstack_service, FetchError
 from app.services.stock_service import StockService
 
 router = APIRouter()
@@ -26,12 +26,15 @@ def get_dividends(
             detail="Marketstack API key not configured. Set MARKETSTACK_API_KEY environment variable."
         )
     
-    dividends = marketstack_service.fetch_dividends(
-        ticker, 
-        date_from=date_from, 
-        date_to=date_to,
-        use_cache=use_cache
-    )
+    try:
+        dividends = marketstack_service.fetch_dividends(
+            ticker, 
+            date_from=date_from, 
+            date_to=date_to,
+            use_cache=use_cache
+        )
+    except FetchError as e:
+        raise HTTPException(status_code=e.status_code, detail=e.message)
     
     if dividends is None:
         raise HTTPException(
@@ -57,11 +60,14 @@ def verify_dividends(ticker: str, use_cache: bool = True) -> Dict[str, Any]:
     
     yahoo_dividends = stock_service.get_dividends(ticker, years=1)
     
-    result = marketstack_service.verify_dividends(
-        ticker, 
-        yahoo_dividends,
-        use_cache=use_cache
-    )
+    try:
+        result = marketstack_service.verify_dividends(
+            ticker, 
+            yahoo_dividends,
+            use_cache=use_cache
+        )
+    except FetchError as e:
+        raise HTTPException(status_code=e.status_code, detail=e.message)
     
     return {
         'ticker': result.ticker,

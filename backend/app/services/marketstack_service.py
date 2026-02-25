@@ -27,6 +27,13 @@ class DividendData:
     currency: Optional[str] = None
 
 
+class FetchError(Exception):
+    def __init__(self, message: str, status_code: int = 500):
+        self.message = message
+        self.status_code = status_code
+        super().__init__(message)
+
+
 @dataclass
 class Discrepancy:
     date: str
@@ -107,9 +114,29 @@ def _increment_usage() -> int:
         return usage['calls_used']
 
 
+def _decrement_usage() -> int:
+    with _usage_lock:
+        usage = _load_usage()
+        usage['calls_used'] = max(0, usage.get('calls_used', 0) - 1)
+        _save_usage(usage)
+        return usage['calls_used']
+
+
+def try_consume_call() -> bool:
+    with _usage_lock:
+        usage = _load_usage()
+        current = usage.get('calls_used', 0)
+        if current >= MONTHLY_CALL_LIMIT:
+            return False
+        usage['calls_used'] = current + 1
+        _save_usage(usage)
+        return True
+
+
 def get_remaining_calls() -> int:
-    usage = _load_usage()
-    return max(0, MONTHLY_CALL_LIMIT - usage.get('calls_used', 0))
+    with _usage_lock:
+        usage = _load_usage()
+        return max(0, MONTHLY_CALL_LIMIT - usage.get('calls_used', 0))
 
 
 class MarketstackService:
@@ -125,13 +152,10 @@ class MarketstackService:
     
     def _make_request(self, endpoint: str, params: Optional[Dict[str, Any]] = None) -> Optional[Any]:
         if not self.api_key:
-            logger.warning("Marketstack API key not configured")
-            return None
+            raise FetchError("Marketstack API key not configured", 503)
         
-        remaining = get_remaining_calls()
-        if remaining <= 0:
-            logger.warning("Marketstack monthly API limit reached")
-            return None
+        if not try_consume_call():
+            raise FetchError("Monthly API limit reached", 429)
         
         params = params or {}
         params['access_key'] = self.api_key
@@ -141,19 +165,23 @@ class MarketstackService:
             response = requests.get(url, params=params, timeout=15)
             
             if response.status_code == 429:
-                logger.warning("Marketstack rate limit reached")
+                _decrement_usage()
+                raise FetchError("Marketstack rate limit reached", 429)
+            
+            if response.status_code in (404, 422):
                 return None
             
             if response.status_code != 200:
-                logger.error(f"Marketstack API error: {response.status_code}")
-                return None
+                _decrement_usage()
+                raise FetchError(f"Marketstack API error: {response.status_code}", 502)
             
-            _increment_usage()
             return response.json()
             
+        except FetchError:
+            raise
         except Exception as e:
-            logger.error(f"Marketstack request failed: {e}")
-            return None
+            _decrement_usage()
+            raise FetchError(f"Marketstack request failed: {e}", 502)
     
     def fetch_dividends(
         self, 
@@ -184,7 +212,10 @@ class MarketstackService:
         if date_to:
             params['date_to'] = date_to
         
-        data = self._make_request("dividends", params)
+        try:
+            data = self._make_request("dividends", params)
+        except FetchError:
+            raise
         
         if not data or 'data' not in data:
             return None
