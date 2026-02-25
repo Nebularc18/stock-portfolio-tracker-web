@@ -92,7 +92,6 @@ def get_header_data(force: bool = Query(False)):
 
 @router.get("/should-refresh")
 def should_refresh():
-    from app.services.market_hours_service import MarketHoursService
     return {"should_refresh": MarketHoursService.should_refresh()}
 
 

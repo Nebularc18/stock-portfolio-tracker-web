@@ -113,8 +113,8 @@ def _fetch_single_quote(symbol: str) -> Optional[Dict]:
         elif len(prices) == 1:
             return {
                 'price': prices[0],
-                'change': None,
-                'change_percent': None,
+                'change': 0,
+                'change_percent': 0,
             }
         
         return None

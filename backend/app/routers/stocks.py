@@ -37,6 +37,7 @@ def validate_ticker(ticker: str):
     from app.services.stock_service import StockService
     stock_service = StockService()
     
+    ticker = ticker.upper()
     is_valid = stock_service.validate_ticker(ticker)
     if not is_valid:
         raise HTTPException(status_code=404, detail="Invalid ticker symbol")
