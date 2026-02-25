@@ -22,7 +22,7 @@ function sanitizeCsvCell(value: string | number | null | undefined): string {
   const str = String(value)
   const escaped = str.replace(/"/g, '""')
   const quoted = `"${escaped}"`
-  if (/^[\x00-\x1F\s]*[=+\-@]/.test(escaped)) {
+  if (/^[\u0000-\u001F\s]*[=+\-@]/.test(str)) {
     return `"\t${escaped}"`
   }
   return quoted
@@ -113,7 +113,7 @@ export default function Performance() {
       valueSEK: convertToSEK(value, stock.currency),
       costSEK: convertToSEK(cost, stock.currency),
       gainSEK: convertToSEK(gain, stock.currency),
-      dailyChangeSEK: dailyChange ? convertToSEK(dailyChange, stock.currency) : null,
+      dailyChangeSEK: dailyChange != null ? convertToSEK(dailyChange, stock.currency) : null,
     }
   })
 
