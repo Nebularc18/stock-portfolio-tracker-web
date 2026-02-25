@@ -22,7 +22,7 @@ function sanitizeCsvCell(value: string | number | null | undefined): string {
   const str = String(value)
   const escaped = str.replace(/"/g, '""')
   const quoted = `"${escaped}"`
-  if (/^[=+\-@]/.test(escaped)) {
+  if (/^[\x00-\x1F\s]*[=+\-@]/.test(escaped)) {
     return `"\t${escaped}"`
   }
   return quoted
@@ -92,7 +92,7 @@ export default function Performance() {
     const dailyChange = stock.current_price != null && stock.previous_close != null
       ? (stock.current_price - stock.previous_close) * stock.quantity
       : null
-    const dailyChangePercent = stock.current_price != null && stock.previous_close != null
+    const dailyChangePercent = stock.current_price != null && stock.previous_close != null && stock.previous_close !== 0
       ? ((stock.current_price - stock.previous_close) / stock.previous_close) * 100
       : null
 
