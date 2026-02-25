@@ -4,6 +4,7 @@ import time
 import json
 import logging
 import threading
+import hashlib
 from datetime import datetime, timezone, timedelta
 from typing import Optional, Dict, Any, List
 from dataclasses import dataclass, asdict
@@ -106,14 +107,6 @@ def _save_usage(usage: Dict[str, Any]):
         logger.warning(f"Failed to save usage file: {e}")
 
 
-def _increment_usage() -> int:
-    with _usage_lock:
-        usage = _load_usage()
-        usage['calls_used'] = usage.get('calls_used', 0) + 1
-        _save_usage(usage)
-        return usage['calls_used']
-
-
 def _decrement_usage() -> int:
     with _usage_lock:
         usage = _load_usage()
@@ -181,7 +174,7 @@ class MarketstackService:
             raise
         except Exception as e:
             _decrement_usage()
-            raise FetchError(f"Marketstack request failed: {e}", 502)
+            raise FetchError(f"Marketstack request failed: {e}", 502) from e
     
     def fetch_dividends(
         self, 
@@ -199,7 +192,9 @@ class MarketstackService:
         
         effective_date_to = date_to or ''
         
-        cache_key = f"{sanitized_ticker}_{effective_date_from}_{effective_date_to}".replace('-', '')
+        date_from_normalized = effective_date_from.replace('-', '')
+        date_to_normalized = effective_date_to.replace('-', '')
+        cache_key = f"{sanitized_ticker}_{date_from_normalized}_{date_to_normalized}"
         cache_file = f"marketstack_dividends_{cache_key}.json"
         
         if use_cache:
@@ -213,10 +208,7 @@ class MarketstackService:
         if date_to:
             params['date_to'] = date_to
         
-        try:
-            data = self._make_request("dividends", params)
-        except FetchError:
-            raise
+        data = self._make_request("dividends", params)
         
         if not data or 'data' not in data:
             return None
@@ -242,7 +234,11 @@ class MarketstackService:
         use_cache: bool = True
     ) -> VerificationResult:
         ticker_upper = ticker.upper()
-        cache_file = f"marketstack_verify_{ticker_upper}.json"
+        sanitized_ticker = ticker_upper.replace('-', '_')
+        yahoo_hash = hashlib.sha256(
+            json.dumps(yahoo_dividends, sort_keys=True).encode()
+        ).hexdigest()[:8]
+        cache_file = f"marketstack_verify_{sanitized_ticker}_{yahoo_hash}.json"
         
         if use_cache:
             cached = _load_file_cache(cache_file)
@@ -367,11 +363,12 @@ class MarketstackService:
         if ticker:
             ticker_upper = ticker.upper()
             sanitized_ticker = ticker_upper.replace('-', '_')
+            dividends_prefix = f"marketstack_dividends_{sanitized_ticker}_"
+            verify_prefix = f"marketstack_verify_{sanitized_ticker}_"
             for filename in os.listdir(CACHE_DIR):
-                if 'marketstack' not in filename:
+                if filename == USAGE_FILE:
                     continue
-                parts = filename.replace('.json', '').split('_')
-                if len(parts) >= 3 and parts[2].upper() == sanitized_ticker:
+                if filename.startswith(dividends_prefix) or filename.startswith(verify_prefix):
                     filepath = os.path.join(CACHE_DIR, filename)
                     try:
                         os.remove(filepath)
@@ -380,6 +377,8 @@ class MarketstackService:
                         logger.warning(f"Failed to delete cache file {filepath}: {e}")
         else:
             for filename in os.listdir(CACHE_DIR):
+                if filename == USAGE_FILE:
+                    continue
                 if 'marketstack' not in filename:
                     continue
                 filepath = os.path.join(CACHE_DIR, filename)
