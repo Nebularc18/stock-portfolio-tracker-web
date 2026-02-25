@@ -15,6 +15,14 @@ CACHE_DIR = os.path.join(os.path.dirname(__file__), '..', '..', 'data', 'cache')
 os.makedirs(CACHE_DIR, exist_ok=True)
 
 def _load_file_cache(filename: str) -> Optional[Any]:
+    """Load cached data from a file if it exists and hasn't expired.
+    
+    Args:
+        filename: Name of the cache file to load.
+    
+    Returns:
+        The cached value if valid, None if expired or not found.
+    """
     filepath = os.path.join(CACHE_DIR, filename)
     if not os.path.exists(filepath):
         return None
@@ -28,6 +36,13 @@ def _load_file_cache(filename: str) -> Optional[Any]:
         return None
 
 def _save_file_cache(filename: str, value: Any, ttl: int = 3600):
+    """Save data to a cache file with a TTL.
+    
+    Args:
+        filename: Name of the cache file to save.
+        value: The value to cache.
+        ttl: Time-to-live in seconds (default 1 hour).
+    """
     filepath = os.path.join(CACHE_DIR, filename)
     try:
         with open(filepath, 'w') as f:
@@ -59,6 +74,11 @@ _PRICE_TARGETS_CACHE_TTL = 43200
 _session = None
 
 def get_session():
+    """Get or create a shared requests session with default headers.
+    
+    Returns:
+        requests.Session: Session configured with User-Agent and headers.
+    """
     global _session
     if _session is None:
         _session = requests.Session()
@@ -73,6 +93,14 @@ def get_session():
 
 
 def detect_currency(ticker: str) -> str:
+    """Detect currency based on ticker exchange suffix.
+    
+    Args:
+        ticker: Stock ticker symbol with optional exchange suffix.
+    
+    Returns:
+        str: Currency code (e.g., 'SEK', 'USD', 'EUR').
+    """
     ticker_upper = ticker.upper()
     for suffix, currency in CURRENCY_MAP.items():
         if ticker_upper.endswith(suffix):
@@ -81,6 +109,15 @@ def detect_currency(ticker: str) -> str:
 
 
 def fetch_yahoo_quote(ticker: str) -> Optional[Dict]:
+    """Fetch current quote data from Yahoo Finance.
+    
+    Args:
+        ticker: Stock ticker symbol.
+    
+    Returns:
+        dict: Quote data with current_price, previous_close, currency,
+            name, sector, and other fields, or None if fetch fails.
+    """
     ticker = ticker.upper()
     cache_file = f"quote_{ticker}.json"
     
@@ -154,6 +191,14 @@ def fetch_yahoo_quote(ticker: str) -> Optional[Dict]:
 
 
 def fetch_yahoo_sector(ticker: str) -> Optional[str]:
+    """Fetch sector information from Yahoo Finance search API.
+    
+    Args:
+        ticker: Stock ticker symbol.
+    
+    Returns:
+        str: Sector name, or None if not found.
+    """
     ticker = ticker.upper()
     cache_file = f"sector_{ticker}.json"
     
@@ -196,6 +241,14 @@ def fetch_yahoo_sector(ticker: str) -> Optional[str]:
 
 
 def fetch_yahoo_info(ticker: str) -> Optional[Dict]:
+    """Fetch additional stock info including sector and dividend data.
+    
+    Args:
+        ticker: Stock ticker symbol.
+    
+    Returns:
+        dict: Info with sector, dividend_yield, and dividend_per_share.
+    """
     ticker = ticker.upper()
     
     sector = fetch_yahoo_sector(ticker)
@@ -210,9 +263,19 @@ def fetch_yahoo_info(ticker: str) -> Optional[Dict]:
 
 class StockService:
     def __init__(self):
+        """Initialize StockService with default cache TTL."""
         self.cache_ttl = 300
 
     def fetch_ticker_data(self, ticker: str) -> Optional[Dict]:
+        """Fetch comprehensive data for a ticker from Yahoo Finance.
+        
+        Args:
+            ticker: Stock ticker symbol.
+        
+        Returns:
+            dict: Combined data from quote and info endpoints,
+                or None if fetch fails.
+        """
         ticker = ticker.upper()
         logger.info(f"Fetching data for {ticker}")
         
@@ -236,21 +299,61 @@ class StockService:
         return None
 
     def validate_ticker(self, ticker: str) -> bool:
+        """Validate that a ticker exists and has price data.
+        
+        Args:
+            ticker: Stock ticker symbol to validate.
+        
+        Returns:
+            bool: True if ticker is valid with price data.
+        """
         data = self.fetch_ticker_data(ticker)
         return data is not None and data.get('current_price') is not None
 
     def get_stock_info(self, ticker: str) -> Optional[dict]:
+        """Retrieve stock information for a ticker.
+        
+        Args:
+            ticker: Stock ticker symbol.
+        
+        Returns:
+            dict: Stock data or None if not found.
+        """
         return self.fetch_ticker_data(ticker)
 
     def get_stock_price(self, ticker: str) -> Optional[float]:
+        """Retrieve current stock price.
+        
+        Args:
+            ticker: Stock ticker symbol.
+        
+        Returns:
+            float: Current price, or None if not available.
+        """
         data = self.fetch_ticker_data(ticker)
         return data.get('current_price') if data else None
 
     def get_previous_close(self, ticker: str) -> Optional[float]:
+        """Retrieve previous day's closing price.
+        
+        Args:
+            ticker: Stock ticker symbol.
+        
+        Returns:
+            float: Previous close price, or None if not available.
+        """
         data = self.fetch_ticker_data(ticker)
         return data.get('previous_close') if data else None
 
     def get_multiple_prices(self, tickers: list) -> dict:
+        """Retrieve current prices for multiple tickers.
+        
+        Args:
+            tickers: List of stock ticker symbols.
+        
+        Returns:
+            dict: Mapping of uppercase tickers to current prices.
+        """
         results = {}
         for ticker in tickers:
             data = self.fetch_ticker_data(ticker)
@@ -258,10 +361,28 @@ class StockService:
         return results
 
     def get_sector(self, ticker: str, stock=None) -> Optional[str]:
+        """Retrieve sector for a stock.
+        
+        Args:
+            ticker: Stock ticker symbol.
+            stock: Optional stock object (unused, kept for compatibility).
+        
+        Returns:
+            str: Sector name, or None if not available.
+        """
         data = self.fetch_ticker_data(ticker)
         return data.get('sector') if data else None
 
     def get_dividends(self, ticker: str, years: int = 5) -> list:
+        """Retrieve dividend history for a stock.
+        
+        Args:
+            ticker: Stock ticker symbol.
+            years: Number of years of history (default 5).
+        
+        Returns:
+            list: List of dividend records with date and amount.
+        """
         ticker = ticker.upper()
         cache_key = f"{ticker}_{years}"
         cache_file = f"dividends_{cache_key}.json"
@@ -315,9 +436,25 @@ class StockService:
             return []
 
     def get_upcoming_dividends(self, ticker: str) -> Optional[List[Dict[str, Any]]]:
+        """Retrieve upcoming dividend dates for a stock.
+        
+        Args:
+            ticker: Stock ticker symbol.
+        
+        Returns:
+            list: List of upcoming dividend events (currently empty).
+        """
         return []
 
     def get_quote_extended(self, ticker: str) -> Optional[Dict[str, Any]]:
+        """Retrieve extended quote data including 52-week range.
+        
+        Args:
+            ticker: Stock ticker symbol.
+        
+        Returns:
+            dict: Extended quote with 52-week high/low and currency.
+        """
         ticker = ticker.upper()
         session = get_session()
         
@@ -347,6 +484,17 @@ class StockService:
             return None
 
     def get_analyst_recommendations(self, ticker: str) -> Optional[List[Dict[str, Any]]]:
+        """Retrieve analyst recommendations for a stock.
+        
+        Tries yfinance first, falls back to Finnhub.
+        
+        Args:
+            ticker: Stock ticker symbol.
+        
+        Returns:
+            list: Recommendation trends with buy/sell/hold counts,
+                or None if unavailable.
+        """
         ticker_upper = ticker.upper()
         cache_file = f"analyst_recs_{ticker_upper}.json"
 
@@ -373,6 +521,14 @@ class StockService:
         return None
 
     def get_all_analyst_recommendations(self, ticker: str) -> Dict[str, Optional[List[Dict[str, Any]]]]:
+        """Retrieve analyst recommendations from all sources.
+        
+        Args:
+            ticker: Stock ticker symbol.
+        
+        Returns:
+            dict: Contains 'yfinance' and 'finnhub' recommendation lists.
+        """
         ticker_upper = ticker.upper()
         cache_file = f"all_analyst_recs_{ticker_upper}.json"
         
@@ -399,6 +555,15 @@ class StockService:
         return result
 
     def _get_yfinance_recommendations(self, ticker_upper: str) -> Optional[List[Dict[str, Any]]]:
+        """Fetch analyst recommendations from yfinance library.
+        
+        Args:
+            ticker_upper: Uppercase stock ticker symbol.
+        
+        Returns:
+            list: Normalized recommendations with period and counts,
+                or None if unavailable.
+        """
         logger.info(f"[YFINANCE] Attempting to fetch recommendations for {ticker_upper}")
         try:
             yf = importlib.import_module('yfinance')
@@ -460,6 +625,15 @@ class StockService:
             return None
 
     def _get_finnhub_recommendations(self, ticker_upper: str) -> Optional[List[Dict[str, Any]]]:
+        """Fetch analyst recommendations from Finnhub API.
+        
+        Args:
+            ticker_upper: Uppercase stock ticker symbol.
+        
+        Returns:
+            list: Normalized recommendations with period and counts,
+                or None if unavailable.
+        """
         try:
             finnhub_recs = finnhub_service.get_recommendation_trends(ticker_upper)
             if not finnhub_recs:
@@ -484,6 +658,15 @@ class StockService:
             return None
 
     def get_price_targets(self, ticker: str) -> Optional[Dict[str, Any]]:
+        """Retrieve analyst price targets for a stock.
+        
+        Args:
+            ticker: Stock ticker symbol.
+        
+        Returns:
+            dict: Price targets with current, targetAvg, targetHigh,
+                targetLow, and numberOfAnalysts fields.
+        """
         ticker_upper = ticker.upper()
         cache_file = f"price_targets_{ticker_upper}.json"
 
@@ -544,4 +727,12 @@ class StockService:
         return None
 
     def get_latest_rating(self, ticker: str) -> Optional[Dict[str, Any]]:
+        """Retrieve the latest analyst rating for a stock.
+        
+        Args:
+            ticker: Stock ticker symbol.
+        
+        Returns:
+            dict: Latest rating data, or None (not implemented).
+        """
         return None

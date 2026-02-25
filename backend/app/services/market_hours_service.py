@@ -45,6 +45,17 @@ MARKET_CONFIG = {
 
 
 def convert_time_to_timezone(time_str: str, from_tz: str, to_tz: str, base_date: datetime = None) -> str:
+    """Convert a time string from one timezone to another.
+    
+    Args:
+        time_str: Time in 'HH:MM' format.
+        from_tz: Source timezone name.
+        to_tz: Target timezone name.
+        base_date: Optional base date for conversion.
+    
+    Returns:
+        str: Converted time in 'HH:MM' format.
+    """
     try:
         from zoneinfo import ZoneInfo
         
@@ -65,6 +76,14 @@ def convert_time_to_timezone(time_str: str, from_tz: str, to_tz: str, base_date:
 class MarketHoursService:
     @staticmethod
     def is_market_open(market: str) -> bool:
+        """Check if a market is currently open.
+        
+        Args:
+            market: Market identifier (e.g., 'SE', 'US', 'UK', 'DE').
+        
+        Returns:
+            bool: True if market is open, False otherwise.
+        """
         if market not in MARKET_CONFIG:
             return False
         
@@ -93,6 +112,16 @@ class MarketHoursService:
 
     @staticmethod
     def get_market_status(market: str, user_timezone: str = None) -> Dict:
+        """Get detailed status for a specific market.
+        
+        Args:
+            market: Market identifier (e.g., 'SE', 'US').
+            user_timezone: Optional timezone for time display.
+        
+        Returns:
+            dict: Market status with is_open, open_time, close_time,
+                timezone, and local_time fields.
+        """
         if market not in MARKET_CONFIG:
             return {"error": "Unknown market"}
         
@@ -147,6 +176,14 @@ class MarketHoursService:
 
     @staticmethod
     def get_all_markets_status(user_timezone: str = None) -> List[Dict]:
+        """Get status for all tracked markets.
+        
+        Args:
+            user_timezone: Optional timezone for time display.
+        
+        Returns:
+            list: List of market status dictionaries.
+        """
         results = []
         for market in MARKET_CONFIG:
             results.append(MarketHoursService.get_market_status(market, user_timezone))
@@ -154,6 +191,11 @@ class MarketHoursService:
 
     @staticmethod
     def get_open_markets() -> List[str]:
+        """Get list of currently open markets.
+        
+        Returns:
+            list: List of market identifiers that are currently open.
+        """
         open_markets = []
         for market in MARKET_CONFIG:
             if MarketHoursService.is_market_open(market):
@@ -162,6 +204,15 @@ class MarketHoursService:
 
     @staticmethod
     def is_within_post_close_window(market: str, minutes_after_close: int = 30) -> bool:
+        """Check if current time is within post-close window.
+        
+        Args:
+            market: Market identifier.
+            minutes_after_close: Minutes after close to consider (default 30).
+        
+        Returns:
+            bool: True if within post-close window, False otherwise.
+        """
         if market not in MARKET_CONFIG:
             return False
         
@@ -190,6 +241,14 @@ class MarketHoursService:
 
     @staticmethod
     def should_refresh() -> bool:
+        """Check if market data should be refreshed.
+        
+        Returns True if SE or US markets are open or within 30 minutes
+        after close.
+        
+        Returns:
+            bool: True if refresh should occur, False otherwise.
+        """
         for market in ["SE", "US"]:
             if MarketHoursService.is_market_open(market):
                 return True

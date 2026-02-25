@@ -10,6 +10,14 @@ router = APIRouter()
 
 
 def get_display_currency(db: Session) -> str:
+    """Retrieve the user's preferred display currency.
+    
+    Args:
+        db: Database session.
+    
+    Returns:
+        str: Display currency code (defaults to 'SEK').
+    """
     settings = db.query(UserSettings).first()
     if settings:
         return settings.display_currency
@@ -17,6 +25,17 @@ def get_display_currency(db: Session) -> str:
 
 
 def convert_value(value: float, from_currency: str, to_currency: str, rates: dict) -> Optional[float]:
+    """Convert a monetary value between currencies using exchange rates.
+    
+    Args:
+        value: The monetary value to convert.
+        from_currency: Source currency code.
+        to_currency: Target currency code.
+        rates: Dictionary of exchange rates (e.g., {'USD_SEK': 10.5}).
+    
+    Returns:
+        float: Converted value, or None if conversion rate not available.
+    """
     if from_currency == to_currency:
         return value
     
@@ -33,6 +52,16 @@ def convert_value(value: float, from_currency: str, to_currency: str, rates: dic
 
 @router.get("/summary")
 def get_portfolio_summary(db: Session = Depends(get_db)):
+    """Calculate portfolio summary with totals and per-stock data.
+    
+    Args:
+        db: Database session dependency.
+    
+    Returns:
+        dict: Portfolio summary containing total_value, total_cost,
+            total_gain_loss, total_gain_loss_percent, display_currency,
+            stocks list, and stock_count.
+    """
     stocks = db.query(Stock).all()
     display_currency = get_display_currency(db)
     
@@ -95,6 +124,17 @@ def get_portfolio_summary(db: Session = Depends(get_db)):
 
 @router.post("/refresh-all")
 def refresh_all_prices(db: Session = Depends(get_db)):
+    """Refresh price data for all stocks in the portfolio.
+    
+    Fetches current prices from external sources, updates stock records,
+    and records daily portfolio value for history tracking.
+    
+    Args:
+        db: Database session dependency.
+    
+    Returns:
+        dict: Message with count of refreshed stocks.
+    """
     from app.services.stock_service import StockService
     from app.services.exchange_rate_service import ExchangeRateService
     stock_service = StockService()
@@ -162,12 +202,30 @@ def refresh_all_prices(db: Session = Depends(get_db)):
 
 @router.get("/history", response_model=List[dict])
 def get_portfolio_history(days: int = 30, db: Session = Depends(get_db)):
+    """Retrieve historical portfolio value snapshots.
+    
+    Args:
+        days: Number of days of history to retrieve (default 30).
+        db: Database session dependency.
+    
+    Returns:
+        List[dict]: List of {date, value} records ordered by date descending.
+    """
     history = db.query(PortfolioHistory).order_by(PortfolioHistory.date.desc()).limit(days).all()
     return [{"date": h.date, "value": h.total_value} for h in history]
 
 
 @router.get("/distribution")
 def get_portfolio_distribution(db: Session = Depends(get_db)):
+    """Calculate portfolio distribution by sector, currency, and stock.
+    
+    Args:
+        db: Database session dependency.
+    
+    Returns:
+        dict: Contains by_sector, by_currency, and by_stock breakdowns
+            with monetary values.
+    """
     stocks = db.query(Stock).all()
     
     by_sector = {}

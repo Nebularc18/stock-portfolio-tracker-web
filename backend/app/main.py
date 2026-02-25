@@ -83,6 +83,11 @@ Base.metadata.create_all(bind=engine)
 
 
 def get_db():
+    """Create and yield a database session.
+    
+    Yields:
+        Session: A SQLAlchemy database session.
+    """
     db = SessionLocal()
     try:
         yield db
@@ -92,6 +97,16 @@ def get_db():
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    """Manage application lifecycle events.
+    
+    Starts the scheduler on startup and stops it on shutdown.
+    
+    Args:
+        app: The FastAPI application instance.
+    
+    Yields:
+        None
+    """
     from app.services.scheduler import start_scheduler, stop_scheduler
     start_scheduler()
     logger.info("Application started")
@@ -176,9 +191,19 @@ app.include_router(settings.router, prefix="/api/settings", tags=["settings"])
 
 @app.get("/")
 def read_root():
+    """Return API information.
+    
+    Returns:
+        dict: A dictionary containing the API name and version.
+    """
     return {"message": "Stock Portfolio API", "version": "1.0.0"}
 
 
 @app.get("/health")
 def health_check():
+    """Check API health status.
+    
+    Returns:
+        dict: A dictionary containing the health status.
+    """
     return {"status": "healthy"}

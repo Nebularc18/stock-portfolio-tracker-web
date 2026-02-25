@@ -30,6 +30,11 @@ HEADER_CACHE_TTL = 900
 _session = None
 
 def _get_session():
+    """Get or create a shared requests session with default headers.
+    
+    Returns:
+        requests.Session: Session configured with User-Agent and headers.
+    """
     global _session
     if _session is None:
         _session = requests.Session()
@@ -41,6 +46,14 @@ def _get_session():
     return _session
 
 def _load_cache(filename: str) -> Optional[Any]:
+    """Load cached data from a file if it exists and hasn't expired.
+    
+    Args:
+        filename: Name of the cache file to load.
+    
+    Returns:
+        The cached value if valid, None if expired or not found.
+    """
     filepath = os.path.join(CACHE_DIR, filename)
     if not os.path.exists(filepath):
         return None
@@ -54,6 +67,13 @@ def _load_cache(filename: str) -> Optional[Any]:
         return None
 
 def _save_cache(filename: str, value: Any, ttl: int = 300):
+    """Save data to a cache file with a TTL.
+    
+    Args:
+        filename: Name of the cache file to save.
+        value: The value to cache.
+        ttl: Time-to-live in seconds (default 5 minutes).
+    """
     filepath = os.path.join(CACHE_DIR, filename)
     try:
         with open(filepath, 'w') as f:
@@ -62,6 +82,15 @@ def _save_cache(filename: str, value: Any, ttl: int = 300):
         logger.warning(f"Failed to save cache {filename}: {e}")
 
 def _fetch_single_quote(symbol: str) -> Optional[Dict]:
+    """Fetch quote data for a single symbol from Yahoo Finance.
+    
+    Args:
+        symbol: Yahoo Finance symbol (e.g., '^GSPC', 'USDSEK=X').
+    
+    Returns:
+        dict: Quote data with price, change, and change_percent,
+            or None if fetch fails.
+    """
     session = _get_session()
     url = f"https://query1.finance.yahoo.com/v8/finance/chart/{symbol}?interval=1d&range=5d"
     
@@ -124,6 +153,14 @@ def _fetch_single_quote(symbol: str) -> Optional[Dict]:
         return None
 
 def _fetch_all_quotes(symbols: List[str]) -> Dict[str, Dict]:
+    """Fetch quote data for multiple symbols in parallel.
+    
+    Args:
+        symbols: List of Yahoo Finance symbols.
+    
+    Returns:
+        dict: Mapping of symbols to quote data.
+    """
     if not symbols:
         return {}
     
@@ -144,6 +181,17 @@ def _fetch_all_quotes(symbols: List[str]) -> Dict[str, Dict]:
     return results
 
 def get_header_market_data(force_refresh: bool = False) -> Dict[str, Any]:
+    """Retrieve market data for the header component.
+    
+    Fetches index and exchange rate data in parallel and caches
+    the result for 15 minutes.
+    
+    Args:
+        force_refresh: If True, bypass cache and fetch fresh data.
+    
+    Returns:
+        dict: Contains indices list, exchange_rates dict, and updated_at.
+    """
     cached = _load_cache('market_header.json')
     if cached is not None and not force_refresh:
         return cached

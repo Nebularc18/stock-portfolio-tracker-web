@@ -11,6 +11,14 @@ CACHE_DIR = os.path.join(os.path.dirname(__file__), '..', '..', 'data', 'cache')
 os.makedirs(CACHE_DIR, exist_ok=True)
 
 def _load_file_cache(filename: str) -> Optional[Any]:
+    """Load cached data from a file if it exists and hasn't expired.
+    
+    Args:
+        filename: Name of the cache file to load.
+    
+    Returns:
+        The cached value if valid, None if expired or not found.
+    """
     filepath = os.path.join(CACHE_DIR, filename)
     if not os.path.exists(filepath):
         return None
@@ -25,6 +33,13 @@ def _load_file_cache(filename: str) -> Optional[Any]:
         return None
 
 def _save_file_cache(filename: str, value: Any, ttl: int = 3600):
+    """Save data to a cache file with a TTL.
+    
+    Args:
+        filename: Name of the cache file to save.
+        value: The value to cache.
+        ttl: Time-to-live in seconds (default 1 hour).
+    """
     filepath = os.path.join(CACHE_DIR, filename)
     try:
         with open(filepath, 'w') as f:
@@ -63,6 +78,14 @@ _CACHE_RECOMMENDATIONS: Dict[str, Tuple[Optional[List[Dict[str, Any]]], float]] 
 
 
 def get_finnhub_ticker(ticker: str) -> str:
+    """Convert Yahoo Finance ticker to Finnhub format.
+    
+    Args:
+        ticker: Yahoo Finance ticker symbol.
+    
+    Returns:
+        str: Finnhub-compatible ticker symbol.
+    """
     ticker_upper = ticker.upper()
     
     for yf_suffix, fh_suffix in FINNHUB_TICKER_MAP.items():
@@ -75,10 +98,20 @@ def get_finnhub_ticker(ticker: str) -> str:
 
 class FinnhubService:
     def __init__(self):
+        """Initialize FinnhubService with API key from environment."""
         self.api_key = os.environ.get('FINNHUB_API_KEY')
         self.base_url = "https://finnhub.io/api/v1"
     
     def _make_request(self, endpoint: str, params: Optional[Dict[str, str]] = None) -> Optional[Any]:
+        """Make an authenticated request to Finnhub API.
+        
+        Args:
+            endpoint: API endpoint path (e.g., 'stock/profile2').
+            params: Optional query parameters.
+        
+        Returns:
+            JSON response data, or None if request fails.
+        """
         if not self.api_key:
             return None
         
@@ -97,6 +130,15 @@ class FinnhubService:
             return None
     
     def get_company_profile(self, ticker: str) -> Optional[Dict[str, Any]]:
+        """Retrieve company profile from Finnhub.
+        
+        Args:
+            ticker: Stock ticker symbol.
+        
+        Returns:
+            dict: Company profile with name, industry, country, etc.,
+                or None if not found.
+        """
         ticker_upper = ticker.upper()
         cache_file = f"finnhub_profile_{ticker_upper}.json"
         
@@ -136,6 +178,15 @@ class FinnhubService:
         return result
     
     def get_basic_financials(self, ticker: str) -> Optional[Dict[str, Any]]:
+        """Retrieve financial metrics from Finnhub.
+        
+        Args:
+            ticker: Stock ticker symbol.
+        
+        Returns:
+            dict: Financial metrics (P/E, margins, dividends, etc.),
+                or None if not found.
+        """
         ticker_upper = ticker.upper()
         cache_file = f"finnhub_metrics_{ticker_upper}.json"
         
@@ -193,6 +244,14 @@ class FinnhubService:
         return result
     
     def get_peers(self, ticker: str) -> Optional[List[str]]:
+        """Retrieve peer companies from Finnhub.
+        
+        Args:
+            ticker: Stock ticker symbol.
+        
+        Returns:
+            list: List of peer ticker symbols, or None if not found.
+        """
         ticker_upper = ticker.upper()
         cache_file = f"finnhub_peers_{ticker_upper}.json"
         
@@ -218,6 +277,15 @@ class FinnhubService:
         return result
     
     def get_recommendation_trends(self, ticker: str) -> Optional[List[Dict[str, Any]]]:
+        """Retrieve analyst recommendation trends from Finnhub.
+        
+        Args:
+            ticker: Stock ticker symbol.
+        
+        Returns:
+            list: Recommendation trends with buy/sell/hold counts,
+                or None if not found.
+        """
         ticker_upper = ticker.upper()
         cache_file = f"finnhub_recs_{ticker_upper}.json"
 
@@ -260,6 +328,11 @@ class FinnhubService:
         return result
     
     def clear_cache(self, ticker: Optional[str] = None):
+        """Clear in-memory cache for a ticker or all tickers.
+        
+        Args:
+            ticker: Specific ticker to clear, or None to clear all.
+        """
         if ticker:
             ticker_upper = ticker.upper()
             _CACHE_PROFILE.pop(ticker_upper, None)
