@@ -191,6 +191,7 @@ class MarketstackService:
         use_cache: bool = True
     ) -> Optional[List[DividendData]]:
         ticker_upper = ticker.upper()
+        sanitized_ticker = ticker_upper.replace('-', '_')
         
         effective_date_from = date_from
         if not effective_date_from:
@@ -198,7 +199,7 @@ class MarketstackService:
         
         effective_date_to = date_to or ''
         
-        cache_key = f"{ticker_upper}_{effective_date_from}_{effective_date_to}".replace('-', '')
+        cache_key = f"{sanitized_ticker}_{effective_date_from}_{effective_date_to}".replace('-', '')
         cache_file = f"marketstack_dividends_{cache_key}.json"
         
         if use_cache:
@@ -348,30 +349,47 @@ class MarketstackService:
         return result
     
     def get_usage_status(self) -> Dict[str, Any]:
-        usage = _load_usage()
-        remaining = get_remaining_calls()
-        
-        return {
-            'month': usage.get('month'),
-            'calls_used': usage.get('calls_used', 0),
-            'calls_limit': MONTHLY_CALL_LIMIT,
-            'calls_remaining': remaining,
-            'api_configured': self.is_configured()
-        }
+        with _usage_lock:
+            usage = _load_usage()
+            calls_used = usage.get('calls_used', 0)
+            remaining = max(0, MONTHLY_CALL_LIMIT - calls_used)
+            
+            return {
+                'month': usage.get('month'),
+                'calls_used': calls_used,
+                'calls_limit': MONTHLY_CALL_LIMIT,
+                'calls_remaining': remaining,
+                'api_configured': self.is_configured()
+            }
     
     def clear_cache(self, ticker: Optional[str] = None):
+        cleared_count = 0
         if ticker:
             ticker_upper = ticker.upper()
+            sanitized_ticker = ticker_upper.replace('-', '_')
             for filename in os.listdir(CACHE_DIR):
                 if 'marketstack' not in filename:
                     continue
                 parts = filename.replace('.json', '').split('_')
-                if len(parts) >= 3 and parts[2].upper() == ticker_upper:
+                if len(parts) >= 3 and parts[2].upper() == sanitized_ticker:
                     filepath = os.path.join(CACHE_DIR, filename)
                     try:
                         os.remove(filepath)
+                        cleared_count += 1
                     except OSError as e:
                         logger.warning(f"Failed to delete cache file {filepath}: {e}")
+        else:
+            for filename in os.listdir(CACHE_DIR):
+                if 'marketstack' not in filename:
+                    continue
+                filepath = os.path.join(CACHE_DIR, filename)
+                try:
+                    os.remove(filepath)
+                    cleared_count += 1
+                except OSError as e:
+                    logger.warning(f"Failed to delete cache file {filepath}: {e}")
+        logger.info(f"Cleared {cleared_count} marketstack cache files")
+        return cleared_count
 
 
 marketstack_service = MarketstackService()
