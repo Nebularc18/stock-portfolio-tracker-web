@@ -192,6 +192,39 @@ export interface RecommendationTrend {
   total_analysts: number
 }
 
+export interface MarketstackUsage {
+  month: string
+  calls_used: number
+  calls_limit: number
+  calls_remaining: number
+  api_configured: boolean
+}
+
+export interface DividendDiscrepancy {
+  date: string
+  type: 'amount_mismatch' | 'missing_from_yahoo' | 'missing_from_marketstack' | 'api_error'
+  yahoo_amount: number | null
+  marketstack_amount: number | null
+  difference: number | null
+  message?: string
+}
+
+export interface VerificationResult {
+  ticker: string
+  verified_at: string
+  cached: boolean
+  summary: {
+    yahoo_count: number
+    marketstack_count: number
+    match_count: number
+    discrepancy_count: number
+  }
+  yahoo_dividends: Dividend[]
+  marketstack_dividends: Dividend[]
+  discrepancies: DividendDiscrepancy[]
+  usage: MarketstackUsage
+}
+
 export const api = {
   stocks: {
     list: () => fetchAPI('/stocks') as Promise<Stock[]>,
@@ -245,5 +278,23 @@ export const api = {
     metrics: (ticker: string) => fetchAPI(`/finnhub/metrics/${ticker}`) as Promise<FinancialMetrics>,
     peers: (ticker: string) => fetchAPI(`/finnhub/peers/${ticker}`) as Promise<string[]>,
     recommendations: (ticker: string) => fetchAPI(`/finnhub/recommendations/${ticker}`) as Promise<RecommendationTrend[]>,
+  },
+  
+  marketstack: {
+    status: () => fetchAPI('/marketstack/status') as Promise<MarketstackUsage>,
+    dividends: (ticker: string, dateFrom?: string, dateTo?: string) => {
+      const params = new URLSearchParams()
+      if (dateFrom) params.append('date_from', dateFrom)
+      if (dateTo) params.append('date_to', dateTo)
+      const query = params.toString() ? `?${params.toString()}` : ''
+      return fetchAPI(`/marketstack/dividends/${ticker}${query}`) as Promise<{
+        ticker: string
+        dividends: Dividend[]
+        count: number
+        usage: MarketstackUsage
+      }>
+    },
+    verify: (ticker: string) => fetchAPI(`/marketstack/verify/${ticker}`, { method: 'POST' }) as Promise<VerificationResult>,
+    clearCache: (ticker: string) => fetchAPI(`/marketstack/cache/${ticker}`, { method: 'DELETE' }) as Promise<{ message: string }>,
   },
 }

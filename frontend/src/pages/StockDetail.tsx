@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import { useParams, Link, useNavigate } from 'react-router-dom'
-import { api, Stock, Dividend, AnalystData, ManualDividend, CompanyProfile, FinancialMetrics } from '../services/api'
+import { api, Stock, Dividend, AnalystData, ManualDividend, CompanyProfile, FinancialMetrics, VerificationResult, MarketstackUsage } from '../services/api'
 import CompanyProfileComponent from '../components/CompanyProfile'
 import FinancialMetricsComponent from '../components/FinancialMetrics'
 import PeerCompanies from '../components/PeerCompanies'
@@ -48,6 +48,9 @@ export default function StockDetail() {
   const [analystDataLoading, setAnalystDataLoading] = useState(false)
   const [analystDataLoaded, setAnalystDataLoaded] = useState(false)
   const [lastUpdate, setLastUpdate] = useState<Date | null>(null)
+  const [verificationResult, setVerificationResult] = useState<VerificationResult | null>(null)
+  const [verificationLoading, setVerificationLoading] = useState(false)
+  const [marketstackStatus, setMarketstackStatus] = useState<MarketstackUsage | null>(null)
   const { timezone } = useSettings()
 
   useEffect(() => {
@@ -115,6 +118,25 @@ export default function StockDetail() {
 
     fetchAnalystData()
   }, [ticker, activeTab, analystDataLoaded])
+
+  useEffect(() => {
+    if (activeTab !== 'dividends') return
+    api.marketstack.status().then(setMarketstackStatus).catch(() => null)
+  }, [activeTab])
+
+  const handleVerifyDividends = async () => {
+    if (!ticker) return
+    try {
+      setVerificationLoading(true)
+      const result = await api.marketstack.verify(ticker)
+      setVerificationResult(result)
+      setMarketstackStatus(result.usage)
+    } catch (err: any) {
+      console.error('Failed to verify dividends', err)
+    } finally {
+      setVerificationLoading(false)
+    }
+  }
 
   const openEditModal = () => {
     if (stock) {
@@ -529,6 +551,118 @@ export default function StockDetail() {
                   })}
                 </tbody>
               </table>
+            )}
+          </div>
+          
+          <div className="card" style={{ marginTop: '20px' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
+              <h3>Dividend Verification</h3>
+              {marketstackStatus && (
+                <span style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>
+                  API: {marketstackStatus.calls_remaining}/{marketstackStatus.calls_limit} calls remaining
+                </span>
+              )}
+            </div>
+            
+            {!marketstackStatus?.api_configured ? (
+              <p style={{ color: 'var(--text-secondary)', textAlign: 'center', padding: '20px' }}>
+                Marketstack API not configured. Set MARKETSTACK_API_KEY environment variable.
+              </p>
+            ) : verificationLoading ? (
+              <p style={{ color: 'var(--text-secondary)', textAlign: 'center', padding: '20px' }}>
+                Verifying dividends...
+              </p>
+            ) : verificationResult ? (
+              <div>
+                <div style={{ display: 'flex', gap: '16px', marginBottom: '16px', flexWrap: 'wrap' }}>
+                  <div style={{ padding: '12px 16px', background: 'var(--card-bg-alt)', borderRadius: '8px' }}>
+                    <span style={{ color: 'var(--text-secondary)', fontSize: '12px' }}>Yahoo</span>
+                    <p style={{ fontSize: '20px', fontWeight: '600' }}>{verificationResult.summary.yahoo_count}</p>
+                  </div>
+                  <div style={{ padding: '12px 16px', background: 'var(--card-bg-alt)', borderRadius: '8px' }}>
+                    <span style={{ color: 'var(--text-secondary)', fontSize: '12px' }}>Marketstack</span>
+                    <p style={{ fontSize: '20px', fontWeight: '600' }}>{verificationResult.summary.marketstack_count}</p>
+                  </div>
+                  <div style={{ padding: '12px 16px', background: 'var(--accent-green)', borderRadius: '8px', opacity: 0.15 }}>
+                    <span style={{ color: 'var(--accent-green)', fontSize: '12px' }}>Matches</span>
+                    <p style={{ fontSize: '20px', fontWeight: '600', color: 'var(--accent-green)' }}>{verificationResult.summary.match_count}</p>
+                  </div>
+                  <div style={{ padding: '12px 16px', background: verificationResult.summary.discrepancy_count > 0 ? 'var(--accent-red)' : 'var(--card-bg-alt)', borderRadius: '8px', opacity: verificationResult.summary.discrepancy_count > 0 ? 1 : 0.5 }}>
+                    <span style={{ color: verificationResult.summary.discrepancy_count > 0 ? 'var(--accent-red)' : 'var(--text-secondary)', fontSize: '12px' }}>Discrepancies</span>
+                    <p style={{ fontSize: '20px', fontWeight: '600', color: verificationResult.summary.discrepancy_count > 0 ? 'var(--accent-red)' : 'var(--text-primary)' }}>{verificationResult.summary.discrepancy_count}</p>
+                  </div>
+                </div>
+                
+                {verificationResult.cached && (
+                  <p style={{ fontSize: '12px', color: 'var(--text-secondary)', marginBottom: '12px' }}>
+                    (Cached result from {new Date(verificationResult.verified_at).toLocaleString()})
+                  </p>
+                )}
+                
+                {verificationResult.discrepancies.length > 0 && (
+                  <div>
+                    <h4 style={{ marginBottom: '12px', fontSize: '14px' }}>Discrepancy Details</h4>
+                    <table>
+                      <thead>
+                        <tr>
+                          <th>Date</th>
+                          <th>Type</th>
+                          <th>Yahoo</th>
+                          <th>Marketstack</th>
+                          <th>Difference</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {verificationResult.discrepancies.map((d, i) => (
+                          <tr key={i}>
+                            <td>{d.date || '-'}</td>
+                            <td>
+                              <span style={{
+                                padding: '2px 8px',
+                                borderRadius: '4px',
+                                fontSize: '11px',
+                                fontWeight: 500,
+                                background: d.type === 'amount_mismatch' ? '#fbbf24' : 
+                                           d.type === 'missing_from_yahoo' ? '#3b82f6' :
+                                           d.type === 'missing_from_marketstack' ? '#f97316' : '#ef4444',
+                                color: '#1a1a1a',
+                              }}>
+                                {d.type.replace(/_/g, ' ')}
+                              </span>
+                            </td>
+                            <td>{d.yahoo_amount !== null ? formatCurrency(d.yahoo_amount, stock.currency) : '-'}</td>
+                            <td>{d.marketstack_amount !== null ? formatCurrency(d.marketstack_amount, stock.currency) : '-'}</td>
+                            <td>{d.difference !== null ? formatCurrency(d.difference, stock.currency) : '-'}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+                
+                <div style={{ marginTop: '16px' }}>
+                  <button 
+                    className="btn btn-secondary" 
+                    onClick={handleVerifyDividends}
+                    disabled={verificationLoading || (marketstackStatus?.calls_remaining ?? 0) <= 0}
+                  >
+                    Re-verify (uses 1 API call)
+                  </button>
+                </div>
+              </div>
+            ) : (
+              <div style={{ textAlign: 'center', padding: '20px' }}>
+                <p style={{ color: 'var(--text-secondary)', marginBottom: '12px' }}>
+                  Compare Yahoo Finance dividend data against Marketstack to verify accuracy.
+                </p>
+                <button 
+                  className="btn btn-primary" 
+                  onClick={handleVerifyDividends}
+                  disabled={verificationLoading || (marketstackStatus?.calls_remaining ?? 0) <= 0}
+                >
+                  Verify Dividends (1 API call)
+                </button>
+              </div>
             )}
           </div>
           
