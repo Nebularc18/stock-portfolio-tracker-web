@@ -66,9 +66,16 @@ def get_portfolio_summary(db: Session = Depends(get_db)):
         db: Database session dependency.
     
     Returns:
-        dict: Portfolio summary containing total_value, total_cost,
-            total_gain_loss, total_gain_loss_percent, display_currency,
-            stocks list, and stock_count.
+        dict: Portfolio summary containing:
+            - total_value (float): Total portfolio value in display currency.
+            - total_cost (float): Total cost basis in display currency.
+            - total_gain_loss (float): Total gain/loss in display currency.
+            - total_gain_loss_percent (float): Gain/loss as percentage.
+            - display_currency (str): Currency used for display values.
+            - stocks (list): List of stock data dictionaries.
+            - stock_count (int): Number of stocks in portfolio.
+            - unconverted_stocks (list): Stocks that could not be converted
+              to display_currency due to missing exchange rates.
     """
     stocks = db.query(Stock).all()
     display_currency = get_display_currency(db)
