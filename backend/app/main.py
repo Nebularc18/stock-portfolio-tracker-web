@@ -1,3 +1,9 @@
+"""Stock Portfolio Tracker API.
+
+This module defines the FastAPI application, database models, Pydantic
+schemas, and API routing configuration for the stock portfolio tracker.
+"""
+
 import os
 from contextlib import asynccontextmanager
 from datetime import datetime
@@ -20,6 +26,24 @@ Base = declarative_base()
 
 
 class Stock(Base):
+    """Database model representing a stock in the portfolio.
+    
+    Attributes:
+        id: Primary key.
+        ticker: Stock ticker symbol (unique).
+        name: Company name.
+        quantity: Number of shares owned.
+        currency: Trading currency (default 'USD').
+        sector: Company sector.
+        purchase_price: Average purchase price per share.
+        current_price: Current market price.
+        previous_close: Previous day's closing price.
+        dividend_yield: Annual dividend yield percentage.
+        dividend_per_share: Annual dividend per share.
+        last_updated: Timestamp of last data refresh.
+        manual_dividends: List of manually recorded dividends.
+        suppressed_dividends: List of suppressed broker dividends.
+    """
     __tablename__ = "stocks"
 
     id = Column(Integer, primary_key=True, index=True)
@@ -41,6 +65,17 @@ class Stock(Base):
 
 
 class Dividend(Base):
+    """Database model representing a dividend payment.
+    
+    Attributes:
+        id: Primary key.
+        stock_id: Foreign key to the Stock model.
+        amount: Dividend amount per share.
+        currency: Dividend currency.
+        ex_date: Ex-dividend date.
+        pay_date: Payment date.
+        created_at: Record creation timestamp.
+    """
     __tablename__ = "dividends"
 
     id = Column(Integer, primary_key=True, index=True)
@@ -55,6 +90,13 @@ class Dividend(Base):
 
 
 class PortfolioHistory(Base):
+    """Database model for portfolio value snapshots.
+    
+    Attributes:
+        id: Primary key.
+        total_value: Total portfolio value in SEK.
+        date: Snapshot timestamp.
+    """
     __tablename__ = "portfolio_history"
 
     id = Column(Integer, primary_key=True, index=True)
@@ -63,6 +105,15 @@ class PortfolioHistory(Base):
 
 
 class StockPriceHistory(Base):
+    """Database model for historical stock prices.
+    
+    Attributes:
+        id: Primary key.
+        ticker: Stock ticker symbol.
+        price: Recorded price.
+        currency: Price currency.
+        recorded_at: Recording timestamp.
+    """
     __tablename__ = "stock_price_history"
 
     id = Column(Integer, primary_key=True, index=True)
@@ -73,6 +124,12 @@ class StockPriceHistory(Base):
 
 
 class UserSettings(Base):
+    """Database model for user preferences.
+    
+    Attributes:
+        id: Primary key.
+        display_currency: Preferred display currency (default 'SEK').
+    """
     __tablename__ = "user_settings"
 
     id = Column(Integer, primary_key=True, index=True)

@@ -1,3 +1,9 @@
+"""Market data API endpoints.
+
+This module provides API endpoints for market index data, exchange rates,
+market hours status, and sparkline charts for the header component.
+"""
+
 from fastapi import APIRouter, Query
 from typing import List
 from datetime import datetime, timezone

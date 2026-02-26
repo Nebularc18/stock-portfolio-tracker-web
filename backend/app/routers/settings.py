@@ -1,3 +1,9 @@
+"""User settings API endpoints.
+
+This module provides API endpoints for managing user preferences
+such as display currency for the portfolio.
+"""
+
 from fastapi import APIRouter, Depends
 from pydantic import BaseModel
 from typing import Optional

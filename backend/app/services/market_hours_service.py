@@ -1,3 +1,10 @@
+"""Market hours tracking service.
+
+This module provides functionality to track market open/close times,
+determine if markets are currently open, and check if data refresh
+should occur based on market hours.
+"""
+
 from datetime import datetime, time
 from typing import Dict, List
 import logging
@@ -74,6 +81,12 @@ def convert_time_to_timezone(time_str: str, from_tz: str, to_tz: str, base_date:
 
 
 class MarketHoursService:
+    """Service for tracking market hours and status.
+    
+    Provides methods to check if markets are open, get market status,
+    and determine if data refresh should occur based on market hours.
+    """
+    
     @staticmethod
     def is_market_open(market: str) -> bool:
         """Check if a market is currently open.

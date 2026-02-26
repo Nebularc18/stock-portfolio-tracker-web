@@ -1,12 +1,20 @@
+"""Portfolio summary and analytics API endpoints.
+
+This module provides API endpoints for portfolio summaries, historical
+performance, distribution analysis, and bulk refresh operations.
+"""
+
 from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
 from datetime import datetime
 from typing import List, Optional
+import logging
 
 from app.main import get_db, Stock, PortfolioHistory, UserSettings, StockPriceHistory
 from app.services.exchange_rate_service import ExchangeRateService
 
 router = APIRouter()
+logger = logging.getLogger(__name__)
 
 
 def get_display_currency(db: Session) -> str:
@@ -58,9 +66,16 @@ def get_portfolio_summary(db: Session = Depends(get_db)):
         db: Database session dependency.
     
     Returns:
-        dict: Portfolio summary containing total_value, total_cost,
-            total_gain_loss, total_gain_loss_percent, display_currency,
-            stocks list, and stock_count.
+        dict: Portfolio summary containing:
+            - total_value (float): Total portfolio value in display currency.
+            - total_cost (float): Total cost basis in display currency.
+            - total_gain_loss (float): Total gain/loss in display currency.
+            - total_gain_loss_percent (float): Gain/loss as percentage.
+            - display_currency (str): Currency used for display values.
+            - stocks (list): List of stock data dictionaries.
+            - stock_count (int): Number of stocks in portfolio.
+            - unconverted_stocks (list): Stocks that could not be converted
+              to display_currency due to missing exchange rates.
     """
     stocks = db.query(Stock).all()
     display_currency = get_display_currency(db)
@@ -73,6 +88,7 @@ def get_portfolio_summary(db: Session = Depends(get_db)):
     total_gain_loss = 0
     
     stock_data = []
+    unconverted_stocks = []
     
     for stock in stocks:
         if stock.current_price and stock.quantity:
@@ -80,20 +96,54 @@ def get_portfolio_summary(db: Session = Depends(get_db)):
             current_value = convert_value(current_value_native, stock.currency, display_currency, rates)
             
             if current_value is None:
-                current_value = current_value_native
+                logger.warning(
+                    f"Skipping {stock.ticker} in totals: no conversion rate for "
+                    f"{stock.currency} to {display_currency}"
+                )
+                unconverted_stocks.append({
+                    "ticker": stock.ticker,
+                    "currency": stock.currency,
+                    "reason": "missing_exchange_rate"
+                })
+                stock_data.append({
+                    "ticker": stock.ticker,
+                    "name": stock.name,
+                    "quantity": stock.quantity,
+                    "current_price": stock.current_price,
+                    "current_value": current_value_native,
+                    "currency": stock.currency,
+                    "sector": stock.sector,
+                    "gain_loss": None,
+                    "gain_loss_percent": None,
+                    "current_value_converted": False,
+                    "cost_converted": False,
+                })
+                continue
             
             total_value += current_value
             
             cost_native = 0
             cost = 0
+            cost_converted = False
             if stock.purchase_price:
                 cost_native = stock.purchase_price * stock.quantity
                 cost = convert_value(cost_native, stock.currency, display_currency, rates)
                 if cost is None:
-                    cost = cost_native
-                total_cost += cost
-                gain_loss = current_value - cost
-                total_gain_loss += gain_loss
+                    logger.warning(
+                        f"Skipping {stock.ticker} cost in totals: no conversion rate for "
+                        f"{stock.currency} to {display_currency}"
+                    )
+                    unconverted_stocks.append({
+                        "ticker": stock.ticker,
+                        "currency": stock.currency,
+                        "reason": "missing_exchange_rate_for_cost"
+                    })
+                    gain_loss = None
+                else:
+                    total_cost += cost
+                    gain_loss = current_value - cost
+                    total_gain_loss += gain_loss
+                    cost_converted = True
             else:
                 gain_loss = None
             
@@ -106,7 +156,9 @@ def get_portfolio_summary(db: Session = Depends(get_db)):
                 "currency": stock.currency,
                 "sector": stock.sector,
                 "gain_loss": gain_loss,
-                "gain_loss_percent": ((current_value - cost) / cost * 100) if cost and cost > 0 else None,
+                "gain_loss_percent": ((current_value - cost) / cost * 100) if cost_converted and cost > 0 else None,
+                "current_value_converted": True,
+                "cost_converted": cost_converted if stock.purchase_price else True,
             })
     
     total_gain_loss_percent = (total_gain_loss / total_cost * 100) if total_cost > 0 else 0
@@ -119,6 +171,7 @@ def get_portfolio_summary(db: Session = Depends(get_db)):
         "display_currency": display_currency,
         "stocks": stock_data,
         "stock_count": len(stocks),
+        "unconverted_stocks": unconverted_stocks,
     }
 
 
@@ -133,7 +186,9 @@ def refresh_all_prices(db: Session = Depends(get_db)):
         db: Database session dependency.
     
     Returns:
-        dict: Message with count of refreshed stocks.
+        dict: Response containing:
+            - message (str): Summary message, e.g. "Refreshed 5 stocks".
+            - skipped (int): Count of stocks skipped due to missing exchange rates.
     """
     from app.services.stock_service import StockService
     from app.services.exchange_rate_service import ExchangeRateService
@@ -146,6 +201,7 @@ def refresh_all_prices(db: Session = Depends(get_db)):
     currencies = {s.currency for s in stocks if s.currency}
     rates = ExchangeRateService.get_rates_for_currencies(currencies, "SEK")
     
+    skipped = 0
     for stock in stocks:
         info = stock_service.get_stock_info(stock.ticker)
         if info:
@@ -177,14 +233,15 @@ def refresh_all_prices(db: Session = Depends(get_db)):
             
             if stock.current_price and stock.quantity:
                 value = stock.current_price * stock.quantity
-                if stock.currency == 'SEK':
-                    total_value_sek += value
-                elif stock.currency == 'USD' and rates.get('USD_SEK'):
-                    total_value_sek += value * rates['USD_SEK']
-                elif stock.currency == 'EUR' and rates.get('EUR_SEK'):
-                    total_value_sek += value * rates['EUR_SEK']
+                converted_value = convert_value(value, stock.currency, 'SEK', rates)
+                if converted_value is not None:
+                    total_value_sek += converted_value
                 else:
-                    total_value_sek += value
+                    logger.warning(
+                        f"Skipping {stock.ticker}: no conversion rate for "
+                        f"{stock.currency} to SEK"
+                    )
+                    skipped += 1
     
     if updated > 0 and total_value_sek > 0:
         today = datetime.utcnow().replace(hour=0, minute=0, second=0, microsecond=0)
@@ -192,12 +249,12 @@ def refresh_all_prices(db: Session = Depends(get_db)):
         if existing:
             existing.total_value = total_value_sek
         else:
-            history_entry = PortfolioHistory(total_value=total_value_sek, date=datetime.utcnow())
+            history_entry = PortfolioHistory(total_value=total_value_sek, date=today)
             db.add(history_entry)
     
     db.commit()
     
-    return {"message": f"Refreshed {updated} stocks"}
+    return {"message": f"Refreshed {updated} stocks", "skipped": skipped}
 
 
 @router.get("/history", response_model=List[dict])

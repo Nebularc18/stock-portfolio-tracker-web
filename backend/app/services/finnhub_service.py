@@ -1,3 +1,10 @@
+"""Finnhub API service for company and financial data.
+
+This module provides functionality to fetch company profiles, financial
+metrics, peer companies, and analyst recommendations from the Finnhub API
+with caching support.
+"""
+
 import os
 import requests
 import time
@@ -142,14 +149,14 @@ class FinnhubService:
         ticker_upper = ticker.upper()
         cache_file = f"finnhub_profile_{ticker_upper}.json"
         
-        cached = _load_file_cache(cache_file)
-        if cached is not None:
-            return cached
-        
         if ticker_upper in _CACHE_PROFILE:
             cached_data, timestamp = _CACHE_PROFILE[ticker_upper]
             if time.time() - timestamp < _CACHE_TTL_PROFILE:
                 return cached_data
+        
+        cached = _load_file_cache(cache_file)
+        if cached is not None:
+            return cached
         
         finnhub_ticker = get_finnhub_ticker(ticker)
         data = self._make_request("stock/profile2", {"symbol": finnhub_ticker})
@@ -190,14 +197,14 @@ class FinnhubService:
         ticker_upper = ticker.upper()
         cache_file = f"finnhub_metrics_{ticker_upper}.json"
         
-        cached = _load_file_cache(cache_file)
-        if cached is not None:
-            return cached
-        
         if ticker_upper in _CACHE_METRICS:
             cached_data, timestamp = _CACHE_METRICS[ticker_upper]
             if time.time() - timestamp < _CACHE_TTL_METRICS:
                 return cached_data
+        
+        cached = _load_file_cache(cache_file)
+        if cached is not None:
+            return cached
         
         finnhub_ticker = get_finnhub_ticker(ticker)
         data = self._make_request("stock/metric", {"symbol": finnhub_ticker, "metric": "all"})
@@ -255,14 +262,14 @@ class FinnhubService:
         ticker_upper = ticker.upper()
         cache_file = f"finnhub_peers_{ticker_upper}.json"
         
-        cached = _load_file_cache(cache_file)
-        if cached is not None:
-            return cached
-        
         if ticker_upper in _CACHE_PEERS:
             cached_data, timestamp = _CACHE_PEERS[ticker_upper]
             if time.time() - timestamp < _CACHE_TTL_PEERS:
                 return cached_data
+        
+        cached = _load_file_cache(cache_file)
+        if cached is not None:
+            return cached
         
         finnhub_ticker = get_finnhub_ticker(ticker)
         data = self._make_request("stock/peers", {"symbol": finnhub_ticker})
@@ -289,14 +296,14 @@ class FinnhubService:
         ticker_upper = ticker.upper()
         cache_file = f"finnhub_recs_{ticker_upper}.json"
 
-        cached = _load_file_cache(cache_file)
-        if cached is not None:
-            return cached
-
         if ticker_upper in _CACHE_RECOMMENDATIONS:
             cached_data, timestamp = _CACHE_RECOMMENDATIONS[ticker_upper]
             if time.time() - timestamp < _CACHE_TTL_RECOMMENDATIONS:
                 return cached_data
+
+        cached = _load_file_cache(cache_file)
+        if cached is not None:
+            return cached
         
         finnhub_ticker = get_finnhub_ticker(ticker)
         data = self._make_request("stock/recommendation", {"symbol": finnhub_ticker})
@@ -328,7 +335,7 @@ class FinnhubService:
         return result
     
     def clear_cache(self, ticker: Optional[str] = None):
-        """Clear in-memory cache for a ticker or all tickers.
+        """Clear in-memory and file-based cache for a ticker or all tickers.
         
         Args:
             ticker: Specific ticker to clear, or None to clear all.
@@ -339,11 +346,35 @@ class FinnhubService:
             _CACHE_METRICS.pop(ticker_upper, None)
             _CACHE_PEERS.pop(ticker_upper, None)
             _CACHE_RECOMMENDATIONS.pop(ticker_upper, None)
+            
+            cache_prefixes = [
+                f"finnhub_profile_{ticker_upper}",
+                f"finnhub_metrics_{ticker_upper}",
+                f"finnhub_peers_{ticker_upper}",
+                f"finnhub_recs_{ticker_upper}",
+            ]
+            for filename in os.listdir(CACHE_DIR):
+                for prefix in cache_prefixes:
+                    if filename.startswith(prefix):
+                        filepath = os.path.join(CACHE_DIR, filename)
+                        try:
+                            os.remove(filepath)
+                        except OSError as e:
+                            logger.warning(f"Failed to delete cache file {filepath}: {e}")
+                        break
         else:
             _CACHE_PROFILE.clear()
             _CACHE_METRICS.clear()
             _CACHE_PEERS.clear()
             _CACHE_RECOMMENDATIONS.clear()
+            
+            for filename in os.listdir(CACHE_DIR):
+                if filename.startswith('finnhub_'):
+                    filepath = os.path.join(CACHE_DIR, filename)
+                    try:
+                        os.remove(filepath)
+                    except OSError as e:
+                        logger.warning(f"Failed to delete cache file {filepath}: {e}")
 
 
 finnhub_service = FinnhubService()

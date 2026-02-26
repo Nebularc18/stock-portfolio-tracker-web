@@ -1,3 +1,10 @@
+"""Marketstack API service for dividend data.
+
+This module provides functionality to fetch dividend data from the
+Marketstack API, verify dividend data against Yahoo Finance, and
+manage API usage limits with caching support.
+"""
+
 import os
 import requests
 import time
@@ -24,12 +31,25 @@ _usage_lock = threading.Lock()
 
 @dataclass
 class DividendData:
+    """Data class representing dividend information.
+    
+    Attributes:
+        date: Dividend ex-date in YYYY-MM-DD format.
+        amount: Dividend amount per share.
+        currency: Currency code (e.g., 'USD'), or None if unknown.
+    """
     date: str
     amount: float
     currency: Optional[str] = None
 
 
 class FetchError(Exception):
+    """Exception raised when API fetch fails.
+    
+    Attributes:
+        message: Error description.
+        status_code: HTTP status code (default 500).
+    """
     def __init__(self, message: str, status_code: int = 500):
         self.message = message
         self.status_code = status_code
@@ -38,6 +58,15 @@ class FetchError(Exception):
 
 @dataclass
 class Discrepancy:
+    """Data class representing a dividend discrepancy.
+    
+    Attributes:
+        date: Dividend date in YYYY-MM-DD format.
+        type: Type of discrepancy (e.g., 'amount_mismatch').
+        yahoo_amount: Dividend amount from Yahoo Finance.
+        marketstack_amount: Dividend amount from Marketstack.
+        difference: Absolute difference between amounts.
+    """
     date: str
     type: str
     yahoo_amount: Optional[float]
@@ -47,6 +76,21 @@ class Discrepancy:
 
 @dataclass
 class VerificationResult:
+    """Data class representing dividend verification results.
+    
+    Attributes:
+        ticker: Stock ticker symbol.
+        yahoo_dividends: List of dividends from Yahoo Finance.
+        marketstack_dividends: List of dividends from Marketstack.
+        discrepancies: List of discrepancies found.
+        verified_at: ISO timestamp of verification.
+        yahoo_count: Number of Yahoo dividends.
+        marketstack_count: Number of Marketstack dividends.
+        match_count: Number of matching dividends.
+        discrepancy_count: Number of discrepancies.
+        calls_used: Number of API calls used.
+        cached: Whether result was loaded from cache.
+    """
     ticker: str
     yahoo_dividends: List[Dict[str, Any]]
     marketstack_dividends: List[Dict[str, Any]]
@@ -61,6 +105,14 @@ class VerificationResult:
 
 
 def _load_file_cache(filename: str) -> Optional[Any]:
+    """Load cached data from a file if it exists and hasn't expired.
+    
+    Args:
+        filename: Name of the cache file to load.
+    
+    Returns:
+        The cached value if valid and not expired, None otherwise.
+    """
     filepath = os.path.join(CACHE_DIR, filename)
     if not os.path.exists(filepath):
         return None
@@ -72,7 +124,7 @@ def _load_file_cache(filename: str) -> Optional[Any]:
         return None
     except OSError as e:
         logger.error(f"Failed to read cache file {filepath}: {e}")
-        raise
+        return None
     
     if time.time() - data.get('timestamp', 0) < data.get('ttl', 3600):
         return data.get('value')
@@ -80,39 +132,51 @@ def _load_file_cache(filename: str) -> Optional[Any]:
 
 
 def _save_file_cache(filename: str, value: Any, ttl: int = 3600):
+    """Save data to a cache file with a time-to-live.
+    
+    Args:
+        filename: Name of the cache file to save.
+        value: The value to cache.
+        ttl: Time-to-live in seconds (default 1 hour).
+    """
     filepath = os.path.join(CACHE_DIR, filename)
-    try:
-        cache_data = {'value': value, 'timestamp': time.time(), 'ttl': ttl}
-    except (TypeError, ValueError) as e:
-        logger.warning(f"Failed to serialize cache data for {filename}: {e}")
-        return
+    cache_data = {'value': value, 'timestamp': time.time(), 'ttl': ttl}
     
     try:
         with open(filepath, 'w') as f:
             json.dump(cache_data, f)
-    except OSError as e:
-        logger.error(f"Failed to write cache file {filepath}: {e}")
-        raise
+    except (OSError, TypeError, ValueError) as e:
+        logger.warning(f"Failed to write cache file {filename}: {e}")
 
 
 def _load_usage() -> Dict[str, Any]:
+    """Load API usage data from file.
+    
+    Returns:
+        dict: Usage data with 'month' and 'calls_used' keys.
+    """
     filepath = os.path.join(CACHE_DIR, USAGE_FILE)
     if not os.path.exists(filepath):
-        return {'month': datetime.now().strftime('%Y-%m'), 'calls_used': 0}
+        return {'month': datetime.now(timezone.utc).strftime('%Y-%m'), 'calls_used': 0}
     try:
         with open(filepath, 'r') as f:
             data = json.load(f)
     except (OSError, json.JSONDecodeError) as e:
         logger.warning(f"Failed to load usage file: {e}")
-        return {'month': datetime.now().strftime('%Y-%m'), 'calls_used': 0}
+        return {'month': datetime.now(timezone.utc).strftime('%Y-%m'), 'calls_used': 0}
     
-    current_month = datetime.now().strftime('%Y-%m')
+    current_month = datetime.now(timezone.utc).strftime('%Y-%m')
     if data.get('month') != current_month:
         return {'month': current_month, 'calls_used': 0}
     return data
 
 
 def _save_usage(usage: Dict[str, Any]):
+    """Save API usage data to file.
+    
+    Args:
+        usage: Usage dictionary with 'month' and 'calls_used' keys.
+    """
     filepath = os.path.join(CACHE_DIR, USAGE_FILE)
     try:
         with open(filepath, 'w') as f:
@@ -122,6 +186,11 @@ def _save_usage(usage: Dict[str, Any]):
 
 
 def _decrement_usage() -> int:
+    """Decrement the API call count by one.
+    
+    Returns:
+        int: The new call count after decrementing.
+    """
     with _usage_lock:
         usage = _load_usage()
         usage['calls_used'] = max(0, usage.get('calls_used', 0) - 1)
@@ -130,6 +199,11 @@ def _decrement_usage() -> int:
 
 
 def try_consume_call() -> bool:
+    """Attempt to consume an API call if under the monthly limit.
+    
+    Returns:
+        bool: True if a call was successfully consumed, False if limit reached.
+    """
     with _usage_lock:
         usage = _load_usage()
         current = usage.get('calls_used', 0)
@@ -141,23 +215,61 @@ def try_consume_call() -> bool:
 
 
 def get_remaining_calls() -> int:
+    """Get the number of remaining API calls for the current month.
+    
+    Returns:
+        int: Number of remaining calls (minimum 0).
+    """
     with _usage_lock:
         usage = _load_usage()
         return max(0, MONTHLY_CALL_LIMIT - usage.get('calls_used', 0))
 
 
 class MarketstackService:
+    """Service for interacting with the Marketstack API.
+    
+    Provides methods to fetch dividend data, verify dividends against
+    Yahoo Finance, and manage API usage and caching.
+    
+    Attributes:
+        base_url: Base URL for Marketstack API.
+    """
+    
     def __init__(self):
+        """Initialize MarketstackService with API configuration."""
         self.base_url = "https://api.marketstack.com/v2"
     
     @property
     def api_key(self) -> Optional[str]:
+        """Get the Marketstack API key from environment.
+        
+        Returns:
+            str or None: The API key if set, None otherwise.
+        """
         return os.environ.get('MARKETSTACK_API_KEY')
     
     def is_configured(self) -> bool:
+        """Check if the Marketstack API key is configured.
+        
+        Returns:
+            bool: True if API key is set, False otherwise.
+        """
         return bool(self.api_key)
     
     def _make_request(self, endpoint: str, params: Optional[Dict[str, Any]] = None) -> Optional[Any]:
+        """Make an authenticated request to the Marketstack API.
+        
+        Args:
+            endpoint: API endpoint path (e.g., 'dividends').
+            params: Optional query parameters.
+        
+        Returns:
+            JSON response data, or None if request fails.
+        
+        Raises:
+            FetchError: If API key not configured, rate limit reached,
+                or other API error.
+        """
         if not self.api_key:
             raise FetchError("Marketstack API key not configured", 503)
         
@@ -198,12 +310,23 @@ class MarketstackService:
         date_to: Optional[str] = None,
         use_cache: bool = True
     ) -> Optional[List[DividendData]]:
+        """Fetch dividend data for a ticker from Marketstack.
+        
+        Args:
+            ticker: Stock ticker symbol.
+            date_from: Start date in YYYY-MM-DD format (default: 1 year ago).
+            date_to: End date in YYYY-MM-DD format (default: today).
+            use_cache: Whether to use cached data if available.
+        
+        Returns:
+            list: List of DividendData objects, or None if fetch fails.
+        """
         ticker_upper = ticker.upper()
         sanitized_ticker = ticker_upper.replace('-', '_')
         
         effective_date_from = date_from
         if not effective_date_from:
-            effective_date_from = (datetime.now() - timedelta(days=365)).strftime('%Y-%m-%d')
+            effective_date_from = (datetime.now(timezone.utc) - timedelta(days=365)).strftime('%Y-%m-%d')
         
         effective_date_to = date_to or ''
         
@@ -248,6 +371,19 @@ class MarketstackService:
         yahoo_dividends: List[Dict[str, Any]],
         use_cache: bool = True
     ) -> VerificationResult:
+        """Verify Yahoo Finance dividends against Marketstack data.
+        
+        Compares dividend data from both sources and identifies
+        discrepancies including amount mismatches and missing data.
+        
+        Args:
+            ticker: Stock ticker symbol.
+            yahoo_dividends: List of dividend records from Yahoo Finance.
+            use_cache: Whether to use cached verification results.
+        
+        Returns:
+            VerificationResult: Verification results with matches and discrepancies.
+        """
         ticker_upper = ticker.upper()
         sanitized_ticker = ticker_upper.replace('-', '_')
         yahoo_hash = hashlib.sha256(
@@ -360,6 +496,12 @@ class MarketstackService:
         return result
     
     def get_usage_status(self) -> Dict[str, Any]:
+        """Get current API usage status.
+        
+        Returns:
+            dict: Usage status with month, calls_used, calls_limit,
+                calls_remaining, and api_configured fields.
+        """
         with _usage_lock:
             usage = _load_usage()
             calls_used = usage.get('calls_used', 0)
@@ -374,34 +516,54 @@ class MarketstackService:
             }
     
     def clear_cache(self, ticker: Optional[str] = None):
+        """Clear cached data for a specific ticker or all tickers.
+        
+        Args:
+            ticker: Specific ticker to clear cache for, or None to clear all.
+        
+        Returns:
+            int: Number of cache files cleared.
+        """
+        if not os.path.isdir(CACHE_DIR):
+            logger.info("Cache directory does not exist, nothing to clear")
+            return 0
+        
         cleared_count = 0
         if ticker:
             ticker_upper = ticker.upper()
             sanitized_ticker = ticker_upper.replace('-', '_')
             dividends_prefix = f"marketstack_dividends_{sanitized_ticker}_"
             verify_prefix = f"marketstack_verify_{sanitized_ticker}_"
-            for filename in os.listdir(CACHE_DIR):
-                if filename == USAGE_FILE:
-                    continue
-                if filename.startswith(dividends_prefix) or filename.startswith(verify_prefix):
+            try:
+                for filename in os.listdir(CACHE_DIR):
+                    if filename == USAGE_FILE:
+                        continue
+                    if filename.startswith(dividends_prefix) or filename.startswith(verify_prefix):
+                        filepath = os.path.join(CACHE_DIR, filename)
+                        try:
+                            os.remove(filepath)
+                            cleared_count += 1
+                        except OSError as e:
+                            logger.warning(f"Failed to delete cache file {filepath}: {e}")
+            except FileNotFoundError:
+                logger.warning("Cache directory was removed during clear operation")
+                return cleared_count
+        else:
+            try:
+                for filename in os.listdir(CACHE_DIR):
+                    if filename == USAGE_FILE:
+                        continue
+                    if 'marketstack' not in filename:
+                        continue
                     filepath = os.path.join(CACHE_DIR, filename)
                     try:
                         os.remove(filepath)
                         cleared_count += 1
                     except OSError as e:
                         logger.warning(f"Failed to delete cache file {filepath}: {e}")
-        else:
-            for filename in os.listdir(CACHE_DIR):
-                if filename == USAGE_FILE:
-                    continue
-                if 'marketstack' not in filename:
-                    continue
-                filepath = os.path.join(CACHE_DIR, filename)
-                try:
-                    os.remove(filepath)
-                    cleared_count += 1
-                except OSError as e:
-                    logger.warning(f"Failed to delete cache file {filepath}: {e}")
+            except FileNotFoundError:
+                logger.warning("Cache directory was removed during clear operation")
+                return cleared_count
         logger.info(f"Cleared {cleared_count} marketstack cache files")
         return cleared_count
 

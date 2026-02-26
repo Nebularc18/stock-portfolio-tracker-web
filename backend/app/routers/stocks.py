@@ -1,3 +1,9 @@
+"""Stock portfolio API endpoints.
+
+This module provides API endpoints for managing stocks in a portfolio,
+including CRUD operations, dividend tracking, and analyst data.
+"""
+
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 from datetime import datetime
