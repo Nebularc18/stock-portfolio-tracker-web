@@ -45,7 +45,7 @@ export default function Stocks() {
   const [editQuantity, setEditQuantity] = useState('')
   const [editPurchasePrice, setEditPurchasePrice] = useState('')
   const [saving, setSaving] = useState(false)
-  const [lastUpdate, setLastUpdate] = useState<Date | null>(null)
+  const [lastUpdate, setLastUpdate] = useState<string | null>(null)
   const { timezone } = useSettings()
 
   const fetchStocks = useCallback(async () => {
@@ -53,7 +53,12 @@ export default function Stocks() {
       setLoading(true)
       const data = await api.stocks.list()
       setStocks(data)
-      setLastUpdate(new Date())
+      const latestUpdate = data.reduce((max: string | null, s: Stock) => {
+        if (!s.last_updated) return max
+        if (!max) return s.last_updated
+        return s.last_updated > max ? s.last_updated : max
+      }, null)
+      setLastUpdate(latestUpdate)
       setError(null)
     } catch (err) {
       setError('Failed to load stocks')

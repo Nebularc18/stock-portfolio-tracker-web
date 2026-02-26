@@ -33,7 +33,7 @@ export default function Dashboard() {
   const [stocks, setStocks] = useState<Stock[]>([])
   const [exchangeRates, setExchangeRates] = useState<Record<string, number | null>>({})
   const [portfolioHistory, setPortfolioHistory] = useState<{ date: string; value: number }[]>([])
-  const [lastUpdate, setLastUpdate] = useState<Date | null>(null)
+  const [lastUpdate, setLastUpdate] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const { displayCurrency, timezone } = useSettings()
@@ -53,7 +53,12 @@ export default function Dashboard() {
       setStocks(stocksData)
       setExchangeRates(ratesData)
       setPortfolioHistory(historyData.reverse())
-      setLastUpdate(new Date())
+      const latestUpdate = stocksData.reduce((max: string | null, s: Stock) => {
+        if (!s.last_updated) return max
+        if (!max) return s.last_updated
+        return s.last_updated > max ? s.last_updated : max
+      }, null)
+      setLastUpdate(latestUpdate)
       
       if (summaryData.stocks?.length) {
         const divPromises = summaryData.stocks.map(async (s) => {

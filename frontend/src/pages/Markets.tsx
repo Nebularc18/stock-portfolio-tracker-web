@@ -40,7 +40,7 @@ export default function Markets() {
   const [sparklines, setSparklines] = useState<Record<string, SparklineData>>({})
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
-  const [lastUpdate, setLastUpdate] = useState<Date | null>(null)
+  const [lastUpdate, setLastUpdate] = useState<string | null>(null)
   const [nextRefresh, setNextRefresh] = useState<Date | null>(null)
   const { timezone } = useSettings()
   const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
@@ -51,12 +51,12 @@ export default function Markets() {
       const [indicesData, hoursData, sparklineData] = await Promise.all([
         api.market.indices(),
         api.market.hours(timezone),
-        api.market.sparklines().catch(() => ({})),
+        api.market.sparklines().catch(() => ({ sparklines: {}, updated_at: '' })),
       ])
-      setIndices(indicesData)
+      setIndices(indicesData.indices)
       setMarketHours(hoursData)
-      setSparklines(sparklineData)
-      setLastUpdate(new Date())
+      setSparklines(sparklineData.sparklines || {})
+      setLastUpdate(indicesData.updated_at || sparklineData.updated_at || null)
       setError(null)
     } catch (err) {
       setError('Failed to load market data')

@@ -1,5 +1,6 @@
 from fastapi import APIRouter, Query
 from typing import List
+from datetime import datetime
 import requests
 import logging
 
@@ -123,12 +124,12 @@ def should_refresh():
 
 
 @router.get("/indices")
-def get_market_indices() -> List[dict]:
+def get_market_indices():
     """Retrieve current data for all tracked market indices.
     
     Returns:
-        List[dict]: List of index data with symbol, name, price, change,
-            and change_percent fields.
+        dict: Contains 'indices' list with symbol, name, price, change,
+            and change_percent fields, plus 'updated_at' timestamp.
     """
     results = []
     
@@ -140,7 +141,10 @@ def get_market_indices() -> List[dict]:
                 "name": name,
             })
     
-    return results
+    return {
+        "indices": results,
+        "updated_at": datetime.utcnow().isoformat() + "Z"
+    }
 
 
 @router.get("/exchange-rates")
@@ -269,4 +273,7 @@ def get_index_sparklines():
             logger.error(f"Error fetching sparkline for {symbol}: {e}")
             continue
     
-    return sparklines
+    return {
+        "sparklines": sparklines,
+        "updated_at": datetime.utcnow().isoformat() + "Z"
+    }
