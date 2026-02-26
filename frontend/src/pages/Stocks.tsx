@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback } from 'react'
 import { Link } from 'react-router-dom'
 import { api, Stock } from '../services/api'
 import { useSettings } from '../SettingsContext'
-import { formatTimeInTimezone } from '../utils/time'
+import { formatTimeInTimezone, getLatestTimestamp } from '../utils/time'
 
 function formatCurrency(value: number | null, currency: string = 'USD'): string {
   if (value === null) return '-'
@@ -45,7 +45,7 @@ export default function Stocks() {
   const [editQuantity, setEditQuantity] = useState('')
   const [editPurchasePrice, setEditPurchasePrice] = useState('')
   const [saving, setSaving] = useState(false)
-  const [lastUpdate, setLastUpdate] = useState<Date | null>(null)
+  const [lastUpdate, setLastUpdate] = useState<string | null>(null)
   const { timezone } = useSettings()
 
   const fetchStocks = useCallback(async () => {
@@ -53,7 +53,7 @@ export default function Stocks() {
       setLoading(true)
       const data = await api.stocks.list()
       setStocks(data)
-      setLastUpdate(new Date())
+      setLastUpdate(getLatestTimestamp(data))
       setError(null)
     } catch (err) {
       setError('Failed to load stocks')

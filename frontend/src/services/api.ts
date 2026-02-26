@@ -262,7 +262,7 @@ export const api = {
   
   market: {
     header: (force: boolean = false) => fetchAPI(`/market/header${force ? '?force=true' : ''}`) as Promise<HeaderMarketData>,
-    indices: () => fetchAPI('/market/indices') as Promise<MarketIndex[]>,
+    indices: () => fetchAPI('/market/indices') as Promise<{ indices: MarketIndex[]; updated_at: string }>,
     exchangeRates: () => fetchAPI('/market/exchange-rates') as Promise<Record<string, number | null>>,
     convert: (amount: number, from: string, to: string) => 
       fetchAPI(`/market/convert?amount=${amount}&from_currency=${from}&to_currency=${to}`),
@@ -270,7 +270,7 @@ export const api = {
     marketHours: (market: string, timezone?: string) => fetchAPI(`/market/hours/${market}${timezone ? `?timezone=${encodeURIComponent(timezone)}` : ''}`) as Promise<MarketStatus>,
     openMarkets: () => fetchAPI('/market/open-markets') as Promise<{ open_markets: string[] }>,
     shouldRefresh: () => fetchAPI('/market/should-refresh') as Promise<{ should_refresh: boolean }>,
-    sparklines: () => fetchAPI('/market/indices/sparklines') as Promise<Record<string, SparklineData>>,
+    sparklines: () => fetchAPI('/market/indices/sparklines') as Promise<{ sparklines: Record<string, SparklineData>; updated_at: string }>,
   },
   
   finnhub: {

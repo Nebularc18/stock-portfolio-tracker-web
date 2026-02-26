@@ -47,7 +47,6 @@ export default function StockDetail() {
   const [finnhubLoading, setFinnhubLoading] = useState(false)
   const [analystDataLoading, setAnalystDataLoading] = useState(false)
   const [analystDataLoaded, setAnalystDataLoaded] = useState(false)
-  const [lastUpdate, setLastUpdate] = useState<Date | null>(null)
   const [verificationResult, setVerificationResult] = useState<VerificationResult | null>(null)
   const [verificationLoading, setVerificationLoading] = useState(false)
   const [marketstackStatus, setMarketstackStatus] = useState<MarketstackUsage | null>(null)
@@ -72,7 +71,6 @@ export default function StockDetail() {
         setDividends(divData)
         setUpcomingDividends(upcomingData)
         setSuppressedDividends(suppressedData)
-        setLastUpdate(new Date())
         setError(null)
       } catch (err: any) {
         setError(err.message || 'Failed to load stock data')
@@ -303,7 +301,7 @@ export default function StockDetail() {
               </p>
             )}
             <p style={{ color: 'var(--text-secondary)', fontSize: '12px', marginTop: '8px' }}>
-              Last updated: {formatTimeInTimezone(stock.last_updated || lastUpdate, timezone)} · Auto-refresh every 10 min
+              Last updated: {formatTimeInTimezone(stock.last_updated, timezone)} · Auto-refresh every 10 min
             </p>
           </div>
           <div style={{ display: 'flex', gap: '8px' }}>

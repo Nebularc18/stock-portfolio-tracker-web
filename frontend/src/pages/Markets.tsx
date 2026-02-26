@@ -1,8 +1,9 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
 import { Link } from 'react-router-dom'
 import { LineChart, Line, ResponsiveContainer, YAxis } from 'recharts'
-import { api, MarketIndex, MarketStatus, SparklineData } from '../services/api'
+import { api, MarketStatus, SparklineData } from '../services/api'
 import { useSettings } from '../SettingsContext'
+import { useHeaderData } from '../contexts/HeaderDataContext'
 import { formatTimeInTimezone, getTimeUntilNextInterval } from '../utils/time'
 
 function formatNumber(value: number, decimals: number = 2): string {
@@ -35,35 +36,32 @@ function MiniSparkline({ data, isPositive }: { data: number[]; isPositive: boole
 }
 
 export default function Markets() {
-  const [indices, setIndices] = useState<MarketIndex[]>([])
+  const { indices, lastUpdated, refreshData } = useHeaderData()
   const [marketHours, setMarketHours] = useState<MarketStatus[]>([])
   const [sparklines, setSparklines] = useState<Record<string, SparklineData>>({})
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
-  const [lastUpdate, setLastUpdate] = useState<Date | null>(null)
   const [nextRefresh, setNextRefresh] = useState<Date | null>(null)
   const { timezone } = useSettings()
   const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
-  const fetchData = useCallback(async () => {
+  const fetchData = useCallback(async (forceRefresh = false) => {
     try {
       setLoading(true)
-      const [indicesData, hoursData, sparklineData] = await Promise.all([
-        api.market.indices(),
+      const [sparklineData, hoursData] = await Promise.all([
+        api.market.sparklines().catch(() => ({ sparklines: {}, updated_at: '' })),
         api.market.hours(timezone),
-        api.market.sparklines().catch(() => ({})),
       ])
-      setIndices(indicesData)
+      setSparklines(sparklineData.sparklines || {})
       setMarketHours(hoursData)
-      setSparklines(sparklineData)
-      setLastUpdate(new Date())
+      await refreshData(forceRefresh)
       setError(null)
     } catch (err) {
       setError('Failed to load market data')
     } finally {
       setLoading(false)
     }
-  }, [timezone])
+  }, [timezone, refreshData])
 
   const scheduleNextRefresh = useCallback(async () => {
     try {
@@ -105,14 +103,14 @@ export default function Markets() {
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '24px' }}>
         <div>
           <h2 style={{ fontSize: '24px', fontWeight: '600' }}>Markets</h2>
-          {lastUpdate && (
+          {lastUpdated && (
             <p style={{ color: 'var(--text-secondary)', fontSize: '12px', marginTop: '4px' }}>
-              Last updated: {formatTimeInTimezone(lastUpdate, timezone)}
+              Last updated: {formatTimeInTimezone(lastUpdated, timezone)}
               {nextRefresh && <span> · Next: {formatTimeInTimezone(nextRefresh, timezone)}</span>}
             </p>
           )}
         </div>
-        <button className="btn btn-primary" onClick={fetchData} disabled={loading}>
+        <button className="btn btn-primary" onClick={() => fetchData(true)} disabled={loading}>
           {loading ? 'Refreshing...' : 'Refresh'}
         </button>
       </div>

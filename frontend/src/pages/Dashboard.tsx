@@ -3,7 +3,7 @@ import { Link } from 'react-router-dom'
 import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip, LineChart, Line, XAxis, YAxis, CartesianGrid } from 'recharts'
 import { api, PortfolioSummary, Dividend, Stock } from '../services/api'
 import { useSettings } from '../SettingsContext'
-import { formatTimeInTimezone } from '../utils/time'
+import { formatTimeInTimezone, getLatestTimestamp } from '../utils/time'
 
 const COLORS = ['#6366f1', '#ec4899', '#ef4444', '#f97316', '#22c55e', '#3b82f6', '#a855f7', '#f43f5e']
 
@@ -33,7 +33,7 @@ export default function Dashboard() {
   const [stocks, setStocks] = useState<Stock[]>([])
   const [exchangeRates, setExchangeRates] = useState<Record<string, number | null>>({})
   const [portfolioHistory, setPortfolioHistory] = useState<{ date: string; value: number }[]>([])
-  const [lastUpdate, setLastUpdate] = useState<Date | null>(null)
+  const [lastUpdate, setLastUpdate] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const { displayCurrency, timezone } = useSettings()
@@ -53,7 +53,7 @@ export default function Dashboard() {
       setStocks(stocksData)
       setExchangeRates(ratesData)
       setPortfolioHistory(historyData.reverse())
-      setLastUpdate(new Date())
+      setLastUpdate(getLatestTimestamp(stocksData))
       
       if (summaryData.stocks?.length) {
         const divPromises = summaryData.stocks.map(async (s) => {
