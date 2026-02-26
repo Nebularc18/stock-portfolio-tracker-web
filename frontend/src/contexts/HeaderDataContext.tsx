@@ -1,4 +1,4 @@
-import { createContext, useContext, useState, useEffect, useRef, ReactNode } from 'react'
+import { createContext, useContext, useState, useEffect, useRef, ReactNode, useCallback } from 'react'
 import { api, MarketIndex, HeaderMarketData } from '../services/api'
 
 interface HeaderDataContextType {
@@ -6,6 +6,7 @@ interface HeaderDataContextType {
   exchangeRates: Record<string, number | null>
   lastUpdated: string | null
   loading: boolean
+  refreshData: (force?: boolean) => Promise<HeaderMarketData | null>
 }
 
 const HeaderDataContext = createContext<HeaderDataContextType | null>(null)
@@ -41,7 +42,6 @@ function saveToCache(data: HeaderMarketData) {
     }
     localStorage.setItem(CACHE_KEY, JSON.stringify(cacheEntry))
   } catch {
-    // Ignore cache errors
   }
 }
 
@@ -52,19 +52,18 @@ export function HeaderDataProvider({ children }: { children: ReactNode }) {
   const [loading, setLoading] = useState(true)
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null)
 
-  const fetchData = async (forceRefresh = false) => {
+  const fetchData = useCallback(async (forceRefresh = false) => {
     let shouldRefresh = true
     
     try {
       const result = await api.market.shouldRefresh()
       shouldRefresh = result.should_refresh
     } catch {
-      // Continue with refresh if endpoint fails
     }
 
     if (!shouldRefresh && !forceRefresh) {
       setLoading(false)
-      return
+      return null
     }
 
     if (!forceRefresh) {
@@ -74,7 +73,7 @@ export function HeaderDataProvider({ children }: { children: ReactNode }) {
         setExchangeRates(cached.exchange_rates)
         setLastUpdated(cached.updated_at)
         setLoading(false)
-        return
+        return cached
       }
     }
 
@@ -84,12 +83,14 @@ export function HeaderDataProvider({ children }: { children: ReactNode }) {
       setExchangeRates(data.exchange_rates)
       setLastUpdated(data.updated_at)
       saveToCache(data)
+      return data
     } catch (error) {
       console.error('Failed to fetch header data:', error)
+      return null
     } finally {
       setLoading(false)
     }
-  }
+  }, [])
 
   useEffect(() => {
     fetchData()
@@ -103,10 +104,10 @@ export function HeaderDataProvider({ children }: { children: ReactNode }) {
         clearInterval(intervalRef.current)
       }
     }
-  }, [])
+  }, [fetchData])
 
   return (
-    <HeaderDataContext.Provider value={{ indices, exchangeRates, lastUpdated, loading }}>
+    <HeaderDataContext.Provider value={{ indices, exchangeRates, lastUpdated, loading, refreshData: fetchData }}>
       {children}
     </HeaderDataContext.Provider>
   )
