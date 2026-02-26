@@ -178,7 +178,7 @@ class MarketIndex(BaseModel):
 
 
 from app.services.stock_service import StockService
-from app.routers import stocks, portfolio, market, finnhub, settings
+from app.routers import stocks, portfolio, market, finnhub, settings, marketstack
 
 stock_service = StockService()
 
@@ -187,6 +187,7 @@ app.include_router(portfolio.router, prefix="/api/portfolio", tags=["portfolio"]
 app.include_router(market.router, prefix="/api/market", tags=["market"])
 app.include_router(finnhub.router, prefix="/api/finnhub", tags=["finnhub"])
 app.include_router(settings.router, prefix="/api/settings", tags=["settings"])
+app.include_router(marketstack.router, prefix="/api/marketstack", tags=["marketstack"])
 
 
 @app.get("/")
