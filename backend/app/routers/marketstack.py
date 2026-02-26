@@ -1,3 +1,9 @@
+"""Marketstack API proxy endpoints.
+
+This module provides API endpoints that proxy requests to the Marketstack
+API for dividend data and verification, with usage tracking and caching.
+"""
+
 from fastapi import APIRouter, HTTPException
 from typing import Optional, Dict, Any, List
 
@@ -10,6 +16,12 @@ stock_service = StockService()
 
 @router.get("/status")
 def get_status() -> Dict[str, Any]:
+    """Retrieve Marketstack API usage status.
+    
+    Returns:
+        dict: Usage status with month, calls_used, calls_limit,
+            calls_remaining, and api_configured fields.
+    """
     return marketstack_service.get_usage_status()
 
 
@@ -20,6 +32,21 @@ def get_dividends(
     date_to: Optional[str] = None,
     use_cache: bool = True
 ) -> Dict[str, Any]:
+    """Retrieve dividend data from Marketstack for a ticker.
+    
+    Args:
+        ticker: Stock ticker symbol.
+        date_from: Start date in YYYY-MM-DD format (optional).
+        date_to: End date in YYYY-MM-DD format (optional).
+        use_cache: Whether to use cached data if available.
+    
+    Returns:
+        dict: Contains ticker, dividends list, count, and usage status.
+    
+    Raises:
+        HTTPException: 503 if API not configured, 429 if rate limited,
+            404 if no data found.
+    """
     if not marketstack_service.is_configured():
         raise HTTPException(
             status_code=503, 
@@ -52,6 +79,22 @@ def get_dividends(
 
 @router.post("/verify/{ticker}")
 def verify_dividends(ticker: str, use_cache: bool = True) -> Dict[str, Any]:
+    """Verify Yahoo Finance dividends against Marketstack data.
+    
+    Fetches dividend data from both sources and compares them to
+    identify discrepancies in amounts or missing records.
+    
+    Args:
+        ticker: Stock ticker symbol.
+        use_cache: Whether to use cached verification results.
+    
+    Returns:
+        dict: Contains ticker, verified_at, cached flag, summary counts,
+            yahoo_dividends, marketstack_dividends, discrepancies, and usage.
+    
+    Raises:
+        HTTPException: 503 if API not configured, 429 if rate limited.
+    """
     if not marketstack_service.is_configured():
         raise HTTPException(
             status_code=503, 
@@ -88,5 +131,13 @@ def verify_dividends(ticker: str, use_cache: bool = True) -> Dict[str, Any]:
 
 @router.delete("/cache/{ticker}")
 def clear_cache(ticker: str) -> Dict[str, str]:
+    """Clear cached Marketstack data for a specific ticker.
+    
+    Args:
+        ticker: Stock ticker symbol to clear cache for.
+    
+    Returns:
+        dict: Confirmation message.
+    """
     marketstack_service.clear_cache(ticker)
     return {'message': f'Cache cleared for {ticker.upper()}'}

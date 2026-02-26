@@ -1,3 +1,9 @@
+"""Background scheduler for periodic stock data refresh.
+
+This module provides a background scheduler that periodically refreshes
+stock prices for all stocks in the portfolio when markets are open.
+"""
+
 import logging
 from datetime import datetime
 from apscheduler.schedulers.background import BackgroundScheduler

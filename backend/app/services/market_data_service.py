@@ -1,3 +1,9 @@
+"""Market data service for index and exchange rate data.
+
+This module provides functionality to fetch market index data and
+exchange rates from Yahoo Finance for display in the application header.
+"""
+
 import requests
 import json
 import os

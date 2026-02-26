@@ -1,3 +1,9 @@
+"""Portfolio summary and analytics API endpoints.
+
+This module provides API endpoints for portfolio summaries, historical
+performance, distribution analysis, and bulk refresh operations.
+"""
+
 from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
 from datetime import datetime

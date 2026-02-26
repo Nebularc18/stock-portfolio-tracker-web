@@ -1,3 +1,9 @@
+"""Exchange rate service for currency conversion.
+
+This module provides functionality to fetch and cache exchange rates
+from Yahoo Finance, supporting multiple currency pairs and conversions.
+"""
+
 import yfinance as yf
 from typing import Dict, Optional
 from datetime import datetime
@@ -55,6 +61,13 @@ _cache_ttl = 3600
 
 
 class ExchangeRateService:
+    """Service for fetching and caching exchange rates.
+    
+    Provides methods to get exchange rates between currencies,
+    convert amounts between currencies, and batch fetch rates
+    for multiple currency pairs.
+    """
+    
     @staticmethod
     def get_rate(from_currency: str, to_currency: str) -> Optional[float]:
         """Get exchange rate between two currencies.

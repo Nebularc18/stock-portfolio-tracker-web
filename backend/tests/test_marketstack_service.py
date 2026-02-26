@@ -1,3 +1,10 @@
+"""Unit tests for the Marketstack service.
+
+This module contains tests for the MarketstackService class, including
+tests for API configuration, usage tracking, dividend fetching, and
+dividend verification functionality.
+"""
+
 import pytest
 from unittest.mock import patch, MagicMock
 from datetime import datetime, timezone
@@ -14,17 +21,22 @@ from app.services.marketstack_service import (
 
 
 class TestMarketstackService:
+    """Test suite for MarketstackService."""
+    
     def test_is_configured_returns_false_without_key(self):
+        """Test that is_configured returns False when API key is not set."""
         with patch.dict('os.environ', {}, clear=True):
             service = MarketstackService()
             assert service.is_configured() is False
     
     def test_is_configured_returns_true_with_key(self):
+        """Test that is_configured returns True when API key is set."""
         with patch.dict('os.environ', {'MARKETSTACK_API_KEY': 'test_key'}):
             service = MarketstackService()
             assert service.is_configured() is True
     
     def test_get_usage_status_new_month(self, tmp_path):
+        """Test that usage status returns zero calls for a new month."""
         with patch('app.services.marketstack_service.CACHE_DIR', str(tmp_path)):
             service = MarketstackService()
             status = service.get_usage_status()
@@ -35,12 +47,14 @@ class TestMarketstackService:
             assert status['month'] == datetime.now().strftime('%Y-%m')
     
     def test_dividend_data_creation(self):
+        """Test DividendData dataclass creation with all fields."""
         div = DividendData(date='2024-01-15', amount=0.25, currency='USD')
         assert div.date == '2024-01-15'
         assert div.amount == 0.25
         assert div.currency == 'USD'
     
     def test_verification_result_creation(self):
+        """Test VerificationResult dataclass creation."""
         result = VerificationResult(
             ticker='AAPL',
             yahoo_dividends=[{'date': '2024-01-15', 'amount': 0.25}],
@@ -60,6 +74,7 @@ class TestMarketstackService:
         assert result.cached is False
     
     def test_verify_dividends_detects_match(self, tmp_path):
+        """Test that verify_dividends correctly identifies matching dividends."""
         with patch('app.services.marketstack_service.CACHE_DIR', str(tmp_path)):
             with patch.dict('os.environ', {'MARKETSTACK_API_KEY': 'test_key'}):
                 service = MarketstackService()
@@ -81,6 +96,7 @@ class TestMarketstackService:
                     assert result.discrepancy_count == 0
     
     def test_verify_dividends_detects_amount_mismatch(self, tmp_path):
+        """Test that verify_dividends detects amount mismatches."""
         with patch('app.services.marketstack_service.CACHE_DIR', str(tmp_path)):
             with patch.dict('os.environ', {'MARKETSTACK_API_KEY': 'test_key'}):
                 service = MarketstackService()
@@ -101,6 +117,7 @@ class TestMarketstackService:
                     assert result.discrepancies[0]['type'] == 'amount_mismatch'
     
     def test_verify_dividends_detects_missing_from_marketstack(self, tmp_path):
+        """Test that verify_dividends detects dividends missing from Marketstack."""
         with patch('app.services.marketstack_service.CACHE_DIR', str(tmp_path)):
             with patch.dict('os.environ', {'MARKETSTACK_API_KEY': 'test_key'}):
                 service = MarketstackService()
@@ -119,6 +136,7 @@ class TestMarketstackService:
                     assert result.discrepancies[0]['type'] == 'missing_from_marketstack'
     
     def test_verify_dividends_detects_missing_from_yahoo(self, tmp_path):
+        """Test that verify_dividends detects dividends missing from Yahoo."""
         with patch('app.services.marketstack_service.CACHE_DIR', str(tmp_path)):
             with patch.dict('os.environ', {'MARKETSTACK_API_KEY': 'test_key'}):
                 service = MarketstackService()

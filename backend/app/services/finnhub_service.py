@@ -1,3 +1,10 @@
+"""Finnhub API service for company and financial data.
+
+This module provides functionality to fetch company profiles, financial
+metrics, peer companies, and analyst recommendations from the Finnhub API
+with caching support.
+"""
+
 import os
 import requests
 import time

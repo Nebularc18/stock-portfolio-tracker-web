@@ -1,3 +1,10 @@
+"""Finnhub API proxy endpoints.
+
+This module provides API endpoints that proxy requests to the Finnhub
+API for company profiles, financial metrics, peer companies, and
+analyst recommendations.
+"""
+
 from fastapi import APIRouter, HTTPException
 from typing import Optional, Dict, Any, List
 
