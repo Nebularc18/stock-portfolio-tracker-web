@@ -647,7 +647,7 @@ export default function StockDetail() {
                   <button 
                     className="btn btn-secondary" 
                     onClick={handleVerifyDividends}
-                    disabled={verificationLoading || (marketstackStatus?.calls_remaining ?? 0) <= 0}
+                    disabled={verificationLoading || (marketstackStatus !== null && (marketstackStatus.calls_remaining ?? 0) <= 0)}
                   >
                     Re-verify (uses 1 API call)
                   </button>

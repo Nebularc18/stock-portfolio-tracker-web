@@ -16,6 +16,7 @@ os.makedirs(CACHE_DIR, exist_ok=True)
 
 MONTHLY_CALL_LIMIT = 100
 VERIFICATION_CACHE_TTL = 86400 * 30
+DAILY_DIVIDEND_CACHE_TTL = 86400
 USAGE_FILE = "marketstack_usage.json"
 
 _usage_lock = threading.Lock()
@@ -66,21 +67,32 @@ def _load_file_cache(filename: str) -> Optional[Any]:
     try:
         with open(filepath, 'r') as f:
             data = json.load(f)
-        if time.time() - data.get('timestamp', 0) < data.get('ttl', 3600):
-            return data.get('value')
+    except json.JSONDecodeError as e:
+        logger.warning(f"Failed to parse cache file {filename}: {e}")
         return None
-    except Exception as e:
-        logger.warning(f"Failed to load cache file {filename}: {e}")
-        return None
+    except OSError as e:
+        logger.error(f"Failed to read cache file {filepath}: {e}")
+        raise
+    
+    if time.time() - data.get('timestamp', 0) < data.get('ttl', 3600):
+        return data.get('value')
+    return None
 
 
 def _save_file_cache(filename: str, value: Any, ttl: int = 3600):
     filepath = os.path.join(CACHE_DIR, filename)
     try:
+        cache_data = {'value': value, 'timestamp': time.time(), 'ttl': ttl}
+    except (TypeError, ValueError) as e:
+        logger.warning(f"Failed to serialize cache data for {filename}: {e}")
+        return
+    
+    try:
         with open(filepath, 'w') as f:
-            json.dump({'value': value, 'timestamp': time.time(), 'ttl': ttl}, f)
-    except Exception as e:
-        logger.warning(f"Failed to save cache file {filename}: {e}")
+            json.dump(cache_data, f)
+    except OSError as e:
+        logger.error(f"Failed to write cache file {filepath}: {e}")
+        raise
 
 
 def _load_usage() -> Dict[str, Any]:
@@ -90,12 +102,14 @@ def _load_usage() -> Dict[str, Any]:
     try:
         with open(filepath, 'r') as f:
             data = json.load(f)
-        current_month = datetime.now().strftime('%Y-%m')
-        if data.get('month') != current_month:
-            return {'month': current_month, 'calls_used': 0}
-        return data
-    except Exception:
+    except (OSError, json.JSONDecodeError) as e:
+        logger.warning(f"Failed to load usage file: {e}")
         return {'month': datetime.now().strftime('%Y-%m'), 'calls_used': 0}
+    
+    current_month = datetime.now().strftime('%Y-%m')
+    if data.get('month') != current_month:
+        return {'month': current_month, 'calls_used': 0}
+    return data
 
 
 def _save_usage(usage: Dict[str, Any]):
@@ -103,7 +117,7 @@ def _save_usage(usage: Dict[str, Any]):
     try:
         with open(filepath, 'w') as f:
             json.dump(usage, f)
-    except Exception as e:
+    except (OSError, TypeError) as e:
         logger.warning(f"Failed to save usage file: {e}")
 
 
@@ -162,6 +176,7 @@ class MarketstackService:
                 raise FetchError("Marketstack rate limit reached", 429)
             
             if response.status_code in (404, 422):
+                _decrement_usage()
                 return None
             
             if response.status_code != 200:
@@ -223,7 +238,7 @@ class MarketstackService:
         
         dividends.sort(key=lambda x: x.date, reverse=True)
         
-        _save_file_cache(cache_file, [asdict(d) for d in dividends], VERIFICATION_CACHE_TTL)
+        _save_file_cache(cache_file, [asdict(d) for d in dividends], DAILY_DIVIDEND_CACHE_TTL)
         
         return dividends
     

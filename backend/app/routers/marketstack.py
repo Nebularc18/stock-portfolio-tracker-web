@@ -34,7 +34,7 @@ def get_dividends(
             use_cache=use_cache
         )
     except FetchError as e:
-        raise HTTPException(status_code=e.status_code, detail=e.message)
+        raise HTTPException(status_code=e.status_code, detail=e.message) from e
     
     if dividends is None:
         raise HTTPException(
@@ -67,7 +67,7 @@ def verify_dividends(ticker: str, use_cache: bool = True) -> Dict[str, Any]:
             use_cache=use_cache
         )
     except FetchError as e:
-        raise HTTPException(status_code=e.status_code, detail=e.message)
+        raise HTTPException(status_code=e.status_code, detail=e.message) from e
     
     return {
         'ticker': result.ticker,
