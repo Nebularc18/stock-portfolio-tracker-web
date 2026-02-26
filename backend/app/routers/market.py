@@ -1,6 +1,6 @@
 from fastapi import APIRouter, Query
 from typing import List
-from datetime import datetime
+from datetime import datetime, timezone
 import requests
 import logging
 
@@ -143,7 +143,7 @@ def get_market_indices():
     
     return {
         "indices": results,
-        "updated_at": datetime.utcnow().isoformat() + "Z"
+        "updated_at": datetime.now(timezone.utc).isoformat()
     }
 
 
@@ -253,7 +253,6 @@ def get_index_sparklines():
             for i, (ts, price) in enumerate(zip(timestamps, closes)):
                 if price is not None:
                     prices.append(price)
-                    from datetime import datetime
                     dates.append(datetime.fromtimestamp(ts).strftime('%Y-%m-%d'))
             
             if len(prices) >= 2:
@@ -275,5 +274,5 @@ def get_index_sparklines():
     
     return {
         "sparklines": sparklines,
-        "updated_at": datetime.utcnow().isoformat() + "Z"
+        "updated_at": datetime.now(timezone.utc).isoformat()
     }

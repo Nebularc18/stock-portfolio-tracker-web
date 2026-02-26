@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback } from 'react'
 import { Link } from 'react-router-dom'
 import { api, Stock } from '../services/api'
 import { useSettings } from '../SettingsContext'
-import { formatTimeInTimezone } from '../utils/time'
+import { formatTimeInTimezone, getLatestTimestamp } from '../utils/time'
 
 function formatCurrency(value: number | null, currency: string = 'USD'): string {
   if (value === null) return '-'
@@ -53,12 +53,7 @@ export default function Stocks() {
       setLoading(true)
       const data = await api.stocks.list()
       setStocks(data)
-      const latestUpdate = data.reduce((max: string | null, s: Stock) => {
-        if (!s.last_updated) return max
-        if (!max) return s.last_updated
-        return s.last_updated > max ? s.last_updated : max
-      }, null)
-      setLastUpdate(latestUpdate)
+      setLastUpdate(getLatestTimestamp(data))
       setError(null)
     } catch (err) {
       setError('Failed to load stocks')

@@ -63,3 +63,11 @@ export function getNextAlignedTime(intervalMinutes: number): Date {
   const msUntilNext = getTimeUntilNextInterval(intervalMinutes)
   return new Date(now.getTime() + msUntilNext)
 }
+
+export function getLatestTimestamp(items: { last_updated: string | null }[]): string | null {
+  return items.reduce((max: string | null, item) => {
+    if (!item.last_updated) return max
+    if (!max) return item.last_updated
+    return item.last_updated > max ? item.last_updated : max
+  }, null)
+}
