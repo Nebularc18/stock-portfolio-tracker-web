@@ -5,7 +5,7 @@ stock prices for all stocks in the portfolio when markets are open.
 """
 
 import logging
-from datetime import datetime, timezone
+from datetime import datetime
 from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.triggers.cron import CronTrigger
 
@@ -51,11 +51,11 @@ def refresh_all_stocks():
                     stock.sector = info.get('sector') or stock.sector
                     stock.dividend_yield = info.get('dividend_yield')
                     stock.dividend_per_share = info.get('dividend_per_share')
-                    stock.last_updated = datetime.now(timezone.utc)
+                    stock.last_updated = datetime.utcnow()
                     updated += 1
                     
                     if stock.current_price:
-                        today = datetime.now(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0)
+                        today = datetime.utcnow().replace(hour=0, minute=0, second=0, microsecond=0)
                         existing_price = db.query(StockPriceHistory).filter(
                             StockPriceHistory.ticker == stock.ticker,
                             StockPriceHistory.recorded_at >= today
@@ -68,7 +68,7 @@ def refresh_all_stocks():
                                 ticker=stock.ticker,
                                 price=stock.current_price,
                                 currency=stock.currency,
-                                recorded_at=datetime.now(timezone.utc)
+                                recorded_at=datetime.utcnow()
                             )
                             db.add(price_history)
             except Exception as e:

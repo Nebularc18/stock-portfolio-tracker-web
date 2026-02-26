@@ -6,7 +6,7 @@ performance, distribution analysis, and bulk refresh operations.
 
 from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
-from datetime import datetime, timezone
+from datetime import datetime
 from typing import List, Optional
 import logging
 
@@ -116,6 +116,7 @@ def get_portfolio_summary(db: Session = Depends(get_db)):
             
             cost_native = 0
             cost = 0
+            cost_converted = False
             if stock.purchase_price:
                 cost_native = stock.purchase_price * stock.quantity
                 cost = convert_value(cost_native, stock.currency, display_currency, rates)
@@ -129,11 +130,12 @@ def get_portfolio_summary(db: Session = Depends(get_db)):
                         "currency": stock.currency,
                         "reason": "missing_exchange_rate_for_cost"
                     })
-                    cost = cost_native
+                    gain_loss = None
                 else:
                     total_cost += cost
-                gain_loss = current_value - cost
-                total_gain_loss += gain_loss if cost else 0
+                    gain_loss = current_value - cost
+                    total_gain_loss += gain_loss
+                    cost_converted = True
             else:
                 gain_loss = None
             
@@ -146,8 +148,8 @@ def get_portfolio_summary(db: Session = Depends(get_db)):
                 "currency": stock.currency,
                 "sector": stock.sector,
                 "gain_loss": gain_loss,
-                "gain_loss_percent": ((current_value - cost) / cost * 100) if cost and cost > 0 else None,
-                "converted": True,
+                "gain_loss_percent": ((current_value - cost) / cost * 100) if cost_converted and cost > 0 else None,
+                "converted": cost_converted if stock.purchase_price else True,
             })
     
     total_gain_loss_percent = (total_gain_loss / total_cost * 100) if total_cost > 0 else 0
@@ -197,11 +199,11 @@ def refresh_all_prices(db: Session = Depends(get_db)):
             stock.sector = info.get('sector') or stock.sector
             stock.dividend_yield = info.get('dividend_yield')
             stock.dividend_per_share = info.get('dividend_per_share')
-            stock.last_updated = datetime.now(timezone.utc)
+            stock.last_updated = datetime.utcnow()
             updated += 1
             
             if stock.current_price:
-                today = datetime.now(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0)
+                today = datetime.utcnow().replace(hour=0, minute=0, second=0, microsecond=0)
                 existing_price = db.query(StockPriceHistory).filter(
                     StockPriceHistory.ticker == stock.ticker,
                     StockPriceHistory.recorded_at >= today
@@ -214,7 +216,7 @@ def refresh_all_prices(db: Session = Depends(get_db)):
                         ticker=stock.ticker,
                         price=stock.current_price,
                         currency=stock.currency,
-                        recorded_at=datetime.now(timezone.utc)
+                        recorded_at=datetime.utcnow()
                     )
                     db.add(price_history)
             
@@ -222,19 +224,19 @@ def refresh_all_prices(db: Session = Depends(get_db)):
                 value = stock.current_price * stock.quantity
                 if stock.currency == 'SEK':
                     total_value_sek += value
-                elif stock.currency == 'USD' and rates.get('USD_SEK'):
-                    total_value_sek += value * rates['USD_SEK']
-                elif stock.currency == 'EUR' and rates.get('EUR_SEK'):
-                    total_value_sek += value * rates['EUR_SEK']
                 else:
-                    logger.warning(
-                        f"Skipping {stock.ticker}: no conversion rate for "
-                        f"{stock.currency} to SEK"
-                    )
-                    skipped += 1
+                    rate_key = f"{stock.currency}_SEK"
+                    if rate_key in rates and rates[rate_key]:
+                        total_value_sek += value * rates[rate_key]
+                    else:
+                        logger.warning(
+                            f"Skipping {stock.ticker}: no conversion rate for "
+                            f"{stock.currency} to SEK"
+                        )
+                        skipped += 1
     
     if updated > 0 and total_value_sek > 0:
-        today = datetime.now(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0)
+        today = datetime.utcnow().replace(hour=0, minute=0, second=0, microsecond=0)
         existing = db.query(PortfolioHistory).filter(PortfolioHistory.date >= today).first()
         if existing:
             existing.total_value = total_value_sek
