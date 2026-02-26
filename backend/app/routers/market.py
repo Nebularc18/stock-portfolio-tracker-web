@@ -253,7 +253,7 @@ def get_index_sparklines():
             for i, (ts, price) in enumerate(zip(timestamps, closes)):
                 if price is not None:
                     prices.append(price)
-                    dates.append(datetime.fromtimestamp(ts).strftime('%Y-%m-%d'))
+                    dates.append(datetime.fromtimestamp(ts, tz=timezone.utc).strftime('%Y-%m-%d'))
             
             if len(prices) >= 2:
                 start_price = prices[0]
