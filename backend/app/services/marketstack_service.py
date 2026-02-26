@@ -124,7 +124,7 @@ def _load_file_cache(filename: str) -> Optional[Any]:
         return None
     except OSError as e:
         logger.error(f"Failed to read cache file {filepath}: {e}")
-        raise
+        return None
     
     if time.time() - data.get('timestamp', 0) < data.get('ttl', 3600):
         return data.get('value')
@@ -151,7 +151,6 @@ def _save_file_cache(filename: str, value: Any, ttl: int = 3600):
             json.dump(cache_data, f)
     except OSError as e:
         logger.error(f"Failed to write cache file {filepath}: {e}")
-        raise
 
 
 def _load_usage() -> Dict[str, Any]:

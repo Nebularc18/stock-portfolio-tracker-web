@@ -39,12 +39,14 @@ class TestMarketstackService:
         """Test that usage status returns zero calls for a new month."""
         with patch('app.services.marketstack_service.CACHE_DIR', str(tmp_path)):
             service = MarketstackService()
+            month_before = datetime.now().strftime('%Y-%m')
             status = service.get_usage_status()
+            month_after = datetime.now().strftime('%Y-%m')
             
             assert status['calls_used'] == 0
             assert status['calls_limit'] == MONTHLY_CALL_LIMIT
             assert status['calls_remaining'] == MONTHLY_CALL_LIMIT
-            assert status['month'] == datetime.now().strftime('%Y-%m')
+            assert status['month'] in {month_before, month_after}
     
     def test_dividend_data_creation(self):
         """Test DividendData dataclass creation with all fields."""

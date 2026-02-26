@@ -8,11 +8,13 @@ from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
 from datetime import datetime
 from typing import List, Optional
+import logging
 
 from app.main import get_db, Stock, PortfolioHistory, UserSettings, StockPriceHistory
 from app.services.exchange_rate_service import ExchangeRateService
 
 router = APIRouter()
+logger = logging.getLogger(__name__)
 
 
 def get_display_currency(db: Session) -> str:
@@ -152,6 +154,7 @@ def refresh_all_prices(db: Session = Depends(get_db)):
     currencies = {s.currency for s in stocks if s.currency}
     rates = ExchangeRateService.get_rates_for_currencies(currencies, "SEK")
     
+    skipped = 0
     for stock in stocks:
         info = stock_service.get_stock_info(stock.ticker)
         if info:
@@ -190,7 +193,11 @@ def refresh_all_prices(db: Session = Depends(get_db)):
                 elif stock.currency == 'EUR' and rates.get('EUR_SEK'):
                     total_value_sek += value * rates['EUR_SEK']
                 else:
-                    total_value_sek += value
+                    logger.warning(
+                        f"Skipping {stock.ticker}: no conversion rate for "
+                        f"{stock.currency} to SEK"
+                    )
+                    skipped += 1
     
     if updated > 0 and total_value_sek > 0:
         today = datetime.utcnow().replace(hour=0, minute=0, second=0, microsecond=0)
@@ -203,7 +210,7 @@ def refresh_all_prices(db: Session = Depends(get_db)):
     
     db.commit()
     
-    return {"message": f"Refreshed {updated} stocks"}
+    return {"message": f"Refreshed {updated} stocks", "skipped": skipped}
 
 
 @router.get("/history", response_model=List[dict])
