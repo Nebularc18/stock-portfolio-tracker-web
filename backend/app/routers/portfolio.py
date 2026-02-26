@@ -81,6 +81,7 @@ def get_portfolio_summary(db: Session = Depends(get_db)):
     total_gain_loss = 0
     
     stock_data = []
+    unconverted_stocks = []
     
     for stock in stocks:
         if stock.current_price and stock.quantity:
@@ -88,7 +89,28 @@ def get_portfolio_summary(db: Session = Depends(get_db)):
             current_value = convert_value(current_value_native, stock.currency, display_currency, rates)
             
             if current_value is None:
-                current_value = current_value_native
+                logger.warning(
+                    f"Skipping {stock.ticker} in totals: no conversion rate for "
+                    f"{stock.currency} to {display_currency}"
+                )
+                unconverted_stocks.append({
+                    "ticker": stock.ticker,
+                    "currency": stock.currency,
+                    "reason": "missing_exchange_rate"
+                })
+                stock_data.append({
+                    "ticker": stock.ticker,
+                    "name": stock.name,
+                    "quantity": stock.quantity,
+                    "current_price": stock.current_price,
+                    "current_value": current_value_native,
+                    "currency": stock.currency,
+                    "sector": stock.sector,
+                    "gain_loss": None,
+                    "gain_loss_percent": None,
+                    "converted": False,
+                })
+                continue
             
             total_value += current_value
             
@@ -98,10 +120,20 @@ def get_portfolio_summary(db: Session = Depends(get_db)):
                 cost_native = stock.purchase_price * stock.quantity
                 cost = convert_value(cost_native, stock.currency, display_currency, rates)
                 if cost is None:
+                    logger.warning(
+                        f"Skipping {stock.ticker} cost in totals: no conversion rate for "
+                        f"{stock.currency} to {display_currency}"
+                    )
+                    unconverted_stocks.append({
+                        "ticker": stock.ticker,
+                        "currency": stock.currency,
+                        "reason": "missing_exchange_rate_for_cost"
+                    })
                     cost = cost_native
-                total_cost += cost
+                else:
+                    total_cost += cost
                 gain_loss = current_value - cost
-                total_gain_loss += gain_loss
+                total_gain_loss += gain_loss if cost else 0
             else:
                 gain_loss = None
             
@@ -115,6 +147,7 @@ def get_portfolio_summary(db: Session = Depends(get_db)):
                 "sector": stock.sector,
                 "gain_loss": gain_loss,
                 "gain_loss_percent": ((current_value - cost) / cost * 100) if cost and cost > 0 else None,
+                "converted": True,
             })
     
     total_gain_loss_percent = (total_gain_loss / total_cost * 100) if total_cost > 0 else 0
@@ -127,6 +160,7 @@ def get_portfolio_summary(db: Session = Depends(get_db)):
         "display_currency": display_currency,
         "stocks": stock_data,
         "stock_count": len(stocks),
+        "unconverted_stocks": unconverted_stocks,
     }
 
 
