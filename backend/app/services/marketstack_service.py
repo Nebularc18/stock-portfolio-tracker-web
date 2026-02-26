@@ -140,17 +140,13 @@ def _save_file_cache(filename: str, value: Any, ttl: int = 3600):
         ttl: Time-to-live in seconds (default 1 hour).
     """
     filepath = os.path.join(CACHE_DIR, filename)
-    try:
-        cache_data = {'value': value, 'timestamp': time.time(), 'ttl': ttl}
-    except (TypeError, ValueError) as e:
-        logger.warning(f"Failed to serialize cache data for {filename}: {e}")
-        return
+    cache_data = {'value': value, 'timestamp': time.time(), 'ttl': ttl}
     
     try:
         with open(filepath, 'w') as f:
             json.dump(cache_data, f)
-    except OSError as e:
-        logger.error(f"Failed to write cache file {filepath}: {e}")
+    except (OSError, TypeError, ValueError) as e:
+        logger.warning(f"Failed to write cache file {filename}: {e}")
 
 
 def _load_usage() -> Dict[str, Any]:
@@ -161,15 +157,15 @@ def _load_usage() -> Dict[str, Any]:
     """
     filepath = os.path.join(CACHE_DIR, USAGE_FILE)
     if not os.path.exists(filepath):
-        return {'month': datetime.now().strftime('%Y-%m'), 'calls_used': 0}
+        return {'month': datetime.now(timezone.utc).strftime('%Y-%m'), 'calls_used': 0}
     try:
         with open(filepath, 'r') as f:
             data = json.load(f)
     except (OSError, json.JSONDecodeError) as e:
         logger.warning(f"Failed to load usage file: {e}")
-        return {'month': datetime.now().strftime('%Y-%m'), 'calls_used': 0}
+        return {'month': datetime.now(timezone.utc).strftime('%Y-%m'), 'calls_used': 0}
     
-    current_month = datetime.now().strftime('%Y-%m')
+    current_month = datetime.now(timezone.utc).strftime('%Y-%m')
     if data.get('month') != current_month:
         return {'month': current_month, 'calls_used': 0}
     return data
@@ -330,7 +326,7 @@ class MarketstackService:
         
         effective_date_from = date_from
         if not effective_date_from:
-            effective_date_from = (datetime.now() - timedelta(days=365)).strftime('%Y-%m-%d')
+            effective_date_from = (datetime.now(timezone.utc) - timedelta(days=365)).strftime('%Y-%m-%d')
         
         effective_date_to = date_to or ''
         
@@ -528,34 +524,46 @@ class MarketstackService:
         Returns:
             int: Number of cache files cleared.
         """
+        if not os.path.isdir(CACHE_DIR):
+            logger.info("Cache directory does not exist, nothing to clear")
+            return 0
+        
         cleared_count = 0
         if ticker:
             ticker_upper = ticker.upper()
             sanitized_ticker = ticker_upper.replace('-', '_')
             dividends_prefix = f"marketstack_dividends_{sanitized_ticker}_"
             verify_prefix = f"marketstack_verify_{sanitized_ticker}_"
-            for filename in os.listdir(CACHE_DIR):
-                if filename == USAGE_FILE:
-                    continue
-                if filename.startswith(dividends_prefix) or filename.startswith(verify_prefix):
+            try:
+                for filename in os.listdir(CACHE_DIR):
+                    if filename == USAGE_FILE:
+                        continue
+                    if filename.startswith(dividends_prefix) or filename.startswith(verify_prefix):
+                        filepath = os.path.join(CACHE_DIR, filename)
+                        try:
+                            os.remove(filepath)
+                            cleared_count += 1
+                        except OSError as e:
+                            logger.warning(f"Failed to delete cache file {filepath}: {e}")
+            except FileNotFoundError:
+                logger.warning("Cache directory was removed during clear operation")
+                return cleared_count
+        else:
+            try:
+                for filename in os.listdir(CACHE_DIR):
+                    if filename == USAGE_FILE:
+                        continue
+                    if 'marketstack' not in filename:
+                        continue
                     filepath = os.path.join(CACHE_DIR, filename)
                     try:
                         os.remove(filepath)
                         cleared_count += 1
                     except OSError as e:
                         logger.warning(f"Failed to delete cache file {filepath}: {e}")
-        else:
-            for filename in os.listdir(CACHE_DIR):
-                if filename == USAGE_FILE:
-                    continue
-                if 'marketstack' not in filename:
-                    continue
-                filepath = os.path.join(CACHE_DIR, filename)
-                try:
-                    os.remove(filepath)
-                    cleared_count += 1
-                except OSError as e:
-                    logger.warning(f"Failed to delete cache file {filepath}: {e}")
+            except FileNotFoundError:
+                logger.warning("Cache directory was removed during clear operation")
+                return cleared_count
         logger.info(f"Cleared {cleared_count} marketstack cache files")
         return cleared_count
 

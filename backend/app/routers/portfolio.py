@@ -6,7 +6,7 @@ performance, distribution analysis, and bulk refresh operations.
 
 from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import List, Optional
 import logging
 
@@ -163,11 +163,11 @@ def refresh_all_prices(db: Session = Depends(get_db)):
             stock.sector = info.get('sector') or stock.sector
             stock.dividend_yield = info.get('dividend_yield')
             stock.dividend_per_share = info.get('dividend_per_share')
-            stock.last_updated = datetime.utcnow()
+            stock.last_updated = datetime.now(timezone.utc)
             updated += 1
             
             if stock.current_price:
-                today = datetime.utcnow().replace(hour=0, minute=0, second=0, microsecond=0)
+                today = datetime.now(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0)
                 existing_price = db.query(StockPriceHistory).filter(
                     StockPriceHistory.ticker == stock.ticker,
                     StockPriceHistory.recorded_at >= today
@@ -180,7 +180,7 @@ def refresh_all_prices(db: Session = Depends(get_db)):
                         ticker=stock.ticker,
                         price=stock.current_price,
                         currency=stock.currency,
-                        recorded_at=datetime.utcnow()
+                        recorded_at=datetime.now(timezone.utc)
                     )
                     db.add(price_history)
             
@@ -200,12 +200,12 @@ def refresh_all_prices(db: Session = Depends(get_db)):
                     skipped += 1
     
     if updated > 0 and total_value_sek > 0:
-        today = datetime.utcnow().replace(hour=0, minute=0, second=0, microsecond=0)
+        today = datetime.now(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0)
         existing = db.query(PortfolioHistory).filter(PortfolioHistory.date >= today).first()
         if existing:
             existing.total_value = total_value_sek
         else:
-            history_entry = PortfolioHistory(total_value=total_value_sek, date=datetime.utcnow())
+            history_entry = PortfolioHistory(total_value=total_value_sek, date=today)
             db.add(history_entry)
     
     db.commit()
