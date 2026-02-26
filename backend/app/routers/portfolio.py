@@ -114,6 +114,8 @@ def get_portfolio_summary(db: Session = Depends(get_db)):
             
             total_value += current_value
             
+            current_value_converted = True
+            
             cost_native = 0
             cost = 0
             cost_converted = False
@@ -149,7 +151,7 @@ def get_portfolio_summary(db: Session = Depends(get_db)):
                 "sector": stock.sector,
                 "gain_loss": gain_loss,
                 "gain_loss_percent": ((current_value - cost) / cost * 100) if cost_converted and cost > 0 else None,
-                "converted": cost_converted if stock.purchase_price else True,
+                "converted": current_value_converted or cost_converted if stock.purchase_price else True,
             })
     
     total_gain_loss_percent = (total_gain_loss / total_cost * 100) if total_cost > 0 else 0
@@ -177,7 +179,9 @@ def refresh_all_prices(db: Session = Depends(get_db)):
         db: Database session dependency.
     
     Returns:
-        dict: Message with count of refreshed stocks.
+        dict: Response containing:
+            - message (str): Summary message, e.g. "Refreshed 5 stocks".
+            - skipped (int): Count of stocks skipped due to missing exchange rates.
     """
     from app.services.stock_service import StockService
     from app.services.exchange_rate_service import ExchangeRateService
@@ -226,8 +230,9 @@ def refresh_all_prices(db: Session = Depends(get_db)):
                     total_value_sek += value
                 else:
                     rate_key = f"{stock.currency}_SEK"
-                    if rate_key in rates and rates[rate_key]:
-                        total_value_sek += value * rates[rate_key]
+                    rate = rates.get(rate_key)
+                    if rate:
+                        total_value_sek += value * rate
                     else:
                         logger.warning(
                             f"Skipping {stock.ticker}: no conversion rate for "
