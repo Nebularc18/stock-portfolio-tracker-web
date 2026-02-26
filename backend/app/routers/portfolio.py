@@ -115,13 +115,12 @@ def get_portfolio_summary(db: Session = Depends(get_db)):
                     "sector": stock.sector,
                     "gain_loss": None,
                     "gain_loss_percent": None,
-                    "converted": False,
+                    "current_value_converted": False,
+                    "cost_converted": False,
                 })
                 continue
             
             total_value += current_value
-            
-            current_value_converted = True
             
             cost_native = 0
             cost = 0
@@ -158,7 +157,8 @@ def get_portfolio_summary(db: Session = Depends(get_db)):
                 "sector": stock.sector,
                 "gain_loss": gain_loss,
                 "gain_loss_percent": ((current_value - cost) / cost * 100) if cost_converted and cost > 0 else None,
-                "converted": current_value_converted or cost_converted if stock.purchase_price else True,
+                "current_value_converted": True,
+                "cost_converted": cost_converted if stock.purchase_price else True,
             })
     
     total_gain_loss_percent = (total_gain_loss / total_cost * 100) if total_cost > 0 else 0
@@ -233,19 +233,15 @@ def refresh_all_prices(db: Session = Depends(get_db)):
             
             if stock.current_price and stock.quantity:
                 value = stock.current_price * stock.quantity
-                if stock.currency == 'SEK':
-                    total_value_sek += value
+                converted_value = convert_value(value, stock.currency, 'SEK', rates)
+                if converted_value is not None:
+                    total_value_sek += converted_value
                 else:
-                    rate_key = f"{stock.currency}_SEK"
-                    rate = rates.get(rate_key)
-                    if rate:
-                        total_value_sek += value * rate
-                    else:
-                        logger.warning(
-                            f"Skipping {stock.ticker}: no conversion rate for "
-                            f"{stock.currency} to SEK"
-                        )
-                        skipped += 1
+                    logger.warning(
+                        f"Skipping {stock.ticker}: no conversion rate for "
+                        f"{stock.currency} to SEK"
+                    )
+                    skipped += 1
     
     if updated > 0 and total_value_sek > 0:
         today = datetime.utcnow().replace(hour=0, minute=0, second=0, microsecond=0)
