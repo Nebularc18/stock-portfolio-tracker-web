@@ -3,6 +3,7 @@ import json
 import time
 import logging
 import requests
+import tempfile
 from datetime import datetime, timedelta
 from typing import Optional, Dict, Any, List
 from dataclasses import dataclass, asdict
@@ -15,8 +16,8 @@ MAPPING_DIR = os.path.join(os.path.dirname(__file__), '..', '..', 'data')
 try:
     os.makedirs(CACHE_DIR, exist_ok=True)
 except PermissionError:
-    CACHE_DIR = '/tmp/avanza_cache'
-    os.makedirs(CACHE_DIR, exist_ok=True)
+    CACHE_DIR = tempfile.mkdtemp(prefix='avanza_cache_')
+    os.chmod(CACHE_DIR, 0o700)
 
 try:
     os.makedirs(MAPPING_DIR, exist_ok=True)
@@ -380,11 +381,13 @@ class AvanzaService:
         )
         
         today = datetime.now().strftime('%Y-%m-%d')
-        for div in dividends:
-            if div.ex_date >= today:
-                return div
+        upcoming = [div for div in dividends if div.ex_date >= today]
         
-        return None
+        if not upcoming:
+            return None
+        
+        upcoming.sort(key=lambda d: d.ex_date)
+        return upcoming[0]
     
     def get_historical_dividends(self, yahoo_ticker: str, years: int = 5) -> List[Dict[str, Any]]:
         """

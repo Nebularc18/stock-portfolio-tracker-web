@@ -354,9 +354,11 @@ def get_upcoming_portfolio_dividends(db: Session = Depends(get_db)):
             
             total_amount = amount * stock.quantity
             
+            div_currency = div.get('currency') or stock.currency
+            
             converted_total = convert_value(
                 total_amount,
-                div.get('currency', stock.currency),
+                div_currency,
                 display_currency,
                 rates
             )
@@ -380,7 +382,7 @@ def get_upcoming_portfolio_dividends(db: Session = Depends(get_db)):
                 'payment_date': div.get('payment_date'),
                 'amount_per_share': amount,
                 'total_amount': total_amount,
-                'currency': div.get('currency', stock.currency),
+                'currency': div_currency,
                 'total_converted': converted_total,
                 'display_currency': display_currency,
                 'source': source

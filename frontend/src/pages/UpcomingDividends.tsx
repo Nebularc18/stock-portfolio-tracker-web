@@ -24,7 +24,8 @@ function formatCurrency(value: number, currency: string = 'SEK'): string {
  * @returns A `sv-SE` localized date string using numeric year, short month name, and day (for example `1 jan. 2025`)
  */
 function formatDate(dateStr: string): string {
-  const date = new Date(dateStr)
+  const [year, month, day] = dateStr.split('-').map(Number)
+  const date = new Date(Date.UTC(year, month - 1, day))
   return date.toLocaleDateString('sv-SE', { year: 'numeric', month: 'short', day: 'numeric' })
 }
 
@@ -211,9 +212,9 @@ export default function UpcomingDividends() {
                       <td>{div.quantity}</td>
                       <td>
                         <span style={{ color: 'var(--accent-green)', fontWeight: '600' }}>
-                          {formatCurrency(div.total_converted || div.total_amount, div.total_converted ? displayCurrency : div.currency)}
+                          {formatCurrency(div.total_converted !== null ? div.total_converted : div.total_amount, div.total_converted !== null ? displayCurrency : div.currency)}
                         </span>
-                        {div.total_converted && div.currency !== displayCurrency && (
+                        {div.total_converted !== null && div.currency !== displayCurrency && (
                           <span style={{ display: 'block', fontSize: '11px', color: 'var(--text-secondary)' }}>
                             {formatCurrency(div.total_amount, div.currency)}
                           </span>

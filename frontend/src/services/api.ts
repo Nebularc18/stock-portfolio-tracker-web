@@ -76,7 +76,7 @@ export interface Dividend {
   amount: number
   currency?: string
   source?: string
-  payment_date?: string
+  payment_date: string | null
 }
 
 export interface UpcomingDividend {
@@ -345,7 +345,7 @@ export const api = {
       instrument_id: string | null
     }>>,
     mappings: () => fetchAPI('/avanza/mappings') as Promise<TickerMapping[]>,
-    addMapping: (data: { avanza_name: string; yahoo_ticker: string; instrument_id: string }) =>
+    addMapping: (data: { avanza_name: string; yahoo_ticker: string; instrument_id?: string | null }) =>
       fetchAPI('/avanza/mappings', { method: 'POST', body: JSON.stringify(data) }) as Promise<TickerMapping>,
     deleteMapping: (avanzaName: string) =>
       fetchAPI(`/avanza/mappings/${encodeURIComponent(avanzaName)}`, { method: 'DELETE' }) as Promise<{ message: string }>,
