@@ -10,6 +10,11 @@ import UpcomingDividends from './pages/UpcomingDividends'
 import { SettingsProvider } from './SettingsContext'
 import InfographicLayout from './layouts/InfographicLayout'
 
+/**
+ * Root application component that provides settings context and defines the client-side routes.
+ *
+ * @returns The application's root JSX element containing the SettingsProvider, BrowserRouter, and route configuration wrapped by the InfographicLayout.
+ */
 function App() {
   return (
     <SettingsProvider>

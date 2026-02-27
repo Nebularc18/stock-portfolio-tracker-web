@@ -34,10 +34,19 @@ class DividendResponse(BaseModel):
 
 @router.get("/dividends")
 def get_avanza_dividends():
-    """Fetch upcoming dividends for mapped Swedish stocks.
+    """
+    Fetch upcoming dividends for mapped Swedish stocks.
     
     Returns:
-        list: List of upcoming dividends from aktieutdelningar.now.sh.
+        list: Each item is a dict with keys:
+            - avanza_name (str)
+            - yahoo_ticker (Optional[str])
+            - ex_date (str)
+            - amount (float)
+            - currency (str)
+            - payment_date (Optional[str])
+            - dividend_type (Optional[str])
+            - instrument_id (Optional[str])
     """
     dividends = avanza_service.fetch_upcoming_dividends()
     return [{
@@ -54,10 +63,11 @@ def get_avanza_dividends():
 
 @router.get("/mappings")
 def get_all_mappings():
-    """Get all ticker mappings.
+    """
+    Retrieve all configured ticker mappings.
     
     Returns:
-        list: List of all ticker mappings (yahoo_ticker -> avanza_id).
+        list: A list of mapping objects where each item contains `avanza_name`, `yahoo_ticker`, `instrument_id` (or `None`), and `manually_added` (bool).
     """
     return [{
         'avanza_name': m.avanza_name,
@@ -69,13 +79,14 @@ def get_all_mappings():
 
 @router.post("/mappings")
 def add_mapping(mapping: TickerMappingCreate):
-    """Add a ticker mapping.
+    """
+    Create and persist a manual ticker mapping for an Avanza instrument.
     
-    Args:
-        mapping: The mapping to add (avanza_name, yahoo_ticker, instrument_id).
+    Parameters:
+        mapping (TickerMappingCreate): Mapping containing `avanza_name`, `yahoo_ticker`, and `instrument_id`.
     
     Returns:
-        dict: The created mapping.
+        dict: Created mapping with keys `avanza_name`, `yahoo_ticker`, `instrument_id`, and `manually_added` set to `True`.
     """
     avanza_service.add_manual_mapping(
         avanza_name=mapping.avanza_name,
@@ -92,13 +103,17 @@ def add_mapping(mapping: TickerMappingCreate):
 
 @router.delete("/mappings/{avanza_name}")
 def delete_mapping(avanza_name: str):
-    """Delete a ticker mapping.
+    """
+    Remove a ticker mapping identified by an Avanza stock name.
     
-    Args:
-        avanza_name: The Avanza stock name to remove mapping for.
+    Parameters:
+        avanza_name (str): Avanza stock name used to locate the mapping (lookup is case-insensitive).
     
     Returns:
-        dict: Confirmation message.
+        dict: Confirmation message containing a 'message' key.
+    
+    Raises:
+        HTTPException: 404 if the mapping for the provided name does not exist.
     """
     key = avanza_name.lower()
     if key not in avanza_service.mapping:
@@ -111,14 +126,15 @@ def delete_mapping(avanza_name: str):
 
 @router.get("/historical/{ticker}")
 def get_historical_dividends(ticker: str, years: int = 5):
-    """Get historical dividends for a Swedish stock.
+    """
+    Retrieve historical dividend records for a Swedish stock ticker.
     
-    Args:
-        ticker: The Yahoo Finance ticker (must end with .ST).
-        years: Number of years of history (default 5).
+    Parameters:
+    	ticker (str): Yahoo Finance ticker; must end with ".ST".
+    	years (int): Number of past years to include.
     
     Returns:
-        list: Historical dividends from aktieutdelningar.now.sh.
+    	list: A list of dividend records (dict-like objects) for the ticker, each containing fields such as ex-date, amount, currency, and optionally payment date and dividend type.
     """
     if not ticker.upper().endswith('.ST'):
         raise HTTPException(status_code=400, detail="Only Swedish stocks (.ST) are supported")
@@ -129,13 +145,23 @@ def get_historical_dividends(ticker: str, years: int = 5):
 
 @router.get("/stock/{instrument_id}")
 def get_stock_info(instrument_id: str):
-    """Get stock info including dividends from aktieutdelningar.now.sh.
+    """
+    Retrieve stock metadata and dividend information for a given Avanza instrument ID.
     
-    Args:
-        instrument_id: The Avanza instrument ID.
+    Parameters:
+        instrument_id (str): The Avanza instrument ID to fetch.
     
     Returns:
-        dict: Stock information including upcoming and past dividends.
+        dict: Stock information with keys:
+            - name (str|None): Stock name.
+            - ticker (str|None): Listing ticker symbol.
+            - isin (str|None): ISIN identifier.
+            - currency (str|None): Listing currency.
+            - upcoming_dividends (list): Upcoming dividend events.
+            - past_dividends (list): Past dividend events (at most 10 items).
+    
+    Raises:
+        HTTPException: 404 if the instrument is not found.
     """
     data = avanza_service._fetch_stock_data(instrument_id)
     

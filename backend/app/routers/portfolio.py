@@ -274,14 +274,14 @@ def get_portfolio_history(days: int = 30, db: Session = Depends(get_db)):
 
 @router.get("/distribution")
 def get_portfolio_distribution(db: Session = Depends(get_db)):
-    """Calculate portfolio distribution by sector, currency, and stock.
-    
-    Args:
-        db: Database session dependency.
+    """
+    Compute portfolio value breakdowns aggregated by sector, currency, and ticker.
     
     Returns:
-        dict: Contains by_sector, by_currency, and by_stock breakdowns
-            with monetary values.
+        dict: Mapping with keys:
+            - by_sector (dict): sector name -> total market value for that sector.
+            - by_currency (dict): currency code -> total market value in that currency.
+            - by_stock (dict): ticker -> total market value for that stock.
     """
     stocks = db.query(Stock).all()
     
@@ -309,19 +309,18 @@ def get_portfolio_distribution(db: Session = Depends(get_db)):
 
 @router.get("/upcoming-dividends")
 def get_upcoming_portfolio_dividends(db: Session = Depends(get_db)):
-    """Get upcoming dividends for all stocks in the portfolio.
-    
-    For Swedish stocks (.ST), uses Avanza calendar.
-    For other stocks, uses Yahoo Finance.
-    
-    Args:
-        db: Database session dependency.
+    """
+    Collect upcoming dividend events for all portfolio stocks and convert per-stock totals into the user's display currency.
     
     Returns:
-        dict: Contains:
-            - dividends (list): List of upcoming dividends with stock info.
-            - total_expected (float): Total expected dividend in display currency.
-            - unmapped_stocks (list): Swedish stocks without Avanza mapping.
+        dict: A mapping with keys:
+            - dividends (list): Each item is a dict with keys `ticker`, `name`, `quantity`, `ex_date`, `payment_date`,
+              `amount_per_share`, `total_amount` (amount_per_share * quantity), `currency`, `total_converted` (converted to
+              display currency or `None` if conversion not available), `display_currency`, and `source`.
+            - total_expected (float): Sum of `total_converted` for dividends where conversion succeeded.
+            - display_currency (str): The user's display currency used for conversions.
+            - unmapped_stocks (list): List of dicts for Swedish tickers without Avanza mapping; each dict has `ticker`,
+              `name`, and `reason`.
     """
     from app.services.stock_service import StockService
     

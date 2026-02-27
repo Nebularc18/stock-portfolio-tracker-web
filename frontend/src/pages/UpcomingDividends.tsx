@@ -2,6 +2,13 @@ import { useState, useEffect } from 'react'
 import { Link } from 'react-router-dom'
 import { api, UpcomingDividend } from '../services/api'
 
+/**
+ * Format a numeric value as a localized currency string.
+ *
+ * @param value - The numeric amount to format
+ * @param currency - ISO 4217 currency code to use; defaults to `'SEK'`
+ * @returns The value formatted as a currency string using the `sv-SE` locale with two decimal places
+ */
 function formatCurrency(value: number, currency: string = 'SEK'): string {
   return new Intl.NumberFormat('sv-SE', {
     style: 'currency',
@@ -10,11 +17,23 @@ function formatCurrency(value: number, currency: string = 'SEK'): string {
   }).format(value)
 }
 
+/**
+ * Format a date string as a Swedish locale date with year, short month, and day.
+ *
+ * @param dateStr - A date string parseable by the JavaScript `Date` constructor (for example ISO 8601 like `2025-01-01`)
+ * @returns A `sv-SE` localized date string using numeric year, short month name, and day (for example `1 jan. 2025`)
+ */
 function formatDate(dateStr: string): string {
   const date = new Date(dateStr)
   return date.toLocaleDateString('sv-SE', { year: 'numeric', month: 'short', day: 'numeric' })
 }
 
+/**
+ * Calculates the number of days from today until the given date.
+ *
+ * @param dateStr - Date in `YYYY-MM-DD` format.
+ * @returns The number of days from today to `dateStr`; `0` if the date is today, positive if in the future, negative if in the past.
+ */
 function getDaysUntil(dateStr: string): number {
   const [year, month, day] = dateStr.split('-').map(Number)
   const target = new Date(year, month - 1, day)
@@ -24,6 +43,13 @@ function getDaysUntil(dateStr: string): number {
   return Math.ceil((target.getTime() - today.getTime()) / (1000 * 60 * 60 * 24))
 }
 
+/**
+ * Displays a list of upcoming dividend payments for the user's portfolio, including a summary, per-stock details, unmapped-stock warnings, and controls to refresh or retry loading.
+ *
+ * Renders loading and error states, fetches data on mount and when the user triggers a refresh, and shows converted totals when available.
+ *
+ * @returns The component's rendered JSX containing the upcoming dividends UI
+ */
 export default function UpcomingDividends() {
   const [dividends, setDividends] = useState<UpcomingDividend[]>([])
   const [totalExpected, setTotalExpected] = useState(0)

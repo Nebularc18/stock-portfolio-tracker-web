@@ -34,6 +34,12 @@ _session = None
 
 
 def get_session() -> requests.Session:
+    """
+    Provide a singleton requests.Session configured with default headers.
+    
+    Returns:
+        requests.Session: A cached HTTP session with a predefined `User-Agent` and `Accept: application/json` header.
+    """
     global _session
     if _session is None:
         _session = requests.Session()
@@ -66,6 +72,15 @@ class TickerMapping:
 
 
 def _load_json_file(filepath: str) -> Optional[Any]:
+    """
+    Load and parse a JSON file from disk if it exists.
+    
+    Parameters:
+        filepath (str): Path to the JSON file to read.
+    
+    Returns:
+        The parsed JSON data, or `None` if the file does not exist or an error occurs while reading or parsing it.
+    """
     if not os.path.exists(filepath):
         return None
     try:
@@ -77,6 +92,16 @@ def _load_json_file(filepath: str) -> Optional[Any]:
 
 
 def _save_json_file(filepath: str, data: Any):
+    """
+    Write JSON-serializable `data` to `filepath` using UTF-8 encoding and a two-space indent.
+    
+    Parameters:
+        filepath (str): Destination filesystem path for the JSON file.
+        data (Any): JSON-serializable object to write.
+    
+    Notes:
+        Non-ASCII characters are preserved (`ensure_ascii=False`). Errors encountered during write are logged and not re-raised.
+    """
     try:
         with open(filepath, 'w', encoding='utf-8') as f:
             json.dump(data, f, ensure_ascii=False, indent=2)
@@ -85,6 +110,16 @@ def _save_json_file(filepath: str, data: Any):
 
 
 def _load_cache(filename: str, ttl: int = DIVIDENDS_CACHE_TTL) -> Optional[Any]:
+    """
+    Load a cached value from disk if present and not older than the given TTL.
+    
+    Parameters:
+        filename (str): Name of the cache file to read (located in the configured cache directory).
+        ttl (int): Time-to-live in seconds; cached entries older than this are considered expired.
+    
+    Returns:
+        The stored cached value if present and fresh, or `None` if the cache is missing or expired.
+    """
     filepath = os.path.join(CACHE_DIR, filename)
     data = _load_json_file(filepath)
     if data is None:
@@ -98,6 +133,13 @@ def _load_cache(filename: str, ttl: int = DIVIDENDS_CACHE_TTL) -> Optional[Any]:
 
 
 def _save_cache(filename: str, value: Any):
+    """
+    Save a value to the module cache directory with a timestamp.
+    
+    Parameters:
+        filename (str): Filename to create inside the cache directory (relative to CACHE_DIR).
+        value (Any): JSON-serializable object to store; it will be saved alongside a UNIX timestamp.
+    """
     filepath = os.path.join(CACHE_DIR, filename)
     _save_json_file(filepath, {
         'value': value,
@@ -107,10 +149,20 @@ def _save_cache(filename: str, value: Any):
 
 class AvanzaService:
     def __init__(self):
+        """
+        Initialize the AvanzaService instance and load persisted ticker mappings.
+        
+        Creates an empty mapping dictionary for Avanza names to TickerMapping objects and populates it from the persistent mapping file if available.
+        """
         self.mapping: Dict[str, TickerMapping] = {}
         self._load_mappings()
     
     def _load_mappings(self):
+        """
+        Load ticker mappings from the mappings file and populate self.mapping.
+        
+        Reads the mappings file (MAPPING_FILE in MAPPING_DIR) if present, converts each mapping entry into a TickerMapping, and stores them in self.mapping keyed by the lowercase Avanza name. If the file is missing or invalid, self.mapping is left unchanged.
+        """
         filepath = os.path.join(MAPPING_DIR, MAPPING_FILE)
         data = _load_json_file(filepath)
         if data:
@@ -125,6 +177,11 @@ class AvanzaService:
                 self.mapping[mapping.avanza_name.lower()] = mapping
     
     def _save_mappings(self):
+        """
+        Persist the current ticker mappings to the configured mapping file.
+        
+        Writes the service's in-memory mapping entries to MAPPING_DIR/MAPPING_FILE in JSON form under the top-level key "mappings".
+        """
         filepath = os.path.join(MAPPING_DIR, MAPPING_FILE)
         data = {
             'mappings': [asdict(m) for m in self.mapping.values()]
@@ -132,6 +189,14 @@ class AvanzaService:
         _save_json_file(filepath, data)
     
     def add_manual_mapping(self, avanza_name: str, yahoo_ticker: str, instrument_id: Optional[str] = None):
+        """
+        Add a manual mapping between an Avanza instrument name and a Yahoo ticker and persist it.
+        
+        Parameters:
+            avanza_name (str): The Avanza instrument name to map. The mapping is stored keyed by the lowercased value.
+            yahoo_ticker (str): The corresponding Yahoo ticker.
+            instrument_id (Optional[str]): Optional Avanza instrument identifier to associate with the mapping. When provided, it will be saved with the mapping.
+        """
         mapping = TickerMapping(
             avanza_name=avanza_name,
             yahoo_ticker=yahoo_ticker,
@@ -144,18 +209,52 @@ class AvanzaService:
         logger.info(f"Added manual mapping: {avanza_name} -> {yahoo_ticker} (ID: {instrument_id})")
     
     def get_mapping(self, avanza_name: str) -> Optional[TickerMapping]:
+        """
+        Retrieve the ticker mapping for a given Avanza instrument name using a case-insensitive lookup.
+        
+        Parameters:
+            avanza_name (str): Avanza instrument name to look up.
+        
+        Returns:
+            Optional[TickerMapping]: The corresponding TickerMapping if found, `None` otherwise.
+        """
         return self.mapping.get(avanza_name.lower())
     
     def get_mapping_by_ticker(self, yahoo_ticker: str) -> Optional[TickerMapping]:
+        """
+        Finds the stored ticker mapping that matches the given Yahoo ticker, case-insensitively.
+        
+        Parameters:
+            yahoo_ticker (str): Yahoo-format ticker to look up; matching is performed case-insensitively.
+        
+        Returns:
+            Optional[TickerMapping]: The corresponding TickerMapping if a match is found, `None` otherwise.
+        """
         for m in self.mapping.values():
             if m.yahoo_ticker and m.yahoo_ticker.upper() == yahoo_ticker.upper():
                 return m
         return None
     
     def get_unmapped_stocks(self) -> List[str]:
+        """
+        List Avanza stock names that have no associated Yahoo ticker mapping.
+        
+        Returns:
+            List[str]: Avanza stock names that lack a mapped Yahoo ticker. Currently always returns an empty list (placeholder).
+        """
         return []
     
     def _fetch_stock_data(self, instrument_id: str) -> Optional[Dict[str, Any]]:
+        """
+        Fetches raw stock data from the Avanza dividends API for the given instrument identifier.
+        
+        Parameters:
+            instrument_id (str): Avanza instrument identifier used when querying the external API.
+        
+        Returns:
+            dict: Parsed JSON response containing the API data when successful and the response includes a 'data' key.
+            `None` if the request failed, returned a non-200 status, or the response lacked a 'data' field.
+        """
         session = get_session()
         
         try:
@@ -178,6 +277,17 @@ class AvanzaService:
             return None
     
     def fetch_upcoming_dividends(self, use_cache: bool = True) -> List[AvanzaDividend]:
+        """
+        Return upcoming dividend entries for all mapped stocks.
+        
+        If use_cache is True, attempts to load and return previously cached dividend data. May update the local cache when fresh dividend data is fetched.
+        
+        Parameters:
+        	use_cache (bool): Whether to use a cached result if available.
+        
+        Returns:
+        	List[AvanzaDividend]: A list of upcoming AvanzaDividend objects for mapped stocks; empty list if none are found.
+        """
         cache_file = "avanza_upcoming_dividends.json"
         
         if use_cache:
@@ -203,6 +313,17 @@ class AvanzaService:
         return dividends
     
     def _fetch_upcoming_for_stock(self, instrument_id: str, avanza_name: str, yahoo_ticker: Optional[str]) -> List[AvanzaDividend]:
+        """
+        Extracts upcoming dividend events for a stock from fetched Avanza data.
+        
+        Parameters:
+            instrument_id (str): Avanza instrument identifier used to fetch the stock data.
+            avanza_name (str): Avanza display name to set on each returned AvanzaDividend.
+            yahoo_ticker (Optional[str]): Optional Yahoo ticker to include on each returned AvanzaDividend.
+        
+        Returns:
+            List[AvanzaDividend]: A list of AvanzaDividend instances for events with a positive amount and a valid ex-date; returns an empty list if no valid events are found or data is unavailable.
+        """
         data = self._fetch_stock_data(instrument_id)
         
         if not data:
@@ -239,6 +360,12 @@ class AvanzaService:
         return dividends
     
     def get_stock_dividend(self, yahoo_ticker: str) -> Optional[AvanzaDividend]:
+        """
+        Finds the next upcoming Avanza dividend for a given Swedish Yahoo ticker.
+        
+        Returns:
+            AvanzaDividend: The nearest upcoming dividend whose `ex_date` is today or later, or `None` if the ticker is not a Swedish (.ST) ticker, no mapping or instrument_id exists, or no upcoming dividend is found.
+        """
         if not yahoo_ticker.upper().endswith('.ST'):
             return None
         
@@ -260,6 +387,21 @@ class AvanzaService:
         return None
     
     def get_historical_dividends(self, yahoo_ticker: str, years: int = 5) -> List[Dict[str, Any]]:
+        """
+        Return historical dividend records for a Swedish stock ticker within a given lookback window.
+        
+        Parameters:
+            yahoo_ticker (str): Yahoo-format ticker for the stock; must end with ".ST". Returns empty list for other tickers.
+            years (int): Number of years to include counting backward from today.
+        
+        Returns:
+            List[Dict[str, Any]]: A list of dividend dictionaries sorted by date (newest first). Each dictionary contains:
+                - date (str): Ex-dividend date in "YYYY-MM-DD" format.
+                - amount (float): Dividend amount (positive).
+                - currency (str): Currency code (e.g., "SEK").
+                - payment_date (Optional[str]): Payment date in "YYYY-MM-DD" format or None.
+                - dividend_type (Optional[str]): Type/category of the dividend.
+        """
         if not yahoo_ticker.upper().endswith('.ST'):
             return []
         

@@ -1,6 +1,13 @@
 import { useState, useEffect } from 'react'
 import { api, TickerMapping, Stock } from '../services/api'
 
+/**
+ * Render a UI for managing mappings between Avanza stock names and Yahoo tickers for Swedish (.ST) stocks.
+ *
+ * Shows existing mappings, computes unmapped Swedish stocks, provides a form to add mappings (auto-filling Avanza name from the selected stock), handles creation and deletion via the API, and surfaces loading and error states.
+ *
+ * @returns The rendered React element for the Avanza mappings management UI.
+ */
 export default function AvanzaMappings() {
   const [mappings, setMappings] = useState<TickerMapping[]>([])
   const [stocks, setStocks] = useState<Stock[]>([])

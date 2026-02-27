@@ -375,16 +375,19 @@ class StockService:
         return data.get('sector') if data else None
 
     def get_dividends(self, ticker: str, years: int = 5) -> list:
-        """Retrieve dividend history for a stock.
+        """
+        Retrieve recent dividend history for a stock.
         
-        For Swedish stocks (.ST), tries Avanza first, then Yahoo Finance.
-        
-        Args:
-            ticker: Stock ticker symbol.
-            years: Number of years of history (default 5).
+        Parameters:
+            ticker (str): Stock ticker symbol (case-insensitive). For Swedish tickers ending with ".ST", Avanza data is preferred when available.
+            years (int): Number of years of history to retrieve (default 5).
         
         Returns:
-            list: List of dividend records with date and amount.
+            list: Chronologically sorted (newest first) list of dividend records. Each record is a dict with keys:
+                - date (str): Ex-dividend date in "YYYY-MM-DD" format.
+                - amount (float): Dividend amount per share.
+                - currency (str|None): Currency code when known, otherwise `None`.
+                - source (str): Origin of the data, e.g., "avanza" or "yahoo".
         """
         ticker = ticker.upper()
         
@@ -446,16 +449,21 @@ class StockService:
             return []
 
     def get_upcoming_dividends(self, ticker: str) -> Optional[List[Dict[str, Any]]]:
-        """Retrieve upcoming dividend dates for a stock.
+        """
+        Retrieve upcoming dividend events for a stock.
         
-        For Swedish stocks (.ST), uses Avanza calendar.
-        For other stocks, tries yfinance calendar.
+        For Swedish tickers (ending with ".ST"), the Avanza calendar is used when available; for other tickers the function attempts to use yfinance's calendar.
         
-        Args:
-            ticker: Stock ticker symbol.
+        Parameters:
+            ticker (str): Stock ticker symbol (case is ignored).
         
         Returns:
-            list: List of upcoming dividend events with ex_date, amount, currency.
+            List[Dict[str, Any]]: A list of upcoming dividend event objects (empty list if none). Each event contains:
+                - 'ex_date' (str): Ex-dividend date in 'YYYY-MM-DD' format.
+                - 'amount' (float|None): Dividend amount if available.
+                - 'currency' (str|None): Currency code if available.
+                - 'payment_date' (str|None): Payment date in 'YYYY-MM-DD' format (present for Avanza-sourced events).
+                - 'source' (str): Data source identifier, e.g. 'avanza' or 'yahoo'.
         """
         ticker = ticker.upper()
         
@@ -510,13 +518,14 @@ class StockService:
             return []
 
     def get_quote_extended(self, ticker: str) -> Optional[Dict[str, Any]]:
-        """Retrieve extended quote data including 52-week range.
+        """
+        Fetches the 52-week high/low and currency for a given stock ticker from Yahoo Finance.
         
-        Args:
-            ticker: Stock ticker symbol.
+        Parameters:
+        	ticker (str): Stock ticker symbol (case-insensitive).
         
         Returns:
-            dict: Extended quote with 52-week high/low and currency.
+        	dict or None: A dictionary with keys 'fifty_two_week_high' (number or None), 'fifty_two_week_low' (number or None), and 'currency' (string or None); returns None if the data cannot be retrieved.
         """
         ticker = ticker.upper()
         session = get_session()

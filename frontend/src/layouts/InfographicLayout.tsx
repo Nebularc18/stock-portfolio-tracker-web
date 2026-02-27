@@ -3,6 +3,14 @@ import { useHeaderData } from '../contexts/HeaderDataContext'
 import { useSettings } from '../SettingsContext'
 import { formatTimeInTimezone } from '../utils/time'
 
+/**
+ * Render the main infographic layout for the portfolio dashboard.
+ *
+ * The layout includes a compact sidebar with primary navigation (and an inline submenu for dividends),
+ * a header showing indices, FX rates and last-updated time, and a main content area that hosts routed children.
+ *
+ * @returns The React node containing the dashboard layout with sidebar, header (indices and FX), and an Outlet for child routes.
+ */
 export default function InfographicLayout() {
   const location = useLocation()
   const { indices, exchangeRates, lastUpdated } = useHeaderData()
