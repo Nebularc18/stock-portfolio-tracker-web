@@ -3,7 +3,7 @@ import json
 import time
 import logging
 import requests
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Optional, Dict, Any, List
 from dataclasses import dataclass, asdict
 
@@ -257,7 +257,7 @@ class AvanzaService:
             if div.ex_date >= today:
                 return div
         
-        return dividends[0] if dividends else None
+        return None
     
     def get_historical_dividends(self, yahoo_ticker: str, years: int = 5) -> List[Dict[str, Any]]:
         if not yahoo_ticker.upper().endswith('.ST'):
@@ -282,7 +282,7 @@ class AvanzaService:
         div_info = data_details.get('dividends', {})
         past_events = div_info.get('pastEvents', [])
         
-        cutoff_date = (datetime.now() - __import__('datetime').timedelta(days=years * 365)).strftime('%Y-%m-%d')
+        cutoff_date = (datetime.now() - timedelta(days=years * 365)).strftime('%Y-%m-%d')
         
         for event in past_events:
             try:

@@ -480,7 +480,6 @@ class StockService:
                 return []
             
             if isinstance(calendar, dict):
-                earnings_date = calendar.get('Earnings Date')
                 dividend_date = calendar.get('Dividend Date')
                 
                 if dividend_date:

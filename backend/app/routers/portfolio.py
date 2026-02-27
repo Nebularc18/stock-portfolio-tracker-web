@@ -324,7 +324,6 @@ def get_upcoming_portfolio_dividends(db: Session = Depends(get_db)):
             - unmapped_stocks (list): Swedish stocks without Avanza mapping.
     """
     from app.services.stock_service import StockService
-    from app.services.avanza_service import avanza_service
     
     stock_service = StockService()
     stocks = db.query(Stock).all()
@@ -336,6 +335,7 @@ def get_upcoming_portfolio_dividends(db: Session = Depends(get_db)):
     
     dividends = []
     unmapped_stocks = []
+    seen_unmapped = set()
     today = datetime.utcnow().strftime('%Y-%m-%d')
     
     for stock in stocks:
@@ -365,11 +365,13 @@ def get_upcoming_portfolio_dividends(db: Session = Depends(get_db)):
             source = div.get('source', 'yahoo')
             
             if stock.ticker.endswith('.ST') and source == 'yahoo':
-                unmapped_stocks.append({
-                    'ticker': stock.ticker,
-                    'name': stock.name,
-                    'reason': 'no_avanza_mapping'
-                })
+                if stock.ticker not in seen_unmapped:
+                    seen_unmapped.add(stock.ticker)
+                    unmapped_stocks.append({
+                        'ticker': stock.ticker,
+                        'name': stock.name,
+                        'reason': 'no_avanza_mapping'
+                    })
             
             dividends.append({
                 'ticker': stock.ticker,

@@ -49,7 +49,7 @@ export default function AvanzaMappings() {
     setNewMapping(prev => ({ ...prev, yahoo_ticker: ticker }))
     const stock = stocks.find(s => s.ticker === ticker)
     if (stock?.name) {
-      const cleanName = stock.name.replace(/ AB| AB \(publ\)| AB \(publ\)/gi, '').trim()
+      const cleanName = stock.name.replace(/ AB(?: \(publ\))?/gi, '').trim()
       setNewMapping(prev => ({ ...prev, avanza_name: cleanName }))
     }
   }
@@ -60,6 +60,7 @@ export default function AvanzaMappings() {
     
     try {
       setSaving(true)
+      setError(null)
       await api.avanza.addMapping({
         avanza_name: newMapping.avanza_name,
         yahoo_ticker: newMapping.yahoo_ticker,

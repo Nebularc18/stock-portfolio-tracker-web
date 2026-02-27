@@ -16,7 +16,8 @@ function formatDate(dateStr: string): string {
 }
 
 function getDaysUntil(dateStr: string): number {
-  const target = new Date(dateStr)
+  const [year, month, day] = dateStr.split('-').map(Number)
+  const target = new Date(year, month - 1, day)
   const today = new Date()
   today.setHours(0, 0, 0, 0)
   target.setHours(0, 0, 0, 0)
