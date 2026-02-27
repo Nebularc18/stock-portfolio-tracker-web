@@ -22,6 +22,8 @@ HEADER_INDICES = {
     "^OMXS30": "OMX Stockholm 30",
     "^OMXS30GI": "OMX Stockholm 30 GI",
     "^OMXSPI": "OMX Stockholm PI",
+    "^OMXC25": "OMX Copenhagen 25",
+    "^OMXH25": "OMX Helsinki 25",
     "^GSPC": "S&P 500",
     "^IXIC": "NASDAQ",
 }

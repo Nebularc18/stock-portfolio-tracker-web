@@ -41,10 +41,8 @@ export default function InfographicLayout() {
   const links = [
     { to: '/', label: 'Dashboard', icon: '📊' },
     { to: '/performance', label: 'Performance', icon: '📈' },
-    { to: '/dividends', label: 'Dividends', icon: '💰', children: [
-      { to: '/dividends', label: 'Historical' },
-      { to: '/dividends/upcoming', label: 'Upcoming' },
-    ]},
+    { to: '/analytics', label: 'Analytics', icon: '📉' },
+    { to: '/dividends', label: 'Dividends', icon: '💰' },
     { to: '/stocks', label: 'Stocks', icon: '🏢' },
     { to: '/markets', label: 'Markets', icon: '🌍' },
     { to: '/settings', label: 'Settings', icon: '⚙️' },

@@ -1,11 +1,9 @@
 import { useState, useEffect, useCallback } from 'react'
 import { Link } from 'react-router-dom'
-import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip, LineChart, Line, XAxis, YAxis, CartesianGrid } from 'recharts'
-import { api, PortfolioSummary, Dividend, Stock } from '../services/api'
+import { ResponsiveContainer, Tooltip, LineChart, Line, XAxis, YAxis, CartesianGrid, AreaChart, Area } from 'recharts'
+import { api, PortfolioSummary, Stock, UpcomingDividend } from '../services/api'
 import { useSettings } from '../SettingsContext'
-import { formatTimeInTimezone, getLatestTimestamp } from '../utils/time'
-
-const COLORS = ['#6366f1', '#ec4899', '#ef4444', '#f97316', '#22c55e', '#3b82f6', '#a855f7', '#f43f5e']
+import { formatTimeInTimezone } from '../utils/time'
 
 function formatCurrency(value: number, currency: string = 'USD'): string {
   return new Intl.NumberFormat('en-US', {
@@ -20,20 +18,19 @@ function formatPercent(value: number): string {
   return `${sign}${value.toFixed(2)}%`
 }
 
-interface Distribution {
-  by_sector: Record<string, number>
-  by_currency: Record<string, number>
-  by_stock: Record<string, number>
+function formatDate(dateStr: string): string {
+  const [year, month, day] = dateStr.split('-').map(Number)
+  const date = new Date(Date.UTC(year, month - 1, day))
+  return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
 }
 
 export default function Dashboard() {
   const [summary, setSummary] = useState<PortfolioSummary | null>(null)
-  const [distribution, setDistribution] = useState<Distribution | null>(null)
-  const [dividendsByStock, setDividendsByStock] = useState<Record<string, Dividend[]>>({})
+  const [upcomingDividends, setUpcomingDividends] = useState<UpcomingDividend[]>([])
+  const [totalExpectedDividends, setTotalExpectedDividends] = useState(0)
   const [stocks, setStocks] = useState<Stock[]>([])
   const [exchangeRates, setExchangeRates] = useState<Record<string, number | null>>({})
   const [portfolioHistory, setPortfolioHistory] = useState<{ date: string; value: number }[]>([])
-  const [lastUpdate, setLastUpdate] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const { displayCurrency, timezone } = useSettings()
@@ -41,42 +38,26 @@ export default function Dashboard() {
   const fetchData = useCallback(async () => {
     try {
       setLoading(true)
-      const [summaryData, distributionData, stocksData, ratesData, historyData] = await Promise.all([
+      const [summaryData, stocksData, ratesData, historyData, upcomingDivsData] = await Promise.all([
         api.portfolio.summary(),
-        api.portfolio.distribution(),
         api.stocks.list(),
         api.market.exchangeRates(),
         api.portfolio.history(90).catch(() => []),
+        api.portfolio.upcomingDividends().catch(() => ({ dividends: [], total_expected: 0, display_currency: displayCurrency, unmapped_stocks: [] })),
       ])
       setSummary(summaryData)
-      setDistribution(distributionData)
       setStocks(stocksData)
       setExchangeRates(ratesData)
       setPortfolioHistory(historyData.reverse())
-      setLastUpdate(getLatestTimestamp(stocksData))
-      
-      if (summaryData.stocks?.length) {
-        const divPromises = summaryData.stocks.map(async (s) => {
-          try {
-            const divs = await api.stocks.dividends(s.ticker, 1)
-            return { ticker: s.ticker, dividends: divs.filter(d => d.date.startsWith(new Date().getFullYear().toString())) }
-          } catch {
-            return { ticker: s.ticker, dividends: [] }
-          }
-        })
-        const divResults = await Promise.all(divPromises)
-        const divMap: Record<string, Dividend[]> = {}
-        divResults.forEach(r => { if (r.dividends.length) divMap[r.ticker] = r.dividends })
-        setDividendsByStock(divMap)
-      }
-      
+      setUpcomingDividends(upcomingDivsData.dividends)
+      setTotalExpectedDividends(upcomingDivsData.total_expected)
       setError(null)
     } catch (err) {
       setError('Failed to load portfolio data')
     } finally {
       setLoading(false)
     }
-  }, [])
+  }, [displayCurrency])
 
   useEffect(() => {
     fetchData()
@@ -104,6 +85,12 @@ export default function Dashboard() {
     return total + convertToCurrency(value, stock.currency)
   }, 0)
 
+  const lastUpdate = stocks.reduce((max: string | null, stock) => {
+    if (!stock.last_updated) return max
+    if (!max) return stock.last_updated
+    return stock.last_updated > max ? stock.last_updated : max
+  }, null)
+
   if (loading) {
     return <div style={{ textAlign: 'center', padding: '40px' }}>Loading...</div>
   }
@@ -121,20 +108,20 @@ export default function Dashboard() {
   const gainLossClass = (summary?.total_gain_loss ?? 0) >= 0 ? 'positive' : 'negative'
   const dailyChangeClass = dailyChangeConverted >= 0 ? 'positive' : 'negative'
 
-  const sectorData = distribution?.by_sector 
-    ? Object.entries(distribution.by_sector).map(([name, value]) => ({ name, value }))
-    : []
-  
-  const stockData = distribution?.by_stock
-    ? Object.entries(distribution.by_stock).map(([name, value]) => ({ name, value }))
-    : []
+  const chartData = portfolioHistory.map(h => {
+    const date = new Date(h.date + 'T00:00:00Z')
+    return {
+      date: date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }),
+      fullDate: date.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric', year: 'numeric' }),
+      value: h.value
+    }
+  })
 
-  const totalDividends = Object.values(dividendsByStock).flat().reduce((sum, d) => sum + d.amount, 0)
-
-  const renderPieLabel = ({ name, percent }: { name: string; percent: number }) => {
-    if (percent < 0.05) return null
-    return `${name} (${(percent * 100).toFixed(0)}%)`
-  }
+  const minValue = Math.min(...portfolioHistory.map(h => h.value))
+  const maxValue = Math.max(...portfolioHistory.map(h => h.value))
+  const valueRange = maxValue - minValue
+  const yMin = Math.max(0, minValue - valueRange * 0.1)
+  const yMax = maxValue + valueRange * 0.1
 
   return (
     <div>
@@ -174,98 +161,118 @@ export default function Dashboard() {
 
       {portfolioHistory.length > 1 && (
         <div className="card" style={{ marginBottom: '24px' }}>
-          <h3 style={{ marginBottom: '16px' }}>Portfolio Value (90 days)</h3>
-          <div style={{ height: 250 }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
+            <h3>Portfolio Performance (90 days)</h3>
+            <div style={{ display: 'flex', gap: '16px', fontSize: '12px', color: 'var(--text-secondary)' }}>
+              <span>Low: {formatCurrency(minValue, currency)}</span>
+              <span>High: {formatCurrency(maxValue, currency)}</span>
+            </div>
+          </div>
+          <div style={{ height: 300 }}>
             <ResponsiveContainer width="100%" height="100%">
-              <LineChart data={portfolioHistory.map(h => ({
-                date: new Date(h.date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }),
-                value: h.value
-              }))}>
+              <AreaChart data={chartData} margin={{ top: 10, right: 30, left: 0, bottom: 0 }}>
+                <defs>
+                  <linearGradient id="colorValue" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="5%" stopColor="#6366f1" stopOpacity={0.3}/>
+                    <stop offset="95%" stopColor="#6366f1" stopOpacity={0}/>
+                  </linearGradient>
+                </defs>
                 <CartesianGrid strokeDasharray="3 3" stroke="#333" />
-                <XAxis dataKey="date" stroke="#888" fontSize={12} />
-                <YAxis stroke="#888" fontSize={12} tickFormatter={(v) => `${(v/1000).toFixed(0)}k`} />
-                <Tooltip 
-                  formatter={(value: number) => formatCurrency(value, currency)}
-                  contentStyle={{ background: '#2a2a2a', border: '1px solid #444', borderRadius: '8px', color: '#fff' }}
+                <XAxis 
+                  dataKey="date" 
+                  stroke="#888" 
+                  fontSize={11}
+                  interval="preserveStartEnd"
                 />
-                <Line type="monotone" dataKey="value" stroke="#6366f1" strokeWidth={2} dot={false} />
-              </LineChart>
+                <YAxis 
+                  stroke="#888" 
+                  fontSize={11}
+                  domain={[yMin, yMax]}
+                  tickFormatter={(v) => `${(v/1000).toFixed(0)}k`}
+                />
+                <Tooltip 
+                  formatter={(value: number) => [formatCurrency(value, currency), 'Portfolio Value']}
+                  labelFormatter={(label, payload) => {
+                    if (payload && payload[0]) {
+                      return payload[0].payload.fullDate
+                    }
+                    return label
+                  }}
+                  contentStyle={{ 
+                    background: '#2a2a2a', 
+                    border: '1px solid #444', 
+                    borderRadius: '8px', 
+                    color: '#fff',
+                    boxShadow: '0 4px 12px rgba(0,0,0,0.3)'
+                  }}
+                  itemStyle={{ color: '#fff' }}
+                />
+                <Area 
+                  type="monotone" 
+                  dataKey="value" 
+                  stroke="#6366f1" 
+                  strokeWidth={2}
+                  fillOpacity={1} 
+                  fill="url(#colorValue)" 
+                />
+              </AreaChart>
             </ResponsiveContainer>
           </div>
         </div>
       )}
 
-      {(sectorData.length > 0 || stockData.length > 0) && (
-        <div className="grid grid-2" style={{ marginBottom: '24px' }}>
-          {stockData.length > 0 && (
-            <div className="card">
-              <h3 style={{ marginBottom: '16px' }}>Portfolio Distribution</h3>
-              <div style={{ height: 280 }}>
-                <ResponsiveContainer width="100%" height="100%">
-                  <PieChart>
-                    <Pie
-                      data={stockData}
-                      cx="50%"
-                      cy="50%"
-                      labelLine={false}
-                      label={renderPieLabel}
-                      outerRadius={100}
-                      fill="#8884d8"
-                      dataKey="value"
-                    >
-                      {stockData.map((_, index) => (
-                        <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
-                      ))}
-                    </Pie>
-                    <Tooltip 
-                      formatter={(value: number) => formatCurrency(value, currency)}
-                      contentStyle={{ 
-                        background: '#2a2a2a', 
-                        border: '1px solid #444', 
-                        borderRadius: '8px',
-                        color: '#fff'
-                      }}
-                      itemStyle={{ color: '#fff' }}
-                    />
-                  </PieChart>
-                </ResponsiveContainer>
-              </div>
-            </div>
-          )}
-          
-          {sectorData.length > 0 && (
-            <div className="card">
-              <h3 style={{ marginBottom: '16px' }}>Sector Distribution</h3>
-              <div style={{ height: 280 }}>
-                <ResponsiveContainer width="100%" height="100%">
-                  <PieChart>
-                    <Pie
-                      data={sectorData}
-                      cx="50%"
-                      cy="50%"
-                      labelLine={false}
-                      label={renderPieLabel}
-                      outerRadius={100}
-                      fill="#8884d8"
-                      dataKey="value"
-                    >
-                      {sectorData.map((_, index) => (
-                        <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
-                      ))}
-                    </Pie>
-                    <Tooltip 
-                      formatter={(value: number) => formatCurrency(value, currency)}
-                      contentStyle={{ 
-                        background: '#2a2a2a', 
-                        border: '1px solid #444', 
-                        borderRadius: '8px',
-                        color: '#fff'
-                      }}
-                      itemStyle={{ color: '#fff' }}
-                    />
-                  </PieChart>
-                </ResponsiveContainer>
-              </div>
+      {upcomingDividends.length > 0 && (
+        <div className="card" style={{ marginBottom: '24px' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
+            <h3>Upcoming Dividends</h3>
+            <span style={{ color: 'var(--accent-green)', fontWeight: '600', fontSize: '18px' }}>
+              {formatCurrency(totalExpectedDividends, currency)}
+            </span>
+          </div>
+          <table>
+            <thead>
+              <tr>
+                <th>Ticker</th>
+                <th>Ex-Date</th>
+                <th>Per Share</th>
+                <th>Total</th>
+                <th>Source</th>
+              </tr>
+            </thead>
+            <tbody>
+              {upcomingDividends.slice(0, 5).map((div, i) => (
+                <tr key={`${div.ticker}-${i}`}>
+                  <td>
+                    <Link to={`/stocks/${div.ticker}`} style={{ color: 'var(--accent-blue)', textDecoration: 'none', fontWeight: '600' }}>
+                      {div.ticker}
+                    </Link>
+                  </td>
+                  <td>{formatDate(div.ex_date)}</td>
+                  <td>{formatCurrency(div.amount_per_share, div.currency)}</td>
+                  <td style={{ color: 'var(--accent-green)' }}>
+                    {formatCurrency(div.total_converted !== null ? div.total_converted : div.total_amount, div.total_converted !== null ? currency : div.currency)}
+                  </td>
+                  <td>
+                    <span style={{
+                      padding: '2px 8px',
+                      borderRadius: '4px',
+                      fontSize: '11px',
+                      fontWeight: '600',
+                      background: div.source === 'avanza' ? 'var(--accent-green)' : 'var(--accent-blue)',
+                      color: 'white'
+                    }}>
+                      {div.source === 'avanza' ? 'Avanza' : 'Yahoo'}
+                    </span>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+          {upcomingDividends.length > 5 && (
+            <div style={{ textAlign: 'center', padding: '12px', borderTop: '1px solid var(--border-color)', marginTop: '12px' }}>
+              <Link to="/dividends" style={{ color: 'var(--accent-blue)', textDecoration: 'none', fontSize: '14px' }}>
+                View all {upcomingDividends.length} upcoming dividends →
+              </Link>
             </div>
           )}
         </div>
@@ -323,39 +330,6 @@ export default function Dashboard() {
           </table>
          )}
        </div>
-
-      {Object.keys(dividendsByStock).length > 0 && (
-        <div className="card">
-          <h3 style={{ marginBottom: '8px' }}>Dividends {new Date().getFullYear()}</h3>
-          <p style={{ color: 'var(--text-secondary)', fontSize: '12px', marginBottom: '16px' }}>
-            Total: <span style={{ color: 'var(--accent-green)', fontWeight: '600' }}>{formatCurrency(totalDividends, currency)}</span>
-          </p>
-          <table>
-            <thead>
-              <tr>
-                <th>Ticker</th>
-                <th>Date</th>
-                <th>Amount</th>
-              </tr>
-            </thead>
-            <tbody>
-              {Object.entries(dividendsByStock).map(([ticker, dividends]) => 
-                dividends.map((div, i) => (
-                  <tr key={`${ticker}-${i}`}>
-                    <td>
-                      <Link to={`/stocks/${ticker}`} style={{ color: 'var(--accent-blue)', textDecoration: 'none', fontWeight: '600' }}>
-                        {ticker}
-                      </Link>
-                    </td>
-                    <td>{div.date}</td>
-                    <td style={{ color: 'var(--accent-green)' }}>{formatCurrency(div.amount, div.currency || currency)}</td>
-                  </tr>
-                ))
-              )}
-            </tbody>
-          </table>
-        </div>
-      )}
      </div>
    )
-  }
+ }
