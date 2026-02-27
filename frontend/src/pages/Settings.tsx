@@ -1,6 +1,14 @@
 import { useSettings, TIMEZONES, SUPPORTED_CURRENCIES } from '../SettingsContext'
 import { useTheme, THEMES, ThemeName } from '../ThemeContext'
+import AvanzaMappings from '../components/AvanzaMappings'
 
+/**
+ * Render the Settings page UI, including theme selection, display preferences, and Avanza mappings.
+ *
+ * Provides controls for choosing a visual theme, selecting a display currency, and selecting the timezone used for market hours.
+ *
+ * @returns The Settings page React element
+ */
 export default function Settings() {
   const { timezone, setTimezone, displayCurrency, setDisplayCurrency } = useSettings()
   const { themeName, setTheme } = useTheme()
@@ -176,6 +184,8 @@ export default function Settings() {
           </p>
         </div>
       </div>
+      
+      <AvanzaMappings />
     </div>
   )
 }

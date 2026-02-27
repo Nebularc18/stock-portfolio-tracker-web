@@ -76,6 +76,40 @@ export interface Dividend {
   amount: number
   currency?: string
   source?: string
+  payment_date: string | null
+}
+
+export interface UpcomingDividend {
+  ticker: string
+  name: string | null
+  quantity: number
+  ex_date: string
+  payment_date: string | null
+  amount_per_share: number
+  total_amount: number
+  currency: string
+  total_converted: number | null
+  display_currency: string
+  source: string
+}
+
+export interface UpcomingDividendsResponse {
+  dividends: UpcomingDividend[]
+  total_expected: number
+  display_currency: string
+  unmapped_stocks: Array<{
+    ticker: string
+    name: string | null
+    reason: string
+  }>
+}
+
+export interface TickerMapping {
+  avanza_name: string
+  yahoo_ticker: string
+  instrument_id: string | null
+  manually_added: boolean
+  added_at?: string | null
 }
 
 export interface AnalystData {
@@ -258,6 +292,7 @@ export const api = {
     refreshAll: () => fetchAPI('/portfolio/refresh-all', { method: 'POST' }),
     distribution: () => fetchAPI('/portfolio/distribution'),
     history: (days: number = 30) => fetchAPI(`/portfolio/history?days=${days}`),
+    upcomingDividends: () => fetchAPI('/portfolio/upcoming-dividends') as Promise<UpcomingDividendsResponse>,
   },
   
   market: {
@@ -296,5 +331,52 @@ export const api = {
     },
     verify: (ticker: string) => fetchAPI(`/marketstack/verify/${ticker}`, { method: 'POST' }) as Promise<VerificationResult>,
     clearCache: (ticker: string) => fetchAPI(`/marketstack/cache/${ticker}`, { method: 'DELETE' }) as Promise<{ message: string }>,
+  },
+  
+  avanza: {
+    dividends: () => fetchAPI('/avanza/dividends') as Promise<Array<{
+      avanza_name: string
+      ex_date: string
+      amount: number
+      currency: string
+      payment_date: string | null
+      dividend_type: string | null
+      yahoo_ticker: string | null
+      instrument_id: string | null
+    }>>,
+    mappings: () => fetchAPI('/avanza/mappings') as Promise<TickerMapping[]>,
+    addMapping: (data: { avanza_name: string; yahoo_ticker: string; instrument_id?: string | null }) =>
+      fetchAPI('/avanza/mappings', { method: 'POST', body: JSON.stringify(data) }) as Promise<TickerMapping>,
+    deleteMapping: (avanzaName: string) =>
+      fetchAPI(`/avanza/mappings/${encodeURIComponent(avanzaName)}`, { method: 'DELETE' }) as Promise<{ message: string }>,
+    historical: (ticker: string, years: number = 5) =>
+      fetchAPI(`/avanza/historical/${ticker}?years=${years}`) as Promise<Array<{
+        date: string
+        amount: number
+        currency: string
+        payment_date: string | null
+        dividend_type: string | null
+      }>>,
+    stockInfo: (instrumentId: string) =>
+      fetchAPI(`/avanza/stock/${instrumentId}`) as Promise<{
+        name: string
+        ticker: string
+        isin: string
+        currency: string
+        upcoming_dividends: Array<{
+          exDate: string
+          paymentDate: string
+          amount: number
+          currencyCode: string
+          dividendType: string
+        }>
+        past_dividends: Array<{
+          exDate: string
+          paymentDate: string
+          amount: number
+          currencyCode: string
+          dividendType: string
+        }>
+      }>,
   },
 }

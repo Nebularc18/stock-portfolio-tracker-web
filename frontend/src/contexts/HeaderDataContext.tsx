@@ -45,6 +45,16 @@ function saveToCache(data: HeaderMarketData) {
   }
 }
 
+/**
+ * Provides header market data and a refresh function to descendant components via context.
+ *
+ * The provider maintains cached and live values for market indices, exchange rates,
+ * and the last-updated timestamp, periodically refreshing them and exposing a
+ * `refreshData` method to trigger manual refreshes.
+ *
+ * @param children - React nodes to render within the provider
+ * @returns The HeaderDataContext provider element wrapping `children`
+ */
 export function HeaderDataProvider({ children }: { children: ReactNode }) {
   const [indices, setIndices] = useState<MarketIndex[]>([])
   const [exchangeRates, setExchangeRates] = useState<Record<string, number | null>>({})
@@ -53,6 +63,16 @@ export function HeaderDataProvider({ children }: { children: ReactNode }) {
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null)
 
   const fetchData = useCallback(async (forceRefresh = false) => {
+    if (!forceRefresh) {
+      const cached = loadFromCache()
+      if (cached) {
+        setIndices(cached.indices)
+        setExchangeRates(cached.exchange_rates)
+        setLastUpdated(cached.updated_at)
+        setLoading(false)
+      }
+    }
+
     let shouldRefresh = true
     
     try {
@@ -64,17 +84,6 @@ export function HeaderDataProvider({ children }: { children: ReactNode }) {
     if (!shouldRefresh && !forceRefresh) {
       setLoading(false)
       return null
-    }
-
-    if (!forceRefresh) {
-      const cached = loadFromCache()
-      if (cached) {
-        setIndices(cached.indices)
-        setExchangeRates(cached.exchange_rates)
-        setLastUpdated(cached.updated_at)
-        setLoading(false)
-        return cached
-      }
     }
 
     try {

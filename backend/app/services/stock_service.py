@@ -7,6 +7,7 @@ from typing import Optional, Dict, Any, List
 import logging
 
 from app.services.finnhub_service import finnhub_service
+from app.services.avanza_service import avanza_service
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -374,16 +375,27 @@ class StockService:
         return data.get('sector') if data else None
 
     def get_dividends(self, ticker: str, years: int = 5) -> list:
-        """Retrieve dividend history for a stock.
+        """
+        Retrieve recent dividend history for a stock.
         
-        Args:
-            ticker: Stock ticker symbol.
-            years: Number of years of history (default 5).
+        Parameters:
+            ticker (str): Stock ticker symbol (case-insensitive). For Swedish tickers ending with ".ST", Avanza data is preferred when available.
+            years (int): Number of years of history to retrieve (default 5).
         
         Returns:
-            list: List of dividend records with date and amount.
+            list: Chronologically sorted (newest first) list of dividend records. Each record is a dict with keys:
+                - date (str): Ex-dividend date in "YYYY-MM-DD" format.
+                - amount (float): Dividend amount per share.
+                - currency (str|None): Currency code when known, otherwise `None`.
+                - source (str): Origin of the data, e.g., "avanza" or "yahoo".
         """
         ticker = ticker.upper()
+        
+        if ticker.endswith('.ST'):
+            avanza_divs = avanza_service.get_historical_dividends(ticker, years)
+            if avanza_divs:
+                return avanza_divs
+        
         cache_key = f"{ticker}_{years}"
         cache_file = f"dividends_{cache_key}.json"
         
@@ -423,6 +435,7 @@ class StockService:
                     'date': datetime.fromtimestamp(div_data['date'], tz=timezone.utc).strftime('%Y-%m-%d'),
                     'amount': div_data['amount'],
                     'currency': None,
+                    'source': 'yahoo'
                 })
             
             result_list.sort(key=lambda x: x['date'], reverse=True)
@@ -436,24 +449,83 @@ class StockService:
             return []
 
     def get_upcoming_dividends(self, ticker: str) -> Optional[List[Dict[str, Any]]]:
-        """Retrieve upcoming dividend dates for a stock.
+        """
+        Retrieve upcoming dividend events for a stock.
         
-        Args:
-            ticker: Stock ticker symbol.
+        For Swedish tickers (ending with ".ST"), the Avanza calendar is used when available; for other tickers the function attempts to use yfinance's calendar.
+        
+        Parameters:
+            ticker (str): Stock ticker symbol (case is ignored).
         
         Returns:
-            list: List of upcoming dividend events (currently empty).
+            List[Dict[str, Any]]: A list of upcoming dividend event objects (empty list if none). Each event contains:
+                - 'ex_date' (str): Ex-dividend date in 'YYYY-MM-DD' format.
+                - 'amount' (float|None): Dividend amount if available.
+                - 'currency' (str|None): Currency code if available.
+                - 'payment_date' (str|None): Payment date in 'YYYY-MM-DD' format (present for Avanza-sourced events).
+                - 'source' (str): Data source identifier, e.g. 'avanza' or 'yahoo'.
         """
-        return []
+        ticker = ticker.upper()
+        
+        if ticker.endswith('.ST'):
+            avanza_div = avanza_service.get_stock_dividend(ticker)
+            if avanza_div:
+                return [{
+                    'ex_date': avanza_div.ex_date,
+                    'amount': avanza_div.amount,
+                    'currency': avanza_div.currency,
+                    'payment_date': avanza_div.payment_date,
+                    'source': 'avanza'
+                }]
+        
+        try:
+            yf = importlib.import_module('yfinance')
+            yf_ticker = yf.Ticker(ticker)
+            
+            calendar = getattr(yf_ticker, 'calendar', None)
+            
+            if calendar is None:
+                return []
+            
+            if isinstance(calendar, dict):
+                dividend_date = calendar.get('Dividend Date')
+                
+                if dividend_date:
+                    if isinstance(dividend_date, list) and len(dividend_date) > 0:
+                        div_date = dividend_date[0]
+                    else:
+                        div_date = dividend_date
+                    
+                    if hasattr(div_date, 'strftime'):
+                        div_date_str = div_date.strftime('%Y-%m-%d')
+                    else:
+                        div_date_str = str(div_date)[:10]
+                    
+                    info = getattr(yf_ticker, 'info', {}) or {}
+                    div_rate = info.get('dividendRate')
+                    
+                    return [{
+                        'ex_date': div_date_str,
+                        'amount': div_rate,
+                        'currency': info.get('currency'),
+                        'source': 'yahoo'
+                    }]
+            
+            return []
+            
+        except Exception as e:
+            logger.error(f"Error fetching upcoming dividends for {ticker}: {e}")
+            return []
 
     def get_quote_extended(self, ticker: str) -> Optional[Dict[str, Any]]:
-        """Retrieve extended quote data including 52-week range.
+        """
+        Fetches the 52-week high/low and currency for a given stock ticker from Yahoo Finance.
         
-        Args:
-            ticker: Stock ticker symbol.
+        Parameters:
+        	ticker (str): Stock ticker symbol (case-insensitive).
         
         Returns:
-            dict: Extended quote with 52-week high/low and currency.
+        	dict or None: A dictionary with keys 'fifty_two_week_high' (number or None), 'fifty_two_week_low' (number or None), and 'currency' (string or None); returns None if the data cannot be retrieved.
         """
         ticker = ticker.upper()
         session = get_session()
