@@ -349,7 +349,7 @@ def get_upcoming_portfolio_dividends(db: Session = Depends(get_db)):
                 continue
             
             amount = div.get('amount')
-            if not amount:
+            if not amount or amount < 0:
                 continue
             
             if stock.quantity is None or stock.quantity <= 0:

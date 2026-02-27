@@ -109,7 +109,7 @@ export interface TickerMapping {
   yahoo_ticker: string
   instrument_id: string | null
   manually_added: boolean
-  added_at?: string
+  added_at?: string | null
 }
 
 export interface AnalystData {

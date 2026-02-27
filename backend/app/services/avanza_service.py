@@ -4,6 +4,7 @@ import time
 import logging
 import requests
 import tempfile
+import threading
 from datetime import datetime, timedelta
 from typing import Optional, Dict, Any, List
 from dataclasses import dataclass, asdict
@@ -92,7 +93,7 @@ def _load_json_file(filepath: str) -> Optional[Any]:
         return None
 
 
-def _save_json_file(filepath: str, data: Any):
+def _save_json_file(filepath: str, data: Any) -> bool:
     """
     Write JSON-serializable `data` to `filepath` using UTF-8 encoding and a two-space indent.
     
@@ -100,14 +101,19 @@ def _save_json_file(filepath: str, data: Any):
         filepath (str): Destination filesystem path for the JSON file.
         data (Any): JSON-serializable object to write.
     
+    Returns:
+        bool: True on success, False on failure.
+    
     Notes:
-        Non-ASCII characters are preserved (`ensure_ascii=False`). Errors encountered during write are logged and not re-raised.
+        Non-ASCII characters are preserved (`ensure_ascii=False`). Errors encountered during write are logged and return False.
     """
     try:
         with open(filepath, 'w', encoding='utf-8') as f:
             json.dump(data, f, ensure_ascii=False, indent=2)
+        return True
     except Exception as e:
         logger.exception(f"Failed to save {filepath}: {e}")
+        return False
 
 
 def _load_cache(filename: str, ttl: int = DIVIDENDS_CACHE_TTL) -> Optional[Any]:
@@ -156,6 +162,7 @@ class AvanzaService:
         Creates an empty mapping dictionary for Avanza names to TickerMapping objects and populates it from the persistent mapping file if available.
         """
         self.mapping: Dict[str, TickerMapping] = {}
+        self._lock = threading.RLock()
         self._load_mappings()
     
     def _load_mappings(self):
@@ -164,30 +171,35 @@ class AvanzaService:
         
         Reads the mappings file (MAPPING_FILE in MAPPING_DIR) if present, converts each mapping entry into a TickerMapping, and stores them in self.mapping keyed by the lowercase Avanza name. If the file is missing or invalid, self.mapping is left unchanged.
         """
-        filepath = os.path.join(MAPPING_DIR, MAPPING_FILE)
-        data = _load_json_file(filepath)
-        if data:
-            for item in data.get('mappings', []):
-                mapping = TickerMapping(
-                    avanza_name=item.get('avanza_name', ''),
-                    yahoo_ticker=item.get('yahoo_ticker', ''),
-                    instrument_id=item.get('instrument_id'),
-                    manually_added=item.get('manually_added', False),
-                    added_at=item.get('added_at')
-                )
-                self.mapping[mapping.avanza_name.lower()] = mapping
+        with self._lock:
+            filepath = os.path.join(MAPPING_DIR, MAPPING_FILE)
+            data = _load_json_file(filepath)
+            if data:
+                for item in data.get('mappings', []):
+                    mapping = TickerMapping(
+                        avanza_name=item.get('avanza_name', ''),
+                        yahoo_ticker=item.get('yahoo_ticker', ''),
+                        instrument_id=item.get('instrument_id'),
+                        manually_added=item.get('manually_added', False),
+                        added_at=item.get('added_at')
+                    )
+                    self.mapping[mapping.avanza_name.lower()] = mapping
     
     def _save_mappings(self):
         """
         Persist the current ticker mappings to the configured mapping file.
         
         Writes the service's in-memory mapping entries to MAPPING_DIR/MAPPING_FILE in JSON form under the top-level key "mappings".
+        
+        Returns:
+            bool: True on success, False on failure.
         """
-        filepath = os.path.join(MAPPING_DIR, MAPPING_FILE)
-        data = {
-            'mappings': [asdict(m) for m in self.mapping.values()]
-        }
-        _save_json_file(filepath, data)
+        with self._lock:
+            filepath = os.path.join(MAPPING_DIR, MAPPING_FILE)
+            data = {
+                'mappings': [asdict(m) for m in self.mapping.values()]
+            }
+            return _save_json_file(filepath, data)
     
     def add_manual_mapping(self, avanza_name: str, yahoo_ticker: str, instrument_id: Optional[str] = None):
         """
@@ -197,17 +209,22 @@ class AvanzaService:
             avanza_name (str): The Avanza instrument name to map. The mapping is stored keyed by the lowercased value.
             yahoo_ticker (str): The corresponding Yahoo ticker.
             instrument_id (Optional[str]): Optional Avanza instrument identifier to associate with the mapping. When provided, it will be saved with the mapping.
+        
+        Raises:
+            IOError: If the mapping could not be persisted to disk.
         """
-        mapping = TickerMapping(
-            avanza_name=avanza_name,
-            yahoo_ticker=yahoo_ticker,
-            instrument_id=instrument_id,
-            manually_added=True,
-            added_at=datetime.utcnow().isoformat()
-        )
-        self.mapping[avanza_name.lower()] = mapping
-        self._save_mappings()
-        logger.info(f"Added manual mapping: {avanza_name} -> {yahoo_ticker} (ID: {instrument_id})")
+        with self._lock:
+            mapping = TickerMapping(
+                avanza_name=avanza_name,
+                yahoo_ticker=yahoo_ticker,
+                instrument_id=instrument_id,
+                manually_added=True,
+                added_at=datetime.utcnow().isoformat()
+            )
+            self.mapping[avanza_name.lower()] = mapping
+            if not self._save_mappings():
+                raise IOError(f"Failed to persist mapping for {avanza_name}")
+            logger.info(f"Added manual mapping: {avanza_name} -> {yahoo_ticker} (ID: {instrument_id})")
     
     def get_mapping(self, avanza_name: str) -> Optional[TickerMapping]:
         """
@@ -293,7 +310,7 @@ class AvanzaService:
         
         if use_cache:
             cached = _load_cache(cache_file)
-            if cached:
+            if cached is not None:
                 return [AvanzaDividend(**d) for d in cached]
         
         dividends = []
@@ -409,7 +426,7 @@ class AvanzaService:
         
         cache_key = f"avanza_historical_{yahoo_ticker.replace('.', '_')}_{years}.json"
         cached = _load_cache(cache_key, HISTORICAL_CACHE_TTL)
-        if cached:
+        if cached is not None:
             return cached
         
         mapping = self.get_mapping_by_ticker(yahoo_ticker)
