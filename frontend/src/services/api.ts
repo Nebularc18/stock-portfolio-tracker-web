@@ -84,7 +84,7 @@ export interface UpcomingDividend {
   name: string | null
   quantity: number
   ex_date: string
-  payment_date?: string
+  payment_date: string | null
   amount_per_share: number
   total_amount: number
   currency: string

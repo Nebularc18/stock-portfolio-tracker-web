@@ -21,8 +21,8 @@ except PermissionError:
 
 try:
     os.makedirs(MAPPING_DIR, exist_ok=True)
-except PermissionError:
-    pass
+except PermissionError as e:
+    logger.warning(f"Cannot create mapping directory {MAPPING_DIR}: {e}")
 
 DIVIDENDS_CACHE_TTL = 86400
 HISTORICAL_CACHE_TTL = 86400 * 7
@@ -107,7 +107,7 @@ def _save_json_file(filepath: str, data: Any):
         with open(filepath, 'w', encoding='utf-8') as f:
             json.dump(data, f, ensure_ascii=False, indent=2)
     except Exception as e:
-        logger.error(f"Failed to save {filepath}: {e}")
+        logger.exception(f"Failed to save {filepath}: {e}")
 
 
 def _load_cache(filename: str, ttl: int = DIVIDENDS_CACHE_TTL) -> Optional[Any]:
@@ -307,9 +307,8 @@ class AvanzaService:
                 )
                 dividends.extend(stock_dividends)
         
-        if dividends:
-            _save_cache(cache_file, [asdict(d) for d in dividends])
-            logger.info(f"Fetched {len(dividends)} upcoming dividends for mapped stocks")
+        _save_cache(cache_file, [asdict(d) for d in dividends])
+        logger.info(f"Fetched {len(dividends)} upcoming dividends for mapped stocks")
         
         return dividends
     
@@ -380,7 +379,7 @@ class AvanzaService:
             mapping.yahoo_ticker
         )
         
-        today = datetime.now().strftime('%Y-%m-%d')
+        today = datetime.utcnow().strftime('%Y-%m-%d')
         upcoming = [div for div in dividends if div.ex_date >= today]
         
         if not upcoming:

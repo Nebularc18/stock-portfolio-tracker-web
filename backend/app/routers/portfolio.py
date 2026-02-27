@@ -352,6 +352,9 @@ def get_upcoming_portfolio_dividends(db: Session = Depends(get_db)):
             if not amount:
                 continue
             
+            if stock.quantity is None or stock.quantity <= 0:
+                continue
+            
             total_amount = amount * stock.quantity
             
             div_currency = div.get('currency') or stock.currency
