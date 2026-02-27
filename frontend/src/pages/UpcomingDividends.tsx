@@ -1,6 +1,13 @@
 import { useState, useEffect } from 'react'
 import { Link } from 'react-router-dom'
 import { api, UpcomingDividend } from '../services/api'
+/**
+ * Format a numeric amount as a localized Swedish currency string.
+ *
+ * @param value - The numeric amount to format
+ * @param currency - ISO 4217 currency code to display (e.g., `SEK`, `USD`). Defaults to `'SEK'`.
+ * @returns The amount formatted for the `sv-SE` locale using the specified currency with two fraction digits
+ */
 function formatCurrency(value: number, currency: string = 'SEK'): string {
   return new Intl.NumberFormat('sv-SE', {
     style: 'currency',

@@ -6,10 +6,10 @@ import { formatTimeInTimezone } from '../utils/time'
 /**
  * Render the main infographic layout for the portfolio dashboard.
  *
- * The layout includes a compact sidebar with primary navigation (and an inline submenu for dividends),
- * a header showing indices, FX rates and last-updated time, and a main content area that hosts routed children.
+ * The layout contains a compact sidebar with primary navigation, a header that displays market indices,
+ * FX rates and the last-updated time, and a main content area that hosts routed child components via an Outlet.
  *
- * @returns The React node containing the dashboard layout with sidebar, header (indices and FX), and an Outlet for child routes.
+ * @returns The dashboard layout React node containing the sidebar, header (indices and FX), and routed content area
  */
 export default function InfographicLayout() {
   const location = useLocation()

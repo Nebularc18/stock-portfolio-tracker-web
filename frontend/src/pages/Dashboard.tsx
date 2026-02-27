@@ -5,6 +5,13 @@ import { api, PortfolioSummary, Stock, UpcomingDividend } from '../services/api'
 import { useSettings } from '../SettingsContext'
 import { formatTimeInTimezone } from '../utils/time'
 
+/**
+ * Format a numeric amount as a currency string using the en-US locale.
+ *
+ * @param value - The numeric amount to format
+ * @param currency - The ISO 4217 currency code to use; defaults to 'USD'
+ * @returns The formatted currency string (e.g., "$1,234.56")
+ */
 function formatCurrency(value: number, currency: string = 'USD'): string {
   return new Intl.NumberFormat('en-US', {
     style: 'currency',
@@ -13,18 +20,38 @@ function formatCurrency(value: number, currency: string = 'USD'): string {
   }).format(value)
 }
 
+/**
+ * Formats a numeric percentage with two decimals and a leading '+' for non-negative values.
+ *
+ * @param value - The percentage value (e.g., 1.23 represents 1.23%)
+ * @returns The percentage formatted with two decimal places, prefixed with '+' for values greater than or equal to zero, and suffixed with '%'
+ */
 function formatPercent(value: number): string {
   const sign = value >= 0 ? '+' : ''
   return `${sign}${value.toFixed(2)}%`
 }
 
+/**
+ * Formats a YYYY-MM-DD date string as a short month/day string (e.g., "Feb 14").
+ *
+ * @param dateStr - Date in `YYYY-MM-DD` format (interpreted as a UTC date)
+ * @returns The date formatted as a short month and day, e.g. "Feb 14"
+ */
 function formatDate(dateStr: string): string {
   const [year, month, day] = dateStr.split('-').map(Number)
   const date = new Date(Date.UTC(year, month - 1, day))
   return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
 }
 
-export default function Dashboard() {
+/**
+  * Render the portfolio dashboard showing KPIs, a 90-day performance chart, upcoming dividends, and holdings.
+  *
+  * Fetches and aggregates portfolio data (summary, holdings, exchange rates, history, upcoming dividends) and presents:
+  * total value, daily change, gain/loss, return percentage, a performance area chart, a short upcoming-dividends table, and the holdings table.
+  *
+  * @returns The React element for the portfolio dashboard UI
+  */
+ export default function Dashboard() {
   const [summary, setSummary] = useState<PortfolioSummary | null>(null)
   const [upcomingDividends, setUpcomingDividends] = useState<UpcomingDividend[]>([])
   const [totalExpectedDividends, setTotalExpectedDividends] = useState(0)

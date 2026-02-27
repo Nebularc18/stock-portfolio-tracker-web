@@ -31,6 +31,13 @@ interface YearlyData {
   months: Record<number, DividendWithStock[]>
 }
 
+/**
+ * Renders a historical dividend overview for the user's portfolio.
+ *
+ * Displays dividends grouped by year and month with per-share and total amounts converted to SEK, a year selector, and a link to view upcoming dividends. Handles empty-portfolio and no-dividends-for-year states and shows cumulative totals for the selected year.
+ *
+ * @returns The rendered dividend history UI as a React element.
+ */
 export default function HistoricalDividends() {
   const [stocks, setStocks] = useState<Stock[]>([])
   const [exchangeRates, setExchangeRates] = useState<Record<string, number | null>>({})

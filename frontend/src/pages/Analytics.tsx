@@ -5,6 +5,13 @@ import { useSettings } from '../SettingsContext'
 
 const COLORS = ['#6366f1', '#ec4899', '#ef4444', '#f97316', '#22c55e', '#3b82f6', '#a855f7', '#f43f5e']
 
+/**
+ * Formats a numeric value as an en-US currency string with two decimal places.
+ *
+ * @param value - Numeric amount to format
+ * @param currency - ISO 4217 currency code to use (defaults to 'USD')
+ * @returns The formatted currency string (for example, "$1,234.56")
+ */
 function formatCurrency(value: number, currency: string = 'USD'): string {
   return new Intl.NumberFormat('en-US', {
     style: 'currency',
@@ -19,6 +26,16 @@ interface Distribution {
   by_stock: Record<string, number>
 }
 
+/**
+ * Render the Analytics page that visualizes portfolio and sector distributions with pie charts.
+ *
+ * Fetches portfolio distribution on mount and when the Retry button is used; shows a loading
+ * indicator while fetching, an error card with a retry action on failure, and a fallback message
+ * when no distribution data is available. Chart labels are omitted for slices smaller than 5%,
+ * and tooltip values are formatted according to the current display currency.
+ *
+ * @returns The Analytics page UI as a React element containing charts, loading/error states, or an empty-data message.
+ */
 export default function Analytics() {
   const [distribution, setDistribution] = useState<Distribution | null>(null)
   const [loading, setLoading] = useState(true)
