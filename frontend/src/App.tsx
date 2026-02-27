@@ -6,6 +6,7 @@ import StockDetail from './pages/StockDetail'
 import Settings from './pages/Settings'
 import Performance from './pages/Performance'
 import HistoricalDividends from './pages/HistoricalDividends'
+import UpcomingDividends from './pages/UpcomingDividends'
 import { SettingsProvider } from './SettingsContext'
 import InfographicLayout from './layouts/InfographicLayout'
 
@@ -18,6 +19,7 @@ function App() {
             <Route path="/" element={<Dashboard />} />
             <Route path="/performance" element={<Performance />} />
             <Route path="/dividends" element={<HistoricalDividends />} />
+            <Route path="/dividends/upcoming" element={<UpcomingDividends />} />
             <Route path="/stocks" element={<Stocks />} />
             <Route path="/stocks/:ticker" element={<StockDetail />} />
             <Route path="/markets" element={<Markets />} />

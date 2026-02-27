@@ -1,5 +1,6 @@
 import { useSettings, TIMEZONES, SUPPORTED_CURRENCIES } from '../SettingsContext'
 import { useTheme, THEMES, ThemeName } from '../ThemeContext'
+import AvanzaMappings from '../components/AvanzaMappings'
 
 export default function Settings() {
   const { timezone, setTimezone, displayCurrency, setDisplayCurrency } = useSettings()
@@ -176,6 +177,8 @@ export default function Settings() {
           </p>
         </div>
       </div>
+      
+      <AvanzaMappings />
     </div>
   )
 }

@@ -305,3 +305,95 @@ def get_portfolio_distribution(db: Session = Depends(get_db)):
         "by_currency": by_currency,
         "by_stock": by_stock,
     }
+
+
+@router.get("/upcoming-dividends")
+def get_upcoming_portfolio_dividends(db: Session = Depends(get_db)):
+    """Get upcoming dividends for all stocks in the portfolio.
+    
+    For Swedish stocks (.ST), uses Avanza calendar.
+    For other stocks, uses Yahoo Finance.
+    
+    Args:
+        db: Database session dependency.
+    
+    Returns:
+        dict: Contains:
+            - dividends (list): List of upcoming dividends with stock info.
+            - total_expected (float): Total expected dividend in display currency.
+            - unmapped_stocks (list): Swedish stocks without Avanza mapping.
+    """
+    from app.services.stock_service import StockService
+    from app.services.avanza_service import avanza_service
+    
+    stock_service = StockService()
+    stocks = db.query(Stock).all()
+    display_currency = get_display_currency(db)
+    
+    currencies = {s.currency for s in stocks if s.currency}
+    currencies.add('SEK')
+    rates = ExchangeRateService.get_rates_for_currencies(currencies, display_currency)
+    
+    dividends = []
+    unmapped_stocks = []
+    today = datetime.utcnow().strftime('%Y-%m-%d')
+    
+    for stock in stocks:
+        upcoming = stock_service.get_upcoming_dividends(stock.ticker)
+        
+        if not upcoming:
+            continue
+        
+        for div in upcoming:
+            ex_date = div.get('ex_date', '')
+            if ex_date < today:
+                continue
+            
+            amount = div.get('amount')
+            if not amount:
+                continue
+            
+            total_amount = amount * stock.quantity
+            
+            converted_total = convert_value(
+                total_amount,
+                div.get('currency', stock.currency),
+                display_currency,
+                rates
+            )
+            
+            source = div.get('source', 'yahoo')
+            
+            if stock.ticker.endswith('.ST') and source == 'yahoo':
+                unmapped_stocks.append({
+                    'ticker': stock.ticker,
+                    'name': stock.name,
+                    'reason': 'no_avanza_mapping'
+                })
+            
+            dividends.append({
+                'ticker': stock.ticker,
+                'name': stock.name,
+                'quantity': stock.quantity,
+                'ex_date': ex_date,
+                'payment_date': div.get('payment_date'),
+                'amount_per_share': amount,
+                'total_amount': total_amount,
+                'currency': div.get('currency', stock.currency),
+                'total_converted': converted_total,
+                'display_currency': display_currency,
+                'source': source
+            })
+    
+    dividends.sort(key=lambda x: x['ex_date'])
+    
+    total_expected = sum(
+        d['total_converted'] for d in dividends if d['total_converted'] is not None
+    )
+    
+    return {
+        'dividends': dividends,
+        'total_expected': total_expected,
+        'display_currency': display_currency,
+        'unmapped_stocks': unmapped_stocks
+    }

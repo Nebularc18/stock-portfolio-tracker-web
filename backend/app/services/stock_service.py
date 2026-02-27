@@ -7,6 +7,7 @@ from typing import Optional, Dict, Any, List
 import logging
 
 from app.services.finnhub_service import finnhub_service
+from app.services.avanza_service import avanza_service
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -376,6 +377,8 @@ class StockService:
     def get_dividends(self, ticker: str, years: int = 5) -> list:
         """Retrieve dividend history for a stock.
         
+        For Swedish stocks (.ST), tries Avanza first, then Yahoo Finance.
+        
         Args:
             ticker: Stock ticker symbol.
             years: Number of years of history (default 5).
@@ -384,6 +387,12 @@ class StockService:
             list: List of dividend records with date and amount.
         """
         ticker = ticker.upper()
+        
+        if ticker.endswith('.ST'):
+            avanza_divs = avanza_service.get_historical_dividends(ticker, years)
+            if avanza_divs:
+                return avanza_divs
+        
         cache_key = f"{ticker}_{years}"
         cache_file = f"dividends_{cache_key}.json"
         
@@ -423,6 +432,7 @@ class StockService:
                     'date': datetime.fromtimestamp(div_data['date'], tz=timezone.utc).strftime('%Y-%m-%d'),
                     'amount': div_data['amount'],
                     'currency': None,
+                    'source': 'yahoo'
                 })
             
             result_list.sort(key=lambda x: x['date'], reverse=True)
@@ -438,13 +448,67 @@ class StockService:
     def get_upcoming_dividends(self, ticker: str) -> Optional[List[Dict[str, Any]]]:
         """Retrieve upcoming dividend dates for a stock.
         
+        For Swedish stocks (.ST), uses Avanza calendar.
+        For other stocks, tries yfinance calendar.
+        
         Args:
             ticker: Stock ticker symbol.
         
         Returns:
-            list: List of upcoming dividend events (currently empty).
+            list: List of upcoming dividend events with ex_date, amount, currency.
         """
-        return []
+        ticker = ticker.upper()
+        
+        if ticker.endswith('.ST'):
+            avanza_div = avanza_service.get_stock_dividend(ticker)
+            if avanza_div:
+                return [{
+                    'ex_date': avanza_div.ex_date,
+                    'amount': avanza_div.amount,
+                    'currency': avanza_div.currency,
+                    'payment_date': avanza_div.payment_date,
+                    'source': 'avanza'
+                }]
+        
+        try:
+            yf = importlib.import_module('yfinance')
+            yf_ticker = yf.Ticker(ticker)
+            
+            calendar = getattr(yf_ticker, 'calendar', None)
+            
+            if calendar is None:
+                return []
+            
+            if isinstance(calendar, dict):
+                earnings_date = calendar.get('Earnings Date')
+                dividend_date = calendar.get('Dividend Date')
+                
+                if dividend_date:
+                    if isinstance(dividend_date, list) and len(dividend_date) > 0:
+                        div_date = dividend_date[0]
+                    else:
+                        div_date = dividend_date
+                    
+                    if hasattr(div_date, 'strftime'):
+                        div_date_str = div_date.strftime('%Y-%m-%d')
+                    else:
+                        div_date_str = str(div_date)[:10]
+                    
+                    info = getattr(yf_ticker, 'info', {}) or {}
+                    div_rate = info.get('dividendRate')
+                    
+                    return [{
+                        'ex_date': div_date_str,
+                        'amount': div_rate,
+                        'currency': info.get('currency'),
+                        'source': 'yahoo'
+                    }]
+            
+            return []
+            
+        except Exception as e:
+            logger.error(f"Error fetching upcoming dividends for {ticker}: {e}")
+            return []
 
     def get_quote_extended(self, ticker: str) -> Optional[Dict[str, Any]]:
         """Retrieve extended quote data including 52-week range.
