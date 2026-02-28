@@ -4,8 +4,7 @@ This module provides API endpoints for market index data, exchange rates,
 market hours status, and sparkline charts for the header component.
 """
 
-from fastapi import APIRouter, Query, Depends
-from sqlalchemy.orm import Session
+from fastapi import APIRouter, Query
 from typing import List
 from datetime import datetime, timezone
 import requests
@@ -13,7 +12,6 @@ import logging
 
 from app.services.market_hours_service import MarketHoursService
 from app.services.market_data_service import get_header_market_data
-from app.main import get_db
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -22,9 +20,6 @@ MARKET_INDICES = {
     "^OMXS30": "OMX Stockholm 30",
     "^OMXS30GI": "OMX Stockholm 30 GI",
     "^OMXSPI": "OMX Stockholm PI",
-    "^OMXC25": "OMX Copenhagen 25",
-    "^OMXH25": "OMX Helsinki 25",
-    "^OSEAX": "Oslo All Share",
     "^GSPC": "S&P 500",
     "^DJI": "Dow Jones",
     "^IXIC": "NASDAQ",
@@ -112,33 +107,16 @@ def fetch_index_data(symbol: str) -> dict | None:
 
 
 @router.get("/header")
-def get_header_data(force: bool = Query(False), indices: str = Query(None), db: Session = Depends(get_db)):
-    """
-    Retrieve market data for the header component, optionally forcing a refresh or using a provided list of indices.
+def get_header_data(force: bool = Query(False)):
+    """Retrieve market data for the header component.
     
-    Parameters:
-        force (bool): When True, bypass cached data and force a refresh.
-        indices (str | None): Comma-separated index symbols to use instead of user-specific settings.
+    Args:
+        force: If True, bypass cache and force refresh.
+    
     Returns:
-        dict: Header market data containing selected indices and exchange rates.
+        dict: Header market data with indices and exchange rates.
     """
-    from app.routers.settings import get_or_create_settings
-    import json
-    
-    selected_symbols = []
-    if indices:
-        selected_symbols = [s.strip() for s in indices.split(',') if s.strip()]
-    else:
-        try:
-            settings = get_or_create_settings(db)
-            if settings.header_indices:
-                parsed = json.loads(settings.header_indices)
-                if parsed:
-                    selected_symbols = parsed
-        except (json.JSONDecodeError, TypeError) as e:
-            logger.warning(f"Failed to parse header_indices: {e}")
-    
-    return get_header_market_data(force_refresh=force, selected_indices=selected_symbols if selected_symbols else None)
+    return get_header_market_data(force_refresh=force)
 
 
 @router.get("/should-refresh")

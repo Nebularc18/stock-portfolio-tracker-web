@@ -22,8 +22,6 @@ HEADER_INDICES = {
     "^OMXS30": "OMX Stockholm 30",
     "^OMXS30GI": "OMX Stockholm 30 GI",
     "^OMXSPI": "OMX Stockholm PI",
-    "^OMXC25": "OMX Copenhagen 25",
-    "^OMXH25": "OMX Helsinki 25",
     "^GSPC": "S&P 500",
     "^IXIC": "NASDAQ",
 }
@@ -161,16 +159,13 @@ def _fetch_single_quote(symbol: str) -> Optional[Dict]:
         return None
 
 def _fetch_all_quotes(symbols: List[str]) -> Dict[str, Dict]:
-    """
-    Fetch quote data for the given Yahoo Finance symbols in parallel.
+    """Fetch quote data for multiple symbols in parallel.
     
-    Only successful fetches are included in the returned mapping; symbols that fail to return data are omitted.
-    
-    Parameters:
-        symbols (List[str]): Yahoo Finance symbol strings to fetch.
+    Args:
+        symbols: List of Yahoo Finance symbols.
     
     Returns:
-        Dict[str, Dict]: Mapping from symbol to its quote data for each successful fetch.
+        dict: Mapping of symbols to quote data.
     """
     if not symbols:
         return {}
@@ -191,25 +186,20 @@ def _fetch_all_quotes(symbols: List[str]) -> Dict[str, Dict]:
     
     return results
 
-def get_header_market_data(force_refresh: bool = False, selected_indices: Optional[List[str]] = None) -> Dict[str, Any]:
-    """
-    Provide market indices and exchange rates for the application header.
+def get_header_market_data(force_refresh: bool = False) -> Dict[str, Any]:
+    """Retrieve market data for the header component.
     
-    Parameters:
-        force_refresh (bool): If True, bypass cached data and fetch fresh quotes.
-        selected_indices (Optional[List[str]]): If provided, include only these index symbols in the result.
+    Fetches index and exchange rate data in parallel and caches
+    the result for 15 minutes.
+    
+    Args:
+        force_refresh: If True, bypass cache and fetch fresh data.
     
     Returns:
-        dict: {
-            "indices": List[dict] - each dict contains `symbol` (str), `name` (str), `price` (float), `change` (float), `change_percent` (float);
-            "exchange_rates": Dict[str, float] - mapping of currency keys to latest price;
-            "updated_at": str - UTC ISO-8601 timestamp ending with 'Z'
-        }
+        dict: Contains indices list, exchange_rates dict, and updated_at.
     """
     cached = _load_cache('market_header.json')
     if cached is not None and not force_refresh:
-        if selected_indices:
-            cached['indices'] = [i for i in cached.get('indices', []) if i['symbol'] in selected_indices]
         return cached
     
     all_symbols = list(HEADER_INDICES.keys()) + list(HEADER_FX.keys())
@@ -217,8 +207,6 @@ def get_header_market_data(force_refresh: bool = False, selected_indices: Option
     
     indices = []
     for symbol, name in HEADER_INDICES.items():
-        if selected_indices and symbol not in selected_indices:
-            continue
         if symbol in quotes:
             data = quotes[symbol]
             indices.append({

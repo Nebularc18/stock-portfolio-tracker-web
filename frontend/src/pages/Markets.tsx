@@ -1,17 +1,11 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
 import { Link } from 'react-router-dom'
 import { LineChart, Line, ResponsiveContainer, YAxis } from 'recharts'
-import { api, MarketStatus, SparklineData, MarketIndex } from '../services/api'
+import { api, MarketStatus, SparklineData } from '../services/api'
 import { useSettings } from '../SettingsContext'
+import { useHeaderData } from '../contexts/HeaderDataContext'
 import { formatTimeInTimezone, getTimeUntilNextInterval } from '../utils/time'
 
-/**
- * Format a number as an en-US localized string with a fixed number of decimal places.
- *
- * @param value - The number to format
- * @param decimals - The number of digits to display after the decimal point (defaults to 2)
- * @returns The localized string representation of `value` using the en-US locale with exactly `decimals` fraction digits
- */
 function formatNumber(value: number, decimals: number = 2): string {
   return value.toLocaleString('en-US', { 
     minimumFractionDigits: decimals,
@@ -19,13 +13,6 @@ function formatNumber(value: number, decimals: number = 2): string {
   })
 }
 
-/**
- * Renders a compact sparkline line chart for a sequence of numeric values.
- *
- * @param data - Array of numeric points to plot (earliest to latest)
- * @param isPositive - If true, use a green stroke; otherwise use a red stroke
- * @returns A React element containing a small, responsive line chart without markers
- */
 function MiniSparkline({ data, isPositive }: { data: number[]; isPositive: boolean }) {
   const chartData = data.map((value, index) => ({ value, index }))
   const color = isPositive ? '#22c55e' : '#ef4444'
@@ -48,17 +35,8 @@ function MiniSparkline({ data, isPositive }: { data: number[]; isPositive: boole
   )
 }
 
-/**
- * Render the Markets dashboard showing market indices, market hours, and refresh controls.
- *
- * Loads market indices, sparklines, and market hours for the current timezone, displays last-updated
- * and next-refresh information, shows loading and error states, and schedules periodic refreshes.
- *
- * @returns The Markets component UI as a React element
- */
 export default function Markets() {
-  const [indices, setIndices] = useState<MarketIndex[]>([])
-  const [lastUpdated, setLastUpdated] = useState<string | null>(null)
+  const { indices, lastUpdated, refreshData } = useHeaderData()
   const [marketHours, setMarketHours] = useState<MarketStatus[]>([])
   const [sparklines, setSparklines] = useState<Record<string, SparklineData>>({})
   const [loading, setLoading] = useState(true)
@@ -66,31 +44,24 @@ export default function Markets() {
   const [nextRefresh, setNextRefresh] = useState<Date | null>(null)
   const { timezone } = useSettings()
   const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
-  const isMountedRef = useRef(true)
 
-  const fetchData = useCallback(async () => {
+  const fetchData = useCallback(async (forceRefresh = false) => {
     try {
       setLoading(true)
-      const [indicesData, sparklineData, hoursData] = await Promise.all([
-        api.market.indices(),
+      const [sparklineData, hoursData] = await Promise.all([
         api.market.sparklines().catch(() => ({ sparklines: {}, updated_at: '' })),
         api.market.hours(timezone),
       ])
-      if (!isMountedRef.current) return
-      setIndices(indicesData.indices)
-      setLastUpdated(indicesData.updated_at)
       setSparklines(sparklineData.sparklines || {})
       setMarketHours(hoursData)
+      await refreshData(forceRefresh)
       setError(null)
     } catch (err) {
-      if (!isMountedRef.current) return
       setError('Failed to load market data')
     } finally {
-      if (isMountedRef.current) {
-        setLoading(false)
-      }
+      setLoading(false)
     }
-  }, [timezone])
+  }, [timezone, refreshData])
 
   const scheduleNextRefresh = useCallback(async () => {
     try {
@@ -113,12 +84,10 @@ export default function Markets() {
   }, [fetchData])
 
   useEffect(() => {
-    isMountedRef.current = true
     fetchData()
     scheduleNextRefresh()
     
     return () => {
-      isMountedRef.current = false
       if (timeoutRef.current) {
         clearTimeout(timeoutRef.current)
       }
@@ -141,7 +110,7 @@ export default function Markets() {
             </p>
           )}
         </div>
-        <button className="btn btn-primary" onClick={fetchData} disabled={loading}>
+        <button className="btn btn-primary" onClick={() => fetchData(true)} disabled={loading}>
           {loading ? 'Refreshing...' : 'Refresh'}
         </button>
       </div>
