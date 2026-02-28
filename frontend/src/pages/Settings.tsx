@@ -23,6 +23,11 @@ export default function Settings() {
       .finally(() => setLoadingIndices(false))
   }, [])
 
+  const invalidateHeaderCache = () => {
+    localStorage.removeItem('header_market_data')
+    refreshData(true)
+  }
+
   const toggleIndex = (symbol: string) => {
     let newIndices: string[]
     if (headerIndices.includes(symbol)) {
@@ -31,14 +36,12 @@ export default function Settings() {
       newIndices = [...headerIndices, symbol]
     }
     setHeaderIndices(newIndices)
-    localStorage.removeItem('header_market_data')
-    refreshData(true)
+    invalidateHeaderCache()
   }
 
   const clearSelection = () => {
     setHeaderIndices([])
-    localStorage.removeItem('header_market_data')
-    refreshData(true)
+    invalidateHeaderCache()
   }
 
   return (
@@ -197,7 +200,7 @@ export default function Settings() {
                 />
                 <span style={{ 
                   fontSize: '14px',
-                  color: headerIndices.includes(idx.symbol) ? '#fff' : 'var(--text-primary)',
+                  color: headerIndices.includes(idx.symbol) ? 'var(--text-on-accent)' : 'var(--text-primary)',
                   fontWeight: headerIndices.includes(idx.symbol) ? 600 : 400,
                 }}>
                   {idx.name}

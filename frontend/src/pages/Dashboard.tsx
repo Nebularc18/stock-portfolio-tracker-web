@@ -190,7 +190,7 @@ export default function Dashboard() {
                   stroke="#888" 
                   fontSize={11}
                   domain={[yMin, yMax]}
-                  tickFormatter={(v) => `${(v/1000).toFixed(0)}k`}
+                  tickFormatter={(v) => Math.abs(v) >= 1000 ? `${(v/1000).toFixed(0)}k` : v.toFixed(0)}
                 />
                 <Tooltip 
                   formatter={(value: number) => [formatCurrency(value, currency), 'Portfolio Value']}
@@ -263,10 +263,10 @@ export default function Dashboard() {
                   <td>{stock.quantity}</td>
                   <td>{formatCurrency(stock.current_price, stock.currency)}</td>
                   <td>{formatCurrency(stock.current_value, currency)}</td>
-                  <td className={stock.gain_loss && stock.gain_loss >= 0 ? 'positive' : 'negative'}>
+                  <td className={stock.gain_loss !== null && stock.gain_loss >= 0 ? 'positive' : 'negative'}>
                     {stock.gain_loss !== null ? formatCurrency(stock.gain_loss, currency) : '-'}
                   </td>
-                  <td className={stock.gain_loss_percent && stock.gain_loss_percent >= 0 ? 'positive' : 'negative'}>
+                  <td className={stock.gain_loss_percent !== null && stock.gain_loss_percent >= 0 ? 'positive' : 'negative'}>
                     {stock.gain_loss_percent !== null ? formatPercent(stock.gain_loss_percent) : '-'}
                   </td>
                 </tr>
