@@ -31,6 +31,13 @@ interface YearlyData {
   months: Record<number, DividendWithStock[]>
 }
 
+/**
+ * Renders a historical dividend overview for the user's portfolio.
+ *
+ * Displays dividends grouped by year and month with per-share and total amounts converted to SEK, a year selector, and a link to view upcoming dividends. Handles empty-portfolio and no-dividends-for-year states and shows cumulative totals for the selected year.
+ *
+ * @returns The rendered dividend history UI as a React element.
+ */
 export default function HistoricalDividends() {
   const [stocks, setStocks] = useState<Stock[]>([])
   const [exchangeRates, setExchangeRates] = useState<Record<string, number | null>>({})
@@ -142,8 +149,13 @@ export default function HistoricalDividends() {
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '24px' }}>
         <h2 style={{ fontSize: '24px', fontWeight: '600' }}>Dividend History</h2>
         <div style={{ display: 'flex', gap: '12px', alignItems: 'center' }}>
-          <label style={{ color: 'var(--text-secondary)', fontSize: '14px' }}>Year:</label>
-          <select
+          <Link to="/dividends" style={{ color: 'var(--accent-blue)', textDecoration: 'none', fontSize: '14px' }}>
+            View Upcoming →
+          </Link>
+          <div style={{ display: 'flex', gap: '12px', alignItems: 'center' }}>
+            <label htmlFor="year-select" style={{ color: 'var(--text-secondary)', fontSize: '14px' }}>Year:</label>
+            <select
+            id="year-select"
             value={selectedYear}
             onChange={(e) => setSelectedYear(parseInt(e.target.value))}
             style={{
@@ -154,15 +166,16 @@ export default function HistoricalDividends() {
               color: 'var(--text-primary)',
               fontSize: '14px',
             }}
-          >
-            {availableYears.map((year) => (
-              <option key={year} value={year}>
-                {year}
-              </option>
-            ))}
-          </select>
-        </div>
-      </div>
+           >
+             {availableYears.map((year) => (
+               <option key={year} value={year}>
+                 {year}
+               </option>
+             ))}
+           </select>
+           </div>
+         </div>
+       </div>
 
       {stocks.length === 0 ? (
         <div className="card" style={{ textAlign: 'center', padding: '40px' }}>

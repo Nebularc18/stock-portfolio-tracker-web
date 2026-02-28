@@ -5,15 +5,16 @@ import Markets from './pages/Markets'
 import StockDetail from './pages/StockDetail'
 import Settings from './pages/Settings'
 import Performance from './pages/Performance'
+import Analytics from './pages/Analytics'
 import HistoricalDividends from './pages/HistoricalDividends'
 import UpcomingDividends from './pages/UpcomingDividends'
 import { SettingsProvider } from './SettingsContext'
 import InfographicLayout from './layouts/InfographicLayout'
 
 /**
- * Root application component that provides settings context and defines the client-side routes.
+ * Root application component that provides settings context and defines the client-side routes within the InfographicLayout.
  *
- * @returns The application's root JSX element containing the SettingsProvider, BrowserRouter, and route configuration wrapped by the InfographicLayout.
+ * @returns The root JSX element containing the SettingsProvider, BrowserRouter, and route configuration for the app.
  */
 function App() {
   return (
@@ -23,8 +24,9 @@ function App() {
           <Route element={<InfographicLayout />}>
             <Route path="/" element={<Dashboard />} />
             <Route path="/performance" element={<Performance />} />
-            <Route path="/dividends" element={<HistoricalDividends />} />
-            <Route path="/dividends/upcoming" element={<UpcomingDividends />} />
+            <Route path="/analytics" element={<Analytics />} />
+            <Route path="/dividends" element={<UpcomingDividends />} />
+            <Route path="/dividends/history" element={<HistoricalDividends />} />
             <Route path="/stocks" element={<Stocks />} />
             <Route path="/stocks/:ticker" element={<StockDetail />} />
             <Route path="/markets" element={<Markets />} />

@@ -6,10 +6,10 @@ import { formatTimeInTimezone } from '../utils/time'
 /**
  * Render the main infographic layout for the portfolio dashboard.
  *
- * The layout includes a compact sidebar with primary navigation (and an inline submenu for dividends),
- * a header showing indices, FX rates and last-updated time, and a main content area that hosts routed children.
+ * The layout contains a compact sidebar with primary navigation, a header that displays market indices,
+ * FX rates and the last-updated time, and a main content area that hosts routed child components via an Outlet.
  *
- * @returns The React node containing the dashboard layout with sidebar, header (indices and FX), and an Outlet for child routes.
+ * @returns The dashboard layout React node containing the sidebar, header (indices and FX), and routed content area
  */
 export default function InfographicLayout() {
   const location = useLocation()
@@ -41,10 +41,8 @@ export default function InfographicLayout() {
   const links = [
     { to: '/', label: 'Dashboard', icon: '📊' },
     { to: '/performance', label: 'Performance', icon: '📈' },
-    { to: '/dividends', label: 'Dividends', icon: '💰', children: [
-      { to: '/dividends', label: 'Historical' },
-      { to: '/dividends/upcoming', label: 'Upcoming' },
-    ]},
+    { to: '/analytics', label: 'Analytics', icon: '📉' },
+    { to: '/dividends', label: 'Dividends', icon: '💰' },
     { to: '/stocks', label: 'Stocks', icon: '🏢' },
     { to: '/markets', label: 'Markets', icon: '🌍' },
     { to: '/settings', label: 'Settings', icon: '⚙️' },
@@ -90,62 +88,30 @@ export default function InfographicLayout() {
           </div>
           
           {links.map(link => (
-            <div key={link.to} style={{ position: 'relative' }}>
-              <Link
-                to={link.to}
-                style={{
-                  width: 56,
-                  height: 56,
-                  borderRadius: 16,
-                  display: 'flex',
-                  flexDirection: 'column',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  gap: 4,
-                  color: isActive(link.to) ? '#fff' : 'rgba(255,255,255,0.5)',
-                  textDecoration: 'none',
-                  background: isActive(link.to) ? 'rgba(102, 126, 234, 0.3)' : 'transparent',
-                  border: isActive(link.to) ? '1px solid rgba(102, 126, 234, 0.5)' : '1px solid transparent',
-                  fontSize: 10,
-                  transition: 'all 0.2s',
-                }}
-                title={link.label}
-              >
-                <span style={{ fontSize: 18 }}>{link.icon}</span>
-                <span>{link.label}</span>
-              </Link>
-              {link.children && isActive(link.to) && (
-                <div style={{
-                  position: 'absolute',
-                  left: '100%',
-                  top: 0,
-                  marginLeft: 8,
-                  display: 'flex',
-                  flexDirection: 'column',
-                  gap: 4,
-                  zIndex: 10,
-                }}>
-                  {link.children.map(child => (
-                    <Link
-                      key={child.to}
-                      to={child.to}
-                      style={{
-                        padding: '8px 16px',
-                        borderRadius: 8,
-                        color: location.pathname === child.to ? '#fff' : 'rgba(255,255,255,0.6)',
-                        textDecoration: 'none',
-                        background: location.pathname === child.to ? 'rgba(102, 126, 234, 0.4)' : 'rgba(255,255,255,0.05)',
-                        border: '1px solid rgba(255,255,255,0.1)',
-                        fontSize: 12,
-                        whiteSpace: 'nowrap',
-                      }}
-                    >
-                      {child.label}
-                    </Link>
-                  ))}
-                </div>
-              )}
-            </div>
+            <Link
+              key={link.to}
+              to={link.to}
+              style={{
+                width: 56,
+                height: 56,
+                borderRadius: 16,
+                display: 'flex',
+                flexDirection: 'column',
+                alignItems: 'center',
+                justifyContent: 'center',
+                gap: 4,
+                color: isActive(link.to) ? '#fff' : 'rgba(255,255,255,0.5)',
+                textDecoration: 'none',
+                background: isActive(link.to) ? 'rgba(102, 126, 234, 0.3)' : 'transparent',
+                border: isActive(link.to) ? '1px solid rgba(102, 126, 234, 0.5)' : '1px solid transparent',
+                fontSize: 10,
+                transition: 'all 0.2s',
+              }}
+              title={link.label}
+            >
+              <span style={{ fontSize: 18 }}>{link.icon}</span>
+              <span>{link.label}</span>
+            </Link>
           ))}
         </aside>
         

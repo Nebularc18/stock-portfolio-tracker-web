@@ -1,9 +1,8 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
 import { Link } from 'react-router-dom'
 import { LineChart, Line, ResponsiveContainer, YAxis } from 'recharts'
-import { api, MarketStatus, SparklineData } from '../services/api'
+import { api, MarketStatus, SparklineData, MarketIndex } from '../services/api'
 import { useSettings } from '../SettingsContext'
-import { useHeaderData } from '../contexts/HeaderDataContext'
 import { formatTimeInTimezone, getTimeUntilNextInterval } from '../utils/time'
 
 function formatNumber(value: number, decimals: number = 2): string {
@@ -36,7 +35,8 @@ function MiniSparkline({ data, isPositive }: { data: number[]; isPositive: boole
 }
 
 export default function Markets() {
-  const { indices, lastUpdated, refreshData } = useHeaderData()
+  const [indices, setIndices] = useState<MarketIndex[]>([])
+  const [lastUpdated, setLastUpdated] = useState<string | null>(null)
   const [marketHours, setMarketHours] = useState<MarketStatus[]>([])
   const [sparklines, setSparklines] = useState<Record<string, SparklineData>>({})
   const [loading, setLoading] = useState(true)
@@ -44,24 +44,31 @@ export default function Markets() {
   const [nextRefresh, setNextRefresh] = useState<Date | null>(null)
   const { timezone } = useSettings()
   const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const isMountedRef = useRef(true)
 
-  const fetchData = useCallback(async (forceRefresh = false) => {
+  const fetchData = useCallback(async () => {
     try {
       setLoading(true)
-      const [sparklineData, hoursData] = await Promise.all([
+      const [indicesData, sparklineData, hoursData] = await Promise.all([
+        api.market.indices(),
         api.market.sparklines().catch(() => ({ sparklines: {}, updated_at: '' })),
         api.market.hours(timezone),
       ])
+      if (!isMountedRef.current) return
+      setIndices(indicesData.indices)
+      setLastUpdated(indicesData.updated_at)
       setSparklines(sparklineData.sparklines || {})
       setMarketHours(hoursData)
-      await refreshData(forceRefresh)
       setError(null)
     } catch (err) {
+      if (!isMountedRef.current) return
       setError('Failed to load market data')
     } finally {
-      setLoading(false)
+      if (isMountedRef.current) {
+        setLoading(false)
+      }
     }
-  }, [timezone, refreshData])
+  }, [timezone])
 
   const scheduleNextRefresh = useCallback(async () => {
     try {
@@ -84,10 +91,12 @@ export default function Markets() {
   }, [fetchData])
 
   useEffect(() => {
+    isMountedRef.current = true
     fetchData()
     scheduleNextRefresh()
     
     return () => {
+      isMountedRef.current = false
       if (timeoutRef.current) {
         clearTimeout(timeoutRef.current)
       }
@@ -110,7 +119,7 @@ export default function Markets() {
             </p>
           )}
         </div>
-        <button className="btn btn-primary" onClick={() => fetchData(true)} disabled={loading}>
+        <button className="btn btn-primary" onClick={fetchData} disabled={loading}>
           {loading ? 'Refreshing...' : 'Refresh'}
         </button>
       </div>

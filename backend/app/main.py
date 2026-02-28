@@ -95,13 +95,13 @@ class PortfolioHistory(Base):
     Attributes:
         id: Primary key.
         total_value: Total portfolio value in SEK.
-        date: Snapshot timestamp.
+        date: Snapshot timestamp (unique).
     """
     __tablename__ = "portfolio_history"
 
     id = Column(Integer, primary_key=True, index=True)
     total_value = Column(Float)
-    date = Column(DateTime, default=datetime.utcnow)
+    date = Column(DateTime, default=datetime.utcnow, unique=True)
 
 
 class StockPriceHistory(Base):
@@ -129,11 +129,13 @@ class UserSettings(Base):
     Attributes:
         id: Primary key.
         display_currency: Preferred display currency (default 'SEK').
+        header_indices: JSON string of selected header indices symbols.
     """
     __tablename__ = "user_settings"
 
     id = Column(Integer, primary_key=True, index=True)
     display_currency = Column(String, default="SEK")
+    header_indices = Column(String, default="[]")
 
 
 Base.metadata.create_all(bind=engine)

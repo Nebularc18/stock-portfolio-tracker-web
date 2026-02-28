@@ -22,6 +22,8 @@ HEADER_INDICES = {
     "^OMXS30": "OMX Stockholm 30",
     "^OMXS30GI": "OMX Stockholm 30 GI",
     "^OMXSPI": "OMX Stockholm PI",
+    "^OMXC25": "OMX Copenhagen 25",
+    "^OMXH25": "OMX Helsinki 25",
     "^GSPC": "S&P 500",
     "^IXIC": "NASDAQ",
 }
@@ -186,7 +188,7 @@ def _fetch_all_quotes(symbols: List[str]) -> Dict[str, Dict]:
     
     return results
 
-def get_header_market_data(force_refresh: bool = False) -> Dict[str, Any]:
+def get_header_market_data(force_refresh: bool = False, selected_indices: Optional[List[str]] = None) -> Dict[str, Any]:
     """Retrieve market data for the header component.
     
     Fetches index and exchange rate data in parallel and caches
@@ -194,12 +196,15 @@ def get_header_market_data(force_refresh: bool = False) -> Dict[str, Any]:
     
     Args:
         force_refresh: If True, bypass cache and fetch fresh data.
+        selected_indices: List of index symbols to include. If None or empty, includes all.
     
     Returns:
         dict: Contains indices list, exchange_rates dict, and updated_at.
     """
     cached = _load_cache('market_header.json')
     if cached is not None and not force_refresh:
+        if selected_indices:
+            cached['indices'] = [i for i in cached.get('indices', []) if i['symbol'] in selected_indices]
         return cached
     
     all_symbols = list(HEADER_INDICES.keys()) + list(HEADER_FX.keys())
@@ -207,6 +212,8 @@ def get_header_market_data(force_refresh: bool = False) -> Dict[str, Any]:
     
     indices = []
     for symbol, name in HEADER_INDICES.items():
+        if selected_indices and symbol not in selected_indices:
+            continue
         if symbol in quotes:
             data = quotes[symbol]
             indices.append({

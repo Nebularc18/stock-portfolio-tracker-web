@@ -6,6 +6,7 @@ performance, distribution analysis, and bulk refresh operations.
 
 from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
+from sqlalchemy.dialects.postgresql import insert
 from datetime import datetime
 from typing import List, Optional
 import logging
@@ -244,13 +245,16 @@ def refresh_all_prices(db: Session = Depends(get_db)):
                     skipped += 1
     
     if updated > 0 and total_value_sek > 0:
-        today = datetime.utcnow().replace(hour=0, minute=0, second=0, microsecond=0)
-        existing = db.query(PortfolioHistory).filter(PortfolioHistory.date >= today).first()
-        if existing:
-            existing.total_value = total_value_sek
-        else:
-            history_entry = PortfolioHistory(total_value=total_value_sek, date=today)
-            db.add(history_entry)
+        now = datetime.utcnow()
+        interval = now.replace(minute=(now.minute // 15) * 15, second=0, microsecond=0)
+        stmt = insert(PortfolioHistory).values(
+            total_value=total_value_sek,
+            date=interval
+        ).on_conflict_do_update(
+            index_elements=['date'],
+            set_={'total_value': total_value_sek}
+        )
+        db.execute(stmt)
     
     db.commit()
     
@@ -262,13 +266,22 @@ def get_portfolio_history(days: int = 30, db: Session = Depends(get_db)):
     """Retrieve historical portfolio value snapshots.
     
     Args:
-        days: Number of days of history to retrieve (default 30).
+        days: Number of days of history to retrieve (default 30, max 90).
         db: Database session dependency.
     
     Returns:
-        List[dict]: List of {date, value} records ordered by date descending.
+        List[dict]: List of {date, value} records ordered by date ascending.
     """
-    history = db.query(PortfolioHistory).order_by(PortfolioHistory.date.desc()).limit(days).all()
+    from datetime import timedelta
+    
+    MAX_DAYS = 90
+    try:
+        days = max(1, min(int(days), MAX_DAYS))
+    except (ValueError, TypeError):
+        days = 30
+    
+    since = datetime.utcnow() - timedelta(days=days)
+    history = db.query(PortfolioHistory).filter(PortfolioHistory.date >= since).order_by(PortfolioHistory.date.asc()).all()
     return [{"date": h.date, "value": h.total_value} for h in history]
 
 

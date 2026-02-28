@@ -1,13 +1,12 @@
 import { useState, useEffect } from 'react'
 import { Link } from 'react-router-dom'
 import { api, UpcomingDividend } from '../services/api'
-
 /**
- * Format a numeric value as a localized currency string.
+ * Format a numeric amount as a localized Swedish currency string.
  *
  * @param value - The numeric amount to format
- * @param currency - ISO 4217 currency code to use; defaults to `'SEK'`
- * @returns The value formatted as a currency string using the `sv-SE` locale with two decimal places
+ * @param currency - ISO 4217 currency code to display (e.g., `SEK`, `USD`). Defaults to `'SEK'`.
+ * @returns The amount formatted for the `sv-SE` locale using the specified currency with two fraction digits
  */
 function formatCurrency(value: number, currency: string = 'SEK'): string {
   return new Intl.NumberFormat('sv-SE', {
@@ -97,7 +96,12 @@ export default function UpcomingDividends() {
     <div>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '24px' }}>
         <h2 style={{ fontSize: '24px', fontWeight: '600' }}>Upcoming Dividends</h2>
-        <button onClick={fetchData} style={{ padding: '8px 16px' }}>Refresh</button>
+        <div style={{ display: 'flex', gap: '12px', alignItems: 'center' }}>
+          <Link to="/dividends/history" style={{ color: 'var(--accent-blue)', textDecoration: 'none', fontSize: '14px' }}>
+            View History →
+          </Link>
+          <button onClick={fetchData} style={{ padding: '8px 16px' }}>Refresh</button>
+        </div>
       </div>
 
       {unmappedStocks.length > 0 && (
