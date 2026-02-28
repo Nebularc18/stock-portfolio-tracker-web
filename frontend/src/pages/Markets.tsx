@@ -46,6 +46,7 @@ export default function Markets() {
   const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   const fetchData = useCallback(async () => {
+    let cancelled = false
     try {
       setLoading(true)
       const [indicesData, sparklineData, hoursData] = await Promise.all([
@@ -53,16 +54,21 @@ export default function Markets() {
         api.market.sparklines().catch(() => ({ sparklines: {}, updated_at: '' })),
         api.market.hours(timezone),
       ])
+      if (cancelled) return
       setIndices(indicesData.indices)
       setLastUpdated(indicesData.updated_at)
       setSparklines(sparklineData.sparklines || {})
       setMarketHours(hoursData)
       setError(null)
     } catch (err) {
+      if (cancelled) return
       setError('Failed to load market data')
     } finally {
-      setLoading(false)
+      if (!cancelled) {
+        setLoading(false)
+      }
     }
+    return () => { cancelled = true }
   }, [timezone])
 
   const scheduleNextRefresh = useCallback(async () => {
@@ -112,7 +118,7 @@ export default function Markets() {
             </p>
           )}
         </div>
-        <button className="btn btn-primary" onClick={() => fetchData()} disabled={loading}>
+        <button className="btn btn-primary" onClick={fetchData} disabled={loading}>
           {loading ? 'Refreshing...' : 'Refresh'}
         </button>
       </div>

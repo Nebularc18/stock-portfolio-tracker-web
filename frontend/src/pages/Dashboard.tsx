@@ -21,7 +21,7 @@ function formatPercent(value: number): string {
 function formatDate(dateStr: string): string {
   const [year, month, day] = dateStr.split('-').map(Number)
   const date = new Date(Date.UTC(year, month - 1, day))
-  return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
+  return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric', timeZone: 'UTC' })
 }
 
 export default function Dashboard() {
@@ -263,10 +263,10 @@ export default function Dashboard() {
                   <td>{stock.quantity}</td>
                   <td>{formatCurrency(stock.current_price, stock.currency)}</td>
                   <td>{formatCurrency(stock.current_value, currency)}</td>
-                  <td className={stock.gain_loss !== null && stock.gain_loss >= 0 ? 'positive' : 'negative'}>
+                  <td className={stock.gain_loss === null ? '' : (stock.gain_loss >= 0 ? 'positive' : 'negative')}>
                     {stock.gain_loss !== null ? formatCurrency(stock.gain_loss, currency) : '-'}
                   </td>
-                  <td className={stock.gain_loss_percent !== null && stock.gain_loss_percent >= 0 ? 'positive' : 'negative'}>
+                  <td className={stock.gain_loss_percent === null ? '' : (stock.gain_loss_percent >= 0 ? 'positive' : 'negative')}>
                     {stock.gain_loss_percent !== null ? formatPercent(stock.gain_loss_percent) : '-'}
                   </td>
                 </tr>
@@ -316,7 +316,7 @@ export default function Dashboard() {
                       background: div.source === 'avanza' ? 'var(--accent-green)' : 'var(--accent-blue)',
                       color: 'white'
                     }}>
-                      {div.source === 'avanza' ? 'Avanza' : 'Yahoo'}
+                      {div.source === 'avanza' ? 'Avanza' : (div.source || 'Yahoo')}
                     </span>
                   </td>
                 </tr>

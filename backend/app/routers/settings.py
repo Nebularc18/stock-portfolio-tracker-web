@@ -50,7 +50,7 @@ class SettingsUpdate(BaseModel):
     header_indices: Optional[List[str]] = None
 
 
-def parse_header_indices(header_indices_str: str) -> List[str]:
+def parse_header_indices(header_indices_str: Optional[str]) -> List[str]:
     """Safely parse header_indices JSON string."""
     if not header_indices_str:
         return []
@@ -126,9 +126,15 @@ def update_settings(data: SettingsUpdate, db: Session = Depends(get_db)):
         settings.display_currency = data.display_currency
     
     if data.header_indices is not None:
-        valid_indices = [s for s in data.header_indices if s in VALID_INDEX_SYMBOLS]
-        if len(valid_indices) != len(data.header_indices):
-            invalid = set(data.header_indices) - VALID_INDEX_SYMBOLS
+        seen = set()
+        deduped_indices = []
+        for s in data.header_indices:
+            if s not in seen:
+                seen.add(s)
+                deduped_indices.append(s)
+        valid_indices = [s for s in deduped_indices if s in VALID_INDEX_SYMBOLS]
+        if len(valid_indices) != len(deduped_indices):
+            invalid = set(deduped_indices) - VALID_INDEX_SYMBOLS
             raise HTTPException(
                 status_code=400,
                 detail=f"Invalid index symbols: {', '.join(invalid)}"
