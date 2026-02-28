@@ -113,8 +113,8 @@ export default function Dashboard() {
     const dateStr = h.date.includes('T') ? h.date.split('T')[0] : h.date
     const date = new Date(dateStr + 'T00:00:00Z')
     return {
-      date: date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }),
-      fullDate: date.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric', year: 'numeric' }),
+      date: date.toLocaleDateString('en-US', { month: 'short', day: 'numeric', timeZone: 'UTC' }),
+      fullDate: date.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric', year: 'numeric', timeZone: 'UTC' }),
       value: h.value
     }
   })
@@ -313,7 +313,7 @@ export default function Dashboard() {
                       borderRadius: '4px',
                       fontSize: '11px',
                       fontWeight: '600',
-                      background: div.source === 'avanza' ? 'var(--accent-green)' : 'var(--accent-blue)',
+                      background: div.source === 'avanza' ? 'var(--accent-green)' : (div.source === 'yahoo' ? 'var(--accent-blue)' : 'var(--text-secondary)'),
                       color: 'white'
                     }}>
                       {div.source === 'avanza' ? 'Avanza' : (div.source || 'Yahoo')}

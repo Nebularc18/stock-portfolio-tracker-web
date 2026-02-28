@@ -44,9 +44,9 @@ export default function Markets() {
   const [nextRefresh, setNextRefresh] = useState<Date | null>(null)
   const { timezone } = useSettings()
   const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const isMountedRef = useRef(true)
 
   const fetchData = useCallback(async () => {
-    let cancelled = false
     try {
       setLoading(true)
       const [indicesData, sparklineData, hoursData] = await Promise.all([
@@ -54,21 +54,20 @@ export default function Markets() {
         api.market.sparklines().catch(() => ({ sparklines: {}, updated_at: '' })),
         api.market.hours(timezone),
       ])
-      if (cancelled) return
+      if (!isMountedRef.current) return
       setIndices(indicesData.indices)
       setLastUpdated(indicesData.updated_at)
       setSparklines(sparklineData.sparklines || {})
       setMarketHours(hoursData)
       setError(null)
     } catch (err) {
-      if (cancelled) return
+      if (!isMountedRef.current) return
       setError('Failed to load market data')
     } finally {
-      if (!cancelled) {
+      if (isMountedRef.current) {
         setLoading(false)
       }
     }
-    return () => { cancelled = true }
   }, [timezone])
 
   const scheduleNextRefresh = useCallback(async () => {
@@ -92,10 +91,12 @@ export default function Markets() {
   }, [fetchData])
 
   useEffect(() => {
+    isMountedRef.current = true
     fetchData()
     scheduleNextRefresh()
     
     return () => {
+      isMountedRef.current = false
       if (timeoutRef.current) {
         clearTimeout(timeoutRef.current)
       }
