@@ -1,17 +1,29 @@
+import { useState, useEffect } from 'react'
 import { useSettings, TIMEZONES, SUPPORTED_CURRENCIES } from '../SettingsContext'
 import { useTheme, THEMES, ThemeName } from '../ThemeContext'
+import { api, AvailableIndex } from '../services/api'
 import AvanzaMappings from '../components/AvanzaMappings'
 
-/**
- * Render the Settings page UI, including theme selection, display preferences, and Avanza mappings.
- *
- * Provides controls for choosing a visual theme, selecting a display currency, and selecting the timezone used for market hours.
- *
- * @returns The Settings page React element
- */
 export default function Settings() {
-  const { timezone, setTimezone, displayCurrency, setDisplayCurrency } = useSettings()
+  const { timezone, setTimezone, displayCurrency, setDisplayCurrency, headerIndices, setHeaderIndices } = useSettings()
   const { themeName, setTheme } = useTheme()
+  const [availableIndices, setAvailableIndices] = useState<AvailableIndex[]>([])
+  const [loadingIndices, setLoadingIndices] = useState(true)
+
+  useEffect(() => {
+    api.settings.availableIndices()
+      .then(setAvailableIndices)
+      .catch(() => {})
+      .finally(() => setLoadingIndices(false))
+  }, [])
+
+  const toggleIndex = (symbol: string) => {
+    if (headerIndices.includes(symbol)) {
+      setHeaderIndices(headerIndices.filter(s => s !== symbol))
+    } else {
+      setHeaderIndices([...headerIndices, symbol])
+    }
+  }
 
   return (
     <div>
@@ -121,6 +133,68 @@ export default function Settings() {
             </div>
           ))}
         </div>
+      </div>
+      
+      <div className="card" style={{ marginBottom: '24px' }}>
+        <h3 style={{ marginBottom: '16px' }}>Header Market Indices</h3>
+        <p style={{ color: 'var(--text-secondary)', fontSize: '14px', marginBottom: '16px' }}>
+          Select which market indices to display in the header. If none selected, all will be shown.
+        </p>
+        
+        {loadingIndices ? (
+          <p style={{ color: 'var(--text-secondary)' }}>Loading available indices...</p>
+        ) : (
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: '12px' }}>
+            {availableIndices.map((idx) => (
+              <label 
+                key={idx.symbol}
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '8px',
+                  padding: '10px 16px',
+                  background: headerIndices.includes(idx.symbol) ? 'var(--accent-blue)' : 'var(--bg-tertiary)',
+                  border: `1px solid ${headerIndices.includes(idx.symbol) ? 'var(--accent-blue)' : 'var(--border-color)'}`,
+                  borderRadius: '8px',
+                  cursor: 'pointer',
+                  transition: 'all 0.2s',
+                }}
+              >
+                <input
+                  type="checkbox"
+                  checked={headerIndices.includes(idx.symbol)}
+                  onChange={() => toggleIndex(idx.symbol)}
+                  style={{ display: 'none' }}
+                />
+                <span style={{ 
+                  fontSize: '14px',
+                  color: headerIndices.includes(idx.symbol) ? '#fff' : 'var(--text-primary)',
+                  fontWeight: headerIndices.includes(idx.symbol) ? 600 : 400,
+                }}>
+                  {idx.name}
+                </span>
+              </label>
+            ))}
+          </div>
+        )}
+        
+        {headerIndices.length > 0 && (
+          <button
+            onClick={() => setHeaderIndices([])}
+            style={{
+              marginTop: '16px',
+              padding: '8px 16px',
+              fontSize: '13px',
+              background: 'transparent',
+              border: '1px solid var(--border-color)',
+              borderRadius: '6px',
+              color: 'var(--text-secondary)',
+              cursor: 'pointer',
+            }}
+          >
+            Clear selection (show all)
+          </button>
+        )}
       </div>
       
       <div className="card">

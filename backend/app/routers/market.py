@@ -110,16 +110,37 @@ def fetch_index_data(symbol: str) -> dict | None:
 
 
 @router.get("/header")
-def get_header_data(force: bool = Query(False)):
+def get_header_data(force: bool = Query(False), indices: str = Query(None)):
     """Retrieve market data for the header component.
     
     Args:
         force: If True, bypass cache and force refresh.
+        indices: Comma-separated list of index symbols to fetch. If not provided, uses user settings.
     
     Returns:
         dict: Header market data with indices and exchange rates.
     """
-    return get_header_market_data(force_refresh=force)
+    from app.routers.settings import get_or_create_settings
+    from app.main import get_db as get_db_session
+    import json
+    
+    selected_symbols = []
+    if indices:
+        selected_symbols = [s.strip() for s in indices.split(',') if s.strip()]
+    else:
+        db = next(get_db_session())
+        try:
+            settings = get_or_create_settings(db)
+            if settings.header_indices:
+                parsed = json.loads(settings.header_indices)
+                if parsed:
+                    selected_symbols = parsed
+        except:
+            pass
+        finally:
+            db.close()
+    
+    return get_header_market_data(force_refresh=force, selected_indices=selected_symbols if selected_symbols else None)
 
 
 @router.get("/should-refresh")

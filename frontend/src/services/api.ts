@@ -112,6 +112,16 @@ export interface TickerMapping {
   added_at?: string | null
 }
 
+export interface AvailableIndex {
+  symbol: string
+  name: string
+}
+
+export interface SettingsData {
+  display_currency: string
+  header_indices: string[]
+}
+
 export interface AnalystData {
   recommendations: AnalystRecommendation[] | null
   finnhub_recommendations: AnalystRecommendation[] | null
@@ -378,5 +388,12 @@ export const api = {
           dividendType: string
         }>
       }>,
+  },
+
+  settings: {
+    get: () => fetchAPI('/settings') as Promise<SettingsData>,
+    update: (data: { display_currency?: string; header_indices?: string[] }) =>
+      fetchAPI('/settings', { method: 'PATCH', body: JSON.stringify(data) }) as Promise<SettingsData>,
+    availableIndices: () => fetchAPI('/settings/available-indices') as Promise<AvailableIndex[]>,
   },
 }

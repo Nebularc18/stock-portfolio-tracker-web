@@ -129,11 +129,13 @@ class UserSettings(Base):
     Attributes:
         id: Primary key.
         display_currency: Preferred display currency (default 'SEK').
+        header_indices: JSON string of selected header indices symbols.
     """
     __tablename__ = "user_settings"
 
     id = Column(Integer, primary_key=True, index=True)
     display_currency = Column(String, default="SEK")
+    header_indices = Column(String, default="[]")
 
 
 Base.metadata.create_all(bind=engine)

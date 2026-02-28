@@ -63,27 +63,12 @@ export function HeaderDataProvider({ children }: { children: ReactNode }) {
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null)
 
   const fetchData = useCallback(async (forceRefresh = false) => {
-    if (!forceRefresh) {
-      const cached = loadFromCache()
-      if (cached) {
-        setIndices(cached.indices)
-        setExchangeRates(cached.exchange_rates)
-        setLastUpdated(cached.updated_at)
-        setLoading(false)
-      }
-    }
-
-    let shouldRefresh = true
-    
-    try {
-      const result = await api.market.shouldRefresh()
-      shouldRefresh = result.should_refresh
-    } catch {
-    }
-
-    if (!shouldRefresh && !forceRefresh) {
+    const cached = loadFromCache()
+    if (!forceRefresh && cached) {
+      setIndices(cached.indices)
+      setExchangeRates(cached.exchange_rates)
+      setLastUpdated(cached.updated_at)
       setLoading(false)
-      return null
     }
 
     try {

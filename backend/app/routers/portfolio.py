@@ -244,12 +244,13 @@ def refresh_all_prices(db: Session = Depends(get_db)):
                     skipped += 1
     
     if updated > 0 and total_value_sek > 0:
-        today = datetime.utcnow().replace(hour=0, minute=0, second=0, microsecond=0)
-        existing = db.query(PortfolioHistory).filter(PortfolioHistory.date >= today).first()
+        now = datetime.utcnow()
+        interval = now.replace(minute=(now.minute // 15) * 15, second=0, microsecond=0)
+        existing = db.query(PortfolioHistory).filter(PortfolioHistory.date == interval).first()
         if existing:
             existing.total_value = total_value_sek
         else:
-            history_entry = PortfolioHistory(total_value=total_value_sek, date=today)
+            history_entry = PortfolioHistory(total_value=total_value_sek, date=interval)
             db.add(history_entry)
     
     db.commit()
@@ -268,7 +269,9 @@ def get_portfolio_history(days: int = 30, db: Session = Depends(get_db)):
     Returns:
         List[dict]: List of {date, value} records ordered by date descending.
     """
-    history = db.query(PortfolioHistory).order_by(PortfolioHistory.date.desc()).limit(days).all()
+    from datetime import timedelta
+    since = datetime.utcnow() - timedelta(days=days)
+    history = db.query(PortfolioHistory).filter(PortfolioHistory.date >= since).order_by(PortfolioHistory.date.asc()).all()
     return [{"date": h.date, "value": h.total_value} for h in history]
 
 

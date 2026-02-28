@@ -5,6 +5,8 @@ interface SettingsContextType {
   setTimezone: (tz: string) => void
   displayCurrency: string
   setDisplayCurrency: (currency: string) => void
+  headerIndices: string[]
+  setHeaderIndices: (indices: string[]) => void
   loading: boolean
 }
 
@@ -36,6 +38,14 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
     const saved = localStorage.getItem('displayCurrency')
     return saved || 'SEK'
   })
+  const [headerIndices, setHeaderIndicesState] = useState<string[]>(() => {
+    const saved = localStorage.getItem('headerIndices')
+    try {
+      return saved ? JSON.parse(saved) : []
+    } catch {
+      return []
+    }
+  })
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
@@ -45,6 +55,10 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
         if (data.display_currency) {
           setDisplayCurrencyState(data.display_currency)
           localStorage.setItem('displayCurrency', data.display_currency)
+        }
+        if (data.header_indices) {
+          setHeaderIndicesState(data.header_indices)
+          localStorage.setItem('headerIndices', JSON.stringify(data.header_indices))
         }
       })
       .catch(() => {})
@@ -67,8 +81,22 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
     }).catch(() => {})
   }
 
+  const setHeaderIndices = (indices: string[]) => {
+    setHeaderIndicesState(indices)
+    localStorage.setItem('headerIndices', JSON.stringify(indices))
+    
+    fetch('/api/settings', {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ header_indices: indices }),
+    }).catch(() => {})
+  }
+
   return (
-    <SettingsContext.Provider value={{ timezone, setTimezone, displayCurrency, setDisplayCurrency, loading }}>
+    <SettingsContext.Provider value={{ 
+      timezone, setTimezone, displayCurrency, setDisplayCurrency, 
+      headerIndices, setHeaderIndices, loading 
+    }}>
       {children}
     </SettingsContext.Provider>
   )

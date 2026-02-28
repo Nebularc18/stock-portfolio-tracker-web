@@ -1,17 +1,10 @@
 import { useState, useEffect, useCallback } from 'react'
 import { Link } from 'react-router-dom'
-import { ResponsiveContainer, Tooltip, LineChart, Line, XAxis, YAxis, CartesianGrid, AreaChart, Area } from 'recharts'
+import { ResponsiveContainer, Tooltip, AreaChart, Area, XAxis, YAxis, CartesianGrid } from 'recharts'
 import { api, PortfolioSummary, Stock, UpcomingDividend } from '../services/api'
 import { useSettings } from '../SettingsContext'
 import { formatTimeInTimezone } from '../utils/time'
 
-/**
- * Format a numeric amount as a currency string using the en-US locale.
- *
- * @param value - The numeric amount to format
- * @param currency - The ISO 4217 currency code to use; defaults to 'USD'
- * @returns The formatted currency string (e.g., "$1,234.56")
- */
 function formatCurrency(value: number, currency: string = 'USD'): string {
   return new Intl.NumberFormat('en-US', {
     style: 'currency',
@@ -20,38 +13,18 @@ function formatCurrency(value: number, currency: string = 'USD'): string {
   }).format(value)
 }
 
-/**
- * Formats a numeric percentage with two decimals and a leading '+' for non-negative values.
- *
- * @param value - The percentage value (e.g., 1.23 represents 1.23%)
- * @returns The percentage formatted with two decimal places, prefixed with '+' for values greater than or equal to zero, and suffixed with '%'
- */
 function formatPercent(value: number): string {
   const sign = value >= 0 ? '+' : ''
   return `${sign}${value.toFixed(2)}%`
 }
 
-/**
- * Formats a YYYY-MM-DD date string as a short month/day string (e.g., "Feb 14").
- *
- * @param dateStr - Date in `YYYY-MM-DD` format (interpreted as a UTC date)
- * @returns The date formatted as a short month and day, e.g. "Feb 14"
- */
 function formatDate(dateStr: string): string {
   const [year, month, day] = dateStr.split('-').map(Number)
   const date = new Date(Date.UTC(year, month - 1, day))
   return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
 }
 
-/**
-  * Render the portfolio dashboard showing KPIs, a 90-day performance chart, upcoming dividends, and holdings.
-  *
-  * Fetches and aggregates portfolio data (summary, holdings, exchange rates, history, upcoming dividends) and presents:
-  * total value, daily change, gain/loss, return percentage, a performance area chart, a short upcoming-dividends table, and the holdings table.
-  *
-  * @returns The React element for the portfolio dashboard UI
-  */
- export default function Dashboard() {
+export default function Dashboard() {
   const [summary, setSummary] = useState<PortfolioSummary | null>(null)
   const [upcomingDividends, setUpcomingDividends] = useState<UpcomingDividend[]>([])
   const [totalExpectedDividends, setTotalExpectedDividends] = useState(0)
@@ -75,7 +48,7 @@ function formatDate(dateStr: string): string {
       setSummary(summaryData)
       setStocks(stocksData)
       setExchangeRates(ratesData)
-      setPortfolioHistory(historyData.reverse())
+      setPortfolioHistory(historyData)
       setUpcomingDividends(upcomingDivsData.dividends)
       setTotalExpectedDividends(upcomingDivsData.total_expected)
       setError(null)
@@ -136,7 +109,8 @@ function formatDate(dateStr: string): string {
   const dailyChangeClass = dailyChangeConverted >= 0 ? 'positive' : 'negative'
 
   const chartData = portfolioHistory.map(h => {
-    const date = new Date(h.date + 'T00:00:00Z')
+    const dateStr = h.date.includes('T') ? h.date.split('T')[0] : h.date
+    const date = new Date(dateStr + 'T00:00:00Z')
     return {
       date: date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }),
       fullDate: date.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric', year: 'numeric' }),
@@ -144,9 +118,9 @@ function formatDate(dateStr: string): string {
     }
   })
 
-  const minValue = Math.min(...portfolioHistory.map(h => h.value))
-  const maxValue = Math.max(...portfolioHistory.map(h => h.value))
-  const valueRange = maxValue - minValue
+  const minValue = portfolioHistory.length > 0 ? Math.min(...portfolioHistory.map(h => h.value)) : 0
+  const maxValue = portfolioHistory.length > 0 ? Math.max(...portfolioHistory.map(h => h.value)) : 0
+  const valueRange = maxValue - minValue || 1
   const yMin = Math.max(0, minValue - valueRange * 0.1)
   const yMax = maxValue + valueRange * 0.1
 
@@ -186,7 +160,7 @@ function formatDate(dateStr: string): string {
         </div>
       </div>
 
-      {portfolioHistory.length > 1 && (
+      {portfolioHistory.length > 0 && (
         <div className="card" style={{ marginBottom: '24px' }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
             <h3>Portfolio Performance (90 days)</h3>
@@ -248,8 +222,61 @@ function formatDate(dateStr: string): string {
         </div>
       )}
 
+      <div className="card" style={{ marginBottom: '24px' }}>
+        <h3 style={{ marginBottom: '16px' }}>Holdings ({summary?.stock_count ?? 0})</h3>
+        
+        {!summary?.stocks?.length ? (
+          <p style={{ color: 'var(--text-secondary)', textAlign: 'center', padding: '40px' }}>
+            No stocks in portfolio. Add stocks from the Stocks page.
+          </p>
+        ) : (
+          <table>
+            <thead>
+              <tr>
+                <th>Ticker</th>
+                <th>Name</th>
+                <th>Qty</th>
+                <th>Price</th>
+                <th>Value ({currency})</th>
+                <th>Gain/Loss</th>
+                <th>Return %</th>
+              </tr>
+            </thead>
+            <tbody>
+              {summary?.stocks?.map((stock) => (
+                <tr 
+                  key={stock.ticker} 
+                  onClick={() => window.location.href = `/stocks/${stock.ticker}`}
+                  style={{ cursor: 'pointer' }}
+                >
+                  <td>
+                    <Link 
+                      to={`/stocks/${stock.ticker}`} 
+                      style={{ color: 'var(--accent-blue)', textDecoration: 'none', fontWeight: '600' }}
+                      onClick={(e) => e.stopPropagation()}
+                    >
+                      {stock.ticker}
+                    </Link>
+                  </td>
+                  <td>{stock.name || '-'}</td>
+                  <td>{stock.quantity}</td>
+                  <td>{formatCurrency(stock.current_price, stock.currency)}</td>
+                  <td>{formatCurrency(stock.current_value, currency)}</td>
+                  <td className={stock.gain_loss && stock.gain_loss >= 0 ? 'positive' : 'negative'}>
+                    {stock.gain_loss !== null ? formatCurrency(stock.gain_loss, currency) : '-'}
+                  </td>
+                  <td className={stock.gain_loss_percent && stock.gain_loss_percent >= 0 ? 'positive' : 'negative'}>
+                    {stock.gain_loss_percent !== null ? formatPercent(stock.gain_loss_percent) : '-'}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+         )}
+       </div>
+
       {upcomingDividends.length > 0 && (
-        <div className="card" style={{ marginBottom: '24px' }}>
+        <div className="card">
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
             <h3>Upcoming Dividends</h3>
             <span style={{ color: 'var(--accent-green)', fontWeight: '600', fontSize: '18px' }}>
@@ -304,59 +331,6 @@ function formatDate(dateStr: string): string {
           )}
         </div>
       )}
-
-      <div className="card" style={{ marginBottom: '24px' }}>
-        <h3 style={{ marginBottom: '16px' }}>Holdings ({summary?.stock_count ?? 0})</h3>
-        
-        {!summary?.stocks?.length ? (
-          <p style={{ color: 'var(--text-secondary)', textAlign: 'center', padding: '40px' }}>
-            No stocks in portfolio. Add stocks from the Stocks page.
-          </p>
-        ) : (
-          <table>
-            <thead>
-              <tr>
-                <th>Ticker</th>
-                <th>Name</th>
-                <th>Qty</th>
-                <th>Price</th>
-                <th>Value ({currency})</th>
-                <th>Gain/Loss</th>
-                <th>Return %</th>
-              </tr>
-            </thead>
-            <tbody>
-              {summary?.stocks?.map((stock) => (
-                <tr 
-                  key={stock.ticker} 
-                  onClick={() => window.location.href = `/stocks/${stock.ticker}`}
-                  style={{ cursor: 'pointer' }}
-                >
-                  <td>
-                    <Link 
-                      to={`/stocks/${stock.ticker}`} 
-                      style={{ color: 'var(--accent-blue)', textDecoration: 'none', fontWeight: '600' }}
-                      onClick={(e) => e.stopPropagation()}
-                    >
-                      {stock.ticker}
-                    </Link>
-                  </td>
-                  <td>{stock.name || '-'}</td>
-                  <td>{stock.quantity}</td>
-                  <td>{formatCurrency(stock.current_price, stock.currency)}</td>
-                  <td>{formatCurrency(stock.current_value, currency)}</td>
-                  <td className={stock.gain_loss && stock.gain_loss >= 0 ? 'positive' : 'negative'}>
-                    {stock.gain_loss !== null ? formatCurrency(stock.gain_loss, currency) : '-'}
-                  </td>
-                  <td className={stock.gain_loss_percent && stock.gain_loss_percent >= 0 ? 'positive' : 'negative'}>
-                    {stock.gain_loss_percent !== null ? formatPercent(stock.gain_loss_percent) : '-'}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-         )}
-       </div>
      </div>
    )
  }
