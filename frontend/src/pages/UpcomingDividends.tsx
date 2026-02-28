@@ -1,12 +1,13 @@
 import { useState, useEffect } from 'react'
 import { Link } from 'react-router-dom'
 import { api, UpcomingDividend } from '../services/api'
+
 /**
- * Format a numeric amount as a localized Swedish currency string.
+ * Format a numeric value as a localized currency string.
  *
  * @param value - The numeric amount to format
- * @param currency - ISO 4217 currency code to display (e.g., `SEK`, `USD`). Defaults to `'SEK'`.
- * @returns The amount formatted for the `sv-SE` locale using the specified currency with two fraction digits
+ * @param currency - ISO 4217 currency code to use; defaults to `'SEK'`
+ * @returns The value formatted as a currency string using the `sv-SE` locale with two decimal places
  */
 function formatCurrency(value: number, currency: string = 'SEK'): string {
   return new Intl.NumberFormat('sv-SE', {
@@ -44,11 +45,11 @@ function getDaysUntil(dateStr: string): number {
 }
 
 /**
- * Render the Upcoming Dividends view for the user's portfolio.
+ * Displays a list of upcoming dividend payments for the user's portfolio, including a summary, per-stock details, unmapped-stock warnings, and controls to refresh or retry loading.
  *
- * Displays loading and error states; an unmapped-stock warning when applicable; a summary of total expected dividends; and a table of per-stock upcoming dividend details with controls to refresh data and navigate to history or settings.
+ * Renders loading and error states, fetches data on mount and when the user triggers a refresh, and shows converted totals when available.
  *
- * @returns The JSX element containing the upcoming dividends user interface
+ * @returns The component's rendered JSX containing the upcoming dividends UI
  */
 export default function UpcomingDividends() {
   const [dividends, setDividends] = useState<UpcomingDividend[]>([])
@@ -96,12 +97,7 @@ export default function UpcomingDividends() {
     <div>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '24px' }}>
         <h2 style={{ fontSize: '24px', fontWeight: '600' }}>Upcoming Dividends</h2>
-        <div style={{ display: 'flex', gap: '12px', alignItems: 'center' }}>
-          <Link to="/dividends/history" style={{ color: 'var(--accent-blue)', textDecoration: 'none', fontSize: '14px' }}>
-            View History →
-          </Link>
-          <button onClick={fetchData} style={{ padding: '8px 16px' }}>Refresh</button>
-        </div>
+        <button onClick={fetchData} style={{ padding: '8px 16px' }}>Refresh</button>
       </div>
 
       {unmappedStocks.length > 0 && (

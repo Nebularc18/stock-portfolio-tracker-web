@@ -177,15 +177,18 @@ def get_portfolio_summary(db: Session = Depends(get_db)):
 
 @router.post("/refresh-all")
 def refresh_all_prices(db: Session = Depends(get_db)):
-    """
-    Refresh current prices for all portfolio stocks, update their records and price history, and upsert the portfolio total value into history using a 15-minute interval.
+    """Refresh price data for all stocks in the portfolio.
     
-    Updates each Stock with the latest fetched fields, creates or updates a StockPriceHistory entry for today's price when available, and records a PortfolioHistory entry for the current 15-minute interval when any stocks were updated and a total SEK value could be computed.
+    Fetches current prices from external sources, updates stock records,
+    and records daily portfolio value for history tracking.
+    
+    Args:
+        db: Database session dependency.
     
     Returns:
-        dict: A response with:
-            - message (str): Summary text, e.g. "Refreshed 5 stocks".
-            - skipped (int): Number of stocks skipped when a SEK conversion rate was unavailable.
+        dict: Response containing:
+            - message (str): Summary message, e.g. "Refreshed 5 stocks".
+            - skipped (int): Count of stocks skipped due to missing exchange rates.
     """
     from app.services.stock_service import StockService
     from app.services.exchange_rate_service import ExchangeRateService
@@ -241,13 +244,12 @@ def refresh_all_prices(db: Session = Depends(get_db)):
                     skipped += 1
     
     if updated > 0 and total_value_sek > 0:
-        now = datetime.utcnow()
-        interval = now.replace(minute=(now.minute // 15) * 15, second=0, microsecond=0)
-        existing = db.query(PortfolioHistory).filter(PortfolioHistory.date == interval).first()
+        today = datetime.utcnow().replace(hour=0, minute=0, second=0, microsecond=0)
+        existing = db.query(PortfolioHistory).filter(PortfolioHistory.date >= today).first()
         if existing:
             existing.total_value = total_value_sek
         else:
-            history_entry = PortfolioHistory(total_value=total_value_sek, date=interval)
+            history_entry = PortfolioHistory(total_value=total_value_sek, date=today)
             db.add(history_entry)
     
     db.commit()
@@ -257,25 +259,16 @@ def refresh_all_prices(db: Session = Depends(get_db)):
 
 @router.get("/history", response_model=List[dict])
 def get_portfolio_history(days: int = 30, db: Session = Depends(get_db)):
-    """
-    Retrieve portfolio value snapshots for a recent period.
+    """Retrieve historical portfolio value snapshots.
     
-    Parameters:
-        days (int): Number of days of history to retrieve; values are constrained to the range 1 through 90. Invalid inputs default to 30.
+    Args:
+        days: Number of days of history to retrieve (default 30).
+        db: Database session dependency.
     
     Returns:
-        List[dict]: Records ordered by date ascending, each with keys `date` (timestamp) and `value` (total portfolio value).
+        List[dict]: List of {date, value} records ordered by date descending.
     """
-    from datetime import timedelta
-    
-    MAX_DAYS = 90
-    try:
-        days = max(1, min(int(days), MAX_DAYS))
-    except (ValueError, TypeError):
-        days = 30
-    
-    since = datetime.utcnow() - timedelta(days=days)
-    history = db.query(PortfolioHistory).filter(PortfolioHistory.date >= since).order_by(PortfolioHistory.date.asc()).all()
+    history = db.query(PortfolioHistory).order_by(PortfolioHistory.date.desc()).limit(days).all()
     return [{"date": h.date, "value": h.total_value} for h in history]
 
 
