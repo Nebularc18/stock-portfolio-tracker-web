@@ -4,7 +4,8 @@ This module provides API endpoints for market index data, exchange rates,
 market hours status, and sparkline charts for the header component.
 """
 
-from fastapi import APIRouter, Query
+from fastapi import APIRouter, Query, Depends
+from sqlalchemy.orm import Session
 from typing import List
 from datetime import datetime, timezone
 import requests
@@ -12,6 +13,7 @@ import logging
 
 from app.services.market_hours_service import MarketHoursService
 from app.services.market_data_service import get_header_market_data
+from app.main import get_db
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -110,35 +112,32 @@ def fetch_index_data(symbol: str) -> dict | None:
 
 
 @router.get("/header")
-def get_header_data(force: bool = Query(False), indices: str = Query(None)):
+def get_header_data(force: bool = Query(False), indices: str = Query(None), db: Session = Depends(get_db)):
     """Retrieve market data for the header component.
     
     Args:
         force: If True, bypass cache and force refresh.
         indices: Comma-separated list of index symbols to fetch. If not provided, uses user settings.
+        db: Database session dependency.
     
     Returns:
         dict: Header market data with indices and exchange rates.
     """
     from app.routers.settings import get_or_create_settings
-    from app.main import get_db as get_db_session
     import json
     
     selected_symbols = []
     if indices:
         selected_symbols = [s.strip() for s in indices.split(',') if s.strip()]
     else:
-        db = next(get_db_session())
         try:
             settings = get_or_create_settings(db)
             if settings.header_indices:
                 parsed = json.loads(settings.header_indices)
                 if parsed:
                     selected_symbols = parsed
-        except:
-            pass
-        finally:
-            db.close()
+        except (json.JSONDecodeError, TypeError) as e:
+            logger.warning(f"Failed to parse header_indices: {e}")
     
     return get_header_market_data(force_refresh=force, selected_indices=selected_symbols if selected_symbols else None)
 

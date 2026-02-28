@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react'
-import { Link } from 'react-router-dom'
+import { Link, useNavigate } from 'react-router-dom'
 import { ResponsiveContainer, Tooltip, AreaChart, Area, XAxis, YAxis, CartesianGrid } from 'recharts'
 import { api, PortfolioSummary, Stock, UpcomingDividend } from '../services/api'
 import { useSettings } from '../SettingsContext'
@@ -25,6 +25,7 @@ function formatDate(dateStr: string): string {
 }
 
 export default function Dashboard() {
+  const navigate = useNavigate()
   const [summary, setSummary] = useState<PortfolioSummary | null>(null)
   const [upcomingDividends, setUpcomingDividends] = useState<UpcomingDividend[]>([])
   const [totalExpectedDividends, setTotalExpectedDividends] = useState(0)
@@ -246,7 +247,7 @@ export default function Dashboard() {
               {summary?.stocks?.map((stock) => (
                 <tr 
                   key={stock.ticker} 
-                  onClick={() => window.location.href = `/stocks/${stock.ticker}`}
+                  onClick={() => navigate(`/stocks/${stock.ticker}`)}
                   style={{ cursor: 'pointer' }}
                 >
                   <td>

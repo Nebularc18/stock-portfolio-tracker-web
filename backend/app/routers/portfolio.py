@@ -263,13 +263,20 @@ def get_portfolio_history(days: int = 30, db: Session = Depends(get_db)):
     """Retrieve historical portfolio value snapshots.
     
     Args:
-        days: Number of days of history to retrieve (default 30).
+        days: Number of days of history to retrieve (default 30, max 90).
         db: Database session dependency.
     
     Returns:
-        List[dict]: List of {date, value} records ordered by date descending.
+        List[dict]: List of {date, value} records ordered by date ascending.
     """
     from datetime import timedelta
+    
+    MAX_DAYS = 90
+    try:
+        days = max(1, min(int(days), MAX_DAYS))
+    except (ValueError, TypeError):
+        days = 30
+    
     since = datetime.utcnow() - timedelta(days=days)
     history = db.query(PortfolioHistory).filter(PortfolioHistory.date >= since).order_by(PortfolioHistory.date.asc()).all()
     return [{"date": h.date, "value": h.total_value} for h in history]

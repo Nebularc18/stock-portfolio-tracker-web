@@ -1,28 +1,44 @@
 import { useState, useEffect } from 'react'
 import { useSettings, TIMEZONES, SUPPORTED_CURRENCIES } from '../SettingsContext'
 import { useTheme, THEMES, ThemeName } from '../ThemeContext'
+import { useHeaderData } from '../contexts/HeaderDataContext'
 import { api, AvailableIndex } from '../services/api'
 import AvanzaMappings from '../components/AvanzaMappings'
 
 export default function Settings() {
   const { timezone, setTimezone, displayCurrency, setDisplayCurrency, headerIndices, setHeaderIndices } = useSettings()
   const { themeName, setTheme } = useTheme()
+  const { refreshData } = useHeaderData()
   const [availableIndices, setAvailableIndices] = useState<AvailableIndex[]>([])
   const [loadingIndices, setLoadingIndices] = useState(true)
+  const [indicesError, setIndicesError] = useState<string | null>(null)
 
   useEffect(() => {
     api.settings.availableIndices()
       .then(setAvailableIndices)
-      .catch(() => {})
+      .catch((err) => {
+        console.error('Failed to load available indices:', err)
+        setIndicesError('Failed to load available indices. Please try again.')
+      })
       .finally(() => setLoadingIndices(false))
   }, [])
 
   const toggleIndex = (symbol: string) => {
+    let newIndices: string[]
     if (headerIndices.includes(symbol)) {
-      setHeaderIndices(headerIndices.filter(s => s !== symbol))
+      newIndices = headerIndices.filter(s => s !== symbol)
     } else {
-      setHeaderIndices([...headerIndices, symbol])
+      newIndices = [...headerIndices, symbol]
     }
+    setHeaderIndices(newIndices)
+    localStorage.removeItem('header_market_data')
+    refreshData(true)
+  }
+
+  const clearSelection = () => {
+    setHeaderIndices([])
+    localStorage.removeItem('header_market_data')
+    refreshData(true)
   }
 
   return (
@@ -143,6 +159,8 @@ export default function Settings() {
         
         {loadingIndices ? (
           <p style={{ color: 'var(--text-secondary)' }}>Loading available indices...</p>
+        ) : indicesError ? (
+          <p style={{ color: 'var(--accent-red)' }}>{indicesError}</p>
         ) : (
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: '12px' }}>
             {availableIndices.map((idx) => (
@@ -164,7 +182,18 @@ export default function Settings() {
                   type="checkbox"
                   checked={headerIndices.includes(idx.symbol)}
                   onChange={() => toggleIndex(idx.symbol)}
-                  style={{ display: 'none' }}
+                  aria-label={idx.name}
+                  style={{
+                    position: 'absolute',
+                    width: '1px',
+                    height: '1px',
+                    padding: 0,
+                    margin: -1,
+                    overflow: 'hidden',
+                    clip: 'rect(0, 0, 0, 0)',
+                    whiteSpace: 'nowrap',
+                    border: 0,
+                  }}
                 />
                 <span style={{ 
                   fontSize: '14px',
@@ -180,7 +209,7 @@ export default function Settings() {
         
         {headerIndices.length > 0 && (
           <button
-            onClick={() => setHeaderIndices([])}
+            onClick={clearSelection}
             style={{
               marginTop: '16px',
               padding: '8px 16px',

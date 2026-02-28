@@ -4,7 +4,7 @@ This module provides API endpoints for managing user preferences
 such as display currency for the portfolio.
 """
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 from typing import Optional, List
 from sqlalchemy.orm import Session
@@ -27,6 +27,13 @@ AVAILABLE_INDICES = [
     {"symbol": "^STOXX50E", "name": "Euro Stoxx 50"},
 ]
 
+VALID_INDEX_SYMBOLS = {idx["symbol"] for idx in AVAILABLE_INDICES}
+
+
+class AvailableIndex(BaseModel):
+    symbol: str
+    name: str
+
 
 class SettingsResponse(BaseModel):
     display_currency: str
@@ -39,6 +46,19 @@ class SettingsResponse(BaseModel):
 class SettingsUpdate(BaseModel):
     display_currency: Optional[str] = None
     header_indices: Optional[List[str]] = None
+
+
+def parse_header_indices(header_indices_str: str) -> List[str]:
+    """Safely parse header_indices JSON string."""
+    if not header_indices_str:
+        return []
+    try:
+        parsed = json.loads(header_indices_str)
+        if isinstance(parsed, list):
+            return [str(s) for s in parsed if isinstance(s, str)]
+        return []
+    except (json.JSONDecodeError, TypeError):
+        return []
 
 
 def get_or_create_settings(db: Session) -> UserSettings:
@@ -70,24 +90,21 @@ def get_settings(db: Session = Depends(get_db)):
         SettingsResponse: Current display currency and header indices settings.
     """
     settings = get_or_create_settings(db)
-    try:
-        header_indices = json.loads(settings.header_indices) if settings.header_indices else []
-    except:
-        header_indices = []
+    header_indices = parse_header_indices(settings.header_indices)
     return SettingsResponse(
         display_currency=settings.display_currency,
         header_indices=header_indices
     )
 
 
-@router.get("/available-indices")
+@router.get("/available-indices", response_model=List[AvailableIndex])
 def get_available_indices():
     """Get list of all available market indices for header selection.
     
     Returns:
         List of available indices with symbol and name.
     """
-    return AVAILABLE_INDICES
+    return [AvailableIndex(symbol=idx["symbol"], name=idx["name"]) for idx in AVAILABLE_INDICES]
 
 
 @router.patch("", response_model=SettingsResponse)
@@ -107,15 +124,19 @@ def update_settings(data: SettingsUpdate, db: Session = Depends(get_db)):
         settings.display_currency = data.display_currency
     
     if data.header_indices is not None:
-        settings.header_indices = json.dumps(data.header_indices)
+        valid_indices = [s for s in data.header_indices if s in VALID_INDEX_SYMBOLS]
+        if len(valid_indices) != len(data.header_indices):
+            invalid = set(data.header_indices) - VALID_INDEX_SYMBOLS
+            raise HTTPException(
+                status_code=400,
+                detail=f"Invalid index symbols: {', '.join(invalid)}"
+            )
+        settings.header_indices = json.dumps(valid_indices)
     
     db.commit()
     db.refresh(settings)
     
-    try:
-        header_indices = json.loads(settings.header_indices) if settings.header_indices else []
-    except:
-        header_indices = []
+    header_indices = parse_header_indices(settings.header_indices)
     
     return SettingsResponse(
         display_currency=settings.display_currency,
