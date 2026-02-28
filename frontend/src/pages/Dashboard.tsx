@@ -112,15 +112,16 @@ export default function Dashboard() {
   const chartData = portfolioHistory.map(h => {
     const dateStr = h.date.includes('T') ? h.date.split('T')[0] : h.date
     const date = new Date(dateStr + 'T00:00:00Z')
+    const convertedValue = convertToCurrency(h.value, 'SEK')
     return {
       date: date.toLocaleDateString('en-US', { month: 'short', day: 'numeric', timeZone: 'UTC' }),
       fullDate: date.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric', year: 'numeric', timeZone: 'UTC' }),
-      value: h.value
+      value: convertedValue
     }
   })
 
-  const minValue = portfolioHistory.length > 0 ? Math.min(...portfolioHistory.map(h => h.value)) : 0
-  const maxValue = portfolioHistory.length > 0 ? Math.max(...portfolioHistory.map(h => h.value)) : 0
+  const minValue = chartData.length > 0 ? Math.min(...chartData.map(h => h.value)) : 0
+  const maxValue = chartData.length > 0 ? Math.max(...chartData.map(h => h.value)) : 0
   const valueRange = maxValue - minValue || 1
   const yMin = Math.max(0, minValue - valueRange * 0.1)
   const yMax = maxValue + valueRange * 0.1

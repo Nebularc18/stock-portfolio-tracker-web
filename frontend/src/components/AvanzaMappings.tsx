@@ -2,9 +2,9 @@ import { useState, useEffect } from 'react'
 import { api, TickerMapping, Stock } from '../services/api'
 
 /**
- * Render a UI for managing mappings between Avanza stock names and Yahoo tickers for Swedish (.ST) stocks.
+ * Render a UI for managing mappings between Avanza stock names and Yahoo tickers.
  *
- * Shows existing mappings, computes unmapped Swedish stocks, provides a form to add mappings (auto-filling Avanza name from the selected stock), handles creation and deletion via the API, and surfaces loading and error states.
+ * Shows existing mappings, computes unmapped stocks, provides a form to add mappings (auto-filling Avanza name from the selected stock), handles creation and deletion via the API, and surfaces loading and error states.
  *
  * @returns The rendered React element for the Avanza mappings management UI.
  */
@@ -24,8 +24,7 @@ export default function AvanzaMappings() {
   })
   const [saving, setSaving] = useState(false)
 
-  const unmappedSwedishStocks = stocks
-    .filter(s => s.ticker.toUpperCase().endsWith('.ST'))
+  const unmappedStocks = stocks
     .filter(s => !mappings.some(m => m.yahoo_ticker.toUpperCase() === s.ticker.toUpperCase()))
     .sort((a, b) => a.ticker.localeCompare(b.ticker))
 
@@ -101,21 +100,21 @@ export default function AvanzaMappings() {
     <div className="card" style={{ marginTop: '24px' }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
         <div>
-          <h3 style={{ marginBottom: '4px' }}>Swedish Stock Mappings</h3>
+          <h3 style={{ marginBottom: '4px' }}>Stock Mappings</h3>
           <p style={{ color: 'var(--text-secondary)', fontSize: '13px' }}>
-            Connect Swedish stocks to get dividend data from aktieutdelningar.se
+            Connect stocks to get dividend data from aktieutdelningar.se
           </p>
         </div>
         <button
           onClick={() => setShowAddForm(!showAddForm)}
-          disabled={unmappedSwedishStocks.length === 0}
+          disabled={unmappedStocks.length === 0}
           style={{
             padding: '8px 16px',
-            background: showAddForm ? 'var(--bg-tertiary)' : unmappedSwedishStocks.length === 0 ? 'var(--bg-tertiary)' : 'var(--accent-blue)',
-            color: showAddForm ? 'var(--text-primary)' : unmappedSwedishStocks.length === 0 ? 'var(--text-secondary)' : 'white',
+            background: showAddForm ? 'var(--bg-tertiary)' : unmappedStocks.length === 0 ? 'var(--bg-tertiary)' : 'var(--accent-blue)',
+            color: showAddForm ? 'var(--text-primary)' : unmappedStocks.length === 0 ? 'var(--text-secondary)' : 'white',
             border: 'none',
             borderRadius: '6px',
-            cursor: unmappedSwedishStocks.length === 0 ? 'not-allowed' : 'pointer',
+            cursor: unmappedStocks.length === 0 ? 'not-allowed' : 'pointer',
             fontSize: '14px'
           }}
         >
@@ -129,12 +128,12 @@ export default function AvanzaMappings() {
         </div>
       )}
 
-      {unmappedSwedishStocks.length === 0 && !showAddForm && (
+      {unmappedStocks.length === 0 && !showAddForm && (
         <div style={{ padding: '16px', background: 'var(--bg-tertiary)', borderRadius: '6px', marginBottom: '16px' }}>
           <p style={{ color: 'var(--text-secondary)', fontSize: '13px', margin: 0 }}>
-            {stocks.filter(s => s.ticker.toUpperCase().endsWith('.ST')).length === 0 
-              ? 'No Swedish stocks (.ST) in your portfolio yet.'
-              : 'All your Swedish stocks are mapped!'}
+            {stocks.length === 0 
+              ? 'No stocks in your portfolio yet.'
+              : 'All your stocks are mapped!'}
           </p>
         </div>
       )}
@@ -169,8 +168,8 @@ export default function AvanzaMappings() {
                   boxSizing: 'border-box'
                 }}
               >
-                <option value="">-- Select a Swedish stock --</option>
-                {unmappedSwedishStocks.map((stock) => (
+                <option value="">-- Select a stock --</option>
+                {unmappedStocks.map((stock) => (
                   <option key={stock.ticker} value={stock.ticker}>
                     {stock.ticker} {stock.name ? `- ${stock.name}` : ''}
                   </option>
@@ -277,7 +276,7 @@ export default function AvanzaMappings() {
       ) : mappings.length === 0 ? (
         <div style={{ textAlign: 'center', padding: '30px', color: 'var(--text-secondary)' }}>
           <p style={{ marginBottom: '8px' }}>No mappings configured</p>
-          <p style={{ fontSize: '13px' }}>Add mappings to get dividend data for Swedish stocks</p>
+          <p style={{ fontSize: '13px' }}>Add mappings to get dividend data for stocks</p>
         </div>
       ) : (
         <table style={{ width: '100%' }}>
