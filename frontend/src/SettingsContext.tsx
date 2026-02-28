@@ -5,6 +5,8 @@ interface SettingsContextType {
   setTimezone: (tz: string) => void
   displayCurrency: string
   setDisplayCurrency: (currency: string) => void
+  headerIndices: string[]
+  setHeaderIndices: (indices: string[]) => void
   loading: boolean
 }
 
@@ -27,6 +29,18 @@ const SUPPORTED_CURRENCIES = [
   { code: 'USD', label: 'US Dollar' },
 ]
 
+/**
+ * Provides application settings (timezone, display currency, header indices) and their setter functions
+ * to descendant components via SettingsContext.Provider.
+ *
+ * The provider initializes values from localStorage (with safe JSON parsing for header indices),
+ * attempts to reconcile with server settings from `/api/settings`, and persists subsequent changes
+ * to localStorage and the server. Network errors are ignored and do not block rendering.
+ *
+ * @param children - The descendant React nodes that will receive the settings context
+ * @returns A SettingsContext provider element supplying `timezone`, `setTimezone`, `displayCurrency`,
+ * `setDisplayCurrency`, `headerIndices`, `setHeaderIndices`, and `loading`
+ */
 export function SettingsProvider({ children }: { children: ReactNode }) {
   const [timezone, setTimezoneState] = useState(() => {
     const saved = localStorage.getItem('userTimezone')
@@ -35,6 +49,14 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
   const [displayCurrency, setDisplayCurrencyState] = useState(() => {
     const saved = localStorage.getItem('displayCurrency')
     return saved || 'SEK'
+  })
+  const [headerIndices, setHeaderIndicesState] = useState<string[]>(() => {
+    const saved = localStorage.getItem('headerIndices')
+    try {
+      return saved ? JSON.parse(saved) : []
+    } catch {
+      return []
+    }
   })
   const [loading, setLoading] = useState(true)
 
@@ -45,6 +67,10 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
         if (data.display_currency) {
           setDisplayCurrencyState(data.display_currency)
           localStorage.setItem('displayCurrency', data.display_currency)
+        }
+        if (data.header_indices) {
+          setHeaderIndicesState(data.header_indices)
+          localStorage.setItem('headerIndices', JSON.stringify(data.header_indices))
         }
       })
       .catch(() => {})
@@ -67,8 +93,22 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
     }).catch(() => {})
   }
 
+  const setHeaderIndices = (indices: string[]) => {
+    setHeaderIndicesState(indices)
+    localStorage.setItem('headerIndices', JSON.stringify(indices))
+    
+    fetch('/api/settings', {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ header_indices: indices }),
+    }).catch(() => {})
+  }
+
   return (
-    <SettingsContext.Provider value={{ timezone, setTimezone, displayCurrency, setDisplayCurrency, loading }}>
+    <SettingsContext.Provider value={{ 
+      timezone, setTimezone, displayCurrency, setDisplayCurrency, 
+      headerIndices, setHeaderIndices, loading 
+    }}>
       {children}
     </SettingsContext.Provider>
   )

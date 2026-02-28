@@ -1,17 +1,55 @@
+import { useState, useEffect } from 'react'
 import { useSettings, TIMEZONES, SUPPORTED_CURRENCIES } from '../SettingsContext'
 import { useTheme, THEMES, ThemeName } from '../ThemeContext'
+import { useHeaderData } from '../contexts/HeaderDataContext'
+import { api, AvailableIndex } from '../services/api'
 import AvanzaMappings from '../components/AvanzaMappings'
 
 /**
- * Render the Settings page UI, including theme selection, display preferences, and Avanza mappings.
+ * Renders the Settings page UI allowing users to change theme, header market indices, display currency, and timezone.
  *
- * Provides controls for choosing a visual theme, selecting a display currency, and selecting the timezone used for market hours.
+ * Loads available market indices on mount and presents loading and error states. Changes to selected header indices update settings state and invalidate the header cache to trigger a header data refresh.
  *
  * @returns The Settings page React element
  */
 export default function Settings() {
-  const { timezone, setTimezone, displayCurrency, setDisplayCurrency } = useSettings()
+  const { timezone, setTimezone, displayCurrency, setDisplayCurrency, headerIndices, setHeaderIndices } = useSettings()
   const { themeName, setTheme } = useTheme()
+  const { refreshData } = useHeaderData()
+  const [availableIndices, setAvailableIndices] = useState<AvailableIndex[]>([])
+  const [loadingIndices, setLoadingIndices] = useState(true)
+  const [indicesError, setIndicesError] = useState<string | null>(null)
+
+  useEffect(() => {
+    api.settings.availableIndices()
+      .then(setAvailableIndices)
+      .catch((err) => {
+        console.error('Failed to load available indices:', err)
+        setIndicesError('Failed to load available indices. Please try again.')
+      })
+      .finally(() => setLoadingIndices(false))
+  }, [])
+
+  const invalidateHeaderCache = () => {
+    localStorage.removeItem('header_market_data')
+    refreshData(true)
+  }
+
+  const toggleIndex = (symbol: string) => {
+    let newIndices: string[]
+    if (headerIndices.includes(symbol)) {
+      newIndices = headerIndices.filter(s => s !== symbol)
+    } else {
+      newIndices = [...headerIndices, symbol]
+    }
+    setHeaderIndices(newIndices)
+    invalidateHeaderCache()
+  }
+
+  const clearSelection = () => {
+    setHeaderIndices([])
+    invalidateHeaderCache()
+  }
 
   return (
     <div>
@@ -121,6 +159,81 @@ export default function Settings() {
             </div>
           ))}
         </div>
+      </div>
+      
+      <div className="card" style={{ marginBottom: '24px' }}>
+        <h3 style={{ marginBottom: '16px' }}>Header Market Indices</h3>
+        <p style={{ color: 'var(--text-secondary)', fontSize: '14px', marginBottom: '16px' }}>
+          Select which market indices to display in the header. If none selected, all will be shown.
+        </p>
+        
+        {loadingIndices ? (
+          <p style={{ color: 'var(--text-secondary)' }}>Loading available indices...</p>
+        ) : indicesError ? (
+          <p style={{ color: 'var(--accent-red)' }}>{indicesError}</p>
+        ) : (
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: '12px' }}>
+            {availableIndices.map((idx) => (
+              <label 
+                key={idx.symbol}
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '8px',
+                  padding: '10px 16px',
+                  background: headerIndices.includes(idx.symbol) ? 'var(--accent-blue)' : 'var(--bg-tertiary)',
+                  border: `1px solid ${headerIndices.includes(idx.symbol) ? 'var(--accent-blue)' : 'var(--border-color)'}`,
+                  borderRadius: '8px',
+                  cursor: 'pointer',
+                  transition: 'all 0.2s',
+                }}
+              >
+                <input
+                  type="checkbox"
+                  checked={headerIndices.includes(idx.symbol)}
+                  onChange={() => toggleIndex(idx.symbol)}
+                  aria-label={idx.name}
+                  style={{
+                    position: 'absolute',
+                    width: '1px',
+                    height: '1px',
+                    padding: 0,
+                    margin: -1,
+                    overflow: 'hidden',
+                    clip: 'rect(0, 0, 0, 0)',
+                    whiteSpace: 'nowrap',
+                    border: 0,
+                  }}
+                />
+                <span style={{ 
+                  fontSize: '14px',
+                  color: headerIndices.includes(idx.symbol) ? 'var(--text-on-accent)' : 'var(--text-primary)',
+                  fontWeight: headerIndices.includes(idx.symbol) ? 600 : 400,
+                }}>
+                  {idx.name}
+                </span>
+              </label>
+            ))}
+          </div>
+        )}
+        
+        {headerIndices.length > 0 && (
+          <button
+            onClick={clearSelection}
+            style={{
+              marginTop: '16px',
+              padding: '8px 16px',
+              fontSize: '13px',
+              background: 'transparent',
+              border: '1px solid var(--border-color)',
+              borderRadius: '6px',
+              color: 'var(--text-secondary)',
+              cursor: 'pointer',
+            }}
+          >
+            Clear selection (show all)
+          </button>
+        )}
       </div>
       
       <div className="card">
