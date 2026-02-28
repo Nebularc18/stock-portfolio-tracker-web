@@ -134,7 +134,7 @@ def update_settings(data: SettingsUpdate, db: Session = Depends(get_db)):
                 deduped_indices.append(s)
         valid_indices = [s for s in deduped_indices if s in VALID_INDEX_SYMBOLS]
         if len(valid_indices) != len(deduped_indices):
-            invalid = set(deduped_indices) - VALID_INDEX_SYMBOLS
+            invalid = sorted(set(deduped_indices) - VALID_INDEX_SYMBOLS)
             raise HTTPException(
                 status_code=400,
                 detail=f"Invalid index symbols: {', '.join(invalid)}"

@@ -153,8 +153,9 @@ export default function HistoricalDividends() {
             View Upcoming →
           </Link>
           <div style={{ display: 'flex', gap: '12px', alignItems: 'center' }}>
-            <label style={{ color: 'var(--text-secondary)', fontSize: '14px' }}>Year:</label>
+            <label htmlFor="year-select" style={{ color: 'var(--text-secondary)', fontSize: '14px' }}>Year:</label>
             <select
+            id="year-select"
             value={selectedYear}
             onChange={(e) => setSelectedYear(parseInt(e.target.value))}
             style={{

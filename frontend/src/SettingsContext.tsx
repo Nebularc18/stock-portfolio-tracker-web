@@ -89,7 +89,7 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ header_indices: indices }),
-    }).catch(() => {})
+    }).catch((err) => console.error('Failed to update header indices:', err))
   }
 
   return (

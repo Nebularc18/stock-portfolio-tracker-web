@@ -316,7 +316,7 @@ export default function Dashboard() {
                       background: div.source === 'avanza' ? 'var(--accent-green)' : (div.source === 'yahoo' ? 'var(--accent-blue)' : 'var(--text-secondary)'),
                       color: 'white'
                     }}>
-                      {div.source === 'avanza' ? 'Avanza' : (div.source || 'Yahoo')}
+                      {div.source === 'avanza' ? 'Avanza' : (div.source === 'yahoo' ? 'Yahoo' : 'Unknown')}
                     </span>
                   </td>
                 </tr>

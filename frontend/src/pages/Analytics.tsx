@@ -49,6 +49,7 @@ export default function Analytics() {
       setDistribution(distributionData)
       setError(null)
     } catch (err) {
+      console.error('Failed to load analytics data:', err)
       setError('Failed to load analytics data')
     } finally {
       setLoading(false)
@@ -66,8 +67,6 @@ export default function Analytics() {
   const stockData = distribution?.by_stock
     ? Object.entries(distribution.by_stock).map(([name, value]) => ({ name, value }))
     : []
-
-  const currency = displayCurrency
 
   const renderPieLabel = ({ name, percent }: { name: string; percent: number }) => {
     if (percent < 0.05) return null
@@ -119,7 +118,7 @@ export default function Analytics() {
                       ))}
                     </Pie>
                     <Tooltip 
-                      formatter={(value: number) => formatCurrency(value, currency)}
+                      formatter={(value: number) => formatCurrency(value, displayCurrency)}
                       contentStyle={{ 
                         background: '#2a2a2a', 
                         border: '1px solid #444', 
@@ -155,7 +154,7 @@ export default function Analytics() {
                       ))}
                     </Pie>
                     <Tooltip 
-                      formatter={(value: number) => formatCurrency(value, currency)}
+                      formatter={(value: number) => formatCurrency(value, displayCurrency)}
                       contentStyle={{ 
                         background: '#2a2a2a', 
                         border: '1px solid #444', 
