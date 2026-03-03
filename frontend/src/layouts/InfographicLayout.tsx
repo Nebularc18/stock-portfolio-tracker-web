@@ -13,8 +13,13 @@ import { formatTimeInTimezone } from '../utils/time'
  */
 export default function InfographicLayout() {
   const location = useLocation()
-  const { indices, exchangeRates, lastUpdated } = useHeaderData()
-  const { timezone } = useSettings()
+  const { indices: allIndices, exchangeRates, lastUpdated } = useHeaderData()
+  const { timezone, headerIndices } = useSettings()
+  
+  // Filter indices based on user settings, or show first 5 if no settings
+  const indices = headerIndices.length > 0
+    ? allIndices.filter(idx => headerIndices.includes(idx.symbol))
+    : allIndices.slice(0, 5)
 
   const indexLabel = (symbol: string, name: string) => {
     switch (symbol) {

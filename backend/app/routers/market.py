@@ -4,16 +4,16 @@ This module provides API endpoints for market index data, exchange rates,
 market hours status, and sparkline charts for the header component.
 """
 
-from fastapi import APIRouter, Query, Depends
-from sqlalchemy.orm import Session
+from fastapi import APIRouter, Query
 from typing import List
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 import requests
 import logging
+import json
+import os
 
 from app.services.market_hours_service import MarketHoursService
 from app.services.market_data_service import get_header_market_data
-from app.main import get_db
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -34,6 +34,8 @@ MARKET_INDICES = {
 }
 
 _session = None
+_CACHE_DIR = os.path.join(os.path.dirname(__file__), '..', '..', 'data', 'cache')
+INDICES_CACHE_TTL = 900  # 15 minutes
 
 def get_session():
     """Get or create a shared requests session with default headers.
@@ -50,6 +52,44 @@ def get_session():
             'Accept-Language': 'en-US,en;q=0.9',
         })
     return _session
+
+
+def _load_indices_cache() -> dict | None:
+    """Load cached indices data if valid.
+    
+    Returns:
+        dict: Cached data with indices and timestamps, or None if expired/missing.
+    """
+    os.makedirs(_CACHE_DIR, exist_ok=True)
+    filepath = os.path.join(_CACHE_DIR, 'market_indices.json')
+    if not os.path.exists(filepath):
+        return None
+    try:
+        with open(filepath, 'r') as f:
+            data = json.load(f)
+        cached_at = data.get('cached_at', 0)
+        if datetime.now(timezone.utc).timestamp() - cached_at < data.get('ttl', INDICES_CACHE_TTL):
+            return data
+        return None
+    except Exception:
+        return None
+
+
+def _save_indices_cache(data: dict):
+    """Save indices data to cache.
+    
+    Args:
+        data: The indices data to cache.
+    """
+    os.makedirs(_CACHE_DIR, exist_ok=True)
+    filepath = os.path.join(_CACHE_DIR, 'market_indices.json')
+    try:
+        data['cached_at'] = datetime.now(timezone.utc).timestamp()
+        data['ttl'] = INDICES_CACHE_TTL
+        with open(filepath, 'w') as f:
+            json.dump(data, f)
+    except Exception as e:
+        logger.warning(f"Failed to save indices cache: {e}")
 
 
 def fetch_index_data(symbol: str) -> dict | None:
@@ -112,34 +152,17 @@ def fetch_index_data(symbol: str) -> dict | None:
 
 
 @router.get("/header")
-def get_header_data(force: bool = Query(False), indices: str = Query(None), db: Session = Depends(get_db)):
+def get_header_data(force: bool = Query(False)):
     """Retrieve market data for the header component.
     
     Args:
         force: If True, bypass cache and force refresh.
-        indices: Comma-separated list of index symbols to fetch. If not provided, uses user settings.
-        db: Database session dependency.
     
     Returns:
-        dict: Header market data with indices and exchange rates.
+        dict: Header market data with all indices and exchange rates.
+            Filtering by user settings is done on the frontend.
     """
-    from app.routers.settings import get_or_create_settings
-    import json
-    
-    selected_symbols = []
-    if indices:
-        selected_symbols = [s.strip() for s in indices.split(',') if s.strip()]
-    else:
-        try:
-            settings = get_or_create_settings(db)
-            if settings.header_indices:
-                parsed = json.loads(settings.header_indices)
-                if parsed:
-                    selected_symbols = parsed
-        except (json.JSONDecodeError, TypeError) as e:
-            logger.warning(f"Failed to parse header_indices: {e}")
-    
-    return get_header_market_data(force_refresh=force, selected_indices=selected_symbols if selected_symbols else None)
+    return get_header_market_data(force_refresh=force)
 
 
 @router.get("/should-refresh")
@@ -158,8 +181,22 @@ def get_market_indices():
     
     Returns:
         dict: Contains 'indices' list with symbol, name, price, change,
-            and change_percent fields, plus 'updated_at' timestamp.
+            and change_percent fields, plus 'updated_at' and 'next_refresh_at' timestamps.
     """
+    # Check cache first
+    cached = _load_indices_cache()
+    if cached is not None:
+        next_refresh = datetime.fromtimestamp(
+            cached['cached_at'] + cached['ttl'],
+            tz=timezone.utc
+        )
+        return {
+            "indices": cached.get('indices', []),
+            "updated_at": cached.get('updated_at'),
+            "next_refresh_at": next_refresh.isoformat()
+        }
+    
+    # Fetch fresh data
     results = []
     
     for symbol, name in MARKET_INDICES.items():
@@ -170,10 +207,19 @@ def get_market_indices():
                 "name": name,
             })
     
-    return {
+    now = datetime.now(timezone.utc)
+    next_refresh = now + timedelta(seconds=INDICES_CACHE_TTL)
+    
+    result = {
         "indices": results,
-        "updated_at": datetime.now(timezone.utc).isoformat()
+        "updated_at": now.isoformat(),
+        "next_refresh_at": next_refresh.isoformat()
     }
+    
+    # Cache the result
+    _save_indices_cache(result)
+    
+    return result
 
 
 @router.get("/exchange-rates")

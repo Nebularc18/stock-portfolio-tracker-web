@@ -379,7 +379,7 @@ class StockService:
         Retrieve recent dividend history for a stock.
         
         Parameters:
-            ticker (str): Stock ticker symbol (case-insensitive). For Swedish tickers ending with ".ST", Avanza data is preferred when available.
+            ticker (str): Stock ticker symbol (case-insensitive). If the ticker has an Avanza mapping, Avanza data is used.
             years (int): Number of years of history to retrieve (default 5).
         
         Returns:
@@ -391,7 +391,9 @@ class StockService:
         """
         ticker = ticker.upper()
         
-        if ticker.endswith('.ST'):
+        # Check if there's an Avanza mapping for this ticker - takes precedence
+        avanza_mapping = avanza_service.get_mapping_by_ticker(ticker)
+        if avanza_mapping and avanza_mapping.instrument_id:
             avanza_divs = avanza_service.get_historical_dividends(ticker, years)
             if avanza_divs:
                 return avanza_divs
@@ -467,7 +469,9 @@ class StockService:
         """
         ticker = ticker.upper()
         
-        if ticker.endswith('.ST'):
+        # Check if there's an Avanza mapping for this ticker - takes precedence
+        avanza_mapping = avanza_service.get_mapping_by_ticker(ticker)
+        if avanza_mapping and avanza_mapping.instrument_id:
             avanza_div = avanza_service.get_stock_dividend(ticker)
             if avanza_div:
                 return [{

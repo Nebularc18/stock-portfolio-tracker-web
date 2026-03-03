@@ -5,52 +5,18 @@ interface HeaderDataContextType {
   indices: MarketIndex[]
   exchangeRates: Record<string, number | null>
   lastUpdated: string | null
+  nextRefreshAt: string | null
   loading: boolean
   refreshData: (force?: boolean) => Promise<HeaderMarketData | null>
 }
 
 const HeaderDataContext = createContext<HeaderDataContextType | null>(null)
 
-const CACHE_KEY = 'header_market_data'
-const CACHE_TTL = 15 * 60 * 1000
-
-interface CachedData {
-  data: HeaderMarketData
-  timestamp: number
-}
-
-function loadFromCache(): HeaderMarketData | null {
-  try {
-    const cached = localStorage.getItem(CACHE_KEY)
-    if (!cached) return null
-    
-    const parsed: CachedData = JSON.parse(cached)
-    if (Date.now() - parsed.timestamp > CACHE_TTL) {
-      return null
-    }
-    return parsed.data
-  } catch {
-    return null
-  }
-}
-
-function saveToCache(data: HeaderMarketData) {
-  try {
-    const cacheEntry: CachedData = {
-      data,
-      timestamp: Date.now(),
-    }
-    localStorage.setItem(CACHE_KEY, JSON.stringify(cacheEntry))
-  } catch {
-  }
-}
-
 /**
  * Provides header market data and a refresh function to descendant components via context.
  *
- * The provider maintains cached and live values for market indices, exchange rates,
- * and the last-updated timestamp, periodically refreshing them and exposing a
- * `refreshData` method to trigger manual refreshes.
+ * The provider maintains live values for market indices, exchange rates,
+ * and the last-updated timestamp, scheduling refreshes based on backend cache timing.
  *
  * @param children - React nodes to render within the provider
  * @returns The HeaderDataContext provider element wrapping `children`
@@ -59,49 +25,74 @@ export function HeaderDataProvider({ children }: { children: ReactNode }) {
   const [indices, setIndices] = useState<MarketIndex[]>([])
   const [exchangeRates, setExchangeRates] = useState<Record<string, number | null>>({})
   const [lastUpdated, setLastUpdated] = useState<string | null>(null)
+  const [nextRefreshAt, setNextRefreshAt] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
-  const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null)
+  const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const isMountedRef = useRef(true)
 
   const fetchData = useCallback(async (forceRefresh = false) => {
-    const cached = loadFromCache()
-    if (!forceRefresh && cached) {
-      setIndices(cached.indices)
-      setExchangeRates(cached.exchange_rates)
-      setLastUpdated(cached.updated_at)
-      setLoading(false)
-    }
-
     try {
       const data = await api.market.header(forceRefresh)
+      if (!isMountedRef.current) return data
+      
       setIndices(data.indices)
       setExchangeRates(data.exchange_rates)
       setLastUpdated(data.updated_at)
-      saveToCache(data)
+      setNextRefreshAt(data.next_refresh_at || null)
+      setLoading(false)
       return data
     } catch (error) {
       console.error('Failed to fetch header data:', error)
+      if (isMountedRef.current) {
+        setLoading(false)
+      }
       return null
-    } finally {
-      setLoading(false)
     }
   }, [])
 
+  const scheduleNextRefresh = useCallback(() => {
+    if (!nextRefreshAt) return
+    
+    const nextTime = new Date(nextRefreshAt)
+    const msUntilNext = nextTime.getTime() - Date.now()
+    
+    if (msUntilNext > 0) {
+      if (timeoutRef.current) {
+        clearTimeout(timeoutRef.current)
+      }
+      timeoutRef.current = setTimeout(() => {
+        fetchData()
+      }, msUntilNext)
+    }
+  }, [fetchData, nextRefreshAt])
+
   useEffect(() => {
+    isMountedRef.current = true
     fetchData()
     
-    intervalRef.current = setInterval(() => {
-      fetchData()
-    }, CACHE_TTL)
-    
     return () => {
-      if (intervalRef.current) {
-        clearInterval(intervalRef.current)
+      isMountedRef.current = false
+      if (timeoutRef.current) {
+        clearTimeout(timeoutRef.current)
       }
     }
   }, [fetchData])
 
+  useEffect(() => {
+    if (nextRefreshAt) {
+      scheduleNextRefresh()
+    }
+  }, [nextRefreshAt, scheduleNextRefresh])
+
   return (
-    <HeaderDataContext.Provider value={{ indices, exchangeRates, lastUpdated, loading, refreshData: fetchData }}>
+    <HeaderDataContext.Provider value={{ 
+      indices, 
+      exchangeRates, 
+      lastUpdated, 
+      nextRefreshAt,
+      loading, 
+      refreshData: fetchData 
+    }}>
       {children}
     </HeaderDataContext.Provider>
   )

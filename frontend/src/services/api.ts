@@ -178,6 +178,7 @@ export interface HeaderMarketData {
   indices: MarketIndex[]
   exchange_rates: Record<string, number | null>
   updated_at: string
+  next_refresh_at: string
 }
 
 export interface CompanyProfile {
@@ -307,7 +308,7 @@ export const api = {
   
   market: {
     header: (force: boolean = false) => fetchAPI(`/market/header${force ? '?force=true' : ''}`) as Promise<HeaderMarketData>,
-    indices: () => fetchAPI('/market/indices') as Promise<{ indices: MarketIndex[]; updated_at: string }>,
+    indices: () => fetchAPI('/market/indices') as Promise<{ indices: MarketIndex[]; updated_at: string; next_refresh_at: string }>,
     exchangeRates: () => fetchAPI('/market/exchange-rates') as Promise<Record<string, number | null>>,
     convert: (amount: number, from: string, to: string) => 
       fetchAPI(`/market/convert?amount=${amount}&from_currency=${from}&to_currency=${to}`),
