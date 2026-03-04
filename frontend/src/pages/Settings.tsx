@@ -256,10 +256,14 @@ export default function Settings() {
         <h3 style={{ marginBottom: '16px' }}>{t(language, 'settings.displayPreferences')}</h3>
 
         <div style={{ marginBottom: '24px' }}>
-          <label style={{ display: 'block', marginBottom: '8px', color: 'var(--text-secondary)', fontSize: '14px' }}>
+          <label
+            htmlFor="language-select"
+            style={{ display: 'block', marginBottom: '8px', color: 'var(--text-secondary)', fontSize: '14px' }}
+          >
             {t(language, 'settings.language')}
           </label>
           <select
+            id="language-select"
             value={language}
             onChange={(e) => setLanguage(e.target.value as 'en' | 'sv')}
             style={{
@@ -279,10 +283,14 @@ export default function Settings() {
         </div>
         
         <div style={{ marginBottom: '24px' }}>
-          <label style={{ display: 'block', marginBottom: '8px', color: 'var(--text-secondary)', fontSize: '14px' }}>
+          <label
+            htmlFor="display-currency-select"
+            style={{ display: 'block', marginBottom: '8px', color: 'var(--text-secondary)', fontSize: '14px' }}
+          >
             {t(language, 'settings.displayCurrency')}
           </label>
           <select
+            id="display-currency-select"
             value={displayCurrency}
             onChange={(e) => setDisplayCurrency(e.target.value)}
             style={{
@@ -308,10 +316,14 @@ export default function Settings() {
         </div>
         
         <div style={{ marginBottom: '24px' }}>
-          <label style={{ display: 'block', marginBottom: '8px', color: 'var(--text-secondary)', fontSize: '14px' }}>
+          <label
+            htmlFor="timezone-select"
+            style={{ display: 'block', marginBottom: '8px', color: 'var(--text-secondary)', fontSize: '14px' }}
+          >
             {t(language, 'settings.timezone')}
           </label>
           <select
+            id="timezone-select"
             value={timezone}
             onChange={(e) => setTimezone(e.target.value)}
             style={{

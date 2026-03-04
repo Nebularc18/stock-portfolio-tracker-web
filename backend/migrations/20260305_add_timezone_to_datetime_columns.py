@@ -31,6 +31,8 @@ TARGET_COLUMNS = (
     ("portfolio_history", "date"),
     ("stock_price_history", "recorded_at"),
 )
+ALLOWED_TARGET_COLUMNS = set(TARGET_COLUMNS)
+ALLOWED_SQL_TYPES = {"TIMESTAMPTZ", "TIMESTAMP"}
 
 
 def _get_column_data_type(conn, table_name: str, column_name: str) -> str:
@@ -54,6 +56,9 @@ def _get_column_data_type(conn, table_name: str, column_name: str) -> str:
 
 
 def _ensure_and_alter_timezone_column(conn, table_name: str, column_name: str, target: str) -> None:
+    if (table_name, column_name) not in ALLOWED_TARGET_COLUMNS:
+        raise ValueError(f"Unsupported migration target {table_name}.{column_name}")
+
     current_type = _get_column_data_type(conn, table_name, column_name)
     if target == "timestamptz":
         expected_source = "timestamp without time zone"
@@ -65,6 +70,9 @@ def _ensure_and_alter_timezone_column(conn, table_name: str, column_name: str, t
         desired_sql_type = "TIMESTAMP"
     else:
         raise ValueError(f"Unsupported target type {target!r}. Allowed values are 'timestamptz' and 'timestamp'.")
+
+    if desired_sql_type not in ALLOWED_SQL_TYPES:
+        raise ValueError(f"Unsupported SQL type {desired_sql_type!r}")
 
     if current_type == desired_type:
         logger.info("Skipping %s.%s: already %s", table_name, column_name, desired_type)
@@ -79,9 +87,9 @@ def _ensure_and_alter_timezone_column(conn, table_name: str, column_name: str, t
     conn.execute(
         text(
             f"""
-            ALTER TABLE {table_name}
-            ALTER COLUMN {column_name} TYPE {desired_sql_type}
-            USING ({column_name} AT TIME ZONE 'UTC')
+            ALTER TABLE "{table_name}"
+            ALTER COLUMN "{column_name}" TYPE {desired_sql_type}
+            USING ("{column_name}" AT TIME ZONE 'UTC')
             """
         )
     )
