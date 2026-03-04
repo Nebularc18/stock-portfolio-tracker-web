@@ -4,10 +4,10 @@ This module provides API endpoints for portfolio summaries, historical
 performance, distribution analysis, and bulk refresh operations.
 """
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Query
 from sqlalchemy.orm import Session
 from sqlalchemy.dialects.postgresql import insert
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import List, Optional
 import logging
 
@@ -16,6 +16,10 @@ from app.services.exchange_rate_service import ExchangeRateService
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
+
+
+def utc_now() -> datetime:
+    return datetime.now(timezone.utc)
 
 
 def get_display_currency(db: Session) -> str:
@@ -216,7 +220,7 @@ def refresh_all_prices(db: Session = Depends(get_db)):
             stock.sector = info.get('sector') or stock.sector
             stock.dividend_yield = info.get('dividend_yield')
             stock.dividend_per_share = info.get('dividend_per_share')
-            stock.last_updated = datetime.utcnow()
+            stock.last_updated = utc_now()
             updated += 1
 
         should_refresh_logo = (not stock.logo) or ('cdn.brandfetch.io' in stock.logo)
@@ -234,7 +238,7 @@ def refresh_all_prices(db: Session = Depends(get_db)):
                 stock.logo = logo_url
         
         if stock.current_price:
-            today = datetime.utcnow().replace(hour=0, minute=0, second=0, microsecond=0)
+            today = utc_now().replace(hour=0, minute=0, second=0, microsecond=0)
             existing_price = db.query(StockPriceHistory).filter(
                 StockPriceHistory.ticker == stock.ticker,
                 StockPriceHistory.recorded_at >= today
@@ -247,7 +251,7 @@ def refresh_all_prices(db: Session = Depends(get_db)):
                     ticker=stock.ticker,
                     price=stock.current_price,
                     currency=stock.currency,
-                    recorded_at=datetime.utcnow()
+                    recorded_at=utc_now()
                 )
                 db.add(price_history)
         
@@ -264,7 +268,7 @@ def refresh_all_prices(db: Session = Depends(get_db)):
                 skipped += 1
     
     if updated > 0 and total_value_sek > 0:
-        now = datetime.utcnow()
+        now = utc_now()
         interval = now.replace(minute=(now.minute // 15) * 15, second=0, microsecond=0)
         stmt = insert(PortfolioHistory).values(
             total_value=total_value_sek,
@@ -286,11 +290,16 @@ def refresh_all_prices(db: Session = Depends(get_db)):
 
 
 @router.get("/history", response_model=List[dict])
-def get_portfolio_history(days: int = 30, db: Session = Depends(get_db)):
+def get_portfolio_history(
+    days: int = Query(30, ge=1),
+    range_key: Optional[str] = Query(None, alias="range"),
+    db: Session = Depends(get_db)
+):
     """Retrieve historical portfolio value snapshots.
     
     Args:
-        days: Number of days of history to retrieve (default 30, max 90).
+        days: Number of days of history to retrieve.
+        range_key: Optional predefined range (1d, 1w, 1m, ytd, 1y, since_start).
         db: Database session dependency.
     
     Returns:
@@ -298,14 +307,34 @@ def get_portfolio_history(days: int = 30, db: Session = Depends(get_db)):
     """
     from datetime import timedelta
     
-    MAX_DAYS = 90
-    try:
-        days = max(1, min(int(days), MAX_DAYS))
-    except (ValueError, TypeError):
-        days = 30
-    
-    since = datetime.utcnow() - timedelta(days=days)
-    history = db.query(PortfolioHistory).filter(PortfolioHistory.date >= since).order_by(PortfolioHistory.date.asc()).all()
+    now = utc_now()
+    since = None
+    normalized_range = (range_key or "").strip().lower()
+
+    if normalized_range == "1d":
+        since = now - timedelta(days=1)
+    elif normalized_range == "1w":
+        since = now - timedelta(days=7)
+    elif normalized_range == "1m":
+        since = now - timedelta(days=30)
+    elif normalized_range == "ytd":
+        since = datetime(now.year, 1, 1, tzinfo=timezone.utc)
+    elif normalized_range == "1y":
+        since = now - timedelta(days=365)
+    elif normalized_range in {"since_start", "all"}:
+        since = None
+    else:
+        try:
+            days = max(1, min(int(days), 3650))
+        except (ValueError, TypeError):
+            days = 30
+        since = now - timedelta(days=days)
+
+    query = db.query(PortfolioHistory)
+    if since is not None:
+        query = query.filter(PortfolioHistory.date >= since)
+
+    history = query.order_by(PortfolioHistory.date.asc()).all()
     return [{"date": h.date, "value": h.total_value} for h in history]
 
 
@@ -375,8 +404,8 @@ def get_upcoming_portfolio_dividends(db: Session = Depends(get_db)):
     dividends = []
     unmapped_stocks = []
     seen_unmapped = set()
-    today = datetime.utcnow().strftime('%Y-%m-%d')
-    current_year = datetime.utcnow().year
+    today = utc_now().strftime('%Y-%m-%d')
+    current_year = utc_now().year
 
     def normalize_dividend_event(raw_div: dict, event_type: str) -> dict:
         if event_type == 'historical':

@@ -5,7 +5,7 @@ stock prices for all stocks in the portfolio when markets are open.
 """
 
 import logging
-from datetime import datetime
+from datetime import datetime, timezone
 from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.triggers.cron import CronTrigger
 from sqlalchemy.dialects.postgresql import insert
@@ -13,6 +13,10 @@ from sqlalchemy.dialects.postgresql import insert
 logger = logging.getLogger(__name__)
 
 scheduler = BackgroundScheduler()
+
+
+def utc_now() -> datetime:
+    return datetime.now(timezone.utc)
 
 
 def refresh_all_stocks():
@@ -56,11 +60,11 @@ def refresh_all_stocks():
                     stock.sector = info.get('sector') or stock.sector
                     stock.dividend_yield = info.get('dividend_yield')
                     stock.dividend_per_share = info.get('dividend_per_share')
-                    stock.last_updated = datetime.utcnow()
+                    stock.last_updated = utc_now()
                     updated += 1
                     
                     if stock.current_price:
-                        today = datetime.utcnow().replace(hour=0, minute=0, second=0, microsecond=0)
+                        today = utc_now().replace(hour=0, minute=0, second=0, microsecond=0)
                         existing_price = db.query(StockPriceHistory).filter(
                             StockPriceHistory.ticker == stock.ticker,
                             StockPriceHistory.recorded_at >= today
@@ -73,7 +77,7 @@ def refresh_all_stocks():
                                 ticker=stock.ticker,
                                 price=stock.current_price,
                                 currency=stock.currency,
-                                recorded_at=datetime.utcnow()
+                                recorded_at=utc_now()
                             )
                             db.add(price_history)
                     
@@ -105,7 +109,7 @@ def refresh_all_stocks():
         
         # Record portfolio history for the dashboard chart
         if updated > 0 and total_value_sek > 0:
-            now = datetime.utcnow()
+            now = utc_now()
             interval = now.replace(minute=(now.minute // 15) * 15, second=0, microsecond=0)
             stmt = insert(PortfolioHistory).values(
                 total_value=total_value_sek,

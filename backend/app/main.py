@@ -6,17 +6,21 @@ schemas, and API routing configuration for the stock portfolio tracker.
 
 import os
 from contextlib import asynccontextmanager
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import List, Optional, Any
 import logging
 
 from fastapi import FastAPI, HTTPException, Depends
-from pydantic import BaseModel
+from pydantic import BaseModel, field_validator
 from sqlalchemy import create_engine, Column, Integer, String, Float, DateTime, ForeignKey, JSON
 from sqlalchemy.orm import sessionmaker, relationship, declarative_base
 from sqlalchemy.pool import NullPool
 
 logger = logging.getLogger(__name__)
+
+
+def utc_now() -> datetime:
+    return datetime.now(timezone.utc)
 
 DATABASE_URL = os.getenv("DATABASE_URL", "postgresql://portfolio:portfolio@localhost:5432/portfolio")
 
@@ -59,7 +63,7 @@ class Stock(Base):
     previous_close = Column(Float, nullable=True)
     dividend_yield = Column(Float, nullable=True)
     dividend_per_share = Column(Float, nullable=True)
-    last_updated = Column(DateTime, default=datetime.utcnow)
+    last_updated = Column(DateTime, default=utc_now)
     manual_dividends = Column(JSON, default=list)
     suppressed_dividends = Column(JSON, default=list)
 
@@ -86,7 +90,7 @@ class Dividend(Base):
     currency = Column(String)
     ex_date = Column(DateTime, nullable=True)
     pay_date = Column(DateTime, nullable=True)
-    created_at = Column(DateTime, default=datetime.utcnow)
+    created_at = Column(DateTime, default=utc_now)
 
     stock = relationship("Stock", back_populates="dividends")
 
@@ -103,7 +107,7 @@ class PortfolioHistory(Base):
 
     id = Column(Integer, primary_key=True, index=True)
     total_value = Column(Float)
-    date = Column(DateTime, default=datetime.utcnow, unique=True)
+    date = Column(DateTime, default=utc_now, unique=True)
 
 
 class StockPriceHistory(Base):
@@ -122,7 +126,7 @@ class StockPriceHistory(Base):
     ticker = Column(String, index=True, nullable=False)
     price = Column(Float, nullable=False)
     currency = Column(String, nullable=False)
-    recorded_at = Column(DateTime, default=datetime.utcnow, index=True)
+    recorded_at = Column(DateTime, default=utc_now, index=True)
 
 
 class UserSettings(Base):
@@ -206,6 +210,15 @@ class StockResponse(BaseModel):
     last_updated: Optional[datetime]
     manual_dividends: Optional[List[dict]] = []
     suppressed_dividends: Optional[List[dict]] = []
+
+    @field_validator("last_updated", mode="before")
+    @classmethod
+    def ensure_last_updated_utc(cls, value: Optional[datetime]) -> Optional[datetime]:
+        if value is None:
+            return None
+        if value.tzinfo is None:
+            return value.replace(tzinfo=timezone.utc)
+        return value.astimezone(timezone.utc)
 
     class Config:
         from_attributes = True

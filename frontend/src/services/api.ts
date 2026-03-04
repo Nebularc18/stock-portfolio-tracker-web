@@ -318,7 +318,21 @@ export const api = {
     summary: () => fetchAPI('/portfolio/summary') as Promise<PortfolioSummary>,
     refreshAll: () => fetchAPI('/portfolio/refresh-all', { method: 'POST' }),
     distribution: () => fetchAPI('/portfolio/distribution'),
-    history: (days: number = 30) => fetchAPI(`/portfolio/history?days=${days}`),
+    history: (options: number | { days?: number; range?: string } = 30) => {
+      const params = new URLSearchParams()
+      if (typeof options === 'number') {
+        params.set('days', String(options))
+      } else {
+        if (options.days !== undefined) {
+          params.set('days', String(options.days))
+        }
+        if (options.range) {
+          params.set('range', options.range)
+        }
+      }
+      const query = params.toString()
+      return fetchAPI(`/portfolio/history${query ? `?${query}` : ''}`)
+    },
     upcomingDividends: () => fetchAPI('/portfolio/upcoming-dividends') as Promise<UpcomingDividendsResponse>,
   },
   

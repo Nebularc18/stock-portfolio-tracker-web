@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import { useParams, Link, useNavigate } from 'react-router-dom'
-import { api, Stock, Dividend, StockUpcomingDividend, AnalystData, ManualDividend, CompanyProfile, FinancialMetrics, VerificationResult, MarketstackUsage } from '../services/api'
+import { api, Stock, Dividend, StockUpcomingDividend, UpcomingDividend, AnalystData, ManualDividend, CompanyProfile, FinancialMetrics, VerificationResult, MarketstackUsage } from '../services/api'
 import CompanyProfileComponent from '../components/CompanyProfile'
 import FinancialMetricsComponent from '../components/FinancialMetrics'
 import PeerCompanies from '../components/PeerCompanies'
@@ -18,7 +18,52 @@ function formatCurrency(value: number | null, currency: string = 'USD'): string 
 }
 
 function formatDate(dateStr: string): string {
-  return new Date(dateStr).toLocaleDateString()
+  if (!dateStr) return '-'
+  const [year, month, day] = dateStr.split('-').map(Number)
+  if (!year || !month || !day) return dateStr
+  const date = new Date(Date.UTC(year, month - 1, day))
+  return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric', timeZone: 'UTC' })
+}
+
+function formatDisplayName(name: string | null, ticker: string): string {
+  if (!name) return ticker
+  return name
+    .replace(/\s+\(The\)$/i, '')
+    .replace(/\s+/g, ' ')
+    .trim()
+}
+
+function estimateDividendsPerYear(dividends: Dividend[]): number {
+  const countsByYear = new Map<number, number>()
+
+  for (const div of dividends) {
+    const payoutDate = div.payment_date || div.date
+    if (!payoutDate) continue
+    const year = Number(payoutDate.slice(0, 4))
+    if (!Number.isFinite(year)) continue
+    countsByYear.set(year, (countsByYear.get(year) || 0) + 1)
+  }
+
+  const recentCounts = Array.from(countsByYear.entries())
+    .sort((a, b) => b[0] - a[0])
+    .slice(0, 3)
+    .map(([, count]) => count)
+    .filter((count) => count > 0)
+
+  if (recentCounts.length === 0) return 1
+
+  const frequencyMap = new Map<number, number>()
+  for (const count of recentCounts) {
+    frequencyMap.set(count, (frequencyMap.get(count) || 0) + 1)
+  }
+
+  const [mostCommon] = Array.from(frequencyMap.entries()).sort((a, b) => {
+    if (b[1] !== a[1]) return b[1] - a[1]
+    return b[0] - a[0]
+  })
+
+  const estimated = mostCommon?.[0] ?? recentCounts[0]
+  return Math.max(1, Math.min(12, estimated))
 }
 
 export default function StockDetail() {
@@ -26,7 +71,9 @@ export default function StockDetail() {
   const navigate = useNavigate()
   const [stock, setStock] = useState<Stock | null>(null)
   const [dividends, setDividends] = useState<Dividend[]>([])
-  const [upcomingDividends, setUpcomingDividends] = useState<StockUpcomingDividend[]>([])
+  const [yearDividends, setYearDividends] = useState<UpcomingDividend[]>([])
+  const [yearReceived, setYearReceived] = useState(0)
+  const [yearRemaining, setYearRemaining] = useState(0)
   const [analystData, setAnalystData] = useState<AnalystData | null>(null)
   const [suppressedDividends, setSuppressedDividends] = useState<ManualDividend[]>([])
   const [loading, setLoading] = useState(true)
@@ -50,6 +97,7 @@ export default function StockDetail() {
   const [verificationResult, setVerificationResult] = useState<VerificationResult | null>(null)
   const [verificationLoading, setVerificationLoading] = useState(false)
   const [marketstackStatus, setMarketstackStatus] = useState<MarketstackUsage | null>(null)
+  const [exchangeRates, setExchangeRates] = useState<Record<string, number | null>>({})
   const { timezone } = useSettings()
 
   useEffect(() => {
@@ -61,16 +109,123 @@ export default function StockDetail() {
     const fetchData = async () => {
       try {
         setLoading(true)
-        const [stockData, divData, upcomingData, suppressedData] = await Promise.all([
+        const [stockData, divData, stockUpcomingData, suppressedData, ratesData] = await Promise.all([
           api.stocks.get(ticker),
           api.stocks.dividends(ticker),
-          api.stocks.upcomingDividends(ticker),
+          api.stocks.upcomingDividends(ticker).catch(() => []),
           api.stocks.getSuppressedDividends(ticker).catch(() => []),
+          api.market.exchangeRates().catch(() => ({})),
         ])
+
+        const safeRates = ratesData as Record<string, number | null>
+
+        const convertToSEKValue = (amount: number | null, currency: string): number | null => {
+          if (amount === null) return null
+          if (currency === 'SEK') return amount
+          const direct = safeRates[`${currency}_SEK`]
+          if (direct) return amount * direct
+          const inverse = safeRates[`SEK_${currency}`]
+          if (inverse) return amount / inverse
+          return null
+        }
+
+        const currentYear = new Date().getFullYear()
+        const today = new Date().toISOString().slice(0, 10)
+
+        const historicalYearDividends: UpcomingDividend[] = divData
+          .filter((div: Dividend) => {
+            const payoutDate = div.payment_date || div.date
+            return payoutDate?.startsWith(`${currentYear}-`)
+          })
+          .map((div: Dividend) => {
+            const amountPerShare = div.amount ?? 0
+            const totalAmount = amountPerShare * stockData.quantity
+            const divCurrency = div.currency || stockData.currency
+            const totalConverted = convertToSEKValue(totalAmount, divCurrency)
+            const payoutDate = div.payment_date || div.date
+
+            return {
+              ticker: stockData.ticker,
+              name: stockData.name,
+              quantity: stockData.quantity,
+              ex_date: div.date,
+              payment_date: div.payment_date,
+              payout_date: payoutDate,
+              status: payoutDate < today ? 'paid' : 'upcoming',
+              dividend_type: null,
+              amount_per_share: amountPerShare,
+              total_amount: totalAmount,
+              currency: divCurrency,
+              total_converted: totalConverted,
+              display_currency: 'SEK',
+              source: div.source || 'yahoo'
+            }
+          })
+
+        const upcomingYearDividends: UpcomingDividend[] = stockUpcomingData
+          .filter((div: StockUpcomingDividend) => {
+            const payoutDate = div.payment_date || div.ex_date
+            return payoutDate?.startsWith(`${currentYear}-`)
+          })
+          .map((div: StockUpcomingDividend) => {
+            const amountPerShare = div.amount ?? 0
+            const totalAmount = amountPerShare * stockData.quantity
+            const divCurrency = div.currency || stockData.currency
+            const totalConverted = convertToSEKValue(totalAmount, divCurrency)
+            const payoutDate = div.payment_date || div.ex_date
+
+            return {
+              ticker: stockData.ticker,
+              name: stockData.name,
+              quantity: stockData.quantity,
+              ex_date: div.ex_date,
+              payment_date: div.payment_date,
+              payout_date: payoutDate,
+              status: payoutDate < today ? 'paid' : 'upcoming',
+              dividend_type: div.dividend_type,
+              amount_per_share: amountPerShare,
+              total_amount: totalAmount,
+              currency: divCurrency,
+              total_converted: totalConverted,
+              display_currency: 'SEK',
+              source: div.source || 'yahoo'
+            }
+          })
+
+        const mergedYearDividends = [...historicalYearDividends, ...upcomingYearDividends]
+        const dedupedMap = new Map<string, UpcomingDividend>()
+        for (const div of mergedYearDividends) {
+          const key = [
+            div.ex_date,
+            div.payment_date || '',
+            div.amount_per_share,
+            div.currency,
+            div.dividend_type || '',
+            div.source || ''
+          ].join('|')
+          dedupedMap.set(key, div)
+        }
+
+        const effectiveYearDividends = Array.from(dedupedMap.values()).sort((a, b) => {
+          const aDate = a.payout_date || a.payment_date || a.ex_date
+          const bDate = b.payout_date || b.payment_date || b.ex_date
+          return aDate.localeCompare(bDate)
+        })
         setStock(stockData)
         setDividends(divData)
-        setUpcomingDividends(upcomingData)
+        setYearDividends(effectiveYearDividends)
+        setYearReceived(
+          effectiveYearDividends.reduce((sum: number, div: UpcomingDividend) => (
+            div.status === 'paid' && div.total_converted !== null ? sum + div.total_converted : sum
+          ), 0)
+        )
+        setYearRemaining(
+          effectiveYearDividends.reduce((sum: number, div: UpcomingDividend) => (
+            div.status === 'upcoming' && div.total_converted !== null ? sum + div.total_converted : sum
+          ), 0)
+        )
         setSuppressedDividends(suppressedData)
+        setExchangeRates(ratesData)
         setError(null)
       } catch (err: any) {
         setError(err.message || 'Failed to load stock data')
@@ -278,6 +433,107 @@ export default function StockDetail() {
     ? (dailyChange / stock.previous_close) * 100 
     : null
 
+  const convertToSEK = (amount: number | null, fromCurrency: string): number | null => {
+    if (amount === null) return null
+    if (fromCurrency === 'SEK') return amount
+    const direct = exchangeRates[`${fromCurrency}_SEK`]
+    if (direct) return amount * direct
+    const inverse = exchangeRates[`SEK_${fromCurrency}`]
+    if (inverse) return amount / inverse
+    return null
+  }
+
+  const renderValueWithSEK = (amount: number | null, fromCurrency: string, align: 'left' | 'right' = 'right') => {
+    const sekValue = convertToSEK(amount, fromCurrency)
+    const textAlign = align
+
+    return (
+      <div style={{ textAlign }}>
+        <div>{formatCurrency(amount, fromCurrency)}</div>
+        {amount !== null && fromCurrency !== 'SEK' && sekValue !== null && (
+          <div style={{ color: 'var(--text-secondary)', fontSize: '12px' }}>
+            {formatCurrency(sekValue, 'SEK')}
+          </div>
+        )}
+      </div>
+    )
+  }
+
+  const displayName = formatDisplayName(stock.name, stock.ticker)
+  const today = new Date()
+  const oneYearAgo = new Date(today)
+  oneYearAgo.setFullYear(today.getFullYear() - 1)
+
+  let derivedDividendPerShare: number | null = null
+  let derivedDividendEvents = 0
+
+  for (const div of dividends) {
+    const payoutDate = div.payment_date || div.date
+    if (!payoutDate) continue
+
+    const eventDate = new Date(`${payoutDate}T00:00:00Z`)
+    if (Number.isNaN(eventDate.getTime())) continue
+
+    if (eventDate >= oneYearAgo && eventDate <= today) {
+      if (derivedDividendPerShare === null) derivedDividendPerShare = 0
+      derivedDividendPerShare += div.amount
+      derivedDividendEvents += 1
+    }
+  }
+
+  if (derivedDividendEvents === 0) {
+    derivedDividendPerShare = null
+  }
+
+  const estimatedDividendsPerYear = estimateDividendsPerYear(dividends)
+  const upcomingThisYearAmounts = yearDividends
+    .filter((div) => div.status === 'upcoming')
+    .map((div) => div.amount_per_share)
+    .filter((amount): amount is number => amount !== null && amount > 0)
+  const knownThisYearAmounts = yearDividends
+    .map((div) => div.amount_per_share)
+    .filter((amount): amount is number => amount !== null && amount > 0)
+
+  const knownThisYearCount = knownThisYearAmounts.length
+  const knownThisYearPerShare = knownThisYearCount > 0
+    ? knownThisYearAmounts.reduce((sum, amount) => sum + amount, 0)
+    : null
+
+  let modeledPerShareFromYearData: number | null = null
+  if (knownThisYearPerShare !== null) {
+    modeledPerShareFromYearData = knownThisYearPerShare
+    if (knownThisYearCount < estimatedDividendsPerYear) {
+      const missingCount = estimatedDividendsPerYear - knownThisYearCount
+      const representativeUpcomingAmount = upcomingThisYearAmounts.length > 0
+        ? upcomingThisYearAmounts[0]
+        : knownThisYearAmounts[knownThisYearAmounts.length - 1]
+
+      if (representativeUpcomingAmount > 0) {
+        modeledPerShareFromYearData += representativeUpcomingAmount * missingCount
+      }
+    }
+  }
+
+  const displayDividendPerShare =
+    modeledPerShareFromYearData ??
+    stock.dividend_per_share ??
+    financialMetrics?.dividend_per_share_annual ??
+    derivedDividendPerShare
+
+  const derivedDividendYield =
+    displayDividendPerShare !== null && stock.current_price !== null && stock.current_price > 0
+      ? (displayDividendPerShare / stock.current_price) * 100
+      : null
+
+  const displayDividendYield =
+    stock.dividend_yield ??
+    financialMetrics?.dividend_yield ??
+    derivedDividendYield
+
+  const displayAnnualIncome =
+    displayDividendPerShare !== null ? displayDividendPerShare * stock.quantity : null
+  const hasProfileContent = Boolean(companyProfile || financialMetrics || (peers && peers.length > 0))
+
   return (
     <div>
       <div style={{ marginBottom: '24px' }}>
@@ -288,13 +544,48 @@ export default function StockDetail() {
 
       <div className="card" style={{ marginBottom: '24px' }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
-          <div>
-            <h1 style={{ fontSize: '32px', fontWeight: '600', marginBottom: '8px' }}>
-              {stock.ticker}
-            </h1>
-            <p style={{ color: 'var(--text-secondary)', fontSize: '18px' }}>
-              {stock.name || 'Unknown Company'}
-            </p>
+          <div style={{ display: 'flex', gap: '14px', alignItems: 'flex-start' }}>
+            {stock.logo ? (
+              <img
+                src={stock.logo}
+                alt={displayName}
+                style={{
+                  width: 48,
+                  height: 48,
+                  borderRadius: 10,
+                  objectFit: 'contain',
+                  background: 'var(--bg-secondary)',
+                  padding: 6,
+                  border: '1px solid var(--border-color)'
+                }}
+              />
+            ) : (
+              <div
+                style={{
+                  width: 48,
+                  height: 48,
+                  borderRadius: 10,
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  fontSize: 18,
+                  fontWeight: 700,
+                  color: 'var(--text-secondary)',
+                  background: 'var(--bg-secondary)',
+                  border: '1px solid var(--border-color)'
+                }}
+              >
+                {displayName.charAt(0).toUpperCase()}
+              </div>
+            )}
+            <div>
+              <h1 style={{ fontSize: '32px', fontWeight: '600', marginBottom: '8px' }}>
+                {stock.ticker}
+              </h1>
+              <p style={{ color: 'var(--text-secondary)', fontSize: '18px' }}>
+                {displayName}
+              </p>
+            </div>
             {stock.sector && (
               <p style={{ color: 'var(--text-secondary)', fontSize: '14px', marginTop: '4px' }}>
                 {stock.sector}
@@ -316,15 +607,25 @@ export default function StockDetail() {
         
         <div style={{ marginTop: '24px', display: 'flex', gap: '32px', alignItems: 'baseline' }}>
           <div>
-            <p style={{ fontSize: '36px', fontWeight: '600' }}>
+            <div style={{ fontSize: '36px', fontWeight: '600' }}>
               {formatCurrency(stock.current_price, stock.currency)}
-            </p>
+            </div>
+            {stock.currency !== 'SEK' && convertToSEK(stock.current_price, stock.currency) !== null && (
+              <p style={{ color: 'var(--text-secondary)', fontSize: '14px', marginTop: '4px' }}>
+                {formatCurrency(convertToSEK(stock.current_price, stock.currency), 'SEK')}
+              </p>
+            )}
             {dailyChange !== null && (
               <p style={{ 
                 color: dailyChange >= 0 ? 'var(--accent-green)' : 'var(--accent-red)',
                 fontSize: '16px'
               }}>
-                {dailyChange >= 0 ? '+' : ''}{dailyChange.toFixed(2)} ({dailyChangePercent?.toFixed(2)}%)
+                {dailyChange >= 0 ? '+' : ''}{formatCurrency(dailyChange, stock.currency)} ({dailyChangePercent?.toFixed(2)}%)
+              </p>
+            )}
+            {dailyChange !== null && stock.currency !== 'SEK' && convertToSEK(dailyChange, stock.currency) !== null && (
+              <p style={{ color: 'var(--text-secondary)', fontSize: '13px', marginTop: '2px' }}>
+                {dailyChange >= 0 ? '+' : ''}{formatCurrency(convertToSEK(dailyChange, stock.currency), 'SEK')}
               </p>
             )}
           </div>
@@ -369,19 +670,15 @@ export default function StockDetail() {
                 </tr>
                 <tr>
                   <td style={{ color: 'var(--text-secondary)' }}>Purchase Price</td>
-                  <td style={{ textAlign: 'right' }}>{formatCurrency(stock.purchase_price, stock.currency)}</td>
+                  <td>{renderValueWithSEK(stock.purchase_price, stock.currency)}</td>
                 </tr>
                 <tr>
                   <td style={{ color: 'var(--text-secondary)' }}>Current Value</td>
-                  <td style={{ textAlign: 'right' }}>
-                    {stock.current_price ? formatCurrency(stock.current_price * stock.quantity, stock.currency) : '-'}
-                  </td>
+                  <td>{renderValueWithSEK(stock.current_price ? stock.current_price * stock.quantity : null, stock.currency)}</td>
                 </tr>
                 <tr>
                   <td style={{ color: 'var(--text-secondary)' }}>Total Cost</td>
-                  <td style={{ textAlign: 'right' }}>
-                    {stock.purchase_price ? formatCurrency(stock.purchase_price * stock.quantity, stock.currency) : '-'}
-                  </td>
+                  <td>{renderValueWithSEK(stock.purchase_price ? stock.purchase_price * stock.quantity : null, stock.currency)}</td>
                 </tr>
               </tbody>
             </table>
@@ -394,19 +691,17 @@ export default function StockDetail() {
                 <tr>
                   <td style={{ color: 'var(--text-secondary)' }}>Dividend Yield</td>
                   <td style={{ textAlign: 'right' }}>
-                    {stock.dividend_yield ? `${stock.dividend_yield.toFixed(2)}%` : '-'}
+                    {displayDividendYield !== null ? `${displayDividendYield.toFixed(2)}%` : '-'}
                   </td>
                 </tr>
                 <tr>
                   <td style={{ color: 'var(--text-secondary)' }}>Dividend/Share</td>
-                  <td style={{ textAlign: 'right' }}>{formatCurrency(stock.dividend_per_share, stock.currency)}</td>
+                  <td style={{ textAlign: 'right' }}>{formatCurrency(displayDividendPerShare, stock.currency)}</td>
                 </tr>
                 <tr>
                   <td style={{ color: 'var(--text-secondary)' }}>Annual Income</td>
                   <td style={{ textAlign: 'right' }}>
-                    {stock.dividend_per_share && stock.quantity
-                      ? formatCurrency(stock.dividend_per_share * stock.quantity, stock.currency)
-                      : '-'}
+                    {displayAnnualIncome !== null ? formatCurrency(displayAnnualIncome, stock.currency) : '-'}
                   </td>
                 </tr>
               </tbody>
@@ -420,6 +715,28 @@ export default function StockDetail() {
           <CompanyProfileComponent profile={companyProfile} loading={finnhubLoading} />
           <FinancialMetricsComponent metrics={financialMetrics} loading={finnhubLoading} />
           <PeerCompanies peers={peers} loading={finnhubLoading} />
+          {!finnhubLoading && !hasProfileContent && (
+            <div className="card">
+              <h3 style={{ marginBottom: '12px' }}>Profile Snapshot</h3>
+              <p style={{ color: 'var(--text-secondary)', marginBottom: '14px' }}>
+                No extended profile data is available for this ticker right now, but your core position data is up to date.
+              </p>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, minmax(0, 1fr))', gap: '12px' }}>
+                <div style={{ background: 'var(--bg-secondary)', border: '1px solid var(--border-color)', borderRadius: 8, padding: '12px' }}>
+                  <p style={{ color: 'var(--text-secondary)', fontSize: '12px', marginBottom: '4px' }}>Sector</p>
+                  <p>{stock.sector || '-'}</p>
+                </div>
+                <div style={{ background: 'var(--bg-secondary)', border: '1px solid var(--border-color)', borderRadius: 8, padding: '12px' }}>
+                  <p style={{ color: 'var(--text-secondary)', fontSize: '12px', marginBottom: '4px' }}>Dividend/Share (modeled)</p>
+                  <p>{formatCurrency(displayDividendPerShare, stock.currency)}</p>
+                </div>
+                <div style={{ background: 'var(--bg-secondary)', border: '1px solid var(--border-color)', borderRadius: 8, padding: '12px' }}>
+                  <p style={{ color: 'var(--text-secondary)', fontSize: '12px', marginBottom: '4px' }}>Annual Income</p>
+                  <p>{displayAnnualIncome !== null ? formatCurrency(displayAnnualIncome, stock.currency) : '-'}</p>
+                </div>
+              </div>
+            </div>
+          )}
         </div>
       )}
 
@@ -477,24 +794,38 @@ export default function StockDetail() {
             )}
           </div>
           
-          {upcomingDividends.length > 0 && (
+          {yearDividends.length > 0 && (
             <div className="card" style={{ marginBottom: '20px' }}>
-              <h3 style={{ marginBottom: '16px' }}>Upcoming Dividends</h3>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
+                <h3>Dividends (This Year)</h3>
+                <div style={{ display: 'flex', gap: '16px', fontSize: '13px' }}>
+                  <span style={{ color: 'var(--text-secondary)' }}>
+                    Received: <strong style={{ color: 'var(--accent-green)' }}>{formatCurrency(yearReceived, 'SEK')}</strong>
+                  </span>
+                  <span style={{ color: 'var(--text-secondary)' }}>
+                    Remaining: <strong style={{ color: 'var(--accent-blue)' }}>{formatCurrency(yearRemaining, 'SEK')}</strong>
+                  </span>
+                </div>
+              </div>
               <table>
                 <thead>
                   <tr>
                     <th>Ex-Date</th>
                     <th>Dividend Date</th>
                     <th>Amount</th>
+                    <th>Status</th>
                     <th>Source</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {upcomingDividends.map((div, i) => (
+                  {yearDividends.map((div, i) => (
                     <tr key={i}>
                       <td>{formatDate(div.ex_date)}</td>
                       <td>{div.payment_date ? formatDate(div.payment_date) : '-'}</td>
-                      <td>{formatCurrency(div.amount, div.currency || stock.currency)}</td>
+                      <td>{formatCurrency(div.amount_per_share, div.currency || stock.currency)}</td>
+                      <td style={{ color: div.status === 'paid' ? 'var(--accent-green)' : 'var(--accent-blue)', fontSize: '12px' }}>
+                        {div.status === 'paid' ? 'Paid' : 'Upcoming'}
+                      </td>
                       <td style={{ color: 'var(--text-secondary)', fontSize: '12px' }}>
                         {div.source || 'historical'}
                       </td>

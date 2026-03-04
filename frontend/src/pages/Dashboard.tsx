@@ -5,6 +5,22 @@ import { api, PortfolioSummary, Stock, UpcomingDividend } from '../services/api'
 import { useSettings } from '../SettingsContext'
 import { formatTimeInTimezone } from '../utils/time'
 
+type HistoryRangeKey = '1D' | '1W' | '1M' | 'YTD' | '1Y' | 'SINCE_START'
+
+const HISTORY_RANGE_OPTIONS: Array<{ key: HistoryRangeKey; label: string; query: string; title: string }> = [
+  { key: '1D', label: '1D', query: '1d', title: 'Day' },
+  { key: '1W', label: '1W', query: '1w', title: 'Week' },
+  { key: '1M', label: '1M', query: '1m', title: 'Month' },
+  { key: 'YTD', label: 'YTD', query: 'ytd', title: 'YTD' },
+  { key: '1Y', label: '1Y', query: '1y', title: '1 Year' },
+  { key: 'SINCE_START', label: 'Since Start', query: 'since_start', title: 'Since Start' },
+]
+
+type ChartPoint = {
+  date: string
+  value: number
+}
+
 function formatCurrency(value: number, currency: string = 'USD'): string {
   return new Intl.NumberFormat('en-US', {
     style: 'currency',
@@ -35,6 +51,87 @@ function formatMonthLabel(monthKey: string): string {
   return date.toLocaleDateString('en-US', { month: 'long', year: 'numeric', timeZone: 'UTC' })
 }
 
+function parseHistoryDate(value: string): Date {
+  if (value.includes('T')) {
+    return new Date(value.endsWith('Z') ? value : `${value}Z`)
+  }
+  return new Date(`${value}T00:00:00Z`)
+}
+
+function formatXAxisTick(dateValue: string, range: HistoryRangeKey): string {
+  const date = parseHistoryDate(dateValue)
+  if (Number.isNaN(date.getTime())) return ''
+
+  if (range === '1D') {
+    return date.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: false, timeZone: 'UTC' })
+  }
+  if (range === '1W') {
+    return date.toLocaleDateString('en-US', { weekday: 'short', day: 'numeric', timeZone: 'UTC' })
+  }
+  if (range === '1M') {
+    return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric', timeZone: 'UTC' })
+  }
+  if (range === 'YTD' || range === '1Y') {
+    return date.toLocaleDateString('en-US', { month: 'short', timeZone: 'UTC' })
+  }
+  return date.toLocaleDateString('en-US', { month: 'short', year: '2-digit', timeZone: 'UTC' })
+}
+
+function formatTooltipDate(dateValue: string, range: HistoryRangeKey): string {
+  const date = parseHistoryDate(dateValue)
+  if (Number.isNaN(date.getTime())) return dateValue
+
+  if (range === '1D' || range === '1W') {
+    return date.toLocaleDateString('en-US', {
+      weekday: 'short',
+      month: 'short',
+      day: 'numeric',
+      year: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit',
+      hour12: false,
+      timeZone: 'UTC',
+    })
+  }
+  return date.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric', year: 'numeric', timeZone: 'UTC' })
+}
+
+function downsampleChartData(data: ChartPoint[], targetPoints: number): ChartPoint[] {
+  if (targetPoints <= 0 || data.length <= targetPoints) {
+    return data
+  }
+
+  const sampled: ChartPoint[] = [data[0]]
+  const step = (data.length - 1) / (targetPoints - 1)
+
+  for (let index = 1; index < targetPoints - 1; index += 1) {
+    const sourceIndex = Math.round(index * step)
+    sampled.push(data[sourceIndex])
+  }
+
+  sampled.push(data[data.length - 1])
+  return sampled
+}
+
+function getRangeTargetPoints(range: HistoryRangeKey): number | null {
+  if (range === '1D' || range === '1W') {
+    return null
+  }
+  if (range === '1M') {
+    return 120
+  }
+  if (range === '1Y') {
+    return 180
+  }
+  if (range === 'SINCE_START') {
+    return 240
+  }
+
+  const now = new Date()
+  const elapsedMonths = now.getUTCMonth() + 1
+  return Math.min(220, Math.max(80, elapsedMonths * 18))
+}
+
 export default function Dashboard() {
   const navigate = useNavigate()
   const [summary, setSummary] = useState<PortfolioSummary | null>(null)
@@ -45,25 +142,30 @@ export default function Dashboard() {
   const [stocks, setStocks] = useState<Stock[]>([])
   const [exchangeRates, setExchangeRates] = useState<Record<string, number | null>>({})
   const [portfolioHistory, setPortfolioHistory] = useState<{ date: string; value: number }[]>([])
+  const [historyRange, setHistoryRange] = useState<HistoryRangeKey>('1M')
   const [failedLogos, setFailedLogos] = useState<Record<string, boolean>>({})
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const { displayCurrency, timezone } = useSettings()
 
+  const fetchHistory = useCallback(async (range: HistoryRangeKey) => {
+    const rangeQuery = HISTORY_RANGE_OPTIONS.find((option) => option.key === range)?.query || '1m'
+    const historyData = await api.portfolio.history({ range: rangeQuery }).catch(() => [])
+    setPortfolioHistory(historyData)
+  }, [])
+
   const fetchData = useCallback(async () => {
     try {
       setLoading(true)
-      const [summaryData, stocksData, ratesData, historyData, upcomingDivsData] = await Promise.all([
+      const [summaryData, stocksData, ratesData, upcomingDivsData] = await Promise.all([
         api.portfolio.summary(),
         api.stocks.list(),
         api.market.exchangeRates(),
-        api.portfolio.history(90).catch(() => []),
         api.portfolio.upcomingDividends().catch(() => ({ dividends: [], total_expected: 0, total_received: 0, total_remaining: 0, display_currency: displayCurrency, unmapped_stocks: [] })),
       ])
       setSummary(summaryData)
       setStocks(stocksData)
       setExchangeRates(ratesData)
-      setPortfolioHistory(historyData)
       setUpcomingDividends(upcomingDivsData.dividends)
       setTotalExpectedDividends(upcomingDivsData.total_expected)
       setTotalReceivedDividends(upcomingDivsData.total_received)
@@ -80,6 +182,10 @@ export default function Dashboard() {
   useEffect(() => {
     fetchData()
   }, [fetchData])
+
+  useEffect(() => {
+    fetchHistory(historyRange)
+  }, [fetchHistory, historyRange])
 
   const convertToCurrency = (amount: number, currency: string): number => {
     if (currency === displayCurrency) return amount
@@ -125,23 +231,24 @@ export default function Dashboard() {
   const currency = summary?.display_currency || displayCurrency
   const gainLossClass = (summary?.total_gain_loss ?? 0) >= 0 ? 'positive' : 'negative'
   const dailyChangeClass = dailyChangeConverted >= 0 ? 'positive' : 'negative'
+  const selectedHistoryRange = HISTORY_RANGE_OPTIONS.find((option) => option.key === historyRange) || HISTORY_RANGE_OPTIONS[1]
 
-  const chartData = portfolioHistory.map(h => {
-    const dateStr = h.date.includes('T') ? h.date.split('T')[0] : h.date
-    const date = new Date(dateStr + 'T00:00:00Z')
+  const chartData: ChartPoint[] = portfolioHistory.map(h => {
     const convertedValue = convertToCurrency(h.value, 'SEK')
     return {
-      date: date.toLocaleDateString('en-US', { month: 'short', day: 'numeric', timeZone: 'UTC' }),
-      fullDate: date.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric', year: 'numeric', timeZone: 'UTC' }),
+      date: h.date,
       value: convertedValue
     }
   })
+  const rangeTargetPoints = getRangeTargetPoints(historyRange)
+  const displayedChartData = rangeTargetPoints ? downsampleChartData(chartData, rangeTargetPoints) : chartData
 
   const minValue = chartData.length > 0 ? Math.min(...chartData.map(h => h.value)) : 0
   const maxValue = chartData.length > 0 ? Math.max(...chartData.map(h => h.value)) : 0
   const valueRange = maxValue - minValue || 1
   const yMin = Math.max(0, minValue - valueRange * 0.1)
   const yMax = maxValue + valueRange * 0.1
+  const baselineValue = displayedChartData.length > 0 ? displayedChartData[0].value : 0
 
   const groupedDividends = upcomingDividends.reduce((acc, div) => {
     const payoutDate = div.payment_date || div.ex_date
@@ -200,7 +307,33 @@ export default function Dashboard() {
       {portfolioHistory.length > 0 && (
         <div className="card" style={{ marginBottom: '24px' }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
-            <h3>Portfolio Performance (90 days)</h3>
+            <div style={{ display: 'flex', gap: '12px', alignItems: 'center', flexWrap: 'wrap' }}>
+              <h3 style={{ margin: 0 }}>Portfolio Performance ({selectedHistoryRange.title})</h3>
+              <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+                {HISTORY_RANGE_OPTIONS.map((option) => {
+                  const selected = option.key === historyRange
+                  return (
+                    <button
+                      key={option.key}
+                      type="button"
+                      onClick={() => setHistoryRange(option.key)}
+                      style={{
+                        border: '1px solid var(--border-color)',
+                        borderRadius: 6,
+                        padding: '4px 10px',
+                        fontSize: '12px',
+                        fontWeight: 600,
+                        color: selected ? 'white' : 'var(--text-secondary)',
+                        background: selected ? 'var(--accent-blue)' : 'transparent',
+                        cursor: 'pointer'
+                      }}
+                    >
+                      {option.label}
+                    </button>
+                  )
+                })}
+              </div>
+            </div>
             <div style={{ display: 'flex', gap: '16px', fontSize: '12px', color: 'var(--text-secondary)' }}>
               <span>Low: {formatCurrency(minValue, currency)}</span>
               <span>High: {formatCurrency(maxValue, currency)}</span>
@@ -208,7 +341,7 @@ export default function Dashboard() {
           </div>
           <div style={{ height: 300 }}>
             <ResponsiveContainer width="100%" height="100%">
-              <AreaChart data={chartData} margin={{ top: 10, right: 30, left: 0, bottom: 0 }}>
+              <AreaChart data={displayedChartData} margin={{ top: 10, right: 30, left: 0, bottom: 0 }}>
                 <defs>
                   <linearGradient id="colorValue" x1="0" y1="0" x2="0" y2="1">
                     <stop offset="5%" stopColor="#6366f1" stopOpacity={0.3}/>
@@ -221,6 +354,8 @@ export default function Dashboard() {
                   stroke="#888" 
                   fontSize={11}
                   interval="preserveStartEnd"
+                  minTickGap={24}
+                  tickFormatter={(value) => formatXAxisTick(String(value), historyRange)}
                 />
                 <YAxis 
                   stroke="#888" 
@@ -230,12 +365,7 @@ export default function Dashboard() {
                 />
                 <Tooltip 
                   formatter={(value: number) => [formatCurrency(value, currency), 'Portfolio Value']}
-                  labelFormatter={(label, payload) => {
-                    if (payload && payload[0]) {
-                      return payload[0].payload.fullDate
-                    }
-                    return label
-                  }}
+                  labelFormatter={(label) => formatTooltipDate(String(label), historyRange)}
                   contentStyle={{ 
                     background: '#2a2a2a', 
                     border: '1px solid #444', 
@@ -244,6 +374,31 @@ export default function Dashboard() {
                     boxShadow: '0 4px 12px rgba(0,0,0,0.3)'
                   }}
                   itemStyle={{ color: '#fff' }}
+                  content={({ active, payload, label }) => {
+                    if (!active || !payload || !payload.length) return null
+                    const currentValue = Number(payload[0].value ?? 0)
+                    const absoluteChange = currentValue - baselineValue
+                    const percentChange = baselineValue !== 0 ? (absoluteChange / baselineValue) * 100 : 0
+                    const changeColor = absoluteChange >= 0 ? 'var(--accent-green)' : 'var(--accent-red)'
+                    const sign = absoluteChange >= 0 ? '+' : ''
+
+                    return (
+                      <div style={{
+                        background: '#2a2a2a',
+                        border: '1px solid #444',
+                        borderRadius: '8px',
+                        color: '#fff',
+                        boxShadow: '0 4px 12px rgba(0,0,0,0.3)',
+                        padding: '10px 12px'
+                      }}>
+                        <div style={{ marginBottom: '8px', fontWeight: 600 }}>{formatTooltipDate(String(label), historyRange)}</div>
+                        <div style={{ marginBottom: '6px' }}>Portfolio Value: {formatCurrency(currentValue, currency)}</div>
+                        <div style={{ color: changeColor, fontWeight: 600 }}>
+                          Change: {sign}{formatCurrency(absoluteChange, currency)} ({sign}{percentChange.toFixed(2)}%)
+                        </div>
+                      </div>
+                    )
+                  }}
                 />
                 <Area 
                   type="monotone" 

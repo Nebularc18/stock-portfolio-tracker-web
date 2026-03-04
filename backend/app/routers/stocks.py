@@ -6,7 +6,7 @@ including CRUD operations, dividend tracking, and analyst data.
 
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
-from datetime import datetime
+from datetime import datetime, timezone
 from pydantic import BaseModel
 from typing import Optional
 import uuid
@@ -16,6 +16,10 @@ from app.main import get_db, Stock, StockCreate, StockUpdate, StockResponse, Sto
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
+
+
+def utc_now() -> datetime:
+    return datetime.now(timezone.utc)
 
 
 class ManualDividendCreate(BaseModel):
@@ -146,7 +150,7 @@ def create_stock(stock_data: StockCreate, db: Session = Depends(get_db)):
         previous_close=info.get("previous_close"),
         dividend_yield=info.get("dividend_yield"),
         dividend_per_share=info.get("dividend_per_share"),
-        last_updated=datetime.utcnow(),
+        last_updated=utc_now(),
     )
     
     db.add(stock)
@@ -238,7 +242,7 @@ def refresh_stock(ticker: str, db: Session = Depends(get_db)):
         stock.dividend_yield = info.get("dividend_yield")
         stock.dividend_per_share = info.get("dividend_per_share")
         stock.sector = info.get("sector") or stock.sector
-        stock.last_updated = datetime.utcnow()
+        stock.last_updated = utc_now()
         
         should_refresh_logo = (not stock.logo) or ('cdn.brandfetch.io' in stock.logo)
         if should_refresh_logo:
@@ -367,7 +371,7 @@ def add_manual_dividend(ticker: str, dividend_data: ManualDividendCreate, db: Se
         "amount": dividend_data.amount,
         "currency": dividend_data.currency or stock.currency,
         "note": dividend_data.note or "",
-        "added_at": datetime.utcnow().isoformat(),
+        "added_at": utc_now().isoformat(),
     }
     manual_divs.append(new_dividend)
     stock.manual_dividends = manual_divs
@@ -414,7 +418,7 @@ def update_manual_dividend(
                 div["currency"] = dividend_data.currency
             if dividend_data.note is not None:
                 div["note"] = dividend_data.note
-            div["updated_at"] = datetime.utcnow().isoformat()
+            div["updated_at"] = utc_now().isoformat()
             found = True
             break
     
@@ -493,7 +497,7 @@ def suppress_broker_dividend(ticker: str, data: SuppressDividendCreate, db: Sess
         "date": data.date,
         "amount": data.amount,
         "currency": data.currency or stock.currency,
-        "suppressed_at": datetime.utcnow().isoformat(),
+        "suppressed_at": utc_now().isoformat(),
     }
     suppressed.append(suppression)
     stock.suppressed_dividends = suppressed
@@ -574,7 +578,7 @@ def get_stock_price_history(ticker: str, days: int = 30, db: Session = Depends(g
         raise HTTPException(status_code=404, detail="Stock not found")
     
     from datetime import timedelta
-    start_date = datetime.utcnow() - timedelta(days=days)
+    start_date = utc_now() - timedelta(days=days)
     
     history = db.query(StockPriceHistory).filter(
         StockPriceHistory.ticker == ticker_upper,

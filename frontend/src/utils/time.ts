@@ -1,7 +1,16 @@
+function parseDatePreservingUtc(date: Date | string): Date {
+  if (date instanceof Date) return date
+
+  const value = date.trim()
+  const hasTimezone = /([zZ]|[+-]\d{2}:\d{2})$/.test(value)
+  const normalized = hasTimezone ? value : `${value}Z`
+  return new Date(normalized)
+}
+
 export function formatTimeInTimezone(date: Date | string | null, timezone: string): string {
   if (!date) return '-'
-  
-  const d = typeof date === 'string' ? new Date(date) : date
+
+  const d = parseDatePreservingUtc(date)
   
   try {
     return d.toLocaleTimeString('en-US', {
@@ -23,8 +32,8 @@ export function formatTimeInTimezone(date: Date | string | null, timezone: strin
 
 export function formatDateTimeInTimezone(date: Date | string | null, timezone: string): string {
   if (!date) return '-'
-  
-  const d = typeof date === 'string' ? new Date(date) : date
+
+  const d = parseDatePreservingUtc(date)
   
   try {
     return d.toLocaleString('en-US', {
