@@ -43,6 +43,17 @@ function getDaysUntil(dateStr: string): number {
   return Math.ceil((target.getTime() - today.getTime()) / (1000 * 60 * 60 * 24))
 }
 
+function getMonthKey(dateStr: string): string {
+  const [year, month] = dateStr.split('-').map(Number)
+  return `${year}-${String(month).padStart(2, '0')}`
+}
+
+function formatMonthLabel(monthKey: string): string {
+  const [year, month] = monthKey.split('-').map(Number)
+  const date = new Date(Date.UTC(year, month - 1, 1))
+  return date.toLocaleDateString('sv-SE', { year: 'numeric', month: 'long' })
+}
+
 /**
  * Displays a list of upcoming dividend payments for the user's portfolio, including a summary, per-stock details, unmapped-stock warnings, and controls to refresh or retry loading.
  *
@@ -91,6 +102,23 @@ export default function UpcomingDividends() {
       </div>
     )
   }
+
+  const groupedByMonth = dividends.reduce((acc, div) => {
+    const key = getMonthKey(div.ex_date)
+    if (!acc[key]) {
+      acc[key] = []
+    }
+    acc[key].push(div)
+    return acc
+  }, {} as Record<string, UpcomingDividend[]>)
+
+  const monthlyGroups = Object.entries(groupedByMonth)
+    .sort(([a], [b]) => a.localeCompare(b))
+    .map(([monthKey, items]) => ({
+      monthKey,
+      items,
+      subtotal: items.reduce((sum, item) => sum + (item.total_converted ?? 0), 0),
+    }))
 
   return (
     <div>
@@ -169,78 +197,96 @@ export default function UpcomingDividends() {
           </div>
 
           <div className="card">
-            <table>
-              <thead>
-                <tr>
-                  <th>Stock</th>
-                  <th>Ex-Date</th>
-                  <th>Per Share</th>
-                  <th>Quantity</th>
-                  <th>Total</th>
-                  <th>Source</th>
-                </tr>
-              </thead>
-              <tbody>
-                {dividends.map((div, i) => {
-                  const daysUntil = getDaysUntil(div.ex_date)
-                  const isSoon = daysUntil <= 7 && daysUntil >= 0
-                  
-                  return (
-                    <tr key={`${div.ticker}-${i}`}>
-                      <td>
-                        <Link to={`/stocks/${div.ticker}`} style={{ color: 'var(--accent-blue)', textDecoration: 'none', fontWeight: '600' }}>
-                          {div.ticker}
-                        </Link>
-                        <span style={{ color: 'var(--text-secondary)', marginLeft: '8px', fontSize: '12px' }}>
-                          {div.name}
-                        </span>
-                      </td>
-                      <td>
-                        <span style={{ 
-                          color: isSoon ? 'var(--accent-orange)' : 'inherit',
-                          fontWeight: isSoon ? '600' : 'normal'
-                        }}>
-                          {formatDate(div.ex_date)}
-                        </span>
-                        {daysUntil >= 0 && daysUntil <= 30 && (
-                          <span style={{ 
-                            display: 'block', 
-                            fontSize: '11px', 
-                            color: 'var(--text-secondary)' 
-                          }}>
-                            {daysUntil === 0 ? 'Today!' : `In ${daysUntil} day${daysUntil > 1 ? 's' : ''}`}
-                          </span>
-                        )}
-                      </td>
-                      <td>{formatCurrency(div.amount_per_share, div.currency)}</td>
-                      <td>{div.quantity}</td>
-                      <td>
-                        <span style={{ color: 'var(--accent-green)', fontWeight: '600' }}>
-                          {formatCurrency(div.total_converted !== null ? div.total_converted : div.total_amount, div.total_converted !== null ? displayCurrency : div.currency)}
-                        </span>
-                        {div.total_converted !== null && div.currency !== displayCurrency && (
-                          <span style={{ display: 'block', fontSize: '11px', color: 'var(--text-secondary)' }}>
-                            {formatCurrency(div.total_amount, div.currency)}
-                          </span>
-                        )}
-                      </td>
-                      <td>
-                        <span style={{
-                          padding: '2px 8px',
-                          borderRadius: '4px',
-                          fontSize: '11px',
-                          fontWeight: '600',
-                          background: div.source === 'avanza' ? 'var(--accent-green)' : 'var(--accent-blue)',
-                          color: 'white'
-                        }}>
-                          {div.source === 'avanza' ? 'Avanza' : 'Yahoo'}
-                        </span>
-                      </td>
+            {monthlyGroups.map((group) => (
+              <div key={group.monthKey} style={{ marginBottom: '24px' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px' }}>
+                  <h3 style={{ fontSize: '18px', margin: 0 }}>{formatMonthLabel(group.monthKey)}</h3>
+                  <span style={{ color: 'var(--accent-green)', fontWeight: '600' }}>
+                    {formatCurrency(group.subtotal, displayCurrency)}
+                  </span>
+                </div>
+
+                <table>
+                  <thead>
+                    <tr>
+                      <th>Stock</th>
+                      <th>Ex-Date</th>
+                      <th>Dividend Date</th>
+                      <th>Per Share</th>
+                      <th>Quantity</th>
+                      <th>Total</th>
+                      <th>Source</th>
                     </tr>
-                  )
-                })}
-              </tbody>
-            </table>
+                  </thead>
+                  <tbody>
+                    {group.items.map((div, i) => {
+                      const daysUntil = getDaysUntil(div.ex_date)
+                      const isSoon = daysUntil <= 7 && daysUntil >= 0
+
+                      return (
+                        <tr key={`${div.ticker}-${div.ex_date}-${div.payment_date ?? 'na'}-${div.dividend_type ?? 'na'}-${i}`}>
+                          <td>
+                            <Link to={`/stocks/${div.ticker}`} style={{ color: 'var(--accent-blue)', textDecoration: 'none', fontWeight: '600' }}>
+                              {div.ticker}
+                            </Link>
+                            <span style={{ color: 'var(--text-secondary)', marginLeft: '8px', fontSize: '12px' }}>
+                              {div.name}
+                            </span>
+                            {div.dividend_type && (
+                              <span style={{ display: 'block', color: 'var(--text-secondary)', fontSize: '11px' }}>
+                                {div.dividend_type}
+                              </span>
+                            )}
+                          </td>
+                          <td>
+                            <span style={{
+                              color: isSoon ? 'var(--accent-orange)' : 'inherit',
+                              fontWeight: isSoon ? '600' : 'normal'
+                            }}>
+                              {formatDate(div.ex_date)}
+                            </span>
+                            {daysUntil >= 0 && daysUntil <= 30 && (
+                              <span style={{
+                                display: 'block',
+                                fontSize: '11px',
+                                color: 'var(--text-secondary)'
+                              }}>
+                                {daysUntil === 0 ? 'Today!' : `In ${daysUntil} day${daysUntil > 1 ? 's' : ''}`}
+                              </span>
+                            )}
+                          </td>
+                          <td>{div.payment_date ? formatDate(div.payment_date) : '-'}</td>
+                          <td>{formatCurrency(div.amount_per_share, div.currency)}</td>
+                          <td>{div.quantity}</td>
+                          <td>
+                            <span style={{ color: 'var(--accent-green)', fontWeight: '600' }}>
+                              {formatCurrency(div.total_converted !== null ? div.total_converted : div.total_amount, div.total_converted !== null ? displayCurrency : div.currency)}
+                            </span>
+                            {div.total_converted !== null && div.currency !== displayCurrency && (
+                              <span style={{ display: 'block', fontSize: '11px', color: 'var(--text-secondary)' }}>
+                                {formatCurrency(div.total_amount, div.currency)}
+                              </span>
+                            )}
+                          </td>
+                          <td>
+                            <span style={{
+                              padding: '2px 8px',
+                              borderRadius: '4px',
+                              fontSize: '11px',
+                              fontWeight: '600',
+                              background: div.source === 'avanza' ? 'var(--accent-green)' : 'var(--accent-blue)',
+                              color: 'white'
+                            }}>
+                              {div.source === 'avanza' ? 'Avanza' : 'Yahoo'}
+                            </span>
+                          </td>
+                        </tr>
+                      )
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            ))}
           </div>
         </>
       )}

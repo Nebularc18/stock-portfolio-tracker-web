@@ -54,7 +54,7 @@ export default function InfographicLayout() {
   ]
   
   const isActive = (path: string) => {
-    if (path === '/dividends/history' && location.pathname.startsWith('/dividends')) return true
+    if (path === '/dividends/history') return location.pathname === '/dividends/history'
     return location.pathname === path
   }
   

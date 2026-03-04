@@ -1,4 +1,4 @@
-import { BrowserRouter, Routes, Route } from 'react-router-dom'
+import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
 import Dashboard from './pages/Dashboard'
 import Stocks from './pages/Stocks'
 import Markets from './pages/Markets'
@@ -7,7 +7,6 @@ import Settings from './pages/Settings'
 import Performance from './pages/Performance'
 import Analytics from './pages/Analytics'
 import HistoricalDividends from './pages/HistoricalDividends'
-import UpcomingDividends from './pages/UpcomingDividends'
 import { SettingsProvider } from './SettingsContext'
 import InfographicLayout from './layouts/InfographicLayout'
 
@@ -25,7 +24,7 @@ function App() {
             <Route path="/" element={<Dashboard />} />
             <Route path="/performance" element={<Performance />} />
             <Route path="/analytics" element={<Analytics />} />
-            <Route path="/dividends" element={<UpcomingDividends />} />
+            <Route path="/dividends" element={<Navigate to="/" replace />} />
             <Route path="/dividends/history" element={<HistoricalDividends />} />
             <Route path="/stocks" element={<Stocks />} />
             <Route path="/stocks/:ticker" element={<StockDetail />} />

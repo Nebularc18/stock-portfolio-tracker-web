@@ -150,31 +150,26 @@ export default function HistoricalDividends() {
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '24px' }}>
         <h2 style={{ fontSize: '24px', fontWeight: '600' }}>Dividend History</h2>
         <div style={{ display: 'flex', gap: '12px', alignItems: 'center' }}>
-          <Link to="/dividends" style={{ color: 'var(--accent-blue)', textDecoration: 'none', fontSize: '14px' }}>
-            View Upcoming →
-          </Link>
-          <div style={{ display: 'flex', gap: '12px', alignItems: 'center' }}>
-            <label htmlFor="year-select" style={{ color: 'var(--text-secondary)', fontSize: '14px' }}>Year:</label>
-            <select
-            id="year-select"
-            value={selectedYear}
-            onChange={(e) => setSelectedYear(parseInt(e.target.value))}
-            style={{
-              padding: '8px 12px',
-              border: '1px solid var(--border-color)',
-              borderRadius: '6px',
-              background: 'var(--bg-tertiary)',
-              color: 'var(--text-primary)',
-              fontSize: '14px',
-            }}
-           >
-             {availableYears.map((year) => (
-               <option key={year} value={year}>
-                 {year}
-               </option>
-             ))}
-           </select>
-           </div>
+          <label htmlFor="year-select" style={{ color: 'var(--text-secondary)', fontSize: '14px' }}>Year:</label>
+          <select
+          id="year-select"
+          value={selectedYear}
+          onChange={(e) => setSelectedYear(parseInt(e.target.value))}
+          style={{
+            padding: '8px 12px',
+            border: '1px solid var(--border-color)',
+            borderRadius: '6px',
+            background: 'var(--bg-tertiary)',
+            color: 'var(--text-primary)',
+            fontSize: '14px',
+          }}
+         >
+           {availableYears.map((year) => (
+             <option key={year} value={year}>
+               {year}
+             </option>
+           ))}
+         </select>
          </div>
        </div>
 

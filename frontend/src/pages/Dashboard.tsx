@@ -24,11 +24,24 @@ function formatDate(dateStr: string): string {
   return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric', timeZone: 'UTC' })
 }
 
+function getMonthKey(dateStr: string): string {
+  const [year, month] = dateStr.split('-').map(Number)
+  return `${year}-${String(month).padStart(2, '0')}`
+}
+
+function formatMonthLabel(monthKey: string): string {
+  const [year, month] = monthKey.split('-').map(Number)
+  const date = new Date(Date.UTC(year, month - 1, 1))
+  return date.toLocaleDateString('en-US', { month: 'long', year: 'numeric', timeZone: 'UTC' })
+}
+
 export default function Dashboard() {
   const navigate = useNavigate()
   const [summary, setSummary] = useState<PortfolioSummary | null>(null)
   const [upcomingDividends, setUpcomingDividends] = useState<UpcomingDividend[]>([])
   const [totalExpectedDividends, setTotalExpectedDividends] = useState(0)
+  const [totalReceivedDividends, setTotalReceivedDividends] = useState(0)
+  const [totalRemainingDividends, setTotalRemainingDividends] = useState(0)
   const [stocks, setStocks] = useState<Stock[]>([])
   const [exchangeRates, setExchangeRates] = useState<Record<string, number | null>>({})
   const [portfolioHistory, setPortfolioHistory] = useState<{ date: string; value: number }[]>([])
@@ -45,7 +58,7 @@ export default function Dashboard() {
         api.stocks.list(),
         api.market.exchangeRates(),
         api.portfolio.history(90).catch(() => []),
-        api.portfolio.upcomingDividends().catch(() => ({ dividends: [], total_expected: 0, display_currency: displayCurrency, unmapped_stocks: [] })),
+        api.portfolio.upcomingDividends().catch(() => ({ dividends: [], total_expected: 0, total_received: 0, total_remaining: 0, display_currency: displayCurrency, unmapped_stocks: [] })),
       ])
       setSummary(summaryData)
       setStocks(stocksData)
@@ -53,6 +66,8 @@ export default function Dashboard() {
       setPortfolioHistory(historyData)
       setUpcomingDividends(upcomingDivsData.dividends)
       setTotalExpectedDividends(upcomingDivsData.total_expected)
+      setTotalReceivedDividends(upcomingDivsData.total_received)
+      setTotalRemainingDividends(upcomingDivsData.total_remaining)
       setFailedLogos({})
       setError(null)
     } catch (err) {
@@ -127,6 +142,24 @@ export default function Dashboard() {
   const valueRange = maxValue - minValue || 1
   const yMin = Math.max(0, minValue - valueRange * 0.1)
   const yMax = maxValue + valueRange * 0.1
+
+  const groupedDividends = upcomingDividends.reduce((acc, div) => {
+    const payoutDate = div.payment_date || div.ex_date
+    const key = getMonthKey(payoutDate)
+    if (!acc[key]) {
+      acc[key] = []
+    }
+    acc[key].push(div)
+    return acc
+  }, {} as Record<string, UpcomingDividend[]>)
+
+  const monthlyUpcoming = Object.entries(groupedDividends)
+    .sort(([a], [b]) => a.localeCompare(b))
+    .map(([monthKey, items]) => ({
+      monthKey,
+      items,
+      subtotal: items.reduce((sum, item) => sum + (item.total_converted ?? 0), 0),
+    }))
 
   return (
     <div>
@@ -317,57 +350,70 @@ export default function Dashboard() {
       {upcomingDividends.length > 0 && (
         <div className="card">
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
-            <h3>Upcoming Dividends</h3>
+            <h3>Dividends (This Year)</h3>
             <span style={{ color: 'var(--accent-green)', fontWeight: '600', fontSize: '18px' }}>
               {formatCurrency(totalExpectedDividends, currency)}
             </span>
           </div>
-          <table>
-            <thead>
-              <tr>
-                <th>Ticker</th>
-                <th>Ex-Date</th>
-                <th>Per Share</th>
-                <th>Total</th>
-                <th>Source</th>
-              </tr>
-            </thead>
-            <tbody>
-              {upcomingDividends.slice(0, 5).map((div, i) => (
-                <tr key={`${div.ticker}-${i}`}>
-                  <td>
-                    <Link to={`/stocks/${div.ticker}`} style={{ color: 'var(--accent-blue)', textDecoration: 'none', fontWeight: '600' }}>
-                      {div.ticker}
-                    </Link>
-                  </td>
-                  <td>{formatDate(div.ex_date)}</td>
-                  <td>{formatCurrency(div.amount_per_share, div.currency)}</td>
-                  <td style={{ color: 'var(--accent-green)' }}>
-                    {formatCurrency(div.total_converted !== null ? div.total_converted : div.total_amount, div.total_converted !== null ? currency : div.currency)}
-                  </td>
-                  <td>
-                    <span style={{
-                      padding: '2px 8px',
-                      borderRadius: '4px',
-                      fontSize: '11px',
-                      fontWeight: '600',
-                      background: div.source === 'avanza' ? 'var(--accent-green)' : (div.source === 'yahoo' ? 'var(--accent-blue)' : 'var(--text-secondary)'),
-                      color: 'white'
-                    }}>
-                      {div.source === 'avanza' ? 'Avanza' : (div.source === 'yahoo' ? 'Yahoo' : 'Unknown')}
-                    </span>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-          {upcomingDividends.length > 5 && (
-            <div style={{ textAlign: 'center', padding: '12px', borderTop: '1px solid var(--border-color)', marginTop: '12px' }}>
-              <Link to="/dividends" style={{ color: 'var(--accent-blue)', textDecoration: 'none', fontSize: '14px' }}>
-                View all {upcomingDividends.length} upcoming dividends →
-              </Link>
+          <div style={{ display: 'flex', gap: '20px', marginBottom: '14px' }}>
+            <span style={{ color: 'var(--text-secondary)', fontSize: '13px' }}>
+              Received: <strong style={{ color: 'var(--accent-green)' }}>{formatCurrency(totalReceivedDividends, currency)}</strong>
+            </span>
+            <span style={{ color: 'var(--text-secondary)', fontSize: '13px' }}>
+              Remaining: <strong style={{ color: 'var(--accent-blue)' }}>{formatCurrency(totalRemainingDividends, currency)}</strong>
+            </span>
+          </div>
+          {monthlyUpcoming.map((group) => (
+            <div key={group.monthKey} style={{ marginBottom: '20px' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
+                <h4 style={{ margin: 0, color: 'var(--text-secondary)', fontSize: '14px' }}>{formatMonthLabel(group.monthKey)}</h4>
+                <span style={{ color: 'var(--accent-green)', fontWeight: '600' }}>
+                  {formatCurrency(group.subtotal, currency)}
+                </span>
+              </div>
+              <table style={{ width: '100%', tableLayout: 'fixed' }}>
+                <thead>
+                  <tr>
+                    <th style={{ width: '18%' }}>Ticker</th>
+                    <th style={{ width: '14%' }}>Ex-Date</th>
+                    <th style={{ width: '16%' }}>Dividend Date</th>
+                    <th style={{ width: '18%', textAlign: 'right' }}>Per Share</th>
+                    <th style={{ width: '18%', textAlign: 'right' }}>Total</th>
+                    <th style={{ width: '16%' }}>Source</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {group.items.map((div, i) => (
+                    <tr key={`${div.ticker}-${div.ex_date}-${div.payment_date ?? 'na'}-${div.dividend_type ?? 'na'}-${i}`}>
+                      <td>
+                        <Link to={`/stocks/${div.ticker}`} style={{ color: 'var(--accent-blue)', textDecoration: 'none', fontWeight: '600' }}>
+                          {div.ticker}
+                        </Link>
+                      </td>
+                      <td>{formatDate(div.ex_date)}</td>
+                      <td>{div.payment_date ? formatDate(div.payment_date) : '-'}</td>
+                      <td style={{ textAlign: 'right' }}>{formatCurrency(div.amount_per_share, div.currency)}</td>
+                      <td style={{ color: 'var(--accent-green)', textAlign: 'right' }}>
+                        {formatCurrency(div.total_converted !== null ? div.total_converted : div.total_amount, div.total_converted !== null ? currency : div.currency)}
+                      </td>
+                      <td>
+                        <span style={{
+                          padding: '2px 8px',
+                          borderRadius: '4px',
+                          fontSize: '11px',
+                          fontWeight: '600',
+                          background: div.source === 'avanza' ? 'var(--accent-green)' : (div.source === 'yahoo' ? 'var(--accent-blue)' : 'var(--text-secondary)'),
+                          color: 'white'
+                        }}>
+                          {div.source === 'avanza' ? 'Avanza' : (div.source === 'yahoo' ? 'Yahoo' : 'Unknown')}
+                        </span>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
             </div>
-          )}
+          ))}
         </div>
       )}
      </div>

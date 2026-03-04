@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import { useParams, Link, useNavigate } from 'react-router-dom'
-import { api, Stock, Dividend, AnalystData, ManualDividend, CompanyProfile, FinancialMetrics, VerificationResult, MarketstackUsage } from '../services/api'
+import { api, Stock, Dividend, StockUpcomingDividend, AnalystData, ManualDividend, CompanyProfile, FinancialMetrics, VerificationResult, MarketstackUsage } from '../services/api'
 import CompanyProfileComponent from '../components/CompanyProfile'
 import FinancialMetricsComponent from '../components/FinancialMetrics'
 import PeerCompanies from '../components/PeerCompanies'
@@ -26,7 +26,7 @@ export default function StockDetail() {
   const navigate = useNavigate()
   const [stock, setStock] = useState<Stock | null>(null)
   const [dividends, setDividends] = useState<Dividend[]>([])
-  const [upcomingDividends, setUpcomingDividends] = useState<Dividend[]>([])
+  const [upcomingDividends, setUpcomingDividends] = useState<StockUpcomingDividend[]>([])
   const [analystData, setAnalystData] = useState<AnalystData | null>(null)
   const [suppressedDividends, setSuppressedDividends] = useState<ManualDividend[]>([])
   const [loading, setLoading] = useState(true)
@@ -483,7 +483,8 @@ export default function StockDetail() {
               <table>
                 <thead>
                   <tr>
-                    <th>Date</th>
+                    <th>Ex-Date</th>
+                    <th>Dividend Date</th>
                     <th>Amount</th>
                     <th>Source</th>
                   </tr>
@@ -491,7 +492,8 @@ export default function StockDetail() {
                 <tbody>
                   {upcomingDividends.map((div, i) => (
                     <tr key={i}>
-                      <td>{formatDate(div.date)}</td>
+                      <td>{formatDate(div.ex_date)}</td>
+                      <td>{div.payment_date ? formatDate(div.payment_date) : '-'}</td>
                       <td>{formatCurrency(div.amount, div.currency || stock.currency)}</td>
                       <td style={{ color: 'var(--text-secondary)', fontSize: '12px' }}>
                         {div.source || 'historical'}

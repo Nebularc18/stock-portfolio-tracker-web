@@ -489,24 +489,53 @@ class StockService:
         # Check if there's an Avanza mapping for this ticker - takes precedence
         avanza_mapping = avanza_service.get_mapping_by_ticker(ticker)
         if avanza_mapping and avanza_mapping.instrument_id:
-            avanza_div = avanza_service.get_stock_dividend(ticker)
-            if avanza_div:
-                logger.debug(f"Found Avanza dividend for {ticker}: ex_date={avanza_div.ex_date}, amount={avanza_div.amount}")
+            avanza_dividends = avanza_service.get_stock_dividends(ticker)
+            if avanza_dividends:
+                logger.debug(f"Found {len(avanza_dividends)} Avanza upcoming dividends for {ticker}")
                 return [{
-                    'ex_date': avanza_div.ex_date,
-                    'amount': avanza_div.amount,
-                    'currency': avanza_div.currency,
-                    'payment_date': avanza_div.payment_date,
+                    'ex_date': div.ex_date,
+                    'amount': div.amount,
+                    'currency': div.currency,
+                    'payment_date': div.payment_date,
+                    'dividend_type': div.dividend_type,
                     'source': 'avanza'
-                }]
-            else:
-                logger.debug(f"Avanza mapping found for {ticker} but no upcoming dividend returned")
+                } for div in avanza_dividends]
+
+            logger.debug(
+                f"Avanza mapping found for {ticker} but no upcoming dividends returned; "
+                f"not falling back to yfinance because mapped tickers are Avanza-only"
+            )
+            return []
         elif ticker.endswith('.ST'):
             logger.debug(f"Swedish ticker {ticker} has no Avanza mapping or instrument_id, falling back to yfinance")
         
         try:
             yf = importlib.import_module('yfinance')
             yf_ticker = yf.Ticker(ticker)
+
+            def _to_date_str(value: Any) -> Optional[str]:
+                if value is None:
+                    return None
+
+                if isinstance(value, list):
+                    if not value:
+                        return None
+                    value = value[0]
+
+                if hasattr(value, 'to_pydatetime'):
+                    value = value.to_pydatetime()
+
+                if hasattr(value, 'strftime'):
+                    return value.strftime('%Y-%m-%d')
+
+                if isinstance(value, (int, float)):
+                    try:
+                        return datetime.fromtimestamp(value, tz=timezone.utc).strftime('%Y-%m-%d')
+                    except (OSError, OverflowError, ValueError):
+                        return str(value)[:10]
+
+                value_str = str(value)
+                return value_str[:10] if len(value_str) >= 10 else None
             
             # Try to get dividend info from yfinance
             info = getattr(yf_ticker, 'info', {}) or {}
@@ -515,31 +544,34 @@ class StockService:
             calendar = getattr(yf_ticker, 'calendar', None)
             
             if calendar is not None and isinstance(calendar, dict):
-                dividend_date = calendar.get('Dividend Date')
-                
-                if dividend_date:
-                    if isinstance(dividend_date, list) and len(dividend_date) > 0:
-                        div_date = dividend_date[0]
-                    else:
-                        div_date = dividend_date
-                    
-                    if hasattr(div_date, 'strftime'):
-                        div_date_str = div_date.strftime('%Y-%m-%d')
-                    else:
-                        div_date_str = str(div_date)[:10]
-                    
-                    div_rate = info.get('dividendRate')
-                    
-                    logger.debug(f"Found yfinance calendar dividend for {ticker}: ex_date={div_date_str}, amount={div_rate}")
+                calendar_ex_date = (
+                    calendar.get('Ex-Dividend Date')
+                    or calendar.get('Ex Dividend Date')
+                    or info.get('exDividendDate')
+                )
+                calendar_payment_date = calendar.get('Dividend Date') or info.get('dividendDate')
+                ex_date_str = _to_date_str(calendar_ex_date)
+                payment_date_str = _to_date_str(calendar_payment_date)
+
+                div_rate = info.get('dividendRate') or info.get('forwardDividendRate')
+
+                if ex_date_str and div_rate:
+                    logger.debug(
+                        f"Found yfinance calendar dividend for {ticker}: "
+                        f"ex_date={ex_date_str}, payment_date={payment_date_str}, amount={div_rate}"
+                    )
                     return [{
-                        'ex_date': div_date_str,
+                        'ex_date': ex_date_str,
                         'amount': div_rate,
                         'currency': info.get('currency'),
+                        'payment_date': payment_date_str,
+                        'dividend_type': None,
                         'source': 'yahoo'
                     }]
             
             # Method 2: Fallback to info dict for ex-dividend date and dividend rate
             ex_dividend_timestamp = info.get('exDividendDate')
+            payment_timestamp = info.get('dividendDate')
             div_rate = info.get('dividendRate')
             forward_div_rate = info.get('forwardDividendRate')
             
@@ -547,21 +579,19 @@ class StockService:
             effective_div_rate = div_rate or forward_div_rate
             
             if ex_dividend_timestamp and effective_div_rate:
-                # Convert timestamp to date string
-                if isinstance(ex_dividend_timestamp, (int, float)):
-                    from datetime import datetime, timezone
-                    try:
-                        ex_date = datetime.fromtimestamp(ex_dividend_timestamp, tz=timezone.utc).strftime('%Y-%m-%d')
-                    except (OSError, OverflowError, ValueError):
-                        ex_date = str(ex_dividend_timestamp)[:10]
-                else:
-                    ex_date = str(ex_dividend_timestamp)[:10]
+                ex_date = _to_date_str(ex_dividend_timestamp)
+                payment_date = _to_date_str(payment_timestamp)
                 
-                logger.debug(f"Found yfinance info dividend for {ticker}: ex_date={ex_date}, amount={effective_div_rate}")
+                logger.debug(
+                    f"Found yfinance info dividend for {ticker}: "
+                    f"ex_date={ex_date}, payment_date={payment_date}, amount={effective_div_rate}"
+                )
                 return [{
                     'ex_date': ex_date,
                     'amount': effective_div_rate,
                     'currency': info.get('currency'),
+                    'payment_date': payment_date,
+                    'dividend_type': None,
                     'source': 'yahoo'
                 }]
             
@@ -574,7 +604,6 @@ class StockService:
                     last_div_date = dividends_attr.index[-1]
                     
                     # Only return if the dividend is recent (within last 90 days) or upcoming
-                    from datetime import datetime, timedelta, timezone
                     recent_date = datetime.now(tz=timezone.utc) - timedelta(days=90)
                     
                     if hasattr(last_div_date, 'to_pydatetime'):
@@ -594,6 +623,8 @@ class StockService:
                             'ex_date': ex_date_str,
                             'amount': float(last_div),
                             'currency': info.get('currency'),
+                            'payment_date': _to_date_str(info.get('dividendDate')),
+                            'dividend_type': None,
                             'source': 'yahoo'
                         }]
                 except Exception as div_err:

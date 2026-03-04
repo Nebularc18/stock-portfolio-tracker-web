@@ -347,19 +347,22 @@ def get_portfolio_distribution(db: Session = Depends(get_db)):
 @router.get("/upcoming-dividends")
 def get_upcoming_portfolio_dividends(db: Session = Depends(get_db)):
     """
-    Collect upcoming dividend events for all portfolio stocks and convert per-stock totals into the user's display currency.
+    Collect current-year dividend events for all portfolio stocks and convert per-stock totals into the user's display currency.
     
     Returns:
         dict: A mapping with keys:
-            - dividends (list): Each item is a dict with keys `ticker`, `name`, `quantity`, `ex_date`, `payment_date`,
+                        - dividends (list): Each item is a dict with keys `ticker`, `name`, `quantity`, `ex_date`, `payment_date`,
               `amount_per_share`, `total_amount` (amount_per_share * quantity), `currency`, `total_converted` (converted to
-              display currency or `None` if conversion not available), `display_currency`, and `source`.
-            - total_expected (float): Sum of `total_converted` for dividends where conversion succeeded.
+                            display currency or `None` if conversion not available), `display_currency`, `source`, `payout_date`, and `status`.
+                        - total_expected (float): Sum of `total_converted` for current-year dividends where conversion succeeded.
+                        - total_received (float): Sum of paid current-year dividends (`status == 'paid'`) where conversion succeeded.
+                        - total_remaining (float): Sum of remaining current-year dividends (`status == 'upcoming'`) where conversion succeeded.
             - display_currency (str): The user's display currency used for conversions.
             - unmapped_stocks (list): List of dicts for Swedish tickers without Avanza mapping; each dict has `ticker`,
               `name`, and `reason`.
     """
     from app.services.stock_service import StockService
+    from app.services.avanza_service import avanza_service
     
     stock_service = StockService()
     stocks = db.query(Stock).all()
@@ -373,17 +376,74 @@ def get_upcoming_portfolio_dividends(db: Session = Depends(get_db)):
     unmapped_stocks = []
     seen_unmapped = set()
     today = datetime.utcnow().strftime('%Y-%m-%d')
+    current_year = datetime.utcnow().year
+
+    def normalize_dividend_event(raw_div: dict, event_type: str) -> dict:
+        if event_type == 'historical':
+            ex_date = raw_div.get('date', '')
+        else:
+            ex_date = raw_div.get('ex_date', '')
+
+        return {
+            'ex_date': ex_date,
+            'payment_date': raw_div.get('payment_date'),
+            'amount': raw_div.get('amount'),
+            'currency': raw_div.get('currency'),
+            'source': raw_div.get('source', 'yahoo'),
+            'dividend_type': raw_div.get('dividend_type')
+        }
     
     for stock in stocks:
-        upcoming = stock_service.get_upcoming_dividends(stock.ticker)
-        
-        if not upcoming:
+        avanza_mapping = avanza_service.get_mapping_by_ticker(stock.ticker)
+
+        if avanza_mapping and avanza_mapping.instrument_id:
+            avanza_events = avanza_service.get_stock_dividends_for_year(stock.ticker, current_year)
+            normalized_events = [{
+                'ex_date': div.ex_date,
+                'payment_date': div.payment_date,
+                'amount': div.amount,
+                'currency': div.currency,
+                'source': 'avanza',
+                'dividend_type': div.dividend_type
+            } for div in avanza_events]
+        else:
+            historical = stock_service.get_dividends(stock.ticker, years=2) or []
+            upcoming = stock_service.get_upcoming_dividends(stock.ticker) or []
+
+            normalized_events = [normalize_dividend_event(div, 'historical') for div in historical]
+            normalized_events.extend(normalize_dividend_event(div, 'upcoming') for div in upcoming)
+
+        if not normalized_events:
             continue
-        
-        for div in upcoming:
+
+        seen_event_keys = set()
+
+        for div in normalized_events:
             ex_date = div.get('ex_date', '')
-            if ex_date < today:
+            payment_date = div.get('payment_date')
+            payout_date = payment_date or ex_date
+
+            if not payout_date or len(payout_date) < 10:
                 continue
+
+            try:
+                payout_year = int(payout_date[:4])
+            except ValueError:
+                continue
+
+            if payout_year != current_year:
+                continue
+
+            event_key = (
+                ex_date,
+                payment_date,
+                div.get('amount'),
+                div.get('currency') or stock.currency,
+                div.get('dividend_type')
+            )
+            if event_key in seen_event_keys:
+                continue
+            seen_event_keys.add(event_key)
             
             amount = div.get('amount')
             if not amount or amount < 0:
@@ -404,6 +464,7 @@ def get_upcoming_portfolio_dividends(db: Session = Depends(get_db)):
             )
             
             source = div.get('source', 'yahoo')
+            status = 'paid' if payout_date < today else 'upcoming'
             
             if stock.ticker.endswith('.ST') and source == 'yahoo':
                 if stock.ticker not in seen_unmapped:
@@ -419,7 +480,10 @@ def get_upcoming_portfolio_dividends(db: Session = Depends(get_db)):
                 'name': stock.name,
                 'quantity': stock.quantity,
                 'ex_date': ex_date,
-                'payment_date': div.get('payment_date'),
+                'payment_date': payment_date,
+                'payout_date': payout_date,
+                'status': status,
+                'dividend_type': div.get('dividend_type'),
                 'amount_per_share': amount,
                 'total_amount': total_amount,
                 'currency': div_currency,
@@ -427,16 +491,30 @@ def get_upcoming_portfolio_dividends(db: Session = Depends(get_db)):
                 'display_currency': display_currency,
                 'source': source
             })
-    
-    dividends.sort(key=lambda x: x['ex_date'])
+
+    dividends.sort(key=lambda x: (x['payout_date'], x['ex_date']))
     
     total_expected = sum(
         d['total_converted'] for d in dividends if d['total_converted'] is not None
+    )
+
+    total_received = sum(
+        d['total_converted']
+        for d in dividends
+        if d['total_converted'] is not None and d.get('status') == 'paid'
+    )
+
+    total_remaining = sum(
+        d['total_converted']
+        for d in dividends
+        if d['total_converted'] is not None and d.get('status') == 'upcoming'
     )
     
     return {
         'dividends': dividends,
         'total_expected': total_expected,
+        'total_received': total_received,
+        'total_remaining': total_remaining,
         'display_currency': display_currency,
         'unmapped_stocks': unmapped_stocks
     }

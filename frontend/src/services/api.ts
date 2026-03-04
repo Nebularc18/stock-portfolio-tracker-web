@@ -87,6 +87,9 @@ export interface UpcomingDividend {
   quantity: number
   ex_date: string
   payment_date: string | null
+  payout_date?: string
+  status?: 'paid' | 'upcoming'
+  dividend_type?: string | null
   amount_per_share: number
   total_amount: number
   currency: string
@@ -95,9 +98,20 @@ export interface UpcomingDividend {
   source: string
 }
 
+export interface StockUpcomingDividend {
+  ex_date: string
+  amount: number | null
+  currency?: string
+  payment_date: string | null
+  dividend_type?: string | null
+  source?: string
+}
+
 export interface UpcomingDividendsResponse {
   dividends: UpcomingDividend[]
   total_expected: number
+  total_received: number
+  total_remaining: number
   display_currency: string
   unmapped_stocks: Array<{
     ticker: string
@@ -283,7 +297,7 @@ export const api = {
     delete: (ticker: string) => fetchAPI(`/stocks/${ticker}`, { method: 'DELETE' }),
     refresh: (ticker: string) => fetchAPI(`/stocks/${ticker}/refresh`, { method: 'POST' }) as Promise<Stock>,
     dividends: (ticker: string, years: number = 5) => fetchAPI(`/stocks/${ticker}/dividends?years=${years}`) as Promise<Dividend[]>,
-    upcomingDividends: (ticker: string) => fetchAPI(`/stocks/${ticker}/upcoming-dividends`) as Promise<Dividend[]>,
+    upcomingDividends: (ticker: string) => fetchAPI(`/stocks/${ticker}/upcoming-dividends`) as Promise<StockUpcomingDividend[]>,
     analyst: (ticker: string) => fetchAPI(`/stocks/${ticker}/analyst`) as Promise<AnalystData>,
     validate: (ticker: string) => fetchAPI(`/stocks/validate/${ticker}`),
     addManualDividend: (ticker: string, data: { date: string; amount: number; currency?: string; note?: string }) =>

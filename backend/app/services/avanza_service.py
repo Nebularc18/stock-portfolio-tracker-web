@@ -376,44 +376,132 @@ class AvanzaService:
         
         return dividends
     
-    def get_stock_dividend(self, yahoo_ticker: str) -> Optional[AvanzaDividend]:
+    def get_stock_dividends(self, yahoo_ticker: str) -> List[AvanzaDividend]:
         """
-        Finds the next upcoming Avanza dividend for a given Swedish Yahoo ticker.
-        
+        Return all upcoming Avanza dividends for a mapped Yahoo ticker.
+
         Returns:
-            AvanzaDividend: The nearest upcoming dividend whose `ex_date` is today or later, or `None` if the ticker is not a Swedish (.ST) ticker, no mapping or instrument_id exists, or no upcoming dividend is found.
+            List[AvanzaDividend]: Upcoming dividends (today or later), sorted by `ex_date`.
+            Returns an empty list when no mapping/instrument_id exists or no upcoming
+            events are available.
         """
-        if not yahoo_ticker.upper().endswith('.ST'):
-            logger.debug(f"get_stock_dividend: {yahoo_ticker} is not a Swedish ticker (.ST), skipping Avanza lookup")
-            return None
-        
         mapping = self.get_mapping_by_ticker(yahoo_ticker)
         if not mapping:
-            logger.debug(f"get_stock_dividend: No Avanza mapping found for {yahoo_ticker}")
-            return None
-        
+            logger.debug(f"get_stock_dividends: No Avanza mapping found for {yahoo_ticker}")
+            return []
+
         if not mapping.instrument_id:
-            logger.warning(f"get_stock_dividend: Avanza mapping for {yahoo_ticker} has no instrument_id (avanza_name={mapping.avanza_name})")
-            return None
-        
-        logger.debug(f"get_stock_dividend: Found mapping for {yahoo_ticker} -> instrument_id={mapping.instrument_id}, avanza_name={mapping.avanza_name}")
-        
+            logger.warning(
+                f"get_stock_dividends: Avanza mapping for {yahoo_ticker} has no instrument_id "
+                f"(avanza_name={mapping.avanza_name})"
+            )
+            return []
+
+        logger.debug(
+            f"get_stock_dividends: Found mapping for {yahoo_ticker} -> "
+            f"instrument_id={mapping.instrument_id}, avanza_name={mapping.avanza_name}"
+        )
+
         dividends = self._fetch_upcoming_for_stock(
             mapping.instrument_id,
             mapping.avanza_name,
             mapping.yahoo_ticker
         )
-        
+
         today = datetime.utcnow().strftime('%Y-%m-%d')
         upcoming = [div for div in dividends if div.ex_date >= today]
-        
-        if not upcoming:
-            logger.debug(f"get_stock_dividend: No upcoming dividends found for {yahoo_ticker} (fetched {len(dividends)} total dividends)")
-            return None
-        
         upcoming.sort(key=lambda d: d.ex_date)
-        logger.debug(f"get_stock_dividend: Found {len(upcoming)} upcoming dividends for {yahoo_ticker}, next ex_date={upcoming[0].ex_date}")
-        return upcoming[0]
+
+        if not upcoming:
+            logger.debug(
+                f"get_stock_dividends: No upcoming dividends found for {yahoo_ticker} "
+                f"(fetched {len(dividends)} total dividends)"
+            )
+
+        return upcoming
+
+    def get_stock_dividend(self, yahoo_ticker: str) -> Optional[AvanzaDividend]:
+        """
+        Return the nearest upcoming Avanza dividend for a mapped Yahoo ticker.
+
+        Returns:
+            Optional[AvanzaDividend]: The nearest upcoming dividend event or `None` if
+            no upcoming mapped Avanza dividend exists.
+        """
+        upcoming = self.get_stock_dividends(yahoo_ticker)
+        return upcoming[0] if upcoming else None
+
+    def get_stock_dividends_for_year(self, yahoo_ticker: str, year: int) -> List[AvanzaDividend]:
+        """
+        Return all mapped Avanza dividend events whose payout date falls in the given year.
+
+        This method is intended for current-year dashboard views where both already-paid
+        and upcoming events are needed. It does not enforce Swedish suffix rules.
+
+        Parameters:
+            yahoo_ticker (str): Yahoo ticker to resolve via stored mapping.
+            year (int): Target payout year.
+
+        Returns:
+            List[AvanzaDividend]: Parsed events sorted by payout date then ex-date.
+        """
+        mapping = self.get_mapping_by_ticker(yahoo_ticker)
+        if not mapping or not mapping.instrument_id:
+            return []
+
+        data = self._fetch_stock_data(mapping.instrument_id)
+        if not data:
+            return []
+
+        dividends: List[AvanzaDividend] = []
+        seen = set()
+
+        data_details = data.get('dataDetails', {})
+        div_info = data_details.get('dividends', {})
+        events = div_info.get('events', [])
+        past_events = div_info.get('pastEvents', [])
+
+        for event in [*past_events, *events]:
+            try:
+                amount = float(event.get('amount', 0))
+                if amount <= 0:
+                    continue
+
+                ex_date = event.get('exDate', '')[:10] if event.get('exDate') else None
+                if not ex_date:
+                    continue
+
+                payment_date = event.get('paymentDate', '')[:10] if event.get('paymentDate') else None
+                payout_date = payment_date or ex_date
+                if not payout_date or not payout_date.startswith(f"{year}-"):
+                    continue
+
+                key = (
+                    ex_date,
+                    payment_date,
+                    amount,
+                    event.get('currencyCode', 'SEK'),
+                    event.get('dividendType')
+                )
+                if key in seen:
+                    continue
+                seen.add(key)
+
+                dividends.append(AvanzaDividend(
+                    avanza_name=mapping.avanza_name,
+                    ex_date=ex_date,
+                    amount=amount,
+                    currency=event.get('currencyCode', 'SEK'),
+                    payment_date=payment_date,
+                    yahoo_ticker=mapping.yahoo_ticker,
+                    instrument_id=mapping.instrument_id,
+                    dividend_type=event.get('dividendType')
+                ))
+            except (ValueError, TypeError) as e:
+                logger.warning(f"Failed to parse mapped yearly dividend event: {e}")
+
+        dividends.sort(key=lambda d: ((d.payment_date or d.ex_date), d.ex_date))
+        return dividends
     
     def get_historical_dividends(self, yahoo_ticker: str, years: int = 5) -> List[Dict[str, Any]]:
         """
