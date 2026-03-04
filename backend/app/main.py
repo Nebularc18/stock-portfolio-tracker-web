@@ -35,6 +35,7 @@ class Stock(Base):
         quantity: Number of shares owned.
         currency: Trading currency (default 'USD').
         sector: Company sector.
+        logo: URL to company logo image.
         purchase_price: Average purchase price per share.
         current_price: Current market price.
         previous_close: Previous day's closing price.
@@ -52,6 +53,7 @@ class Stock(Base):
     quantity = Column(Float, default=0)
     currency = Column(String, default="USD")
     sector = Column(String)
+    logo = Column(String, nullable=True)
     purchase_price = Column(Float, nullable=True)
     current_price = Column(Float, nullable=True)
     previous_close = Column(Float, nullable=True)
@@ -195,6 +197,7 @@ class StockResponse(BaseModel):
     quantity: float
     currency: str
     sector: Optional[str]
+    logo: Optional[str] = None
     purchase_price: Optional[float]
     current_price: Optional[float]
     previous_close: Optional[float]

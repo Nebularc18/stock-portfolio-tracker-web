@@ -384,11 +384,19 @@ class AvanzaService:
             AvanzaDividend: The nearest upcoming dividend whose `ex_date` is today or later, or `None` if the ticker is not a Swedish (.ST) ticker, no mapping or instrument_id exists, or no upcoming dividend is found.
         """
         if not yahoo_ticker.upper().endswith('.ST'):
+            logger.debug(f"get_stock_dividend: {yahoo_ticker} is not a Swedish ticker (.ST), skipping Avanza lookup")
             return None
         
         mapping = self.get_mapping_by_ticker(yahoo_ticker)
-        if not mapping or not mapping.instrument_id:
+        if not mapping:
+            logger.debug(f"get_stock_dividend: No Avanza mapping found for {yahoo_ticker}")
             return None
+        
+        if not mapping.instrument_id:
+            logger.warning(f"get_stock_dividend: Avanza mapping for {yahoo_ticker} has no instrument_id (avanza_name={mapping.avanza_name})")
+            return None
+        
+        logger.debug(f"get_stock_dividend: Found mapping for {yahoo_ticker} -> instrument_id={mapping.instrument_id}, avanza_name={mapping.avanza_name}")
         
         dividends = self._fetch_upcoming_for_stock(
             mapping.instrument_id,
@@ -400,9 +408,11 @@ class AvanzaService:
         upcoming = [div for div in dividends if div.ex_date >= today]
         
         if not upcoming:
+            logger.debug(f"get_stock_dividend: No upcoming dividends found for {yahoo_ticker} (fetched {len(dividends)} total dividends)")
             return None
         
         upcoming.sort(key=lambda d: d.ex_date)
+        logger.debug(f"get_stock_dividend: Found {len(upcoming)} upcoming dividends for {yahoo_ticker}, next ex_date={upcoming[0].ex_date}")
         return upcoming[0]
     
     def get_historical_dividends(self, yahoo_ticker: str, years: int = 5) -> List[Dict[str, Any]]:
@@ -422,26 +432,38 @@ class AvanzaService:
                 - dividend_type (Optional[str]): Type/category of the dividend.
         """
         if not yahoo_ticker.upper().endswith('.ST'):
+            logger.debug(f"get_historical_dividends: {yahoo_ticker} is not a Swedish ticker (.ST), skipping Avanza lookup")
             return []
         
         cache_key = f"avanza_historical_{yahoo_ticker.replace('.', '_')}_{years}.json"
         cached = _load_cache(cache_key, HISTORICAL_CACHE_TTL)
         if cached is not None:
+            logger.debug(f"get_historical_dividends: Returning cached data for {yahoo_ticker}")
             return cached
         
         mapping = self.get_mapping_by_ticker(yahoo_ticker)
-        if not mapping or not mapping.instrument_id:
+        if not mapping:
+            logger.debug(f"get_historical_dividends: No Avanza mapping found for {yahoo_ticker}")
             return []
+        
+        if not mapping.instrument_id:
+            logger.warning(f"get_historical_dividends: Avanza mapping for {yahoo_ticker} has no instrument_id")
+            return []
+        
+        logger.debug(f"get_historical_dividends: Fetching historical dividends for {yahoo_ticker} (instrument_id={mapping.instrument_id})")
         
         data = self._fetch_stock_data(mapping.instrument_id)
         
         if not data:
+            logger.warning(f"get_historical_dividends: No data returned from Avanza API for {yahoo_ticker}")
             return []
         
         dividends = []
         data_details = data.get('dataDetails', {})
         div_info = data_details.get('dividends', {})
         past_events = div_info.get('pastEvents', [])
+        
+        logger.debug(f"get_historical_dividends: Found {len(past_events)} past dividend events for {yahoo_ticker}")
         
         cutoff_date = (datetime.now() - timedelta(days=years * 365)).strftime('%Y-%m-%d')
         

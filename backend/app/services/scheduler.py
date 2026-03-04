@@ -8,6 +8,7 @@ import logging
 from datetime import datetime
 from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.triggers.cron import CronTrigger
+from sqlalchemy.dialects.postgresql import insert
 
 logger = logging.getLogger(__name__)
 
@@ -19,8 +20,9 @@ def refresh_all_stocks():
     
     Only refreshes if markets are open or within post-close window.
     Updates current prices and records daily price history.
+    Also records portfolio value history for the dashboard chart.
     """
-    from app.main import get_db, Stock, StockPriceHistory
+    from app.main import get_db, Stock, StockPriceHistory, PortfolioHistory
     from app.services.stock_service import StockService
     from app.services.exchange_rate_service import ExchangeRateService
     from app.services.market_hours_service import MarketHoursService
@@ -42,6 +44,9 @@ def refresh_all_stocks():
         rates = ExchangeRateService.get_rates_for_currencies(currencies, "SEK")
         
         updated = 0
+        total_value_sek = 0
+        skipped = 0
+        
         for stock in stocks:
             try:
                 info = stock_service.get_stock_info(stock.ticker)
@@ -71,8 +76,45 @@ def refresh_all_stocks():
                                 recorded_at=datetime.utcnow()
                             )
                             db.add(price_history)
+                    
+                    # Calculate total portfolio value in SEK for history tracking
+                    if stock.current_price and stock.quantity:
+                        value = stock.current_price * stock.quantity
+                        converted_value = None
+                        if stock.currency == 'SEK':
+                            converted_value = value
+                        elif rates:
+                            key = f"{stock.currency}_SEK"
+                            if key in rates and rates[key]:
+                                converted_value = value * rates[key]
+                            else:
+                                inverse_key = f"SEK_{stock.currency}"
+                                if inverse_key in rates and rates[inverse_key]:
+                                    converted_value = value / rates[inverse_key]
+                        
+                        if converted_value is not None:
+                            total_value_sek += converted_value
+                        else:
+                            logger.warning(
+                                f"Skipping {stock.ticker}: no conversion rate for "
+                                f"{stock.currency} to SEK"
+                            )
+                            skipped += 1
             except Exception as e:
                 logger.error(f"Error refreshing {stock.ticker}: {e}")
+        
+        # Record portfolio history for the dashboard chart
+        if updated > 0 and total_value_sek > 0:
+            now = datetime.utcnow()
+            interval = now.replace(minute=(now.minute // 15) * 15, second=0, microsecond=0)
+            stmt = insert(PortfolioHistory).values(
+                total_value=total_value_sek,
+                date=interval
+            ).on_conflict_do_update(
+                index_elements=['date'],
+                set_={'total_value': total_value_sek}
+            )
+            db.execute(stmt)
         
         db.commit()
         logger.info(f"Scheduled refresh: updated {updated} stocks")

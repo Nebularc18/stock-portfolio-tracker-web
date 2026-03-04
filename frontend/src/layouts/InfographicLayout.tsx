@@ -47,14 +47,14 @@ export default function InfographicLayout() {
     { to: '/', label: 'Dashboard', icon: '📊' },
     { to: '/performance', label: 'Performance', icon: '📈' },
     { to: '/analytics', label: 'Analytics', icon: '📉' },
-    { to: '/dividends', label: 'Dividends', icon: '💰' },
+    { to: '/dividends/history', label: 'Dividends History', icon: '💰' },
     { to: '/stocks', label: 'Stocks', icon: '🏢' },
     { to: '/markets', label: 'Markets', icon: '🌍' },
     { to: '/settings', label: 'Settings', icon: '⚙️' },
   ]
   
   const isActive = (path: string) => {
-    if (path === '/dividends' && location.pathname.startsWith('/dividends')) return true
+    if (path === '/dividends/history' && location.pathname.startsWith('/dividends')) return true
     return location.pathname === path
   }
   

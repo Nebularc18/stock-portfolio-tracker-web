@@ -114,6 +114,7 @@ def get_portfolio_summary(db: Session = Depends(get_db)):
                     "current_value": current_value_native,
                     "currency": stock.currency,
                     "sector": stock.sector,
+                    "logo": stock.logo,
                     "gain_loss": None,
                     "gain_loss_percent": None,
                     "current_value_converted": False,
@@ -156,6 +157,7 @@ def get_portfolio_summary(db: Session = Depends(get_db)):
                 "current_value": current_value,
                 "currency": stock.currency,
                 "sector": stock.sector,
+                "logo": stock.logo,
                 "gain_loss": gain_loss,
                 "gain_loss_percent": ((current_value - cost) / cost * 100) if cost_converted and cost > 0 else None,
                 "current_value_converted": True,
@@ -193,11 +195,14 @@ def refresh_all_prices(db: Session = Depends(get_db)):
     """
     from app.services.stock_service import StockService
     from app.services.exchange_rate_service import ExchangeRateService
+    from app.services.brandfetch_service import brandfetch_service
     stock_service = StockService()
     
     stocks = db.query(Stock).all()
     updated = 0
     total_value_sek = 0
+    logos_backfilled = 0
+    logos_refreshed = 0
     
     currencies = {s.currency for s in stocks if s.currency}
     rates = ExchangeRateService.get_rates_for_currencies(currencies, "SEK")
@@ -213,36 +218,50 @@ def refresh_all_prices(db: Session = Depends(get_db)):
             stock.dividend_per_share = info.get('dividend_per_share')
             stock.last_updated = datetime.utcnow()
             updated += 1
-            
-            if stock.current_price:
-                today = datetime.utcnow().replace(hour=0, minute=0, second=0, microsecond=0)
-                existing_price = db.query(StockPriceHistory).filter(
-                    StockPriceHistory.ticker == stock.ticker,
-                    StockPriceHistory.recorded_at >= today
-                ).first()
-                
-                if existing_price:
-                    existing_price.price = stock.current_price
+
+        should_refresh_logo = (not stock.logo) or ('cdn.brandfetch.io' in stock.logo)
+        if should_refresh_logo:
+            logo_url = brandfetch_service.get_logo_url_for_ticker(
+                stock.ticker,
+                stock.name,
+                force_refresh=True,
+            )
+            if logo_url and logo_url != stock.logo:
+                if not stock.logo:
+                    logos_backfilled += 1
                 else:
-                    price_history = StockPriceHistory(
-                        ticker=stock.ticker,
-                        price=stock.current_price,
-                        currency=stock.currency,
-                        recorded_at=datetime.utcnow()
-                    )
-                    db.add(price_history)
+                    logos_refreshed += 1
+                stock.logo = logo_url
+        
+        if stock.current_price:
+            today = datetime.utcnow().replace(hour=0, minute=0, second=0, microsecond=0)
+            existing_price = db.query(StockPriceHistory).filter(
+                StockPriceHistory.ticker == stock.ticker,
+                StockPriceHistory.recorded_at >= today
+            ).first()
             
-            if stock.current_price and stock.quantity:
-                value = stock.current_price * stock.quantity
-                converted_value = convert_value(value, stock.currency, 'SEK', rates)
-                if converted_value is not None:
-                    total_value_sek += converted_value
-                else:
-                    logger.warning(
-                        f"Skipping {stock.ticker}: no conversion rate for "
-                        f"{stock.currency} to SEK"
-                    )
-                    skipped += 1
+            if existing_price:
+                existing_price.price = stock.current_price
+            else:
+                price_history = StockPriceHistory(
+                    ticker=stock.ticker,
+                    price=stock.current_price,
+                    currency=stock.currency,
+                    recorded_at=datetime.utcnow()
+                )
+                db.add(price_history)
+        
+        if stock.current_price and stock.quantity:
+            value = stock.current_price * stock.quantity
+            converted_value = convert_value(value, stock.currency, 'SEK', rates)
+            if converted_value is not None:
+                total_value_sek += converted_value
+            else:
+                logger.warning(
+                    f"Skipping {stock.ticker}: no conversion rate for "
+                    f"{stock.currency} to SEK"
+                )
+                skipped += 1
     
     if updated > 0 and total_value_sek > 0:
         now = datetime.utcnow()
@@ -258,7 +277,12 @@ def refresh_all_prices(db: Session = Depends(get_db)):
     
     db.commit()
     
-    return {"message": f"Refreshed {updated} stocks", "skipped": skipped}
+    return {
+        "message": f"Refreshed {updated} stocks",
+        "skipped": skipped,
+        "logos_backfilled": logos_backfilled,
+        "logos_refreshed": logos_refreshed,
+    }
 
 
 @router.get("/history", response_model=List[dict])

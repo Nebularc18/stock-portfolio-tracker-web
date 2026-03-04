@@ -32,6 +32,7 @@ export default function Dashboard() {
   const [stocks, setStocks] = useState<Stock[]>([])
   const [exchangeRates, setExchangeRates] = useState<Record<string, number | null>>({})
   const [portfolioHistory, setPortfolioHistory] = useState<{ date: string; value: number }[]>([])
+  const [failedLogos, setFailedLogos] = useState<Record<string, boolean>>({})
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const { displayCurrency, timezone } = useSettings()
@@ -52,6 +53,7 @@ export default function Dashboard() {
       setPortfolioHistory(historyData)
       setUpcomingDividends(upcomingDivsData.dividends)
       setTotalExpectedDividends(upcomingDivsData.total_expected)
+      setFailedLogos({})
       setError(null)
     } catch (err) {
       setError('Failed to load portfolio data')
@@ -238,7 +240,7 @@ export default function Dashboard() {
                 <th>Ticker</th>
                 <th>Name</th>
                 <th>Qty</th>
-                <th>Price</th>
+                <th>Price ({currency})</th>
                 <th>Value ({currency})</th>
                 <th>Gain/Loss</th>
                 <th>Return %</th>
@@ -254,15 +256,50 @@ export default function Dashboard() {
                   <td>
                     <Link 
                       to={`/stocks/${stock.ticker}`} 
-                      style={{ color: 'var(--accent-blue)', textDecoration: 'none', fontWeight: '600' }}
+                      style={{ color: 'var(--accent-blue)', textDecoration: 'none', fontWeight: '600', display: 'flex', alignItems: 'center', gap: '8px' }}
                       onClick={(e) => e.stopPropagation()}
                     >
+                      {stock.logo && !failedLogos[stock.ticker] ? (
+                        <img 
+                          src={stock.logo} 
+                          alt={stock.name || stock.ticker}
+                          style={{ 
+                            width: 24, 
+                            height: 24, 
+                            borderRadius: 4, 
+                            objectFit: 'contain',
+                            background: 'var(--bg-secondary)',
+                            padding: 2
+                          }}
+                          onError={(e) => {
+                            ;(e.target as HTMLImageElement).style.display = 'none'
+                            setFailedLogos((prev) => ({ ...prev, [stock.ticker]: true }))
+                          }}
+                        />
+                      ) : (
+                        <span
+                          style={{
+                            width: 24,
+                            height: 24,
+                            borderRadius: 4,
+                            display: 'inline-flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            fontSize: '12px',
+                            fontWeight: '700',
+                            color: 'var(--text-secondary)',
+                            background: 'var(--bg-secondary)'
+                          }}
+                        >
+                          {(stock.name || stock.ticker || '?').charAt(0).toUpperCase()}
+                        </span>
+                      )}
                       {stock.ticker}
                     </Link>
                   </td>
                   <td>{stock.name || '-'}</td>
                   <td>{stock.quantity}</td>
-                  <td>{formatCurrency(stock.current_price, stock.currency)}</td>
+                  <td>{formatCurrency(convertToCurrency(stock.current_price, stock.currency), currency)}</td>
                   <td>{formatCurrency(stock.current_value, currency)}</td>
                   <td className={stock.gain_loss === null ? '' : (stock.gain_loss >= 0 ? 'positive' : 'negative')}>
                     {stock.gain_loss !== null ? formatCurrency(stock.gain_loss, currency) : '-'}

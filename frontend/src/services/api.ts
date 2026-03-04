@@ -24,6 +24,7 @@ export interface Stock {
   quantity: number
   currency: string
   sector: string | null
+  logo: string | null
   purchase_price: number | null
   current_price: number | null
   previous_close: number | null
@@ -65,6 +66,7 @@ export interface PortfolioSummary {
     current_value: number
     currency: string
     sector: string | null
+    logo: string | null
     gain_loss: number | null
     gain_loss_percent: number | null
   }>

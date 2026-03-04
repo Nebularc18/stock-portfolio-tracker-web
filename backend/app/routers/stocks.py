@@ -110,6 +110,7 @@ def create_stock(stock_data: StockCreate, db: Session = Depends(get_db)):
         HTTPException: 400 if stock already exists or ticker is invalid.
     """
     from app.services.stock_service import StockService
+    from app.services.brandfetch_service import brandfetch_service
     stock_service = StockService()
     
     ticker = stock_data.ticker.upper()
@@ -131,12 +132,15 @@ def create_stock(stock_data: StockCreate, db: Session = Depends(get_db)):
     if not info:
         raise HTTPException(status_code=400, detail=f"Could not fetch stock information for '{ticker}'. Please try again.")
     
+    logo = brandfetch_service.get_logo_url_for_ticker(ticker, info.get("name"))
+    
     stock = Stock(
         ticker=ticker,
         name=info.get("name"),
         quantity=stock_data.quantity,
         currency=info.get("currency", "USD"),
         sector=info.get("sector"),
+        logo=logo,
         purchase_price=stock_data.purchase_price,
         current_price=info.get("current_price"),
         previous_close=info.get("previous_close"),
@@ -219,6 +223,7 @@ def refresh_stock(ticker: str, db: Session = Depends(get_db)):
         HTTPException: 404 if stock not found.
     """
     from app.services.stock_service import StockService
+    from app.services.brandfetch_service import brandfetch_service
     stock_service = StockService()
     
     stock = db.query(Stock).filter(Stock.ticker == ticker.upper()).first()
@@ -234,6 +239,17 @@ def refresh_stock(ticker: str, db: Session = Depends(get_db)):
         stock.dividend_per_share = info.get("dividend_per_share")
         stock.sector = info.get("sector") or stock.sector
         stock.last_updated = datetime.utcnow()
+        
+        should_refresh_logo = (not stock.logo) or ('cdn.brandfetch.io' in stock.logo)
+        if should_refresh_logo:
+            refreshed_logo = brandfetch_service.get_logo_url_for_ticker(
+                stock.ticker,
+                stock.name or info.get("name"),
+                force_refresh=True,
+            )
+            if refreshed_logo:
+                stock.logo = refreshed_logo
+        
         db.commit()
         db.refresh(stock)
     

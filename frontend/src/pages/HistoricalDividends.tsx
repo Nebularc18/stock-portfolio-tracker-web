@@ -72,7 +72,8 @@ export default function HistoricalDividends() {
       setLoading(true)
       try {
         const currentYear = new Date().getFullYear()
-        const years = Array.from({ length: currentYear - 2000 + 1 }, (_, i) => currentYear - i)
+        // Exclude current year from history - only show past years
+        const years = Array.from({ length: currentYear - 2000 }, (_, i) => currentYear - 1 - i)
         setAvailableYears(years)
 
         const allDividends: DividendWithStock[] = []
