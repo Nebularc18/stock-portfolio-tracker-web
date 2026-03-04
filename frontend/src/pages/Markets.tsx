@@ -71,19 +71,23 @@ export default function Markets() {
 
   // Schedule next refresh based on backend's next_refresh_at
   const scheduleNextRefresh = useCallback(() => {
+    if (timeoutRef.current) {
+      clearTimeout(timeoutRef.current)
+    }
+
     if (!nextRefreshAt) return
-    
+
     const nextTime = new Date(nextRefreshAt)
     const msUntilNext = nextTime.getTime() - Date.now()
-    
+
     if (msUntilNext > 0) {
-      if (timeoutRef.current) {
-        clearTimeout(timeoutRef.current)
-      }
       timeoutRef.current = setTimeout(() => {
         fetchAdditionalData()
       }, msUntilNext)
+      return
     }
+
+    fetchAdditionalData()
   }, [nextRefreshAt, fetchAdditionalData])
 
   useEffect(() => {

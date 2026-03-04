@@ -27,7 +27,7 @@ function formatCurrency(value: number, locale: string, currency: string = 'SEK')
 function formatDate(dateStr: string, locale: string): string {
   const [year, month, day] = dateStr.split('-').map(Number)
   const date = new Date(Date.UTC(year, month - 1, day))
-  return date.toLocaleDateString(locale, { year: 'numeric', month: 'short', day: 'numeric' })
+  return date.toLocaleDateString(locale, { year: 'numeric', month: 'short', day: 'numeric', timeZone: 'UTC' })
 }
 
 /**
@@ -253,6 +253,7 @@ export default function UpcomingDividends() {
                     {group.items.map((div, i) => {
                       const daysUntil = getDaysUntil(div.ex_date)
                       const isSoon = daysUntil <= 7 && daysUntil >= 0
+                      const displayedTotal = getDisplayedDividendTotal(div)
 
                       return (
                         <tr key={`${div.ticker}-${div.ex_date}-${div.payment_date ?? 'na'}-${div.dividend_type ?? 'na'}-${i}`}>
@@ -296,9 +297,11 @@ export default function UpcomingDividends() {
                           <td>{div.quantity}</td>
                           <td>
                             <span style={{ color: 'var(--accent-green)', fontWeight: '600' }}>
-                              {formatCurrency(div.total_converted !== null ? div.total_converted : div.total_amount, locale, div.total_converted !== null ? displayCurrency : div.currency)}
+                              {displayedTotal !== null
+                                ? formatCurrency(displayedTotal, locale, displayCurrency)
+                                : '-'}
                             </span>
-                            {div.total_converted !== null && div.currency !== displayCurrency && (
+                            {displayedTotal !== null && div.currency !== displayCurrency && (
                               <span style={{ display: 'block', fontSize: '11px', color: 'var(--text-secondary)' }}>
                                 {formatCurrency(div.total_amount, locale, div.currency)}
                               </span>

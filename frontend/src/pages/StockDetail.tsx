@@ -964,9 +964,9 @@ export default function StockDetail() {
                                 {d.type.replace(/_/g, ' ')}
                               </span>
                             </td>
-                            <td>{d.yahoo_amount !== null ? formatCurrency(d.yahoo_amount, stock.currency) : '-'}</td>
-                            <td>{d.marketstack_amount !== null ? formatCurrency(d.marketstack_amount, stock.currency) : '-'}</td>
-                            <td>{d.difference !== null ? formatCurrency(d.difference, stock.currency) : '-'}</td>
+                            <td>{d.yahoo_amount !== null ? formatCurrency(d.yahoo_amount, stock.currency, locale) : '-'}</td>
+                            <td>{d.marketstack_amount !== null ? formatCurrency(d.marketstack_amount, stock.currency, locale) : '-'}</td>
+                            <td>{d.difference !== null ? formatCurrency(d.difference, stock.currency, locale) : '-'}</td>
                           </tr>
                         ))}
                       </tbody>
@@ -1014,8 +1014,8 @@ export default function StockDetail() {
                 <tbody>
                   {suppressedDividends.map((div) => (
                     <tr key={div.id}>
-                      <td>{formatDate(div.date)}</td>
-                      <td>{formatCurrency(div.amount || 0, div.currency || stock.currency)}</td>
+                      <td>{formatDate(div.date, locale)}</td>
+                      <td>{formatCurrency(div.amount || 0, div.currency || stock.currency, locale)}</td>
                       <td>
                         <button 
                           className="btn btn-secondary" 

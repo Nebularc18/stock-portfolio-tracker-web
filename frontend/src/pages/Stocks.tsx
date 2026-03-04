@@ -224,7 +224,7 @@ export default function Stocks() {
               </div>
               <div>
                 <label style={{ display: 'block', marginBottom: '8px', color: 'var(--text-secondary)', fontSize: '12px' }}>
-                  Quantity
+                  {t(language, 'stocks.quantity')}
                 </label>
                 <input
                   type="number"
@@ -232,14 +232,14 @@ export default function Stocks() {
                   min="0"
                   value={newQuantity}
                   onChange={(e) => setNewQuantity(e.target.value)}
-                  placeholder="10"
+                  placeholder={t(language, 'stocks.placeholderQuantity')}
                   style={{ width: '100%' }}
                   required
                 />
               </div>
               <div>
                 <label style={{ display: 'block', marginBottom: '8px', color: 'var(--text-secondary)', fontSize: '12px' }}>
-                  Purchase Price ({selectedExchangeData?.currency})
+                  {t(language, 'stocks.purchasePrice')} ({selectedExchangeData?.currency})
                 </label>
                 <input
                   type="number"
@@ -247,7 +247,7 @@ export default function Stocks() {
                   min="0"
                   value={newPurchasePrice}
                   onChange={(e) => setNewPurchasePrice(e.target.value)}
-                  placeholder="150.00"
+                  placeholder={t(language, 'stocks.placeholderPrice')}
                   style={{ width: '100%' }}
                 />
               </div>
@@ -258,7 +258,7 @@ export default function Stocks() {
                   style={{ width: '100%' }} 
                   disabled={adding}
                 >
-                  {adding ? 'Adding...' : 'Add'}
+                  {adding ? t(language, 'stocks.adding') : t(language, 'stocks.add')}
                 </button>
               </div>
             </div>
@@ -269,21 +269,21 @@ export default function Stocks() {
       <div className="card">
         {!stocks.length ? (
           <p style={{ color: 'var(--text-secondary)', textAlign: 'center', padding: '40px' }}>
-            No stocks in portfolio. Click "Add Stock" to get started.
+            {t(language, 'stocks.noStocksMessage')}
           </p>
         ) : (
           <table>
             <thead>
               <tr>
-                <th>Ticker</th>
-                <th>Name</th>
-                <th>Qty</th>
-                <th>Curr</th>
-                <th>Purchase</th>
-                <th>Price</th>
-                <th>Change</th>
-                <th>Div Yield</th>
-                <th>Actions</th>
+                <th>{t(language, 'stocks.tableTicker')}</th>
+                <th>{t(language, 'stocks.tableName')}</th>
+                <th>{t(language, 'stocks.tableQty')}</th>
+                <th>{t(language, 'stocks.tableCurr')}</th>
+                <th>{t(language, 'stocks.tablePurchase')}</th>
+                <th>{t(language, 'stocks.tablePrice')}</th>
+                <th>{t(language, 'stocks.tableChange')}</th>
+                <th>{t(language, 'stocks.tableDivYield')}</th>
+                <th>{t(language, 'stocks.tableActions')}</th>
               </tr>
             </thead>
             <tbody>

@@ -11,6 +11,7 @@ interface HeaderDataContextType {
 }
 
 const HeaderDataContext = createContext<HeaderDataContextType | null>(null)
+const MIN_REFRESH_MS = 5000
 
 /**
  * Provides header market data and a refresh function to descendant components via context.
@@ -67,7 +68,7 @@ export function HeaderDataProvider({ children }: { children: ReactNode }) {
     if (!Number.isFinite(msUntilNext) || msUntilNext <= 0) {
       timeoutRef.current = setTimeout(() => {
         fetchData()
-      }, 0)
+      }, MIN_REFRESH_MS)
       return
     }
 

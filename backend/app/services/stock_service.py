@@ -399,7 +399,17 @@ class StockService:
                 avanza_divs = avanza_service.get_historical_dividends(ticker, years)
                 if avanza_divs:
                     logger.debug(f"get_dividends: Returning {len(avanza_divs)} Avanza dividends for {ticker}")
-                    return avanza_divs
+                    normalized_avanza_divs = []
+                    for item in avanza_divs:
+                        normalized_avanza_divs.append({
+                            'date': item.get('date'),
+                            'amount': item.get('amount'),
+                            'currency': item.get('currency'),
+                            'source': 'avanza',
+                            'payment_date': item.get('payment_date'),
+                            'dividend_type': item.get('dividend_type'),
+                        })
+                    return normalized_avanza_divs
                 else:
                     logger.debug(f"get_dividends: Avanza returned no dividends for {ticker}, falling back to Yahoo")
             else:

@@ -212,6 +212,8 @@ def refresh_all_prices(db: Session = Depends(get_db)):
     rates = ExchangeRateService.get_rates_for_currencies(currencies, "SEK")
     
     skipped = 0
+    request_ts = utc_now()
+    today = request_ts.replace(hour=0, minute=0, second=0, microsecond=0)
     for stock in stocks:
         info = stock_service.get_stock_info(stock.ticker)
         if info:
@@ -220,7 +222,7 @@ def refresh_all_prices(db: Session = Depends(get_db)):
             stock.sector = info.get('sector') or stock.sector
             stock.dividend_yield = info.get('dividend_yield')
             stock.dividend_per_share = info.get('dividend_per_share')
-            stock.last_updated = utc_now()
+            stock.last_updated = request_ts
             updated += 1
 
         should_refresh_logo = (not stock.logo) or ('cdn.brandfetch.io' in stock.logo)
@@ -239,7 +241,6 @@ def refresh_all_prices(db: Session = Depends(get_db)):
                 stock.logo = logo_url
         
         if stock.current_price:
-            today = utc_now().replace(hour=0, minute=0, second=0, microsecond=0)
             existing_price = db.query(StockPriceHistory).filter(
                 StockPriceHistory.ticker == stock.ticker,
                 StockPriceHistory.recorded_at >= today
@@ -252,7 +253,7 @@ def refresh_all_prices(db: Session = Depends(get_db)):
                     ticker=stock.ticker,
                     price=stock.current_price,
                     currency=stock.currency,
-                    recorded_at=utc_now()
+                    recorded_at=request_ts
                 )
                 db.add(price_history)
         

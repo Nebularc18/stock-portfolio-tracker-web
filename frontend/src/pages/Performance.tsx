@@ -13,10 +13,15 @@ function formatCurrency(value: number | null, locale: string, currency: string =
   }).format(value)
 }
 
-function formatPercent(value: number | null): string {
+function formatPercent(value: number | null, locale: string): string {
   if (value === null) return '-'
-  const sign = value >= 0 ? '+' : ''
-  return `${sign}${value.toFixed(2)}%`
+  const absValue = Math.abs(value) / 100
+  const formatted = new Intl.NumberFormat(locale, {
+    style: 'percent',
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  }).format(absValue)
+  return value >= 0 ? `+${formatted}` : `-${formatted}`
 }
 
 function sanitizeCsvCell(value: string | number | null | undefined): string {
@@ -261,7 +266,7 @@ export default function Performance() {
             {formatCurrency(totalGain, locale, 'SEK')}
           </p>
           <p style={{ fontSize: '14px' }} className={totalGainPercent >= 0 ? 'positive' : 'negative'}>
-            {formatPercent(totalGainPercent)}
+            {formatPercent(totalGainPercent, locale)}
           </p>
         </div>
         <div className="card">
@@ -287,7 +292,7 @@ export default function Performance() {
                       {stock.name}
                     </span>
                   </div>
-                  <span className="positive">{formatPercent(stock.gainPercent)}</span>
+                  <span className="positive">{formatPercent(stock.gainPercent, locale)}</span>
                 </div>
               ))}
             </div>
@@ -305,7 +310,7 @@ export default function Performance() {
                       {stock.name}
                     </span>
                   </div>
-                  <span className="negative">{formatPercent(stock.gainPercent)}</span>
+                  <span className="negative">{formatPercent(stock.gainPercent, locale)}</span>
                 </div>
               ))}
             </div>
@@ -347,13 +352,13 @@ export default function Performance() {
                   {formatCurrency(stock.gainSEK, locale, 'SEK')}
                 </td>
                 <td className={stock.gainPercent >= 0 ? 'positive' : 'negative'}>
-                  {formatPercent(stock.gainPercent)}
+                  {formatPercent(stock.gainPercent, locale)}
                 </td>
                 <td className={stock.dailyChangeSEK != null ? (stock.dailyChangeSEK >= 0 ? 'positive' : 'negative') : ''}>
                   {stock.dailyChangeSEK !== null ? formatCurrency(stock.dailyChangeSEK, locale, 'SEK') : '-'}
                 </td>
                 <td className={stock.dailyChangePercent != null ? (stock.dailyChangePercent >= 0 ? 'positive' : 'negative') : ''}>
-                  {formatPercent(stock.dailyChangePercent)}
+                  {formatPercent(stock.dailyChangePercent, locale)}
                 </td>
               </tr>
             ))}

@@ -27,7 +27,6 @@ export default function Settings() {
   }, [])
 
   const invalidateHeaderCache = () => {
-    localStorage.removeItem('header_market_data')
     refreshData(true)
   }
 
