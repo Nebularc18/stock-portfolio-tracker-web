@@ -379,10 +379,18 @@ class AvanzaService:
             List[AvanzaDividend]: A list of AvanzaDividend instances for events with a positive amount and a valid ex-date; returns an empty list if no valid events are found or data is unavailable.
         """
         data = self._fetch_stock_data(instrument_id)
-        
+        return self._parse_upcoming_dividends(data, instrument_id, avanza_name, yahoo_ticker)
+
+    def _parse_upcoming_dividends(
+        self,
+        data: Optional[Dict[str, Any]],
+        instrument_id: str,
+        avanza_name: str,
+        yahoo_ticker: Optional[str],
+    ) -> List[AvanzaDividend]:
         if not data:
             return []
-        
+
         dividends = []
         data_details = data.get('dataDetails', {})
         div_info = data_details.get('dividends', {})
@@ -439,7 +447,9 @@ class AvanzaService:
             f"instrument_id={mapping.instrument_id}, avanza_name={mapping.avanza_name}"
         )
 
-        dividends = self._fetch_upcoming_for_stock(
+        data = self._fetch_stock_data_with_cache(mapping.instrument_id)
+        dividends = self._parse_upcoming_dividends(
+            data,
             mapping.instrument_id,
             mapping.avanza_name,
             mapping.yahoo_ticker

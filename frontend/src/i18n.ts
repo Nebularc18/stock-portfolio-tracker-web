@@ -1,8 +1,6 @@
 export type Language = 'en' | 'sv'
 
-type TranslationMap = Record<string, string>
-
-const translations: Record<Language, TranslationMap> = {
+const translations = {
   en: {
     'nav.dashboard': 'Dashboard',
     'nav.performance': 'Performance',
@@ -699,10 +697,12 @@ const translations: Record<Language, TranslationMap> = {
     'financialMetrics.avgVol10d': 'Volym 10d gen.',
     'financialMetrics.avgVol3m': 'Volym 3m gen.',
   },
-}
+} as const satisfies Record<Language, Record<string, string>>
 
-export function t(language: Language, key: string, params?: Record<string, string | number>): string {
-  const template = translations[language][key] ?? translations.en[key] ?? key
+export type TranslationKey = keyof typeof translations.en
+
+export function t(language: Language, key: TranslationKey, params?: Record<string, string | number>): string {
+  const template: string = translations[language][key] ?? translations.en[key] ?? key
   if (!params) return template
 
   return Object.entries(params).reduce((acc, [paramKey, paramValue]) => {

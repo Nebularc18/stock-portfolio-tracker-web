@@ -4,7 +4,7 @@ import { useTheme, THEMES, ThemeName } from '../ThemeContext'
 import { useHeaderData } from '../contexts/HeaderDataContext'
 import { api, AvailableIndex } from '../services/api'
 import AvanzaMappings from '../components/AvanzaMappings'
-import { t } from '../i18n'
+import { t, TranslationKey } from '../i18n'
 
 export default function Settings() {
   const { timezone, setTimezone, displayCurrency, setDisplayCurrency, language, setLanguage, headerIndices, setHeaderIndices } = useSettings()
@@ -118,8 +118,8 @@ export default function Settings() {
                 marginBottom: 4,
                 color: theme.vars['--text-primary'],
               }}>
-                {t(language, `settings.theme.${theme.name}.title`) !== `settings.theme.${theme.name}.title`
-                  ? t(language, `settings.theme.${theme.name}.title`)
+                {t(language, `settings.theme.${theme.name}.title` as TranslationKey) !== (`settings.theme.${theme.name}.title` as TranslationKey)
+                  ? t(language, `settings.theme.${theme.name}.title` as TranslationKey)
                   : theme.displayName}
               </h4>
               <p style={{ 
@@ -127,8 +127,8 @@ export default function Settings() {
                 color: theme.vars['--text-secondary'],
                 lineHeight: 1.4,
               }}>
-                {t(language, `settings.theme.${theme.name}.description`) !== `settings.theme.${theme.name}.description`
-                  ? t(language, `settings.theme.${theme.name}.description`)
+                {t(language, `settings.theme.${theme.name}.description` as TranslationKey) !== (`settings.theme.${theme.name}.description` as TranslationKey)
+                  ? t(language, `settings.theme.${theme.name}.description` as TranslationKey)
                   : theme.description}
               </p>
               

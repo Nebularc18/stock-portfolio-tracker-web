@@ -64,6 +64,7 @@ export interface PortfolioSummary {
     quantity: number
     current_price: number
     current_value: number
+    current_value_converted?: boolean
     currency: string
     sector: string | null
     logo: string | null

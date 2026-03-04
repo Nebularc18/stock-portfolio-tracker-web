@@ -505,7 +505,15 @@ export default function Dashboard() {
                   <td>{stock.name || '-'}</td>
                   <td>{stock.quantity}</td>
                   <td>{formatCurrency(convertToCurrency(stock.current_price, stock.currency), locale, currency)}</td>
-                  <td>{formatCurrency(stock.current_value, locale, currency)}</td>
+                  <td>
+                    {formatCurrency(
+                      stock.current_value_converted
+                        ? stock.current_value
+                        : convertToCurrency(stock.current_value, stock.currency),
+                      locale,
+                      currency,
+                    )}
+                  </td>
                   <td className={stock.gain_loss === null ? '' : (stock.gain_loss >= 0 ? 'positive' : 'negative')}>
                     {stock.gain_loss !== null ? formatCurrency(stock.gain_loss, locale, currency) : '-'}
                   </td>

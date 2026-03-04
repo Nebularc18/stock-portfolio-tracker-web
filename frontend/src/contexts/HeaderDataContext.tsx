@@ -76,9 +76,10 @@ export function HeaderDataProvider({ children }: { children: ReactNode }) {
     }
 
     if (msUntilNext > 0) {
+      const clampedDelay = Math.max(msUntilNext, MIN_REFRESH_MS)
       timeoutRef.current = setTimeout(() => {
         fetchData()
-      }, msUntilNext)
+      }, clampedDelay)
     }
   }, [fetchData, nextRefreshAt])
 
