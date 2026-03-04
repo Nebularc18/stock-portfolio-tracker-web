@@ -1,4 +1,6 @@
 import { CompanyProfile as CompanyProfileType } from '../services/api'
+import { useSettings } from '../SettingsContext'
+import { t } from '../i18n'
 
 interface Props {
   profile: CompanyProfileType | null
@@ -17,12 +19,14 @@ function formatWebsite(url: string | null): string {
 }
 
 export default function CompanyProfile({ profile, loading }: Props) {
+  const { language } = useSettings()
+
   if (loading) {
     return (
       <div className="card">
-        <h3 style={{ marginBottom: '16px' }}>Företagsinformation</h3>
+        <h3 style={{ marginBottom: '16px' }}>{t(language, 'companyProfile.title')}</h3>
         <p style={{ color: 'var(--text-secondary)', textAlign: 'center', padding: '20px' }}>
-          Laddar...
+          {t(language, 'common.loading')}
         </p>
       </div>
     )
@@ -34,7 +38,7 @@ export default function CompanyProfile({ profile, loading }: Props) {
 
   return (
     <div className="card">
-      <h3 style={{ marginBottom: '16px' }}>Företagsinformation</h3>
+      <h3 style={{ marginBottom: '16px' }}>{t(language, 'companyProfile.title')}</h3>
       
       <div style={{ display: 'flex', gap: '24px', alignItems: 'flex-start' }}>
         {profile.logo && (
@@ -65,23 +69,23 @@ export default function CompanyProfile({ profile, loading }: Props) {
           
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '16px', marginTop: '16px' }}>
             <div>
-              <p style={{ color: 'var(--text-secondary)', fontSize: '12px', marginBottom: '4px' }}>Industri</p>
+              <p style={{ color: 'var(--text-secondary)', fontSize: '12px', marginBottom: '4px' }}>{t(language, 'companyProfile.industry')}</p>
               <p style={{ fontSize: '14px' }}>{profile.industry || '-'}</p>
             </div>
             <div>
-              <p style={{ color: 'var(--text-secondary)', fontSize: '12px', marginBottom: '4px' }}>Land</p>
+              <p style={{ color: 'var(--text-secondary)', fontSize: '12px', marginBottom: '4px' }}>{t(language, 'companyProfile.country')}</p>
               <p style={{ fontSize: '14px' }}>{profile.country || '-'}</p>
             </div>
             <div>
-              <p style={{ color: 'var(--text-secondary)', fontSize: '12px', marginBottom: '4px' }}>Börs</p>
+              <p style={{ color: 'var(--text-secondary)', fontSize: '12px', marginBottom: '4px' }}>{t(language, 'companyProfile.exchange')}</p>
               <p style={{ fontSize: '14px' }}>{profile.exchange || '-'}</p>
             </div>
             <div>
-              <p style={{ color: 'var(--text-secondary)', fontSize: '12px', marginBottom: '4px' }}>IPO-datum</p>
+              <p style={{ color: 'var(--text-secondary)', fontSize: '12px', marginBottom: '4px' }}>{t(language, 'companyProfile.ipoDate')}</p>
               <p style={{ fontSize: '14px' }}>{profile.ipo_date || '-'}</p>
             </div>
             <div>
-              <p style={{ color: 'var(--text-secondary)', fontSize: '12px', marginBottom: '4px' }}>Webbplats</p>
+              <p style={{ color: 'var(--text-secondary)', fontSize: '12px', marginBottom: '4px' }}>{t(language, 'companyProfile.website')}</p>
               {profile.website ? (
                 <a 
                   href={profile.website} 
@@ -96,7 +100,7 @@ export default function CompanyProfile({ profile, loading }: Props) {
               )}
             </div>
             <div>
-              <p style={{ color: 'var(--text-secondary)', fontSize: '12px', marginBottom: '4px' }}>Marknadsvärde</p>
+              <p style={{ color: 'var(--text-secondary)', fontSize: '12px', marginBottom: '4px' }}>{t(language, 'companyProfile.marketCap')}</p>
               <p style={{ fontSize: '14px' }}>{formatMarketCap(profile.market_cap)}</p>
             </div>
           </div>

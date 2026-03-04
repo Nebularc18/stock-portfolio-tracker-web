@@ -106,6 +106,7 @@ temp/
 
 # Documentation
 docs/
+plans/
 
 # Cache files
 backend/data/cache/

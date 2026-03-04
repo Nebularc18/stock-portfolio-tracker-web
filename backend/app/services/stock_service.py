@@ -581,19 +581,19 @@ class StockService:
             if ex_dividend_timestamp and effective_div_rate:
                 ex_date = _to_date_str(ex_dividend_timestamp)
                 payment_date = _to_date_str(payment_timestamp)
-                
-                logger.debug(
-                    f"Found yfinance info dividend for {ticker}: "
-                    f"ex_date={ex_date}, payment_date={payment_date}, amount={effective_div_rate}"
-                )
-                return [{
-                    'ex_date': ex_date,
-                    'amount': effective_div_rate,
-                    'currency': info.get('currency'),
-                    'payment_date': payment_date,
-                    'dividend_type': None,
-                    'source': 'yahoo'
-                }]
+                if ex_date:
+                    logger.debug(
+                        f"Found yfinance info dividend for {ticker}: "
+                        f"ex_date={ex_date}, payment_date={payment_date}, amount={effective_div_rate}"
+                    )
+                    return [{
+                        'ex_date': ex_date,
+                        'amount': effective_div_rate,
+                        'currency': info.get('currency'),
+                        'payment_date': payment_date,
+                        'dividend_type': None,
+                        'source': 'yahoo'
+                    }]
             
             # Method 3: Try dividends attribute for recent dividend data
             dividends_attr = getattr(yf_ticker, 'dividends', None)
@@ -627,7 +627,7 @@ class StockService:
                             'dividend_type': None,
                             'source': 'yahoo'
                         }]
-                except Exception as div_err:
+                except (AttributeError, TypeError, ValueError, IndexError) as div_err:
                     logger.debug(f"Error parsing dividends attribute for {ticker}: {div_err}")
             
             logger.debug(f"No upcoming dividend found for {ticker} via yfinance")

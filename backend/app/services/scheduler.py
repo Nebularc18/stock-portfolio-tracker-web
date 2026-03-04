@@ -63,7 +63,7 @@ def refresh_all_stocks():
                     stock.last_updated = utc_now()
                     updated += 1
                     
-                    if stock.current_price:
+                    if stock.current_price is not None:
                         today = utc_now().replace(hour=0, minute=0, second=0, microsecond=0)
                         existing_price = db.query(StockPriceHistory).filter(
                             StockPriceHistory.ticker == stock.ticker,
@@ -82,18 +82,18 @@ def refresh_all_stocks():
                             db.add(price_history)
                     
                     # Calculate total portfolio value in SEK for history tracking
-                    if stock.current_price and stock.quantity:
+                    if stock.current_price is not None and stock.quantity is not None:
                         value = stock.current_price * stock.quantity
                         converted_value = None
                         if stock.currency == 'SEK':
                             converted_value = value
                         elif rates:
                             key = f"{stock.currency}_SEK"
-                            if key in rates and rates[key]:
+                            if key in rates and rates[key] is not None:
                                 converted_value = value * rates[key]
                             else:
                                 inverse_key = f"SEK_{stock.currency}"
-                                if inverse_key in rates and rates[inverse_key]:
+                                if inverse_key in rates and rates[inverse_key] is not None and rates[inverse_key] != 0:
                                     converted_value = value / rates[inverse_key]
                         
                         if converted_value is not None:
@@ -108,7 +108,7 @@ def refresh_all_stocks():
                 logger.error(f"Error refreshing {stock.ticker}: {e}")
         
         # Record portfolio history for the dashboard chart
-        if updated > 0 and total_value_sek > 0:
+        if updated > 0 and total_value_sek > 0 and skipped == 0:
             now = utc_now()
             interval = now.replace(minute=(now.minute // 15) * 15, second=0, microsecond=0)
             stmt = insert(PortfolioHistory).values(

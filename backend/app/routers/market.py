@@ -60,16 +60,19 @@ def _load_indices_cache() -> dict | None:
     Returns:
         dict: Cached data with indices and timestamps, or None if expired/missing.
     """
-    os.makedirs(_CACHE_DIR, exist_ok=True)
-    filepath = os.path.join(_CACHE_DIR, 'market_indices.json')
-    if not os.path.exists(filepath):
-        return None
     try:
+        os.makedirs(_CACHE_DIR, exist_ok=True)
+        filepath = os.path.join(_CACHE_DIR, 'market_indices.json')
+        if not os.path.exists(filepath):
+            return None
         with open(filepath, 'r') as f:
             data = json.load(f)
         cached_at = data.get('cached_at', 0)
         if datetime.now(timezone.utc).timestamp() - cached_at < data.get('ttl', INDICES_CACHE_TTL):
             return data
+        return None
+    except OSError as e:
+        logger.warning(f"Failed to read indices cache due to filesystem error: {e}")
         return None
     except Exception:
         return None
@@ -81,13 +84,16 @@ def _save_indices_cache(data: dict):
     Args:
         data: The indices data to cache.
     """
-    os.makedirs(_CACHE_DIR, exist_ok=True)
-    filepath = os.path.join(_CACHE_DIR, 'market_indices.json')
     try:
-        data['cached_at'] = datetime.now(timezone.utc).timestamp()
-        data['ttl'] = INDICES_CACHE_TTL
+        os.makedirs(_CACHE_DIR, exist_ok=True)
+        filepath = os.path.join(_CACHE_DIR, 'market_indices.json')
+        cache_data = {**data}
+        cache_data['cached_at'] = datetime.now(timezone.utc).timestamp()
+        cache_data['ttl'] = INDICES_CACHE_TTL
         with open(filepath, 'w') as f:
-            json.dump(data, f)
+            json.dump(cache_data, f)
+    except OSError as e:
+        logger.warning(f"Failed to save indices cache due to filesystem error: {e}")
     except Exception as e:
         logger.warning(f"Failed to save indices cache: {e}")
 

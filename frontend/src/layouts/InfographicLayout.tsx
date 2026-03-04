@@ -2,6 +2,7 @@ import { Link, useLocation, Outlet } from 'react-router-dom'
 import { useHeaderData } from '../contexts/HeaderDataContext'
 import { useSettings } from '../SettingsContext'
 import { formatTimeInTimezone } from '../utils/time'
+import { getLocaleForLanguage, t } from '../i18n'
 
 /**
  * Render the main infographic layout for the portfolio dashboard.
@@ -14,10 +15,12 @@ import { formatTimeInTimezone } from '../utils/time'
 export default function InfographicLayout() {
   const location = useLocation()
   const { indices: allIndices, exchangeRates, lastUpdated } = useHeaderData()
-  const { timezone, headerIndices } = useSettings()
+  const { timezone, headerIndices, language } = useSettings()
+  const locale = getLocaleForLanguage(language)
   
   // Filter indices based on user settings, or show first 5 if no settings
-  const indices = headerIndices.length > 0
+  const hasValidHeaderIndices = Array.isArray(headerIndices) && headerIndices.length > 0
+  const indices = hasValidHeaderIndices
     ? allIndices.filter(idx => headerIndices.includes(idx.symbol))
     : allIndices.slice(0, 5)
 
@@ -44,13 +47,13 @@ export default function InfographicLayout() {
   }
   
   const links = [
-    { to: '/', label: 'Dashboard', icon: '📊' },
-    { to: '/performance', label: 'Performance', icon: '📈' },
-    { to: '/analytics', label: 'Analytics', icon: '📉' },
-    { to: '/dividends/history', label: 'Dividends History', icon: '💰' },
-    { to: '/stocks', label: 'Stocks', icon: '🏢' },
-    { to: '/markets', label: 'Markets', icon: '🌍' },
-    { to: '/settings', label: 'Settings', icon: '⚙️' },
+    { to: '/', label: t(language, 'nav.dashboard'), icon: '📊' },
+    { to: '/performance', label: t(language, 'nav.performance'), icon: '📈' },
+    { to: '/analytics', label: t(language, 'nav.analytics'), icon: '📉' },
+    { to: '/dividends/history', label: t(language, 'nav.dividendsHistory'), icon: '💰' },
+    { to: '/stocks', label: t(language, 'nav.stocks'), icon: '🏢' },
+    { to: '/markets', label: t(language, 'nav.markets'), icon: '🌍' },
+    { to: '/settings', label: t(language, 'nav.settings'), icon: '⚙️' },
   ]
   
   const isActive = (path: string) => {
@@ -129,13 +132,13 @@ export default function InfographicLayout() {
           }}>
             <div>
               <h1 style={{ fontSize: 28, fontWeight: 300, opacity: 0.9 }}>
-                Portfolio Dashboard
+                {t(language, 'layout.title')}
               </h1>
               <p style={{ fontSize: 13, color: 'rgba(255,255,255,0.5)', marginTop: 4 }}>
-                Real-time investment analytics
+                {t(language, 'layout.subtitle')}
               </p>
               <p style={{ fontSize: 12, color: 'rgba(255,255,255,0.45)', marginTop: 6 }}>
-                Header updated: {formatTimeInTimezone(lastUpdated, timezone)}
+                {t(language, 'layout.headerUpdated')}: {formatTimeInTimezone(lastUpdated, timezone, locale)}
               </p>
             </div>
             
@@ -151,7 +154,7 @@ export default function InfographicLayout() {
                     {indexLabel(idx.symbol, idx.name)}
                   </div>
                   <div style={{ fontSize: 28, fontWeight: 300 }}>
-                    {idx.price.toLocaleString('en-US', { maximumFractionDigits: 0 })}
+                    {idx.price.toLocaleString(locale, { maximumFractionDigits: 0 })}
                   </div>
                   <div style={{
                     fontSize: 14,
@@ -175,7 +178,7 @@ export default function InfographicLayout() {
                 minWidth: 180,
               }}>
                 <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.5)', marginBottom: 6 }}>
-                  FX SEK
+                  {t(language, 'layout.fxSek')}
                 </div>
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
                   <div style={{ display: 'flex', justifyContent: 'space-between', gap: 16, fontSize: 18 }}>

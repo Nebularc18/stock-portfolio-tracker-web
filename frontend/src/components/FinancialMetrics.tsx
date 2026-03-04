@@ -1,4 +1,6 @@
 import { FinancialMetrics as FinancialMetricsType } from '../services/api'
+import { useSettings } from '../SettingsContext'
+import { t } from '../i18n'
 
 interface Props {
   metrics: FinancialMetricsType | null
@@ -45,12 +47,14 @@ function MetricCard({ label, value, format = 'number' }: { label: string; value:
 }
 
 export default function FinancialMetrics({ metrics, loading }: Props) {
+  const { language } = useSettings()
+
   if (loading) {
     return (
       <div className="card">
-        <h3 style={{ marginBottom: '16px' }}>Nyckeltal</h3>
+        <h3 style={{ marginBottom: '16px' }}>{t(language, 'financialMetrics.title')}</h3>
         <p style={{ color: 'var(--text-secondary)', textAlign: 'center', padding: '20px' }}>
-          Laddar...
+          {t(language, 'common.loading')}
         </p>
       </div>
     )
@@ -62,42 +66,42 @@ export default function FinancialMetrics({ metrics, loading }: Props) {
 
   return (
     <div className="card">
-      <h3 style={{ marginBottom: '16px' }}>Nyckeltal</h3>
+      <h3 style={{ marginBottom: '16px' }}>{t(language, 'financialMetrics.title')}</h3>
       
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '12px' }}>
         <MetricCard label="P/E (TTM)" value={metrics.pe_ttm} />
         <MetricCard label="P/S (TTM)" value={metrics.ps_ttm} />
         <MetricCard label="P/B" value={metrics.pb_annual} />
-        <MetricCard label="P/E (Årlig)" value={metrics.pe_annual} />
+        <MetricCard label={t(language, 'financialMetrics.peAnnual')} value={metrics.pe_annual} />
         
         <MetricCard label="ROE" value={metrics.roe_ttm} format="percent" />
         <MetricCard label="ROA" value={metrics.roa_ttm} format="percent" />
-        <MetricCard label="Nettomarginal" value={metrics.net_margin_ttm} format="percent" />
-        <MetricCard label="Bruttomarginal" value={metrics.gross_margin_ttm} format="percent" />
+        <MetricCard label={t(language, 'financialMetrics.netMargin')} value={metrics.net_margin_ttm} format="percent" />
+        <MetricCard label={t(language, 'financialMetrics.grossMargin')} value={metrics.gross_margin_ttm} format="percent" />
         
-        <MetricCard label="Rörelsemarginal" value={metrics.operating_margin_ttm} format="percent" />
+        <MetricCard label={t(language, 'financialMetrics.operatingMargin')} value={metrics.operating_margin_ttm} format="percent" />
         <MetricCard label="EPS (TTM)" value={metrics.eps_ttm} format="currency" />
-        <MetricCard label="Bokvärde/aktie" value={metrics.book_value_per_share} format="currency" />
-        <MetricCard label="Kassaflöde/aktie" value={metrics.cash_flow_per_share} format="currency" />
+        <MetricCard label={t(language, 'financialMetrics.bookValuePerShare')} value={metrics.book_value_per_share} format="currency" />
+        <MetricCard label={t(language, 'financialMetrics.cashFlowPerShare')} value={metrics.cash_flow_per_share} format="currency" />
         
-        <MetricCard label="Utdelning %" value={metrics.dividend_yield} format="percent" />
-        <MetricCard label="Utdelning/aktie" value={metrics.dividend_per_share_annual} format="currency" />
-        <MetricCard label="Utd. tillväxt 5Å" value={metrics.dividend_growth_5y} format="percent" />
-        <MetricCard label="Utd. avk. TTM" value={metrics.dividend_yield_ttm} format="percent" />
+        <MetricCard label={t(language, 'financialMetrics.dividendPercent')} value={metrics.dividend_yield} format="percent" />
+        <MetricCard label={t(language, 'financialMetrics.dividendPerShare')} value={metrics.dividend_per_share_annual} format="currency" />
+        <MetricCard label={t(language, 'financialMetrics.divGrowth5y')} value={metrics.dividend_growth_5y} format="percent" />
+        <MetricCard label={t(language, 'financialMetrics.divYieldTtm')} value={metrics.dividend_yield_ttm} format="percent" />
         
-        <MetricCard label="Oms. tillväxt TTM" value={metrics.revenue_growth_ttm} format="percent" />
-        <MetricCard label="Oms. tillväxt 3Å" value={metrics.revenue_growth_3y} format="percent" />
-        <MetricCard label="EPS tillväxt TTM" value={metrics.eps_growth_ttm} format="percent" />
-        <MetricCard label="EPS tillväxt 3Å" value={metrics.eps_growth_3y} format="percent" />
+        <MetricCard label={t(language, 'financialMetrics.revenueGrowthTtm')} value={metrics.revenue_growth_ttm} format="percent" />
+        <MetricCard label={t(language, 'financialMetrics.revenueGrowth3y')} value={metrics.revenue_growth_3y} format="percent" />
+        <MetricCard label={t(language, 'financialMetrics.epsGrowthTtm')} value={metrics.eps_growth_ttm} format="percent" />
+        <MetricCard label={t(language, 'financialMetrics.epsGrowth3y')} value={metrics.eps_growth_3y} format="percent" />
         
         <MetricCard label="Beta" value={metrics.beta} />
-        <MetricCard label="52V Hög" value={metrics['52_week_high']} format="currency" />
-        <MetricCard label="52V Låg" value={metrics['52_week_low']} format="currency" />
-        <MetricCard label="52V Hög datum" value={metrics['52_week_high_date']} format="date" />
+        <MetricCard label={t(language, 'financialMetrics.high52w')} value={metrics['52_week_high']} format="currency" />
+        <MetricCard label={t(language, 'financialMetrics.low52w')} value={metrics['52_week_low']} format="currency" />
+        <MetricCard label={t(language, 'financialMetrics.high52wDate')} value={metrics['52_week_high_date']} format="date" />
         
-        <MetricCard label="52V Låg datum" value={metrics['52_week_low_date']} format="date" />
-        <MetricCard label="Volym 10d gen." value={metrics.avg_volume_10d} format="volume" />
-        <MetricCard label="Volym 3m gen." value={metrics.avg_volume_3m} format="volume" />
+        <MetricCard label={t(language, 'financialMetrics.low52wDate')} value={metrics['52_week_low_date']} format="date" />
+        <MetricCard label={t(language, 'financialMetrics.avgVol10d')} value={metrics.avg_volume_10d} format="volume" />
+        <MetricCard label={t(language, 'financialMetrics.avgVol3m')} value={metrics.avg_volume_3m} format="volume" />
         <div />
       </div>
     </div>

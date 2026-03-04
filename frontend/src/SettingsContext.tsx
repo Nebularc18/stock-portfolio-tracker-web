@@ -1,10 +1,13 @@
 import { createContext, useContext, useState, useEffect, ReactNode } from 'react'
+import { Language } from './i18n'
 
 interface SettingsContextType {
   timezone: string
   setTimezone: (tz: string) => void
   displayCurrency: string
   setDisplayCurrency: (currency: string) => void
+  language: Language
+  setLanguage: (language: Language) => void
   headerIndices: string[]
   setHeaderIndices: (indices: string[]) => void
   loading: boolean
@@ -37,6 +40,10 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
   const [displayCurrency, setDisplayCurrencyState] = useState(() => {
     const saved = localStorage.getItem('displayCurrency')
     return saved || 'SEK'
+  })
+  const [language, setLanguageState] = useState<Language>(() => {
+    const saved = localStorage.getItem('language')
+    return saved === 'sv' ? 'sv' : 'en'
   })
   const [headerIndices, setHeaderIndicesState] = useState<string[]>(() => {
     const saved = localStorage.getItem('headerIndices')
@@ -81,6 +88,11 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
     }).catch(() => {})
   }
 
+  const setLanguage = (nextLanguage: Language) => {
+    setLanguageState(nextLanguage)
+    localStorage.setItem('language', nextLanguage)
+  }
+
   const setHeaderIndices = (indices: string[]) => {
     setHeaderIndicesState(indices)
     localStorage.setItem('headerIndices', JSON.stringify(indices))
@@ -94,7 +106,7 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
 
   return (
     <SettingsContext.Provider value={{ 
-      timezone, setTimezone, displayCurrency, setDisplayCurrency, 
+      timezone, setTimezone, displayCurrency, setDisplayCurrency, language, setLanguage,
       headerIndices, setHeaderIndices, loading 
     }}>
       {children}

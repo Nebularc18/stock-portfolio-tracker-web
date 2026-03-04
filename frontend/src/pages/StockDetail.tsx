@@ -7,6 +7,7 @@ import PeerCompanies from '../components/PeerCompanies'
 import YfinanceAnalystPanel from '../components/YfinanceAnalystPanel'
 import { useSettings } from '../SettingsContext'
 import { formatTimeInTimezone } from '../utils/time'
+import { getLocaleForLanguage, t } from '../i18n'
 
 function formatCurrency(value: number | null, currency: string = 'USD'): string {
   if (value === null) return '-'
@@ -66,6 +67,20 @@ function estimateDividendsPerYear(dividends: Dividend[]): number {
   return Math.max(1, Math.min(12, estimated))
 }
 
+function convertToSEKValue(
+  amount: number | null,
+  currency: string,
+  safeRates: Record<string, number | null>
+): number | null {
+  if (amount === null) return null
+  if (currency === 'SEK') return amount
+  const direct = safeRates[`${currency}_SEK`]
+  if (direct) return amount * direct
+  const inverse = safeRates[`SEK_${currency}`]
+  if (inverse) return amount / inverse
+  return null
+}
+
 export default function StockDetail() {
   const { ticker } = useParams<{ ticker: string }>()
   const navigate = useNavigate()
@@ -98,7 +113,8 @@ export default function StockDetail() {
   const [verificationLoading, setVerificationLoading] = useState(false)
   const [marketstackStatus, setMarketstackStatus] = useState<MarketstackUsage | null>(null)
   const [exchangeRates, setExchangeRates] = useState<Record<string, number | null>>({})
-  const { timezone } = useSettings()
+  const { timezone, language } = useSettings()
+  const locale = getLocaleForLanguage(language)
 
   useEffect(() => {
     if (!ticker) return
@@ -119,16 +135,6 @@ export default function StockDetail() {
 
         const safeRates = ratesData as Record<string, number | null>
 
-        const convertToSEKValue = (amount: number | null, currency: string): number | null => {
-          if (amount === null) return null
-          if (currency === 'SEK') return amount
-          const direct = safeRates[`${currency}_SEK`]
-          if (direct) return amount * direct
-          const inverse = safeRates[`SEK_${currency}`]
-          if (inverse) return amount / inverse
-          return null
-        }
-
         const currentYear = new Date().getFullYear()
         const today = new Date().toISOString().slice(0, 10)
 
@@ -141,7 +147,7 @@ export default function StockDetail() {
             const amountPerShare = div.amount ?? 0
             const totalAmount = amountPerShare * stockData.quantity
             const divCurrency = div.currency || stockData.currency
-            const totalConverted = convertToSEKValue(totalAmount, divCurrency)
+            const totalConverted = convertToSEKValue(totalAmount, divCurrency, safeRates)
             const payoutDate = div.payment_date || div.date
 
             return {
@@ -171,7 +177,7 @@ export default function StockDetail() {
             const amountPerShare = div.amount ?? 0
             const totalAmount = amountPerShare * stockData.quantity
             const divCurrency = div.currency || stockData.currency
-            const totalConverted = convertToSEKValue(totalAmount, divCurrency)
+            const totalConverted = convertToSEKValue(totalAmount, divCurrency, safeRates)
             const payoutDate = div.payment_date || div.ex_date
 
             return {
@@ -228,7 +234,7 @@ export default function StockDetail() {
         setExchangeRates(ratesData)
         setError(null)
       } catch (err: any) {
-        setError(err.message || 'Failed to load stock data')
+        setError(err.message || t(language, 'stockDetail.failedLoad'))
       } finally {
         setLoading(false)
       }
@@ -320,7 +326,7 @@ export default function StockDetail() {
   }
 
   const handleDelete = async () => {
-    if (!ticker || !confirm(`Delete ${ticker} from your portfolio?`)) return
+    if (!ticker || !confirm(t(language, 'stockDetail.deleteStockConfirm', { ticker }))) return
     try {
       await api.stocks.delete(ticker)
       navigate('/stocks')
@@ -374,7 +380,7 @@ export default function StockDetail() {
   }
 
   const handleDeleteDividend = async (dividendId: string) => {
-    if (!ticker || !confirm('Delete this dividend entry?')) return
+    if (!ticker || !confirm(t(language, 'stockDetail.deleteDividendConfirm'))) return
     try {
       await api.stocks.deleteManualDividend(ticker, dividendId)
       if (stock) {
@@ -414,14 +420,14 @@ export default function StockDetail() {
   }
 
   if (loading) {
-    return <div style={{ textAlign: 'center', padding: '40px' }}>Loading...</div>
+    return <div style={{ textAlign: 'center', padding: '40px' }}>{t(language, 'common.loading')}</div>
   }
 
   if (error || !stock) {
     return (
       <div className="card" style={{ textAlign: 'center', padding: '40px' }}>
-        <p style={{ color: 'var(--accent-red)', marginBottom: '16px' }}>{error || 'Stock not found'}</p>
-        <Link to="/stocks" className="btn btn-primary">Back to Stocks</Link>
+        <p style={{ color: 'var(--accent-red)', marginBottom: '16px' }}>{error || t(language, 'stockDetail.notFound')}</p>
+        <Link to="/stocks" className="btn btn-primary">{t(language, 'stockDetail.backToStocks')}</Link>
       </div>
     )
   }
@@ -434,13 +440,7 @@ export default function StockDetail() {
     : null
 
   const convertToSEK = (amount: number | null, fromCurrency: string): number | null => {
-    if (amount === null) return null
-    if (fromCurrency === 'SEK') return amount
-    const direct = exchangeRates[`${fromCurrency}_SEK`]
-    if (direct) return amount * direct
-    const inverse = exchangeRates[`SEK_${fromCurrency}`]
-    if (inverse) return amount / inverse
-    return null
+    return convertToSEKValue(amount, fromCurrency, exchangeRates)
   }
 
   const renderValueWithSEK = (amount: number | null, fromCurrency: string, align: 'left' | 'right' = 'right') => {
@@ -538,7 +538,7 @@ export default function StockDetail() {
     <div>
       <div style={{ marginBottom: '24px' }}>
         <Link to="/stocks" style={{ color: 'var(--accent-blue)', textDecoration: 'none' }}>
-          ← Back to Stocks
+          ← {t(language, 'stockDetail.backToStocks')}
         </Link>
       </div>
 
@@ -592,15 +592,15 @@ export default function StockDetail() {
               </p>
             )}
             <p style={{ color: 'var(--text-secondary)', fontSize: '12px', marginTop: '8px' }}>
-              Last updated: {formatTimeInTimezone(stock.last_updated, timezone)} · Auto-refresh every 10 min
+              {t(language, 'common.lastUpdated')}: {formatTimeInTimezone(stock.last_updated, timezone, locale)} · {t(language, 'common.autoRefresh10m')}
             </p>
           </div>
           <div style={{ display: 'flex', gap: '8px' }}>
             <button className="btn btn-secondary" onClick={openEditModal}>
-              Edit
+              {t(language, 'stockDetail.edit')}
             </button>
             <button className="btn btn-danger" onClick={handleDelete}>
-              Delete
+              {t(language, 'common.delete')}
             </button>
           </div>
         </div>
@@ -652,7 +652,7 @@ export default function StockDetail() {
                 fontWeight: 500,
               }}
             >
-              {tab.charAt(0).toUpperCase() + tab.slice(1)}
+              {tab === 'overview' ? t(language, 'stockDetail.tabOverview') : tab === 'profile' ? t(language, 'stockDetail.tabProfile') : tab === 'dividends' ? t(language, 'stockDetail.tabDividends') : t(language, 'stockDetail.tabAnalyst')}
             </button>
           ))}
         </div>
@@ -661,23 +661,23 @@ export default function StockDetail() {
       {activeTab === 'overview' && (
         <div className="grid grid-2">
           <div className="card">
-            <h3 style={{ marginBottom: '16px' }}>Position</h3>
+            <h3 style={{ marginBottom: '16px' }}>{t(language, 'stockDetail.position')}</h3>
             <table>
               <tbody>
                 <tr>
-                  <td style={{ color: 'var(--text-secondary)' }}>Quantity</td>
+                  <td style={{ color: 'var(--text-secondary)' }}>{t(language, 'stockDetail.quantity')}</td>
                   <td style={{ textAlign: 'right' }}>{stock.quantity}</td>
                 </tr>
                 <tr>
-                  <td style={{ color: 'var(--text-secondary)' }}>Purchase Price</td>
+                  <td style={{ color: 'var(--text-secondary)' }}>{t(language, 'stockDetail.purchasePrice')}</td>
                   <td>{renderValueWithSEK(stock.purchase_price, stock.currency)}</td>
                 </tr>
                 <tr>
-                  <td style={{ color: 'var(--text-secondary)' }}>Current Value</td>
+                  <td style={{ color: 'var(--text-secondary)' }}>{t(language, 'stockDetail.currentValue')}</td>
                   <td>{renderValueWithSEK(stock.current_price ? stock.current_price * stock.quantity : null, stock.currency)}</td>
                 </tr>
                 <tr>
-                  <td style={{ color: 'var(--text-secondary)' }}>Total Cost</td>
+                  <td style={{ color: 'var(--text-secondary)' }}>{t(language, 'stockDetail.totalCost')}</td>
                   <td>{renderValueWithSEK(stock.purchase_price ? stock.purchase_price * stock.quantity : null, stock.currency)}</td>
                 </tr>
               </tbody>
@@ -685,21 +685,21 @@ export default function StockDetail() {
           </div>
           
           <div className="card">
-            <h3 style={{ marginBottom: '16px' }}>Dividend Info</h3>
+            <h3 style={{ marginBottom: '16px' }}>{t(language, 'stockDetail.dividendInfo')}</h3>
             <table>
               <tbody>
                 <tr>
-                  <td style={{ color: 'var(--text-secondary)' }}>Dividend Yield</td>
+                  <td style={{ color: 'var(--text-secondary)' }}>{t(language, 'stockDetail.dividendYield')}</td>
                   <td style={{ textAlign: 'right' }}>
                     {displayDividendYield !== null ? `${displayDividendYield.toFixed(2)}%` : '-'}
                   </td>
                 </tr>
                 <tr>
-                  <td style={{ color: 'var(--text-secondary)' }}>Dividend/Share</td>
+                  <td style={{ color: 'var(--text-secondary)' }}>{t(language, 'stockDetail.dividendPerShare')}</td>
                   <td style={{ textAlign: 'right' }}>{formatCurrency(displayDividendPerShare, stock.currency)}</td>
                 </tr>
                 <tr>
-                  <td style={{ color: 'var(--text-secondary)' }}>Annual Income</td>
+                  <td style={{ color: 'var(--text-secondary)' }}>{t(language, 'stockDetail.annualIncome')}</td>
                   <td style={{ textAlign: 'right' }}>
                     {displayAnnualIncome !== null ? formatCurrency(displayAnnualIncome, stock.currency) : '-'}
                   </td>
@@ -717,21 +717,21 @@ export default function StockDetail() {
           <PeerCompanies peers={peers} loading={finnhubLoading} />
           {!finnhubLoading && !hasProfileContent && (
             <div className="card">
-              <h3 style={{ marginBottom: '12px' }}>Profile Snapshot</h3>
+              <h3 style={{ marginBottom: '12px' }}>{t(language, 'stockDetail.profileSnapshot')}</h3>
               <p style={{ color: 'var(--text-secondary)', marginBottom: '14px' }}>
-                No extended profile data is available for this ticker right now, but your core position data is up to date.
+                {t(language, 'stockDetail.profileSnapshotDesc')}
               </p>
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, minmax(0, 1fr))', gap: '12px' }}>
                 <div style={{ background: 'var(--bg-secondary)', border: '1px solid var(--border-color)', borderRadius: 8, padding: '12px' }}>
-                  <p style={{ color: 'var(--text-secondary)', fontSize: '12px', marginBottom: '4px' }}>Sector</p>
+                  <p style={{ color: 'var(--text-secondary)', fontSize: '12px', marginBottom: '4px' }}>{t(language, 'stockDetail.sector')}</p>
                   <p>{stock.sector || '-'}</p>
                 </div>
                 <div style={{ background: 'var(--bg-secondary)', border: '1px solid var(--border-color)', borderRadius: 8, padding: '12px' }}>
-                  <p style={{ color: 'var(--text-secondary)', fontSize: '12px', marginBottom: '4px' }}>Dividend/Share (modeled)</p>
+                  <p style={{ color: 'var(--text-secondary)', fontSize: '12px', marginBottom: '4px' }}>{t(language, 'stockDetail.dividendPerShareModeled')}</p>
                   <p>{formatCurrency(displayDividendPerShare, stock.currency)}</p>
                 </div>
                 <div style={{ background: 'var(--bg-secondary)', border: '1px solid var(--border-color)', borderRadius: 8, padding: '12px' }}>
-                  <p style={{ color: 'var(--text-secondary)', fontSize: '12px', marginBottom: '4px' }}>Annual Income</p>
+                  <p style={{ color: 'var(--text-secondary)', fontSize: '12px', marginBottom: '4px' }}>{t(language, 'stockDetail.annualIncome')}</p>
                   <p>{displayAnnualIncome !== null ? formatCurrency(displayAnnualIncome, stock.currency) : '-'}</p>
                 </div>
               </div>
@@ -744,19 +744,19 @@ export default function StockDetail() {
         <div>
           <div className="card" style={{ marginBottom: '20px' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
-              <h3>Manual Dividends</h3>
+              <h3>{t(language, 'stockDetail.manualDividends')}</h3>
               <button className="btn btn-primary" onClick={openAddDividendModal}>
-                Add Dividend
+                {t(language, 'stockDetail.addDividend')}
               </button>
             </div>
             {stock.manual_dividends && stock.manual_dividends.length > 0 ? (
               <table>
                 <thead>
                   <tr>
-                    <th>Date</th>
-                    <th>Amount</th>
-                    <th>Note</th>
-                    <th>Actions</th>
+                    <th>{t(language, 'stockDetail.date')}</th>
+                    <th>{t(language, 'stockDetail.amount')}</th>
+                    <th>{t(language, 'stockDetail.note')}</th>
+                    <th>{t(language, 'common.actions')}</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -772,14 +772,14 @@ export default function StockDetail() {
                             style={{ padding: '4px 8px', fontSize: '12px' }}
                             onClick={() => openEditDividendModal(div)}
                           >
-                            Edit
+                            {t(language, 'stockDetail.edit')}
                           </button>
                           <button 
                             className="btn btn-danger" 
                             style={{ padding: '4px 8px', fontSize: '12px' }}
                             onClick={() => handleDeleteDividend(div.id)}
                           >
-                            Delete
+                            {t(language, 'common.delete')}
                           </button>
                         </div>
                       </td>
@@ -789,7 +789,7 @@ export default function StockDetail() {
               </table>
             ) : (
               <p style={{ color: 'var(--text-secondary)', textAlign: 'center', padding: '20px' }}>
-                No manual dividends. Click "Add Dividend" to add one.
+                {t(language, 'stockDetail.noManualDividends')}
               </p>
             )}
           </div>
@@ -797,24 +797,24 @@ export default function StockDetail() {
           {yearDividends.length > 0 && (
             <div className="card" style={{ marginBottom: '20px' }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
-                <h3>Dividends (This Year)</h3>
+                <h3>{t(language, 'stockDetail.dividendsThisYear')}</h3>
                 <div style={{ display: 'flex', gap: '16px', fontSize: '13px' }}>
                   <span style={{ color: 'var(--text-secondary)' }}>
-                    Received: <strong style={{ color: 'var(--accent-green)' }}>{formatCurrency(yearReceived, 'SEK')}</strong>
+                    {t(language, 'stockDetail.received')}: <strong style={{ color: 'var(--accent-green)' }}>{formatCurrency(yearReceived, 'SEK')}</strong>
                   </span>
                   <span style={{ color: 'var(--text-secondary)' }}>
-                    Remaining: <strong style={{ color: 'var(--accent-blue)' }}>{formatCurrency(yearRemaining, 'SEK')}</strong>
+                    {t(language, 'stockDetail.remaining')}: <strong style={{ color: 'var(--accent-blue)' }}>{formatCurrency(yearRemaining, 'SEK')}</strong>
                   </span>
                 </div>
               </div>
               <table>
                 <thead>
                   <tr>
-                    <th>Ex-Date</th>
-                    <th>Dividend Date</th>
-                    <th>Amount</th>
-                    <th>Status</th>
-                    <th>Source</th>
+                    <th>{t(language, 'stockDetail.exDate')}</th>
+                    <th>{t(language, 'stockDetail.dividendDate')}</th>
+                    <th>{t(language, 'stockDetail.amount')}</th>
+                    <th>{t(language, 'stockDetail.status')}</th>
+                    <th>{t(language, 'stockDetail.source')}</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -824,7 +824,7 @@ export default function StockDetail() {
                       <td>{div.payment_date ? formatDate(div.payment_date) : '-'}</td>
                       <td>{formatCurrency(div.amount_per_share, div.currency || stock.currency)}</td>
                       <td style={{ color: div.status === 'paid' ? 'var(--accent-green)' : 'var(--accent-blue)', fontSize: '12px' }}>
-                        {div.status === 'paid' ? 'Paid' : 'Upcoming'}
+                        {div.status === 'paid' ? t(language, 'stockDetail.paid') : t(language, 'stockDetail.upcoming')}
                       </td>
                       <td style={{ color: 'var(--text-secondary)', fontSize: '12px' }}>
                         {div.source || 'historical'}
@@ -837,18 +837,18 @@ export default function StockDetail() {
           )}
           
           <div className="card">
-            <h3 style={{ marginBottom: '16px' }}>Dividend History (Last 5 Years)</h3>
+            <h3 style={{ marginBottom: '16px' }}>{t(language, 'stockDetail.history5y')}</h3>
             {dividends.length === 0 ? (
               <p style={{ color: 'var(--text-secondary)', textAlign: 'center', padding: '20px' }}>
-                No dividend history available
+                {t(language, 'stockDetail.noHistory')}
               </p>
             ) : (
               <table>
                 <thead>
                   <tr>
-                    <th>Date</th>
-                    <th>Amount</th>
-                    <th>Actions</th>
+                    <th>{t(language, 'stockDetail.date')}</th>
+                    <th>{t(language, 'stockDetail.amount')}</th>
+                    <th>{t(language, 'common.actions')}</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -859,7 +859,7 @@ export default function StockDetail() {
                         <td>{formatDate(div.date)}</td>
                         <td style={{ color: suppressed ? 'var(--text-secondary)' : 'var(--accent-green)' }}>
                           {formatCurrency(div.amount, div.currency || stock.currency)}
-                          {suppressed && <span style={{ marginLeft: '8px', fontSize: '12px' }}>(suppressed)</span>}
+                          {suppressed && <span style={{ marginLeft: '8px', fontSize: '12px' }}>{t(language, 'stockDetail.suppressedTag')}</span>}
                         </td>
                         <td>
                           {suppressed ? (
@@ -868,7 +868,7 @@ export default function StockDetail() {
                               style={{ padding: '4px 8px', fontSize: '12px' }}
                               onClick={() => handleRestoreDividend(div.date)}
                             >
-                              Restore
+                              {t(language, 'stockDetail.restore')}
                             </button>
                           ) : (
                             <button 
@@ -876,7 +876,7 @@ export default function StockDetail() {
                               style={{ padding: '4px 8px', fontSize: '12px' }}
                               onClick={() => handleSuppressDividend(div.date, div.amount)}
                             >
-                              Hide
+                              {t(language, 'stockDetail.hide')}
                             </button>
                           )}
                         </td>
@@ -890,21 +890,21 @@ export default function StockDetail() {
           
           <div className="card" style={{ marginTop: '20px' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
-              <h3>Dividend Verification</h3>
+              <h3>{t(language, 'stockDetail.verification')}</h3>
               {marketstackStatus && (
                 <span style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>
-                  API: {marketstackStatus.calls_remaining}/{marketstackStatus.calls_limit} calls remaining
+                  API: {marketstackStatus.calls_remaining}/{marketstackStatus.calls_limit} {t(language, 'stockDetail.callsRemaining')}
                 </span>
               )}
             </div>
             
             {marketstackStatus && marketstackStatus.api_configured === false ? (
               <p style={{ color: 'var(--text-secondary)', textAlign: 'center', padding: '20px' }}>
-                Marketstack API not configured. Set MARKETSTACK_API_KEY environment variable.
+                {t(language, 'stockDetail.apiNotConfigured')}
               </p>
             ) : verificationLoading ? (
               <p style={{ color: 'var(--text-secondary)', textAlign: 'center', padding: '20px' }}>
-                Verifying dividends...
+                {t(language, 'stockDetail.verifying')}
               </p>
             ) : verificationResult ? (
               <div>
@@ -918,32 +918,32 @@ export default function StockDetail() {
                     <p style={{ fontSize: '20px', fontWeight: '600' }}>{verificationResult.summary.marketstack_count}</p>
                   </div>
                   <div style={{ padding: '12px 16px', background: 'rgba(34, 197, 94, 0.15)', borderRadius: '8px' }}>
-                    <span style={{ color: 'var(--accent-green)', fontSize: '12px' }}>Matches</span>
+                    <span style={{ color: 'var(--accent-green)', fontSize: '12px' }}>{t(language, 'stockDetail.matches')}</span>
                     <p style={{ fontSize: '20px', fontWeight: '600', color: 'var(--accent-green)' }}>{verificationResult.summary.match_count}</p>
                   </div>
                   <div style={{ padding: '12px 16px', background: verificationResult.summary.discrepancy_count > 0 ? 'var(--accent-red)' : 'var(--card-bg-alt)', borderRadius: '8px' }}>
-                    <span style={{ color: verificationResult.summary.discrepancy_count > 0 ? '#ffffff' : 'var(--text-secondary)', fontSize: '12px' }}>Discrepancies</span>
+                    <span style={{ color: verificationResult.summary.discrepancy_count > 0 ? '#ffffff' : 'var(--text-secondary)', fontSize: '12px' }}>{t(language, 'stockDetail.discrepancies')}</span>
                     <p style={{ fontSize: '20px', fontWeight: '600', color: verificationResult.summary.discrepancy_count > 0 ? '#ffffff' : 'var(--text-primary)' }}>{verificationResult.summary.discrepancy_count}</p>
                   </div>
                 </div>
                 
                 {verificationResult.cached && (
                   <p style={{ fontSize: '12px', color: 'var(--text-secondary)', marginBottom: '12px' }}>
-                    (Cached result from {new Date(verificationResult.verified_at).toLocaleString()})
+                    {t(language, 'stockDetail.cachedPrefix')}{new Date(verificationResult.verified_at).toLocaleString(locale)}{')'}
                   </p>
                 )}
                 
                 {verificationResult.discrepancies.length > 0 && (
                   <div>
-                    <h4 style={{ marginBottom: '12px', fontSize: '14px' }}>Discrepancy Details</h4>
+                    <h4 style={{ marginBottom: '12px', fontSize: '14px' }}>{t(language, 'stockDetail.discrepancyDetails')}</h4>
                     <table>
                       <thead>
                         <tr>
-                          <th>Date</th>
-                          <th>Type</th>
+                          <th>{t(language, 'stockDetail.date')}</th>
+                          <th>{t(language, 'stockDetail.type')}</th>
                           <th>Yahoo</th>
                           <th>Marketstack</th>
-                          <th>Difference</th>
+                          <th>{t(language, 'stockDetail.difference')}</th>
                         </tr>
                       </thead>
                       <tbody>
@@ -980,21 +980,21 @@ export default function StockDetail() {
                     onClick={handleVerifyDividends}
                     disabled={verificationLoading || (marketstackStatus !== null && (marketstackStatus.calls_remaining ?? 0) <= 0)}
                   >
-                    Re-verify (uses 1 API call)
+                    {t(language, 'stockDetail.reverify')}
                   </button>
                 </div>
               </div>
             ) : (
               <div style={{ textAlign: 'center', padding: '20px' }}>
                 <p style={{ color: 'var(--text-secondary)', marginBottom: '12px' }}>
-                  Compare Yahoo Finance dividend data against Marketstack to verify accuracy.
+                  {t(language, 'stockDetail.verifyDescription')}
                 </p>
                 <button 
                   className="btn btn-primary" 
                   onClick={handleVerifyDividends}
                   disabled={verificationLoading || (marketstackStatus !== null && (marketstackStatus.calls_remaining ?? 0) <= 0)}
                 >
-                  Verify Dividends (1 API call)
+                  {t(language, 'stockDetail.verify')}
                 </button>
               </div>
             )}
@@ -1002,13 +1002,13 @@ export default function StockDetail() {
           
           {suppressedDividends.length > 0 && (
             <div className="card" style={{ marginTop: '20px' }}>
-              <h3 style={{ marginBottom: '16px', color: 'var(--text-secondary)' }}>Suppressed Dividends</h3>
+              <h3 style={{ marginBottom: '16px', color: 'var(--text-secondary)' }}>{t(language, 'stockDetail.suppressedDividends')}</h3>
               <table>
                 <thead>
                   <tr>
-                    <th>Date</th>
-                    <th>Amount</th>
-                    <th>Actions</th>
+                    <th>{t(language, 'stockDetail.date')}</th>
+                    <th>{t(language, 'stockDetail.amount')}</th>
+                    <th>{t(language, 'common.actions')}</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -1022,7 +1022,7 @@ export default function StockDetail() {
                           style={{ padding: '4px 8px', fontSize: '12px' }}
                           onClick={() => handleRestoreDividend(div.date)}
                         >
-                          Restore
+                          {t(language, 'stockDetail.restore')}
                         </button>
                       </td>
                     </tr>
@@ -1039,7 +1039,7 @@ export default function StockDetail() {
           {analystDataLoading ? (
             <div className="card">
               <p style={{ color: 'var(--text-secondary)', textAlign: 'center', padding: '40px' }}>
-                Loading analyst data...
+                {t(language, 'stockDetail.loadingAnalyst')}
               </p>
             </div>
           ) : (
@@ -1055,7 +1055,7 @@ export default function StockDetail() {
               {!analystData?.price_targets && !analystData?.recommendations?.length && !analystData?.finnhub_recommendations?.length && !finnhubLoading && !analystDataLoading && (
                 <div className="card">
                   <p style={{ color: 'var(--text-secondary)', textAlign: 'center', padding: '40px' }}>
-                    No analyst data available
+                    {t(language, 'stockDetail.noAnalyst')}
                   </p>
                 </div>
               )}
@@ -1085,10 +1085,10 @@ export default function StockDetail() {
             style={{ width: '400px', maxWidth: '90%' }}
             onClick={(e) => e.stopPropagation()}
           >
-            <h3 style={{ marginBottom: '20px' }}>Edit Position</h3>
+            <h3 style={{ marginBottom: '20px' }}>{t(language, 'stockDetail.editPosition')}</h3>
             <div style={{ marginBottom: '16px' }}>
               <label style={{ display: 'block', marginBottom: '8px', color: 'var(--text-secondary)', fontSize: '14px' }}>
-                Quantity
+                {t(language, 'stockDetail.quantity')}
               </label>
               <input
                 type="number"
@@ -1100,7 +1100,7 @@ export default function StockDetail() {
             </div>
             <div style={{ marginBottom: '24px' }}>
               <label style={{ display: 'block', marginBottom: '8px', color: 'var(--text-secondary)', fontSize: '14px' }}>
-                Purchase Price ({stock?.currency})
+                {t(language, 'stockDetail.purchasePrice')} ({stock?.currency})
               </label>
               <input
                 type="number"
@@ -1113,10 +1113,10 @@ export default function StockDetail() {
             </div>
             <div style={{ display: 'flex', gap: '12px', justifyContent: 'flex-end' }}>
               <button className="btn btn-secondary" onClick={() => setShowEditModal(false)}>
-                Cancel
+                {t(language, 'stockDetail.cancel')}
               </button>
               <button className="btn btn-primary" onClick={handleSaveEdit} disabled={saving}>
-                {saving ? 'Saving...' : 'Save'}
+                {saving ? t(language, 'stockDetail.saving') : t(language, 'stockDetail.save')}
               </button>
             </div>
           </div>
@@ -1145,11 +1145,11 @@ export default function StockDetail() {
             onClick={(e) => e.stopPropagation()}
           >
             <h3 style={{ marginBottom: '20px' }}>
-              {editingDividend ? 'Edit Dividend' : 'Add Dividend'}
+              {editingDividend ? t(language, 'stockDetail.editDividend') : t(language, 'stockDetail.addDividend')}
             </h3>
             <div style={{ marginBottom: '16px' }}>
               <label style={{ display: 'block', marginBottom: '8px', color: 'var(--text-secondary)', fontSize: '14px' }}>
-                Date
+                {t(language, 'stockDetail.date')}
               </label>
               <input
                 type="date"
@@ -1160,7 +1160,7 @@ export default function StockDetail() {
             </div>
             <div style={{ marginBottom: '16px' }}>
               <label style={{ display: 'block', marginBottom: '8px', color: 'var(--text-secondary)', fontSize: '14px' }}>
-                Amount ({stock?.currency})
+                {t(language, 'stockDetail.amount')} ({stock?.currency})
               </label>
               <input
                 type="number"
@@ -1173,7 +1173,7 @@ export default function StockDetail() {
             </div>
             <div style={{ marginBottom: '24px' }}>
               <label style={{ display: 'block', marginBottom: '8px', color: 'var(--text-secondary)', fontSize: '14px' }}>
-                Note (optional)
+                {t(language, 'stockDetail.noteOptional')}
               </label>
               <input
                 type="text"
@@ -1185,14 +1185,14 @@ export default function StockDetail() {
             </div>
             <div style={{ display: 'flex', gap: '12px', justifyContent: 'flex-end' }}>
               <button className="btn btn-secondary" onClick={() => setShowDividendModal(false)}>
-                Cancel
+                {t(language, 'stockDetail.cancel')}
               </button>
               <button 
                 className="btn btn-primary" 
                 onClick={handleSaveDividend} 
                 disabled={saving || !divDate || !divAmount}
               >
-                {saving ? 'Saving...' : 'Save'}
+                {saving ? t(language, 'stockDetail.saving') : t(language, 'stockDetail.save')}
               </button>
             </div>
           </div>

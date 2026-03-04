@@ -3,10 +3,11 @@ import { Link } from 'react-router-dom'
 import { api, Stock } from '../services/api'
 import { useSettings } from '../SettingsContext'
 import { formatTimeInTimezone, getLatestTimestamp } from '../utils/time'
+import { getLocaleForLanguage, t } from '../i18n'
 
-function formatCurrency(value: number | null, currency: string = 'USD'): string {
+function formatCurrency(value: number | null, locale: string, currency: string = 'USD'): string {
   if (value === null) return '-'
-  return new Intl.NumberFormat('en-US', {
+  return new Intl.NumberFormat(locale, {
     style: 'currency',
     currency,
     minimumFractionDigits: 2,
@@ -46,7 +47,8 @@ export default function Stocks() {
   const [editPurchasePrice, setEditPurchasePrice] = useState('')
   const [saving, setSaving] = useState(false)
   const [lastUpdate, setLastUpdate] = useState<string | null>(null)
-  const { timezone } = useSettings()
+  const { timezone, language } = useSettings()
+  const locale = getLocaleForLanguage(language)
 
   const fetchStocks = useCallback(async () => {
     try {
@@ -56,11 +58,11 @@ export default function Stocks() {
       setLastUpdate(getLatestTimestamp(data))
       setError(null)
     } catch (err) {
-      setError('Failed to load stocks')
+      setError(t(language, 'stocks.failedLoad'))
     } finally {
       setLoading(false)
     }
-  }, [])
+  }, [language])
 
   useEffect(() => {
     fetchStocks()
@@ -103,20 +105,20 @@ export default function Stocks() {
       setShowAddForm(false)
       await fetchStocks()
     } catch (err: any) {
-      setError(err.message || 'Failed to add stock')
+      setError(err.message || t(language, 'stocks.failedAdd'))
     } finally {
       setAdding(false)
     }
   }
 
   const handleDeleteStock = async (ticker: string) => {
-    if (!confirm(`Remove ${ticker} from portfolio?`)) return
+    if (!confirm(t(language, 'stocks.removeConfirm', { ticker }))) return
     
     try {
       await api.stocks.delete(ticker)
       await fetchStocks()
     } catch (err) {
-      setError('Failed to delete stock')
+      setError(t(language, 'stocks.failedDelete'))
     }
   }
 
@@ -137,7 +139,7 @@ export default function Stocks() {
       setEditStock(null)
       await fetchStocks()
     } catch (err) {
-      setError('Failed to save changes')
+      setError(t(language, 'stocks.failedSave'))
     } finally {
       setSaving(false)
     }
@@ -146,20 +148,20 @@ export default function Stocks() {
   const selectedExchangeData = EXCHANGES.find(e => e.code === selectedExchange)
 
   if (loading) {
-    return <div style={{ textAlign: 'center', padding: '40px' }}>Loading...</div>
+    return <div style={{ textAlign: 'center', padding: '40px' }}>{t(language, 'common.loading')}</div>
   }
 
   return (
     <div>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '24px' }}>
         <div>
-          <h2 style={{ fontSize: '24px', fontWeight: '600' }}>Stocks</h2>
+          <h2 style={{ fontSize: '24px', fontWeight: '600' }}>{t(language, 'stocks.title')}</h2>
           <p style={{ color: 'var(--text-secondary)', fontSize: '12px', marginTop: '4px' }}>
-            Last updated: {formatTimeInTimezone(lastUpdate, timezone)} · Auto-refresh every 10 min
+            {t(language, 'common.lastUpdated')}: {formatTimeInTimezone(lastUpdate, timezone, locale)} · {t(language, 'common.autoRefresh10m')}
           </p>
         </div>
         <button className="btn btn-primary" onClick={() => setShowAddForm(!showAddForm)}>
-          {showAddForm ? 'Cancel' : 'Add Stock'}
+          {showAddForm ? t(language, 'stocks.cancel') : t(language, 'stocks.addStock')}
         </button>
       </div>
 
@@ -171,12 +173,12 @@ export default function Stocks() {
 
       {showAddForm && (
         <div className="card" style={{ marginBottom: '20px' }}>
-          <h3 style={{ marginBottom: '16px' }}>Add New Stock</h3>
+          <h3 style={{ marginBottom: '16px' }}>{t(language, 'stocks.addNewStock')}</h3>
           <form onSubmit={handleAddStock}>
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: '16px' }}>
               <div>
                 <label style={{ display: 'block', marginBottom: '8px', color: 'var(--text-secondary)', fontSize: '12px' }}>
-                  Exchange
+                  {t(language, 'stocks.exchange')}
                 </label>
                 <select
                   value={selectedExchange}
@@ -200,7 +202,7 @@ export default function Stocks() {
               </div>
               <div>
                 <label style={{ display: 'block', marginBottom: '8px', color: 'var(--text-secondary)', fontSize: '12px' }}>
-                  Ticker Symbol
+                  {t(language, 'stocks.tickerSymbol')}
                 </label>
                 <input
                   type="text"
@@ -216,7 +218,7 @@ export default function Stocks() {
                 />
                 {newTicker && (
                   <p style={{ fontSize: '11px', color: 'var(--text-secondary)', marginTop: '4px' }}>
-                    Full: {getFullTicker(newTicker, selectedExchange)}
+                    {t(language, 'stocks.full')}: {getFullTicker(newTicker, selectedExchange)}
                   </p>
                 )}
               </div>

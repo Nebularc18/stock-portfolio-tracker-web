@@ -1,4 +1,6 @@
 import { useNavigate } from 'react-router-dom'
+import { useSettings } from '../SettingsContext'
+import { t } from '../i18n'
 
 interface Props {
   peers: string[] | null
@@ -7,13 +9,14 @@ interface Props {
 
 export default function PeerCompanies({ peers, loading }: Props) {
   const navigate = useNavigate()
+  const { language } = useSettings()
 
   if (loading) {
     return (
       <div className="card">
-        <h3 style={{ marginBottom: '16px' }}>Liknande bolag</h3>
+        <h3 style={{ marginBottom: '16px' }}>{t(language, 'peers.title')}</h3>
         <p style={{ color: 'var(--text-secondary)', textAlign: 'center', padding: '20px' }}>
-          Laddar...
+          {t(language, 'common.loading')}
         </p>
       </div>
     )
@@ -29,7 +32,7 @@ export default function PeerCompanies({ peers, loading }: Props) {
 
   return (
     <div className="card">
-      <h3 style={{ marginBottom: '16px' }}>Liknande bolag</h3>
+      <h3 style={{ marginBottom: '16px' }}>{t(language, 'peers.title')}</h3>
       
       <div style={{ 
         display: 'flex', 

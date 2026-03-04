@@ -1,5 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { AnalystRecommendation, AnalystData } from '../services/api'
+import { useSettings } from '../SettingsContext'
+import { getLocaleForLanguage, t } from '../i18n'
 
 interface Props {
   priceTargets: AnalystData['price_targets']
@@ -17,17 +19,9 @@ const COLORS = {
   strong_sell: '#ef4444',
 }
 
-const LABELS = {
-  strong_buy: 'Strong Buy',
-  buy: 'Buy',
-  hold: 'Hold',
-  sell: 'Underperform',
-  strong_sell: 'Sell',
-}
-
-function formatCurrency(value: number | null, currency: string): string {
+function formatCurrency(value: number | null, currency: string, locale: string): string {
   if (value === null || Number.isNaN(value)) return '-'
-  return new Intl.NumberFormat('en-US', {
+  return new Intl.NumberFormat(locale, {
     style: 'currency',
     currency,
     minimumFractionDigits: 2,
@@ -52,10 +46,10 @@ function parsePeriodToDate(period: string): Date | null {
   return null
 }
 
-function formatPeriod(period: string): string {
+function formatPeriod(period: string, locale: string): string {
   const date = parsePeriodToDate(period)
   if (date) {
-    return date.toLocaleDateString('en-US', { month: 'short' })
+    return date.toLocaleDateString(locale, { month: 'short' })
   }
 
   return period
@@ -63,8 +57,14 @@ function formatPeriod(period: string): string {
 
 function RecommendationChart({
   recommendations,
+  labels,
+  totalLabel,
+  locale,
 }: {
   recommendations: AnalystRecommendation[]
+  labels: Record<'strong_buy' | 'buy' | 'hold' | 'sell' | 'strong_sell', string>
+  totalLabel: string
+  locale: string
 }) {
   const [hoveredBar, setHoveredBar] = useState<number | null>(null)
 
@@ -144,7 +144,7 @@ function RecommendationChart({
                   )
                 })}
               </div>
-              <div style={{ marginTop: 8, fontSize: 14 }}>{formatPeriod(rec.period)}</div>
+              <div style={{ marginTop: 8, fontSize: 14 }}>{formatPeriod(rec.period, locale)}</div>
               {hoveredBar === index && (
                 <div style={{
                   position: 'absolute',
@@ -159,13 +159,13 @@ function RecommendationChart({
                   whiteSpace: 'nowrap',
                   zIndex: 10,
                 }}>
-                  <div style={{ fontWeight: 600, marginBottom: 4 }}>{formatPeriod(rec.period)}</div>
-                  <div style={{ color: COLORS.strong_buy, fontSize: 12 }}>■ {LABELS.strong_buy}: {rec.strong_buy}</div>
-                  <div style={{ color: COLORS.buy, fontSize: 12 }}>■ {LABELS.buy}: {rec.buy}</div>
-                  <div style={{ color: COLORS.hold, fontSize: 12 }}>■ {LABELS.hold}: {rec.hold}</div>
-                  <div style={{ color: COLORS.sell, fontSize: 12 }}>■ {LABELS.sell}: {rec.sell}</div>
-                  <div style={{ color: COLORS.strong_sell, fontSize: 12 }}>■ {LABELS.strong_sell}: {rec.strong_sell}</div>
-                  <div style={{ fontWeight: 600, marginTop: 4 }}>Total: {total}</div>
+                  <div style={{ fontWeight: 600, marginBottom: 4 }}>{formatPeriod(rec.period, locale)}</div>
+                  <div style={{ color: COLORS.strong_buy, fontSize: 12 }}>■ {labels.strong_buy}: {rec.strong_buy}</div>
+                  <div style={{ color: COLORS.buy, fontSize: 12 }}>■ {labels.buy}: {rec.buy}</div>
+                  <div style={{ color: COLORS.hold, fontSize: 12 }}>■ {labels.hold}: {rec.hold}</div>
+                  <div style={{ color: COLORS.sell, fontSize: 12 }}>■ {labels.sell}: {rec.sell}</div>
+                  <div style={{ color: COLORS.strong_sell, fontSize: 12 }}>■ {labels.strong_sell}: {rec.strong_sell}</div>
+                  <div style={{ fontWeight: 600, marginTop: 4 }}>{totalLabel}: {total}</div>
                 </div>
               )}
             </div>
@@ -174,7 +174,7 @@ function RecommendationChart({
       </div>
 
       <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', justifyContent: 'center' }}>
-        {Object.entries(LABELS).map(([key, label]) => (
+        {Object.entries(labels).map(([key, label]) => (
           <div key={key} style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
             <div style={{ width: 10, height: 10, borderRadius: '50%', background: COLORS[key as keyof typeof COLORS] }} />
             <span style={{ fontSize: 13, color: 'var(--text-secondary)' }}>{label}</span>
@@ -192,6 +192,15 @@ export default function YfinanceAnalystPanel({
   currency,
   currentPrice,
 }: Props) {
+  const { language } = useSettings()
+  const locale = getLocaleForLanguage(language)
+  const labels = {
+    strong_buy: t(language, 'analystRec.strongBuy'),
+    buy: t(language, 'analystRec.buy'),
+    hold: t(language, 'analystRec.hold'),
+    sell: t(language, 'analystRec.sell'),
+    strong_sell: t(language, 'analystRec.strongSell'),
+  }
   const targetsContainerRef = useRef<HTMLDivElement | null>(null)
   const [targetsContainerWidth, setTargetsContainerWidth] = useState(0)
 
@@ -221,7 +230,7 @@ export default function YfinanceAnalystPanel({
   const targetLow = priceTargets?.targetLow ?? null
   const targetHigh = priceTargets?.targetHigh ?? null
   const targetAvg = priceTargets?.targetAvg ?? null
-  const avgLabel = targetAvg !== null ? formatCurrency(targetAvg, currency) : '-'
+  const avgLabel = targetAvg !== null ? formatCurrency(targetAvg, currency, locale) : '-'
 
   const rangeValues = [targetLow, targetHigh, targetAvg, currentPrice]
     .filter((value): value is number => value !== null)
@@ -271,7 +280,7 @@ export default function YfinanceAnalystPanel({
   return (
     <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: '16px', marginBottom: '20px' }}>
       <div className="card" style={{ marginBottom: 0 }}>
-        <h3 style={{ marginBottom: '18px' }}>{hasAnalystTargets ? 'Analyst Price Targets' : '52-Week Range'}</h3>
+        <h3 style={{ marginBottom: '18px' }}>{hasAnalystTargets ? t(language, 'analyst.priceTargets') : t(language, 'analyst.range52w')}</h3>
 
         {hasPriceTargets ? (
           <div ref={targetsContainerRef} style={{ position: 'relative', paddingTop: targetAvg !== null ? '96px' : '46px', paddingBottom: '44px' }}>
@@ -292,7 +301,7 @@ export default function YfinanceAnalystPanel({
                   width: labelWidth,
                 }}>
                   <div style={{ fontWeight: 700 }}>{avgLabel}</div>
-                  <div style={{ fontSize: 12, color: 'var(--text-secondary)' }}>Average</div>
+                  <div style={{ fontSize: 12, color: 'var(--text-secondary)' }}>{t(language, 'analyst.average')}</div>
                 </div>
                 <div style={{ width: 2, height: 14, background: 'rgba(88, 166, 255, 0.6)', marginTop: 4, marginLeft: avgLayout.pointerPx }} />
               </div>
@@ -377,8 +386,8 @@ export default function YfinanceAnalystPanel({
                     textAlign: 'center',
                     width: labelWidth,
                   }}>
-                    <div style={{ fontWeight: 700 }}>{formatCurrency(currentPrice, currency)}</div>
-                    <div style={{ fontSize: 12, color: 'var(--text-secondary)' }}>Current</div>
+                    <div style={{ fontWeight: 700 }}>{formatCurrency(currentPrice, currency, locale)}</div>
+                    <div style={{ fontSize: 12, color: 'var(--text-secondary)' }}>{t(language, 'analyst.current')}</div>
                   </div>
                 </div>
               </div>
@@ -386,39 +395,39 @@ export default function YfinanceAnalystPanel({
 
             <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: lowHighMarginTop }}>
               <div>
-                <div style={{ fontSize: 20, fontWeight: 600 }}>{formatCurrency(targetLow, currency)}</div>
-                <div style={{ fontSize: 12, color: 'var(--text-secondary)' }}>Low</div>
+                <div style={{ fontSize: 20, fontWeight: 600 }}>{formatCurrency(targetLow, currency, locale)}</div>
+                <div style={{ fontSize: 12, color: 'var(--text-secondary)' }}>{t(language, 'analyst.low')}</div>
               </div>
               <div style={{ textAlign: 'right' }}>
-                <div style={{ fontSize: 20, fontWeight: 600 }}>{formatCurrency(targetHigh, currency)}</div>
-                <div style={{ fontSize: 12, color: 'var(--text-secondary)' }}>High</div>
+                <div style={{ fontSize: 20, fontWeight: 600 }}>{formatCurrency(targetHigh, currency, locale)}</div>
+                <div style={{ fontSize: 12, color: 'var(--text-secondary)' }}>{t(language, 'analyst.high')}</div>
               </div>
             </div>
           </div>
         ) : (
-          <div style={{ color: 'var(--text-secondary)' }}>No price target data.</div>
+          <div style={{ color: 'var(--text-secondary)' }}>{t(language, 'analyst.noPriceTarget')}</div>
         )}
       </div>
 
       <div className="card" style={{ marginBottom: 0 }}>
-        <h3 style={{ marginBottom: '18px' }}>Analyst Recommendations</h3>
+        <h3 style={{ marginBottom: '18px' }}>{t(language, 'analyst.recommendations')}</h3>
 
         {hasYfinanceRecs ? (
-          <RecommendationChart recommendations={recommendations!} />
+          <RecommendationChart recommendations={recommendations!} labels={labels} totalLabel={t(language, 'recommendation.total')} locale={locale} />
         ) : (
-          <div style={{ color: 'var(--text-secondary)' }}>No analyst recommendations.</div>
+          <div style={{ color: 'var(--text-secondary)' }}>{t(language, 'analyst.noRecommendations')}</div>
         )}
       </div>
 
       {hasFinnhubRecs && (
         <div className="card" style={{ marginBottom: 0 }}>
           <h3 style={{ marginBottom: '18px' }}>
-            Finnhub Recommendations
+            {t(language, 'analyst.finnhubRecommendations')}
             <span style={{ fontSize: 12, color: 'var(--text-secondary)', fontWeight: 400, marginLeft: 8 }}>
-              (US Market)
+              {t(language, 'analyst.usMarket')}
             </span>
           </h3>
-          <RecommendationChart recommendations={finnhubRecommendations!} />
+          <RecommendationChart recommendations={finnhubRecommendations!} labels={labels} totalLabel={t(language, 'recommendation.total')} locale={locale} />
         </div>
       )}
     </div>

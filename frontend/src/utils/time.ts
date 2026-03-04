@@ -2,18 +2,19 @@ function parseDatePreservingUtc(date: Date | string): Date {
   if (date instanceof Date) return date
 
   const value = date.trim()
+  const isDateOnly = /^\d{4}-\d{2}-\d{2}$/.test(value)
   const hasTimezone = /([zZ]|[+-]\d{2}:\d{2})$/.test(value)
-  const normalized = hasTimezone ? value : `${value}Z`
+  const normalized = hasTimezone ? value : (isDateOnly ? `${value}T00:00:00Z` : `${value}Z`)
   return new Date(normalized)
 }
 
-export function formatTimeInTimezone(date: Date | string | null, timezone: string): string {
+export function formatTimeInTimezone(date: Date | string | null, timezone: string, locale: string = 'en-US'): string {
   if (!date) return '-'
 
   const d = parseDatePreservingUtc(date)
   
   try {
-    return d.toLocaleTimeString('en-US', {
+    return d.toLocaleTimeString(locale, {
       timeZone: timezone,
       hour: '2-digit',
       minute: '2-digit',
@@ -21,7 +22,7 @@ export function formatTimeInTimezone(date: Date | string | null, timezone: strin
       hour12: false
     })
   } catch {
-    return d.toLocaleTimeString('en-US', {
+    return d.toLocaleTimeString(locale, {
       hour: '2-digit',
       minute: '2-digit',
       second: '2-digit',
@@ -30,13 +31,13 @@ export function formatTimeInTimezone(date: Date | string | null, timezone: strin
   }
 }
 
-export function formatDateTimeInTimezone(date: Date | string | null, timezone: string): string {
+export function formatDateTimeInTimezone(date: Date | string | null, timezone: string, locale: string = 'en-US'): string {
   if (!date) return '-'
 
   const d = parseDatePreservingUtc(date)
   
   try {
-    return d.toLocaleString('en-US', {
+    return d.toLocaleString(locale, {
       timeZone: timezone,
       month: 'short',
       day: 'numeric',
@@ -45,7 +46,7 @@ export function formatDateTimeInTimezone(date: Date | string | null, timezone: s
       hour12: false
     })
   } catch {
-    return d.toLocaleString('en-US', {
+    return d.toLocaleString(locale, {
       month: 'short',
       day: 'numeric',
       hour: '2-digit',

@@ -8,6 +8,7 @@ import json
 import logging
 import os
 import re
+import hashlib
 from datetime import datetime
 from typing import Optional
 from urllib.parse import quote
@@ -25,6 +26,19 @@ _LOGO_CACHE: dict[str, tuple[Optional[str], float]] = {}
 _session: Optional[requests.Session] = None
 
 
+def _resolve_cache_path(filename: str) -> str:
+    cache_dir_abs = os.path.abspath(CACHE_DIR)
+    filepath = os.path.abspath(os.path.join(cache_dir_abs, filename))
+    if filepath != cache_dir_abs and not filepath.startswith(f"{cache_dir_abs}{os.sep}"):
+        raise ValueError(f"Invalid cache path outside cache directory: {filename}")
+    return filepath
+
+
+def _safe_logo_cache_filename(ticker_upper: str) -> str:
+    digest = hashlib.sha256(ticker_upper.encode('utf-8')).hexdigest()[:24]
+    return f"brandfetch_logo_v2_{digest}.json"
+
+
 def _get_session() -> requests.Session:
     global _session
     if _session is None:
@@ -39,11 +53,10 @@ def _get_session() -> requests.Session:
 
 
 def _load_file_cache(filename: str) -> Optional[str]:
-    filepath = os.path.join(CACHE_DIR, filename)
-    if not os.path.exists(filepath):
-        return None
-
     try:
+        filepath = _resolve_cache_path(filename)
+        if not os.path.exists(filepath):
+            return None
         with open(filepath, 'r', encoding='utf-8') as f:
             data = json.load(f)
         if datetime.now().timestamp() - data.get('timestamp', 0) < data.get('ttl', _LOGO_CACHE_TTL):
@@ -55,8 +68,8 @@ def _load_file_cache(filename: str) -> Optional[str]:
 
 
 def _save_file_cache(filename: str, value: Optional[str], ttl: int = _LOGO_CACHE_TTL) -> None:
-    filepath = os.path.join(CACHE_DIR, filename)
     try:
+        filepath = _resolve_cache_path(filename)
         with open(filepath, 'w', encoding='utf-8') as f:
             json.dump({'value': value, 'timestamp': datetime.now().timestamp(), 'ttl': ttl}, f)
     except Exception as exc:
@@ -186,7 +199,7 @@ class BrandfetchService:
         force_refresh: bool = False,
     ) -> Optional[str]:
         ticker_upper = ticker.upper()
-        cache_file = f"brandfetch_logo_v2_{ticker_upper}.json"
+        cache_file = _safe_logo_cache_filename(ticker_upper)
 
         if not force_refresh and ticker_upper in _LOGO_CACHE:
             cached_logo, timestamp = _LOGO_CACHE[ticker_upper]

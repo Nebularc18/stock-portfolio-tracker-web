@@ -24,7 +24,7 @@ function App() {
             <Route path="/" element={<Dashboard />} />
             <Route path="/performance" element={<Performance />} />
             <Route path="/analytics" element={<Analytics />} />
-            <Route path="/dividends" element={<Navigate to="/" replace />} />
+            <Route path="/dividends" element={<Navigate to="/dividends/history" replace />} />
             <Route path="/dividends/history" element={<HistoricalDividends />} />
             <Route path="/stocks" element={<Stocks />} />
             <Route path="/stocks/:ticker" element={<StockDetail />} />

@@ -63,7 +63,7 @@ class Stock(Base):
     previous_close = Column(Float, nullable=True)
     dividend_yield = Column(Float, nullable=True)
     dividend_per_share = Column(Float, nullable=True)
-    last_updated = Column(DateTime, default=utc_now)
+    last_updated = Column(DateTime(timezone=True), default=utc_now)
     manual_dividends = Column(JSON, default=list)
     suppressed_dividends = Column(JSON, default=list)
 
@@ -90,7 +90,7 @@ class Dividend(Base):
     currency = Column(String)
     ex_date = Column(DateTime, nullable=True)
     pay_date = Column(DateTime, nullable=True)
-    created_at = Column(DateTime, default=utc_now)
+    created_at = Column(DateTime(timezone=True), default=utc_now)
 
     stock = relationship("Stock", back_populates="dividends")
 
@@ -107,7 +107,7 @@ class PortfolioHistory(Base):
 
     id = Column(Integer, primary_key=True, index=True)
     total_value = Column(Float)
-    date = Column(DateTime, default=utc_now, unique=True)
+    date = Column(DateTime(timezone=True), default=utc_now, unique=True)
 
 
 class StockPriceHistory(Base):
@@ -126,7 +126,7 @@ class StockPriceHistory(Base):
     ticker = Column(String, index=True, nullable=False)
     price = Column(Float, nullable=False)
     currency = Column(String, nullable=False)
-    recorded_at = Column(DateTime, default=utc_now, index=True)
+    recorded_at = Column(DateTime(timezone=True), default=utc_now, index=True)
 
 
 class UserSettings(Base):

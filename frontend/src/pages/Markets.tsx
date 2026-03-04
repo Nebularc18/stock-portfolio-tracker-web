@@ -5,11 +5,12 @@ import { api, MarketStatus, SparklineData } from '../services/api'
 import { useHeaderData } from '../contexts/HeaderDataContext'
 import { useSettings } from '../SettingsContext'
 import { formatTimeInTimezone } from '../utils/time'
+import { getLocaleForLanguage, t } from '../i18n'
 
-function formatNumber(value: number, decimals: number = 2): string {
-  return value.toLocaleString('en-US', { 
+function formatNumber(value: number, locale: string, decimals: number = 2): string {
+  return value.toLocaleString(locale, {
     minimumFractionDigits: decimals,
-    maximumFractionDigits: decimals 
+    maximumFractionDigits: decimals
   })
 }
 
@@ -42,7 +43,8 @@ export default function Markets() {
   const [sparklines, setSparklines] = useState<Record<string, SparklineData>>({})
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
-  const { timezone } = useSettings()
+  const { timezone, language } = useSettings()
+  const locale = getLocaleForLanguage(language)
   const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const isMountedRef = useRef(true)
 
@@ -59,7 +61,7 @@ export default function Markets() {
       setError(null)
     } catch (err) {
       if (!isMountedRef.current) return
-      setError('Failed to load market data')
+      setError(t(language, 'markets.failedLoad'))
     } finally {
       if (isMountedRef.current) {
         setLoading(false)
@@ -79,11 +81,10 @@ export default function Markets() {
         clearTimeout(timeoutRef.current)
       }
       timeoutRef.current = setTimeout(() => {
-        refreshData()
         fetchAdditionalData()
       }, msUntilNext)
     }
-  }, [nextRefreshAt, refreshData, fetchAdditionalData])
+  }, [nextRefreshAt, fetchAdditionalData])
 
   useEffect(() => {
     isMountedRef.current = true
@@ -114,23 +115,23 @@ export default function Markets() {
   }
 
   if (isLoading && !indices.length) {
-    return <div style={{ textAlign: 'center', padding: '40px' }}>Loading market data...</div>
+    return <div style={{ textAlign: 'center', padding: '40px' }}>{t(language, 'markets.loadingData')}</div>
   }
 
   return (
     <div>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '24px' }}>
         <div>
-          <h2 style={{ fontSize: '24px', fontWeight: '600' }}>Markets</h2>
+          <h2 style={{ fontSize: '24px', fontWeight: '600' }}>{t(language, 'markets.title')}</h2>
           {lastUpdated && (
             <p style={{ color: 'var(--text-secondary)', fontSize: '12px', marginTop: '4px' }}>
-              Last updated: {formatTimeInTimezone(lastUpdated, timezone)}
-              {nextRefreshAt && <span> · Next: {formatTimeInTimezone(nextRefreshAt, timezone)}</span>}
+              {t(language, 'common.lastUpdated')}: {formatTimeInTimezone(lastUpdated, timezone, locale)}
+              {nextRefreshAt && <span> · {t(language, 'common.next')}: {formatTimeInTimezone(nextRefreshAt, timezone, locale)}</span>}
             </p>
           )}
         </div>
         <button className="btn btn-primary" onClick={handleRefresh} disabled={isLoading}>
-          {isLoading ? 'Refreshing...' : 'Refresh'}
+          {isLoading ? t(language, 'common.refreshing') : t(language, 'common.refresh')}
         </button>
       </div>
 
@@ -142,13 +143,13 @@ export default function Markets() {
 
       <div className="card" style={{ marginBottom: '24px' }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
-          <h3>Market Hours</h3>
+          <h3>{t(language, 'layout.marketHours')}</h3>
           <Link to="/settings" style={{ color: 'var(--accent-blue)', fontSize: '12px', textDecoration: 'none' }}>
-            Change timezone
+            {t(language, 'layout.changeTimezone')}
           </Link>
         </div>
         <p style={{ color: 'var(--text-secondary)', fontSize: '12px', marginBottom: '12px' }}>
-          Times shown in your timezone ({marketHours[0]?.timezone || 'CET'})
+          {t(language, 'layout.timesInTimezone')} ({marketHours[0]?.timezone || 'CET'})
         </p>
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '16px' }}>
           {marketHours.map((market) => (
@@ -180,7 +181,7 @@ export default function Markets() {
               </p>
               {market.local_time && (
                 <p style={{ color: 'var(--text-primary)', fontSize: '12px', marginTop: '4px' }}>
-                  Local time: {market.local_time}
+                  {t(language, 'layout.localTime')}: {market.local_time}
                 </p>
               )}
             </div>
@@ -188,7 +189,7 @@ export default function Markets() {
         </div>
       </div>
 
-      <h3 style={{ marginBottom: '16px' }}>Market Indices</h3>
+      <h3 style={{ marginBottom: '16px' }}>{t(language, 'layout.marketIndices')}</h3>
       <div className="grid grid-2">
         {indices.map((index) => {
           const isPositive = index.change >= 0
@@ -212,17 +213,17 @@ export default function Markets() {
                   )}
                   <div>
                     <p style={{ fontSize: '24px', fontWeight: '600' }}>
-                      {formatNumber(index.price)}
+                      {formatNumber(index.price, locale)}
                     </p>
                   </div>
                 </div>
               </div>
               <div style={{ display: 'flex', gap: '16px', marginTop: '12px' }}>
                 <span className={changeClass}>
-                  {isPositive ? '+' : ''}{formatNumber(index.change)}
+                  {isPositive ? '+' : ''}{formatNumber(index.change, locale)}
                 </span>
                 <span className={changeClass}>
-                  {isPositive ? '+' : ''}{formatNumber(index.change_percent)}%
+                  {isPositive ? '+' : ''}{formatNumber(index.change_percent, locale)}%
                 </span>
               </div>
             </div>

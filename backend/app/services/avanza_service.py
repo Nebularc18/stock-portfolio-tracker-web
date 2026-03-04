@@ -27,6 +27,7 @@ except PermissionError as e:
 
 DIVIDENDS_CACHE_TTL = 86400
 HISTORICAL_CACHE_TTL = 86400 * 7
+STOCK_DATA_CACHE_TTL = 300
 
 MAPPING_FILE = "ticker_mapping.json"
 
@@ -163,7 +164,23 @@ class AvanzaService:
         """
         self.mapping: Dict[str, TickerMapping] = {}
         self._lock = threading.RLock()
+        self._stock_data_cache: Dict[str, tuple[float, Dict[str, Any]]] = {}
         self._load_mappings()
+
+    def _fetch_stock_data_with_cache(self, instrument_id: str) -> Optional[Dict[str, Any]]:
+        """Fetch stock data with a short-lived in-memory cache by instrument ID."""
+        now = time.time()
+        try:
+            cached = self._stock_data_cache.get(instrument_id)
+            if cached and (now - cached[0]) < STOCK_DATA_CACHE_TTL:
+                return cached[1]
+        except Exception as cache_err:
+            logger.debug(f"Stock data cache lookup failed for {instrument_id}: {cache_err}")
+
+        data = self._fetch_stock_data(instrument_id)
+        if data:
+            self._stock_data_cache[instrument_id] = (now, data)
+        return data
     
     def _load_mappings(self):
         """
@@ -449,7 +466,9 @@ class AvanzaService:
         if not mapping or not mapping.instrument_id:
             return []
 
-        data = self._fetch_stock_data(mapping.instrument_id)
+        data = self._fetch_stock_data_with_cache(mapping.instrument_id)
+        if not data:
+            data = self._fetch_stock_data(mapping.instrument_id)
         if not data:
             return []
 

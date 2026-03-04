@@ -225,10 +225,11 @@ def refresh_all_prices(db: Session = Depends(get_db)):
 
         should_refresh_logo = (not stock.logo) or ('cdn.brandfetch.io' in stock.logo)
         if should_refresh_logo:
+            force_refresh = bool(stock.logo and 'cdn.brandfetch.io' in stock.logo)
             logo_url = brandfetch_service.get_logo_url_for_ticker(
                 stock.ticker,
                 stock.name,
-                force_refresh=True,
+                force_refresh=force_refresh,
             )
             if logo_url and logo_url != stock.logo:
                 if not stock.logo:

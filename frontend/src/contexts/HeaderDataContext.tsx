@@ -31,6 +31,9 @@ export function HeaderDataProvider({ children }: { children: ReactNode }) {
   const isMountedRef = useRef(true)
 
   const fetchData = useCallback(async (forceRefresh = false) => {
+    if (isMountedRef.current) {
+      setLoading(true)
+    }
     try {
       const data = await api.market.header(forceRefresh)
       if (!isMountedRef.current) return data
@@ -44,6 +47,7 @@ export function HeaderDataProvider({ children }: { children: ReactNode }) {
     } catch (error) {
       console.error('Failed to fetch header data:', error)
       if (isMountedRef.current) {
+        setNextRefreshAt(new Date(Date.now() + 60_000).toISOString())
         setLoading(false)
       }
       return null

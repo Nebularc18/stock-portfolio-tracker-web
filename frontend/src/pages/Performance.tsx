@@ -1,10 +1,12 @@
 import { useState, useEffect } from 'react'
 import { Link } from 'react-router-dom'
 import { api, Stock } from '../services/api'
+import { getLocaleForLanguage, t } from '../i18n'
+import { useSettings } from '../SettingsContext'
 
-function formatCurrency(value: number | null, currency: string = 'USD'): string {
+function formatCurrency(value: number | null, locale: string, currency: string = 'USD'): string {
   if (value === null) return '-'
-  return new Intl.NumberFormat('en-US', {
+  return new Intl.NumberFormat(locale, {
     style: 'currency',
     currency,
     minimumFractionDigits: 2,
@@ -57,6 +59,8 @@ export default function Performance() {
   const [loading, setLoading] = useState(true)
   const [sortField, setSortField] = useState<SortField>('gainPercent')
   const [sortOrder, setSortOrder] = useState<SortOrder>('desc')
+  const { language } = useSettings()
+  const locale = getLocaleForLanguage(language)
 
   useEffect(() => {
     const fetchData = async () => {
@@ -218,13 +222,13 @@ export default function Performance() {
   }
 
   if (loading) {
-    return <div style={{ textAlign: 'center', padding: '40px' }}>Loading...</div>
+    return <div style={{ textAlign: 'center', padding: '40px' }}>{t(language, 'common.loading')}</div>
   }
 
   if (stocks.length === 0) {
     return (
       <div className="card" style={{ textAlign: 'center', padding: '40px' }}>
-        <p style={{ color: 'var(--text-secondary)' }}>No stocks in portfolio. Add stocks from the Stocks page.</p>
+        <p style={{ color: 'var(--text-secondary)' }}>{t(language, 'performance.noStocks')}</p>
       </div>
     )
   }
@@ -232,38 +236,38 @@ export default function Performance() {
   return (
     <div>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '24px' }}>
-        <h2 style={{ fontSize: '24px', fontWeight: '600' }}>Performance</h2>
+        <h2 style={{ fontSize: '24px', fontWeight: '600' }}>{t(language, 'performance.title')}</h2>
         <button className="btn btn-secondary" onClick={exportToCSV}>
-          Export CSV
+          {t(language, 'performance.exportCsv')}
         </button>
       </div>
 
       <div className="grid grid-4" style={{ marginBottom: '24px' }}>
         <div className="card">
-          <p style={{ color: 'var(--text-secondary)', fontSize: '12px', marginBottom: '8px' }}>TOTAL VALUE</p>
+          <p style={{ color: 'var(--text-secondary)', fontSize: '12px', marginBottom: '8px' }}>{t(language, 'performance.totalValue')}</p>
           <p style={{ fontSize: '24px', fontWeight: '600' }}>
-            {formatCurrency(totalValue, 'SEK')}
+            {formatCurrency(totalValue, locale, 'SEK')}
           </p>
         </div>
         <div className="card">
-          <p style={{ color: 'var(--text-secondary)', fontSize: '12px', marginBottom: '8px' }}>TOTAL COST</p>
+          <p style={{ color: 'var(--text-secondary)', fontSize: '12px', marginBottom: '8px' }}>{t(language, 'performance.totalCost')}</p>
           <p style={{ fontSize: '24px', fontWeight: '600' }}>
-            {formatCurrency(totalCost, 'SEK')}
+            {formatCurrency(totalCost, locale, 'SEK')}
           </p>
         </div>
         <div className="card">
-          <p style={{ color: 'var(--text-secondary)', fontSize: '12px', marginBottom: '8px' }}>TOTAL GAIN/LOSS</p>
+          <p style={{ color: 'var(--text-secondary)', fontSize: '12px', marginBottom: '8px' }}>{t(language, 'performance.totalGainLoss')}</p>
           <p style={{ fontSize: '24px', fontWeight: '600' }} className={totalGain >= 0 ? 'positive' : 'negative'}>
-            {formatCurrency(totalGain, 'SEK')}
+            {formatCurrency(totalGain, locale, 'SEK')}
           </p>
           <p style={{ fontSize: '14px' }} className={totalGainPercent >= 0 ? 'positive' : 'negative'}>
             {formatPercent(totalGainPercent)}
           </p>
         </div>
         <div className="card">
-          <p style={{ color: 'var(--text-secondary)', fontSize: '12px', marginBottom: '8px' }}>DAILY CHANGE</p>
+          <p style={{ color: 'var(--text-secondary)', fontSize: '12px', marginBottom: '8px' }}>{t(language, 'performance.dailyChange')}</p>
           <p style={{ fontSize: '24px', fontWeight: '600' }} className={totalDailyChange >= 0 ? 'positive' : 'negative'}>
-            {formatCurrency(totalDailyChange, 'SEK')}
+            {formatCurrency(totalDailyChange, locale, 'SEK')}
           </p>
         </div>
       </div>
@@ -272,7 +276,7 @@ export default function Performance() {
         <div className="grid grid-2" style={{ marginBottom: '24px' }}>
           {bestPerformers.length > 0 && (
             <div className="card">
-              <h3 style={{ marginBottom: '16px', color: 'var(--accent-green)' }}>Best Performers</h3>
+              <h3 style={{ marginBottom: '16px', color: 'var(--accent-green)' }}>{t(language, 'performance.bestPerformers')}</h3>
               {bestPerformers.map((stock) => (
                 <div key={stock.ticker} style={{ display: 'flex', justifyContent: 'space-between', padding: '8px 0', borderBottom: '1px solid var(--border-color)' }}>
                   <div>
@@ -290,7 +294,7 @@ export default function Performance() {
           )}
           {worstPerformers.length > 0 && (
             <div className="card">
-              <h3 style={{ marginBottom: '16px', color: 'var(--accent-red)' }}>Worst Performers</h3>
+              <h3 style={{ marginBottom: '16px', color: 'var(--accent-red)' }}>{t(language, 'performance.worstPerformers')}</h3>
               {worstPerformers.map((stock) => (
                 <div key={stock.ticker} style={{ display: 'flex', justifyContent: 'space-between', padding: '8px 0', borderBottom: '1px solid var(--border-color)' }}>
                   <div>
@@ -310,14 +314,14 @@ export default function Performance() {
       )}
 
       <div className="card">
-        <h3 style={{ marginBottom: '16px' }}>Holdings Performance</h3>
+        <h3 style={{ marginBottom: '16px' }}>{t(language, 'performance.holdingsPerformance')}</h3>
         <table>
           <thead>
             <tr>
               <SortHeader field="ticker" label="Ticker" />
               <SortHeader field="name" label="Name" />
-              <th>Qty</th>
-              <th>Curr</th>
+              <th>{t(language, 'performance.qty')}</th>
+              <th>{t(language, 'performance.currency')}</th>
               <SortHeader field="cost" label="Cost (SEK)" />
               <SortHeader field="value" label="Value (SEK)" />
               <SortHeader field="gain" label="Gain/Loss" />
@@ -337,16 +341,16 @@ export default function Performance() {
                 <td>{stock.name || '-'}</td>
                 <td>{stock.quantity}</td>
                 <td>{stock.currency}</td>
-                <td>{formatCurrency(stock.costSEK, 'SEK')}</td>
-                <td>{formatCurrency(stock.valueSEK, 'SEK')}</td>
+                <td>{formatCurrency(stock.costSEK, locale, 'SEK')}</td>
+                <td>{formatCurrency(stock.valueSEK, locale, 'SEK')}</td>
                 <td className={stock.gain >= 0 ? 'positive' : 'negative'}>
-                  {formatCurrency(stock.gainSEK, 'SEK')}
+                  {formatCurrency(stock.gainSEK, locale, 'SEK')}
                 </td>
                 <td className={stock.gainPercent >= 0 ? 'positive' : 'negative'}>
                   {formatPercent(stock.gainPercent)}
                 </td>
                 <td className={stock.dailyChangeSEK != null ? (stock.dailyChangeSEK >= 0 ? 'positive' : 'negative') : ''}>
-                  {stock.dailyChangeSEK !== null ? formatCurrency(stock.dailyChangeSEK, 'SEK') : '-'}
+                  {stock.dailyChangeSEK !== null ? formatCurrency(stock.dailyChangeSEK, locale, 'SEK') : '-'}
                 </td>
                 <td className={stock.dailyChangePercent != null ? (stock.dailyChangePercent >= 0 ? 'positive' : 'negative') : ''}>
                   {formatPercent(stock.dailyChangePercent)}

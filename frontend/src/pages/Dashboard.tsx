@@ -4,6 +4,7 @@ import { ResponsiveContainer, Tooltip, AreaChart, Area, XAxis, YAxis, CartesianG
 import { api, PortfolioSummary, Stock, UpcomingDividend } from '../services/api'
 import { useSettings } from '../SettingsContext'
 import { formatTimeInTimezone } from '../utils/time'
+import { getLocaleForLanguage, t } from '../i18n'
 
 type HistoryRangeKey = '1D' | '1W' | '1M' | 'YTD' | '1Y' | 'SINCE_START'
 
@@ -21,23 +22,23 @@ type ChartPoint = {
   value: number
 }
 
-function formatCurrency(value: number, currency: string = 'USD'): string {
-  return new Intl.NumberFormat('en-US', {
+function formatCurrency(value: number, locale: string, currency: string = 'USD'): string {
+  return new Intl.NumberFormat(locale, {
     style: 'currency',
     currency,
     minimumFractionDigits: 2,
   }).format(value)
 }
 
-function formatPercent(value: number): string {
+function formatPercent(value: number, locale: string): string {
   const sign = value >= 0 ? '+' : ''
-  return `${sign}${value.toFixed(2)}%`
+  return `${sign}${value.toLocaleString(locale, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}%`
 }
 
-function formatDate(dateStr: string): string {
+function formatDate(dateStr: string, locale: string): string {
   const [year, month, day] = dateStr.split('-').map(Number)
   const date = new Date(Date.UTC(year, month - 1, day))
-  return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric', timeZone: 'UTC' })
+  return date.toLocaleDateString(locale, { month: 'short', day: 'numeric', timeZone: 'UTC' })
 }
 
 function getMonthKey(dateStr: string): string {
@@ -45,10 +46,10 @@ function getMonthKey(dateStr: string): string {
   return `${year}-${String(month).padStart(2, '0')}`
 }
 
-function formatMonthLabel(monthKey: string): string {
+function formatMonthLabel(monthKey: string, locale: string): string {
   const [year, month] = monthKey.split('-').map(Number)
   const date = new Date(Date.UTC(year, month - 1, 1))
-  return date.toLocaleDateString('en-US', { month: 'long', year: 'numeric', timeZone: 'UTC' })
+  return date.toLocaleDateString(locale, { month: 'long', year: 'numeric', timeZone: 'UTC' })
 }
 
 function parseHistoryDate(value: string): Date {
@@ -58,31 +59,31 @@ function parseHistoryDate(value: string): Date {
   return new Date(`${value}T00:00:00Z`)
 }
 
-function formatXAxisTick(dateValue: string, range: HistoryRangeKey): string {
+function formatXAxisTick(dateValue: string, range: HistoryRangeKey, locale: string): string {
   const date = parseHistoryDate(dateValue)
   if (Number.isNaN(date.getTime())) return ''
 
   if (range === '1D') {
-    return date.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: false, timeZone: 'UTC' })
+    return date.toLocaleTimeString(locale, { hour: '2-digit', minute: '2-digit', hour12: false, timeZone: 'UTC' })
   }
   if (range === '1W') {
-    return date.toLocaleDateString('en-US', { weekday: 'short', day: 'numeric', timeZone: 'UTC' })
+    return date.toLocaleDateString(locale, { weekday: 'short', day: 'numeric', timeZone: 'UTC' })
   }
   if (range === '1M') {
-    return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric', timeZone: 'UTC' })
+    return date.toLocaleDateString(locale, { month: 'short', day: 'numeric', timeZone: 'UTC' })
   }
   if (range === 'YTD' || range === '1Y') {
-    return date.toLocaleDateString('en-US', { month: 'short', timeZone: 'UTC' })
+    return date.toLocaleDateString(locale, { month: 'short', timeZone: 'UTC' })
   }
-  return date.toLocaleDateString('en-US', { month: 'short', year: '2-digit', timeZone: 'UTC' })
+  return date.toLocaleDateString(locale, { month: 'short', year: '2-digit', timeZone: 'UTC' })
 }
 
-function formatTooltipDate(dateValue: string, range: HistoryRangeKey): string {
+function formatTooltipDate(dateValue: string, range: HistoryRangeKey, locale: string): string {
   const date = parseHistoryDate(dateValue)
   if (Number.isNaN(date.getTime())) return dateValue
 
   if (range === '1D' || range === '1W') {
-    return date.toLocaleDateString('en-US', {
+    return date.toLocaleDateString(locale, {
       weekday: 'short',
       month: 'short',
       day: 'numeric',
@@ -93,7 +94,7 @@ function formatTooltipDate(dateValue: string, range: HistoryRangeKey): string {
       timeZone: 'UTC',
     })
   }
-  return date.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric', year: 'numeric', timeZone: 'UTC' })
+  return date.toLocaleDateString(locale, { weekday: 'short', month: 'short', day: 'numeric', year: 'numeric', timeZone: 'UTC' })
 }
 
 function downsampleChartData(data: ChartPoint[], targetPoints: number): ChartPoint[] {
@@ -146,7 +147,19 @@ export default function Dashboard() {
   const [failedLogos, setFailedLogos] = useState<Record<string, boolean>>({})
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
-  const { displayCurrency, timezone } = useSettings()
+  const { displayCurrency, timezone, language } = useSettings()
+  const locale = getLocaleForLanguage(language)
+  const historyRangeTitle = (key: HistoryRangeKey) => {
+    const labels: Record<HistoryRangeKey, string> = {
+      '1D': t(language, 'dashboard.range1D'),
+      '1W': t(language, 'dashboard.range1W'),
+      '1M': t(language, 'dashboard.range1M'),
+      'YTD': t(language, 'dashboard.rangeYTD'),
+      '1Y': t(language, 'dashboard.range1Y'),
+      'SINCE_START': t(language, 'dashboard.rangeSinceStart'),
+    }
+    return labels[key]
+  }
 
   const fetchHistory = useCallback(async (range: HistoryRangeKey) => {
     const rangeQuery = HISTORY_RANGE_OPTIONS.find((option) => option.key === range)?.query || '1m'
@@ -173,11 +186,11 @@ export default function Dashboard() {
       setFailedLogos({})
       setError(null)
     } catch (err) {
-      setError('Failed to load portfolio data')
+      setError(t(language, 'dashboard.failedLoad'))
     } finally {
       setLoading(false)
     }
-  }, [displayCurrency])
+  }, [displayCurrency, language])
 
   useEffect(() => {
     fetchData()
@@ -216,14 +229,14 @@ export default function Dashboard() {
   }, null)
 
   if (loading) {
-    return <div style={{ textAlign: 'center', padding: '40px' }}>Loading...</div>
+    return <div style={{ textAlign: 'center', padding: '40px' }}>{t(language, 'common.loading')}</div>
   }
 
   if (error) {
     return (
       <div className="card" style={{ textAlign: 'center', padding: '40px' }}>
         <p style={{ color: 'var(--accent-red)', marginBottom: '16px' }}>{error}</p>
-        <button className="btn btn-primary" onClick={fetchData}>Retry</button>
+        <button className="btn btn-primary" onClick={fetchData}>{t(language, 'common.retry')}</button>
       </div>
     )
   }
@@ -271,35 +284,35 @@ export default function Dashboard() {
   return (
     <div>
       <div style={{ marginBottom: '24px' }}>
-        <h2 style={{ fontSize: '24px', fontWeight: '600' }}>Dashboard</h2>
+        <h2 style={{ fontSize: '24px', fontWeight: '600' }}>{t(language, 'nav.dashboard')}</h2>
         <p style={{ color: 'var(--text-secondary)', fontSize: '12px', marginTop: '4px' }}>
-          Last updated: {formatTimeInTimezone(lastUpdate, timezone)} · Auto-refresh every 10 min
+          {t(language, 'common.lastUpdated')}: {formatTimeInTimezone(lastUpdate, timezone, locale)} · {t(language, 'common.autoRefresh10m')}
         </p>
       </div>
 
       <div className="grid grid-4" style={{ marginBottom: '24px' }}>
         <div className="card">
-          <p style={{ color: 'var(--text-secondary)', fontSize: '12px', marginBottom: '8px' }}>TOTAL VALUE ({currency})</p>
+          <p style={{ color: 'var(--text-secondary)', fontSize: '12px', marginBottom: '8px' }}>{t(language, 'dashboard.totalValue')} ({currency})</p>
           <p style={{ fontSize: '28px', fontWeight: '600' }}>
-            {formatCurrency(totalValueConverted, currency)}
+            {formatCurrency(totalValueConverted, locale, currency)}
           </p>
         </div>
         <div className="card">
-          <p style={{ color: 'var(--text-secondary)', fontSize: '12px', marginBottom: '8px' }}>DAILY CHANGE</p>
+          <p style={{ color: 'var(--text-secondary)', fontSize: '12px', marginBottom: '8px' }}>{t(language, 'dashboard.dailyChange')}</p>
           <p style={{ fontSize: '28px', fontWeight: '600' }} className={dailyChangeClass}>
-            {formatCurrency(dailyChangeConverted, currency)}
+            {formatCurrency(dailyChangeConverted, locale, currency)}
           </p>
         </div>
         <div className="card">
-          <p style={{ color: 'var(--text-secondary)', fontSize: '12px', marginBottom: '8px' }}>GAIN/LOSS</p>
+          <p style={{ color: 'var(--text-secondary)', fontSize: '12px', marginBottom: '8px' }}>{t(language, 'dashboard.gainLoss')}</p>
           <p style={{ fontSize: '28px', fontWeight: '600' }} className={gainLossClass}>
-            {formatCurrency(summary?.total_gain_loss ?? 0, currency)}
+            {formatCurrency(summary?.total_gain_loss ?? 0, locale, currency)}
           </p>
         </div>
         <div className="card">
-          <p style={{ color: 'var(--text-secondary)', fontSize: '12px', marginBottom: '8px' }}>RETURN %</p>
+          <p style={{ color: 'var(--text-secondary)', fontSize: '12px', marginBottom: '8px' }}>{t(language, 'dashboard.returnPercent')}</p>
           <p style={{ fontSize: '28px', fontWeight: '600' }} className={gainLossClass}>
-            {formatPercent(summary?.total_gain_loss_percent ?? 0)}
+            {formatPercent(summary?.total_gain_loss_percent ?? 0, locale)}
           </p>
         </div>
       </div>
@@ -308,7 +321,7 @@ export default function Dashboard() {
         <div className="card" style={{ marginBottom: '24px' }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
             <div style={{ display: 'flex', gap: '12px', alignItems: 'center', flexWrap: 'wrap' }}>
-              <h3 style={{ margin: 0 }}>Portfolio Performance ({selectedHistoryRange.title})</h3>
+              <h3 style={{ margin: 0 }}>{t(language, 'dashboard.performanceTitle')} ({historyRangeTitle(selectedHistoryRange.key)})</h3>
               <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
                 {HISTORY_RANGE_OPTIONS.map((option) => {
                   const selected = option.key === historyRange
@@ -335,8 +348,8 @@ export default function Dashboard() {
               </div>
             </div>
             <div style={{ display: 'flex', gap: '16px', fontSize: '12px', color: 'var(--text-secondary)' }}>
-              <span>Low: {formatCurrency(minValue, currency)}</span>
-              <span>High: {formatCurrency(maxValue, currency)}</span>
+              <span>{t(language, 'dashboard.low')}: {formatCurrency(minValue, locale, currency)}</span>
+              <span>{t(language, 'dashboard.high')}: {formatCurrency(maxValue, locale, currency)}</span>
             </div>
           </div>
           <div style={{ height: 300 }}>
@@ -355,7 +368,7 @@ export default function Dashboard() {
                   fontSize={11}
                   interval="preserveStartEnd"
                   minTickGap={24}
-                  tickFormatter={(value) => formatXAxisTick(String(value), historyRange)}
+                  tickFormatter={(value) => formatXAxisTick(String(value), historyRange, locale)}
                 />
                 <YAxis 
                   stroke="#888" 
@@ -364,8 +377,8 @@ export default function Dashboard() {
                   tickFormatter={(v) => Math.abs(v) >= 1000 ? `${(v/1000).toFixed(0)}k` : v.toFixed(0)}
                 />
                 <Tooltip 
-                  formatter={(value: number) => [formatCurrency(value, currency), 'Portfolio Value']}
-                  labelFormatter={(label) => formatTooltipDate(String(label), historyRange)}
+                  formatter={(value: number) => [formatCurrency(value, locale, currency), t(language, 'dashboard.portfolioValue')]}
+                  labelFormatter={(label) => formatTooltipDate(String(label), historyRange, locale)}
                   contentStyle={{ 
                     background: '#2a2a2a', 
                     border: '1px solid #444', 
@@ -391,10 +404,10 @@ export default function Dashboard() {
                         boxShadow: '0 4px 12px rgba(0,0,0,0.3)',
                         padding: '10px 12px'
                       }}>
-                        <div style={{ marginBottom: '8px', fontWeight: 600 }}>{formatTooltipDate(String(label), historyRange)}</div>
-                        <div style={{ marginBottom: '6px' }}>Portfolio Value: {formatCurrency(currentValue, currency)}</div>
+                        <div style={{ marginBottom: '8px', fontWeight: 600 }}>{formatTooltipDate(String(label), historyRange, locale)}</div>
+                        <div style={{ marginBottom: '6px' }}>{t(language, 'dashboard.portfolioValue')}: {formatCurrency(currentValue, locale, currency)}</div>
                         <div style={{ color: changeColor, fontWeight: 600 }}>
-                          Change: {sign}{formatCurrency(absoluteChange, currency)} ({sign}{percentChange.toFixed(2)}%)
+                          {t(language, 'dashboard.change')}: {sign}{formatCurrency(absoluteChange, locale, currency)} ({sign}{percentChange.toFixed(2)}%)
                         </div>
                       </div>
                     )
@@ -415,23 +428,23 @@ export default function Dashboard() {
       )}
 
       <div className="card" style={{ marginBottom: '24px' }}>
-        <h3 style={{ marginBottom: '16px' }}>Holdings ({summary?.stock_count ?? 0})</h3>
+        <h3 style={{ marginBottom: '16px' }}>{t(language, 'dashboard.holdings')} ({summary?.stock_count ?? 0})</h3>
         
         {!summary?.stocks?.length ? (
           <p style={{ color: 'var(--text-secondary)', textAlign: 'center', padding: '40px' }}>
-            No stocks in portfolio. Add stocks from the Stocks page.
+            {t(language, 'dashboard.noStocks')}
           </p>
         ) : (
           <table>
             <thead>
               <tr>
                 <th>Ticker</th>
-                <th>Name</th>
-                <th>Qty</th>
-                <th>Price ({currency})</th>
-                <th>Value ({currency})</th>
-                <th>Gain/Loss</th>
-                <th>Return %</th>
+                <th>{t(language, 'dashboard.name')}</th>
+                <th>{t(language, 'dashboard.qty')}</th>
+                <th>{t(language, 'dashboard.price')} ({currency})</th>
+                <th>{t(language, 'dashboard.value')} ({currency})</th>
+                <th>{t(language, 'dashboard.gainLoss')}</th>
+                <th>{t(language, 'dashboard.returnPercent')}</th>
               </tr>
             </thead>
             <tbody>
@@ -487,13 +500,13 @@ export default function Dashboard() {
                   </td>
                   <td>{stock.name || '-'}</td>
                   <td>{stock.quantity}</td>
-                  <td>{formatCurrency(convertToCurrency(stock.current_price, stock.currency), currency)}</td>
-                  <td>{formatCurrency(stock.current_value, currency)}</td>
+                  <td>{formatCurrency(convertToCurrency(stock.current_price, stock.currency), locale, currency)}</td>
+                  <td>{formatCurrency(stock.current_value, locale, currency)}</td>
                   <td className={stock.gain_loss === null ? '' : (stock.gain_loss >= 0 ? 'positive' : 'negative')}>
-                    {stock.gain_loss !== null ? formatCurrency(stock.gain_loss, currency) : '-'}
+                    {stock.gain_loss !== null ? formatCurrency(stock.gain_loss, locale, currency) : '-'}
                   </td>
                   <td className={stock.gain_loss_percent === null ? '' : (stock.gain_loss_percent >= 0 ? 'positive' : 'negative')}>
-                    {stock.gain_loss_percent !== null ? formatPercent(stock.gain_loss_percent) : '-'}
+                    {stock.gain_loss_percent !== null ? formatPercent(stock.gain_loss_percent, locale) : '-'}
                   </td>
                 </tr>
               ))}
@@ -505,36 +518,36 @@ export default function Dashboard() {
       {upcomingDividends.length > 0 && (
         <div className="card">
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
-            <h3>Dividends (This Year)</h3>
+            <h3>{t(language, 'dashboard.dividendsThisYear')}</h3>
             <span style={{ color: 'var(--accent-green)', fontWeight: '600', fontSize: '18px' }}>
-              {formatCurrency(totalExpectedDividends, currency)}
+              {formatCurrency(totalExpectedDividends, locale, currency)}
             </span>
           </div>
           <div style={{ display: 'flex', gap: '20px', marginBottom: '14px' }}>
             <span style={{ color: 'var(--text-secondary)', fontSize: '13px' }}>
-              Received: <strong style={{ color: 'var(--accent-green)' }}>{formatCurrency(totalReceivedDividends, currency)}</strong>
+              {t(language, 'dashboard.received')}: <strong style={{ color: 'var(--accent-green)' }}>{formatCurrency(totalReceivedDividends, locale, currency)}</strong>
             </span>
             <span style={{ color: 'var(--text-secondary)', fontSize: '13px' }}>
-              Remaining: <strong style={{ color: 'var(--accent-blue)' }}>{formatCurrency(totalRemainingDividends, currency)}</strong>
+              {t(language, 'dashboard.remaining')}: <strong style={{ color: 'var(--accent-blue)' }}>{formatCurrency(totalRemainingDividends, locale, currency)}</strong>
             </span>
           </div>
           {monthlyUpcoming.map((group) => (
             <div key={group.monthKey} style={{ marginBottom: '20px' }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
-                <h4 style={{ margin: 0, color: 'var(--text-secondary)', fontSize: '14px' }}>{formatMonthLabel(group.monthKey)}</h4>
+                <h4 style={{ margin: 0, color: 'var(--text-secondary)', fontSize: '14px' }}>{formatMonthLabel(group.monthKey, locale)}</h4>
                 <span style={{ color: 'var(--accent-green)', fontWeight: '600' }}>
-                  {formatCurrency(group.subtotal, currency)}
+                  {formatCurrency(group.subtotal, locale, currency)}
                 </span>
               </div>
               <table style={{ width: '100%', tableLayout: 'fixed' }}>
                 <thead>
                   <tr>
                     <th style={{ width: '18%' }}>Ticker</th>
-                    <th style={{ width: '14%' }}>Ex-Date</th>
-                    <th style={{ width: '16%' }}>Dividend Date</th>
-                    <th style={{ width: '18%', textAlign: 'right' }}>Per Share</th>
-                    <th style={{ width: '18%', textAlign: 'right' }}>Total</th>
-                    <th style={{ width: '16%' }}>Source</th>
+                    <th style={{ width: '14%' }}>{t(language, 'dashboard.exDate')}</th>
+                    <th style={{ width: '16%' }}>{t(language, 'dashboard.dividendDate')}</th>
+                    <th style={{ width: '18%', textAlign: 'right' }}>{t(language, 'dashboard.perShare')}</th>
+                    <th style={{ width: '18%', textAlign: 'right' }}>{t(language, 'dashboard.total')}</th>
+                    <th style={{ width: '16%' }}>{t(language, 'dashboard.source')}</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -545,11 +558,11 @@ export default function Dashboard() {
                           {div.ticker}
                         </Link>
                       </td>
-                      <td>{formatDate(div.ex_date)}</td>
-                      <td>{div.payment_date ? formatDate(div.payment_date) : '-'}</td>
-                      <td style={{ textAlign: 'right' }}>{formatCurrency(div.amount_per_share, div.currency)}</td>
+                      <td>{formatDate(div.ex_date, locale)}</td>
+                      <td>{div.payment_date ? formatDate(div.payment_date, locale) : '-'}</td>
+                      <td style={{ textAlign: 'right' }}>{formatCurrency(div.amount_per_share, locale, div.currency)}</td>
                       <td style={{ color: 'var(--accent-green)', textAlign: 'right' }}>
-                        {formatCurrency(div.total_converted !== null ? div.total_converted : div.total_amount, div.total_converted !== null ? currency : div.currency)}
+                        {formatCurrency(div.total_converted !== null ? div.total_converted : div.total_amount, locale, div.total_converted !== null ? currency : div.currency)}
                       </td>
                       <td>
                         <span style={{
@@ -560,7 +573,7 @@ export default function Dashboard() {
                           background: div.source === 'avanza' ? 'var(--accent-green)' : (div.source === 'yahoo' ? 'var(--accent-blue)' : 'var(--text-secondary)'),
                           color: 'white'
                         }}>
-                          {div.source === 'avanza' ? 'Avanza' : (div.source === 'yahoo' ? 'Yahoo' : 'Unknown')}
+                          {div.source === 'avanza' ? 'Avanza' : (div.source === 'yahoo' ? 'Yahoo' : t(language, 'dashboard.unknown'))}
                         </span>
                       </td>
                     </tr>

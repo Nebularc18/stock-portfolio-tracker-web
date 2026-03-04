@@ -1,0 +1,39 @@
+"""Add nullable logo column to stocks table.
+
+Manual migration script for projects that do not use Alembic.
+Usage:
+    python backend/migrations/20260304_add_stocks_logo_column.py upgrade
+    python backend/migrations/20260304_add_stocks_logo_column.py downgrade
+"""
+
+import os
+import sys
+from sqlalchemy import create_engine, text
+
+DATABASE_URL = os.getenv("DATABASE_URL", "postgresql://portfolio:portfolio@localhost:5432/portfolio")
+
+
+def upgrade(conn) -> None:
+    conn.execute(text("ALTER TABLE stocks ADD COLUMN IF NOT EXISTS logo VARCHAR NULL"))
+
+
+def downgrade(conn) -> None:
+    conn.execute(text("ALTER TABLE stocks DROP COLUMN IF EXISTS logo"))
+
+
+def run(direction: str) -> None:
+    if direction not in {"upgrade", "downgrade"}:
+        raise ValueError("direction must be 'upgrade' or 'downgrade'")
+
+    engine = create_engine(DATABASE_URL)
+    with engine.begin() as conn:
+        if direction == "upgrade":
+            upgrade(conn)
+        else:
+            downgrade(conn)
+
+
+if __name__ == "__main__":
+    action = sys.argv[1] if len(sys.argv) > 1 else "upgrade"
+    run(action)
+    print(f"Migration completed: {action}")

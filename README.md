@@ -165,6 +165,14 @@ When adding new columns to the database:
 docker exec stock-portfolio-tracker-web-postgres-1 psql -U portfolio -d portfolio -c "ALTER TABLE stocks ADD COLUMN IF NOT EXISTS new_column JSONB DEFAULT '[]'::jsonb;"
 ```
 
+For the `stocks.logo` column migration in this repository, run:
+
+```bash
+docker compose exec backend python backend/migrations/20260304_add_stocks_logo_column.py upgrade
+```
+
+Run this migration during deployment before starting new backend code that reads/writes `stock.logo`.
+
 ## Project Structure
 
 ```

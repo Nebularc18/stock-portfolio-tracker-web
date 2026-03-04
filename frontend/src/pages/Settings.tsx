@@ -4,9 +4,10 @@ import { useTheme, THEMES, ThemeName } from '../ThemeContext'
 import { useHeaderData } from '../contexts/HeaderDataContext'
 import { api, AvailableIndex } from '../services/api'
 import AvanzaMappings from '../components/AvanzaMappings'
+import { t } from '../i18n'
 
 export default function Settings() {
-  const { timezone, setTimezone, displayCurrency, setDisplayCurrency, headerIndices, setHeaderIndices } = useSettings()
+  const { timezone, setTimezone, displayCurrency, setDisplayCurrency, language, setLanguage, headerIndices, setHeaderIndices } = useSettings()
   const { themeName, setTheme } = useTheme()
   const { refreshData } = useHeaderData()
   const [availableIndices, setAvailableIndices] = useState<AvailableIndex[]>([])
@@ -18,10 +19,10 @@ export default function Settings() {
       .then(setAvailableIndices)
       .catch((err) => {
         console.error('Failed to load available indices:', err)
-        setIndicesError('Failed to load available indices. Please try again.')
+        setIndicesError(t(language, 'settings.failedLoadIndices'))
       })
       .finally(() => setLoadingIndices(false))
-  }, [])
+  }, [language])
 
   const invalidateHeaderCache = () => {
     localStorage.removeItem('header_market_data')
@@ -46,23 +47,23 @@ export default function Settings() {
 
   return (
     <div>
-      <h2 style={{ fontSize: '24px', fontWeight: '600', marginBottom: '24px' }}>Settings</h2>
+      <h2 style={{ fontSize: '24px', fontWeight: '600', marginBottom: '24px' }}>{t(language, 'settings.title')}</h2>
       
       <div className="card" style={{ marginBottom: '24px' }}>
-        <h3 style={{ marginBottom: '20px' }}>Theme</h3>
+        <h3 style={{ marginBottom: '20px' }}>{t(language, 'settings.theme')}</h3>
         <p style={{ color: 'var(--text-secondary)', fontSize: '14px', marginBottom: '24px' }}>
-          Choose your preferred visual style. Changes are applied instantly.
+          {t(language, 'settings.themeDescription')}
         </p>
         
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: '16px' }}>
-          {Object.values(THEMES).map((t) => (
+          {Object.values(THEMES).map((theme) => (
             <div
-              key={t.name}
-              className={`theme-card ${themeName === t.name ? 'active' : ''}`}
-              onClick={() => setTheme(t.name as ThemeName)}
+              key={theme.name}
+              className={`theme-card ${themeName === theme.name ? 'active' : ''}`}
+              onClick={() => setTheme(theme.name as ThemeName)}
               style={{
-                background: t.vars['--bg-secondary'],
-                border: `2px solid ${themeName === t.name ? t.vars['--accent-blue'] : t.vars['--border-color']}`,
+                background: theme.vars['--bg-secondary'],
+                border: `2px solid ${themeName === theme.name ? theme.vars['--accent-blue'] : theme.vars['--border-color']}`,
                 borderRadius: '12px',
                 padding: '16px',
                 cursor: 'pointer',
@@ -73,7 +74,7 @@ export default function Settings() {
                 style={{ 
                   height: 80, 
                   borderRadius: 8, 
-                  background: t.preview,
+                  background: theme.preview,
                   marginBottom: 12,
                   display: 'flex',
                   alignItems: 'flex-end',
@@ -85,15 +86,15 @@ export default function Settings() {
                   width: 40, 
                   height: 40, 
                   borderRadius: 8, 
-                  background: t.vars['--bg-secondary'],
-                  border: `1px solid ${t.vars['--border-color']}`,
+                  background: theme.vars['--bg-secondary'],
+                  border: `1px solid ${theme.vars['--border-color']}`,
                 }} />
                 <div style={{ flex: 1 }}>
                   <div style={{ 
                     height: 8, 
                     width: '60%', 
                     borderRadius: 4, 
-                    background: t.vars['--text-primary'],
+                    background: theme.vars['--text-primary'],
                     marginBottom: 6,
                     opacity: 0.8,
                   }} />
@@ -101,7 +102,7 @@ export default function Settings() {
                     height: 6, 
                     width: '80%', 
                     borderRadius: 3, 
-                    background: t.vars['--text-secondary'],
+                    background: theme.vars['--text-secondary'],
                     opacity: 0.6,
                   }} />
                 </div>
@@ -111,16 +112,20 @@ export default function Settings() {
                 fontSize: '16px', 
                 fontWeight: 600, 
                 marginBottom: 4,
-                color: t.vars['--text-primary'],
+                color: theme.vars['--text-primary'],
               }}>
-                {t.displayName}
+                {t(language, `settings.theme.${theme.name}.title`) !== `settings.theme.${theme.name}.title`
+                  ? t(language, `settings.theme.${theme.name}.title`)
+                  : theme.displayName}
               </h4>
               <p style={{ 
                 fontSize: '13px', 
-                color: t.vars['--text-secondary'],
+                color: theme.vars['--text-secondary'],
                 lineHeight: 1.4,
               }}>
-                {t.description}
+                {t(language, `settings.theme.${theme.name}.description`) !== `settings.theme.${theme.name}.description`
+                  ? t(language, `settings.theme.${theme.name}.description`)
+                  : theme.description}
               </p>
               
               <div style={{ display: 'flex', gap: 8, marginTop: 12 }}>
@@ -128,25 +133,25 @@ export default function Settings() {
                   width: 16, 
                   height: 16, 
                   borderRadius: '50%', 
-                  background: t.vars['--accent-green'],
+                  background: theme.vars['--accent-green'],
                 }} />
                 <div style={{ 
                   width: 16, 
                   height: 16, 
                   borderRadius: '50%', 
-                  background: t.vars['--accent-red'],
+                  background: theme.vars['--accent-red'],
                 }} />
                 <div style={{ 
                   width: 16, 
                   height: 16, 
                   borderRadius: '50%', 
-                  background: t.vars['--accent-blue'],
+                  background: theme.vars['--accent-blue'],
                 }} />
                 <div style={{ 
                   width: 16, 
                   height: 16, 
                   borderRadius: '50%', 
-                  background: t.vars['--accent-yellow'],
+                  background: theme.vars['--accent-yellow'],
                 }} />
               </div>
             </div>
@@ -155,13 +160,13 @@ export default function Settings() {
       </div>
       
       <div className="card" style={{ marginBottom: '24px' }}>
-        <h3 style={{ marginBottom: '16px' }}>Header Market Indices</h3>
+        <h3 style={{ marginBottom: '16px' }}>{t(language, 'settings.headerIndices')}</h3>
         <p style={{ color: 'var(--text-secondary)', fontSize: '14px', marginBottom: '16px' }}>
-          Select which market indices to display in the header. If none selected, all will be shown.
+          {t(language, 'settings.headerIndicesDescription')}
         </p>
         
         {loadingIndices ? (
-          <p style={{ color: 'var(--text-secondary)' }}>Loading available indices...</p>
+          <p style={{ color: 'var(--text-secondary)' }}>{t(language, 'settings.loadingIndices')}</p>
         ) : indicesError ? (
           <p style={{ color: 'var(--accent-red)' }}>{indicesError}</p>
         ) : (
@@ -224,17 +229,40 @@ export default function Settings() {
               cursor: 'pointer',
             }}
           >
-            Clear selection (show all)
+            {t(language, 'settings.clearSelection')}
           </button>
         )}
       </div>
       
       <div className="card">
-        <h3 style={{ marginBottom: '16px' }}>Display Preferences</h3>
+        <h3 style={{ marginBottom: '16px' }}>{t(language, 'settings.displayPreferences')}</h3>
+
+        <div style={{ marginBottom: '24px' }}>
+          <label style={{ display: 'block', marginBottom: '8px', color: 'var(--text-secondary)', fontSize: '14px' }}>
+            {t(language, 'settings.language')}
+          </label>
+          <select
+            value={language}
+            onChange={(e) => setLanguage(e.target.value as 'en' | 'sv')}
+            style={{
+              width: '100%',
+              maxWidth: '400px',
+              padding: '12px 16px',
+              border: '1px solid var(--border-color)',
+              borderRadius: 'var(--card-radius)',
+              background: 'var(--bg-tertiary)',
+              color: 'var(--text-primary)',
+              fontSize: '14px',
+            }}
+          >
+            <option value="en">{t(language, 'language.english')}</option>
+            <option value="sv">{t(language, 'language.swedish')}</option>
+          </select>
+        </div>
         
         <div style={{ marginBottom: '24px' }}>
           <label style={{ display: 'block', marginBottom: '8px', color: 'var(--text-secondary)', fontSize: '14px' }}>
-            Display Currency
+            {t(language, 'settings.displayCurrency')}
           </label>
           <select
             value={displayCurrency}
@@ -257,13 +285,13 @@ export default function Settings() {
             ))}
           </select>
           <p style={{ color: 'var(--text-secondary)', fontSize: '12px', marginTop: '8px' }}>
-            Portfolio totals and stock values will be converted to this currency.
+            {t(language, 'settings.displayCurrencyDescription')}
           </p>
         </div>
         
         <div style={{ marginBottom: '24px' }}>
           <label style={{ display: 'block', marginBottom: '8px', color: 'var(--text-secondary)', fontSize: '14px' }}>
-            Timezone for Market Hours
+            {t(language, 'settings.timezone')}
           </label>
           <select
             value={timezone}
@@ -286,7 +314,7 @@ export default function Settings() {
             ))}
           </select>
           <p style={{ color: 'var(--text-secondary)', fontSize: '12px', marginTop: '8px' }}>
-            Market opening and closing times will be displayed in your selected timezone.
+            {t(language, 'settings.timezoneDescription')}
           </p>
         </div>
       </div>

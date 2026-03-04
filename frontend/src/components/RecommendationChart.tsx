@@ -1,5 +1,7 @@
 import { useState } from 'react'
 import { RecommendationTrend } from '../services/api'
+import { useSettings } from '../SettingsContext'
+import { getLocaleForLanguage, t } from '../i18n'
 
 interface Props {
   recommendations: RecommendationTrend[] | null
@@ -14,18 +16,10 @@ const COLORS = {
   strong_sell: '#ef4444',
 }
 
-const LABELS = {
-  strong_buy: 'Stark Köp',
-  buy: 'Köp',
-  hold: 'Behåll',
-  sell: 'Sälj',
-  strong_sell: 'Stark Sälj',
-}
-
-function formatPeriod(period: string): string {
+function formatPeriod(period: string, locale: string): string {
   try {
     const date = new Date(period)
-    return date.toLocaleDateString('sv-SE', { month: 'short' })
+    return date.toLocaleDateString(locale, { month: 'short' })
   } catch {
     return period
   }
@@ -33,13 +27,22 @@ function formatPeriod(period: string): string {
 
 export default function RecommendationChart({ recommendations, loading }: Props) {
   const [hoveredBar, setHoveredBar] = useState<number | null>(null)
+  const { language } = useSettings()
+  const locale = getLocaleForLanguage(language)
+  const labels = {
+    strong_buy: t(language, 'recommendation.strongBuy'),
+    buy: t(language, 'recommendation.buy'),
+    hold: t(language, 'recommendation.hold'),
+    sell: t(language, 'recommendation.sell'),
+    strong_sell: t(language, 'recommendation.strongSell'),
+  }
 
   if (loading) {
     return (
       <div className="card">
-        <h3 style={{ marginBottom: '16px' }}>Analytikerrekommendationer</h3>
+        <h3 style={{ marginBottom: '16px' }}>{t(language, 'recommendation.title')}</h3>
         <p style={{ color: 'var(--text-secondary)', textAlign: 'center', padding: '20px' }}>
-          Laddar...
+          {t(language, 'common.loading')}
         </p>
       </div>
     )
@@ -54,7 +57,7 @@ export default function RecommendationChart({ recommendations, loading }: Props)
 
   return (
     <div className="card">
-      <h3 style={{ marginBottom: '16px' }}>Analytikerrekommendationer</h3>
+      <h3 style={{ marginBottom: '16px' }}>{t(language, 'recommendation.title')}</h3>
       
       <div style={{ display: 'flex', gap: '16px', marginBottom: '24px' }}>
         {displayData.map((rec, index) => {
@@ -116,12 +119,12 @@ export default function RecommendationChart({ recommendations, loading }: Props)
               
               {total > 0 && (
                 <p style={{ fontSize: '11px', color: 'var(--text-secondary)', marginTop: '8px', marginBottom: '4px' }}>
-                  Tot: {total}
+                  {t(language, 'recommendation.totalShort')} {total}
                 </p>
               )}
               
               <p style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>
-                {formatPeriod(rec.period)}
+                {formatPeriod(rec.period, locale)}
               </p>
               
               {hoveredBar === index && (
@@ -138,13 +141,13 @@ export default function RecommendationChart({ recommendations, loading }: Props)
                   whiteSpace: 'nowrap',
                   zIndex: 10
                 }}>
-                  <p style={{ fontWeight: 600, marginBottom: 4 }}>{formatPeriod(rec.period)}</p>
-                  <p style={{ color: COLORS.strong_buy, fontSize: '12px' }}>■ {LABELS.strong_buy}: {rec.strong_buy}</p>
-                  <p style={{ color: COLORS.buy, fontSize: '12px' }}>■ {LABELS.buy}: {rec.buy}</p>
-                  <p style={{ color: COLORS.hold, fontSize: '12px' }}>■ {LABELS.hold}: {rec.hold}</p>
-                  <p style={{ color: COLORS.sell, fontSize: '12px' }}>■ {LABELS.sell}: {rec.sell}</p>
-                  <p style={{ color: COLORS.strong_sell, fontSize: '12px' }}>■ {LABELS.strong_sell}: {rec.strong_sell}</p>
-                  <p style={{ fontWeight: 600, marginTop: 4 }}>Total: {total}</p>
+                  <p style={{ fontWeight: 600, marginBottom: 4 }}>{formatPeriod(rec.period, locale)}</p>
+                  <p style={{ color: COLORS.strong_buy, fontSize: '12px' }}>■ {labels.strong_buy}: {rec.strong_buy}</p>
+                  <p style={{ color: COLORS.buy, fontSize: '12px' }}>■ {labels.buy}: {rec.buy}</p>
+                  <p style={{ color: COLORS.hold, fontSize: '12px' }}>■ {labels.hold}: {rec.hold}</p>
+                  <p style={{ color: COLORS.sell, fontSize: '12px' }}>■ {labels.sell}: {rec.sell}</p>
+                  <p style={{ color: COLORS.strong_sell, fontSize: '12px' }}>■ {labels.strong_sell}: {rec.strong_sell}</p>
+                  <p style={{ fontWeight: 600, marginTop: 4 }}>{t(language, 'recommendation.total')}: {total}</p>
                 </div>
               )}
             </div>
@@ -156,7 +159,7 @@ export default function RecommendationChart({ recommendations, loading }: Props)
         {Object.entries(COLORS).map(([key, color]) => (
           <div key={key} style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
             <div style={{ width: 12, height: 12, background: color, borderRadius: 2 }} />
-            <span style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>{LABELS[key as keyof typeof LABELS]}</span>
+            <span style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>{labels[key as keyof typeof labels]}</span>
           </div>
         ))}
       </div>
