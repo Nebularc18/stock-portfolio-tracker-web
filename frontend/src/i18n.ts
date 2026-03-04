@@ -705,9 +705,21 @@ export function t(language: Language, key: TranslationKey, params?: Record<strin
   const template: string = translations[language][key] ?? translations.en[key] ?? key
   if (!params) return template
 
-  return Object.entries(params).reduce((acc, [paramKey, paramValue]) => {
+  const resolved = Object.entries(params).reduce((acc, [paramKey, paramValue]) => {
     return acc.split(`{{${paramKey}}}`).join(String(paramValue))
   }, template)
+
+  const missingParams = Array.from(
+    new Set(Array.from(resolved.matchAll(/\{\{\s*([^{}\s]+)\s*\}\}/g)).map((match) => match[1]))
+  )
+
+  if (import.meta.env.DEV && missingParams.length > 0) {
+    console.warn(
+      `[i18n] Missing interpolation params for key "${key}" (${language}): ${missingParams.join(', ')}`
+    )
+  }
+
+  return resolved
 }
 
 export function getLocaleForLanguage(language: Language): string {

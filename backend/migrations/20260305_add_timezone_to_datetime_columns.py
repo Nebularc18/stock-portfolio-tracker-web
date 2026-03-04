@@ -4,6 +4,12 @@ Manual migration script for projects that do not use Alembic.
 Usage:
     python backend/migrations/20260305_add_timezone_to_datetime_columns.py upgrade
     python backend/migrations/20260305_add_timezone_to_datetime_columns.py downgrade
+
+Deployment notes:
+    - This migration uses ALTER COLUMN TYPE and can take ACCESS EXCLUSIVE locks.
+    - Run in a maintenance or low-traffic window after validating on staging.
+    - For large tables, prefer a staged column-copy migration strategy to minimize lock time.
+    - Rollback: run this script with "downgrade".
 """
 
 import os
@@ -50,10 +56,12 @@ def _ensure_and_alter_timezone_column(conn, table_name: str, column_name: str, t
         expected_source = "timestamp without time zone"
         desired_type = "timestamp with time zone"
         desired_sql_type = "TIMESTAMPTZ"
-    else:
+    elif target == "timestamp":
         expected_source = "timestamp with time zone"
         desired_type = "timestamp without time zone"
         desired_sql_type = "TIMESTAMP"
+    else:
+        raise ValueError(f"Unsupported target type {target!r}. Allowed values are 'timestamptz' and 'timestamp'.")
 
     if current_type == desired_type:
         return

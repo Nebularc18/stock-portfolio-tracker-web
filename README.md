@@ -173,6 +173,12 @@ docker compose exec backend python backend/migrations/20260304_add_stocks_logo_c
 
 Run this migration during deployment before starting new backend code that reads/writes `stock.logo`.
 
+For the timezone migration (`backend/migrations/20260305_add_timezone_to_datetime_columns.py`):
+
+- Validate first on a staging copy of production.
+- Run during a maintenance/low-traffic window because `ALTER COLUMN TYPE` can acquire strong table locks.
+- Prepare rollback by running the same script with `downgrade`.
+
 ## Project Structure
 
 ```

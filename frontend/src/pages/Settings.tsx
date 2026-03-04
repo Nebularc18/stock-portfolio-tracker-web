@@ -24,7 +24,7 @@ export default function Settings() {
         setIndicesError(t(language, 'settings.failedLoadIndices'))
       })
       .finally(() => setLoadingIndices(false))
-  }, [])
+  }, [language])
 
   const invalidateHeaderCache = () => {
     refreshData(true)
@@ -44,6 +44,12 @@ export default function Settings() {
   const clearSelection = () => {
     setHeaderIndices([])
     invalidateHeaderCache()
+  }
+
+  const getThemeText = (theme: (typeof THEMES)[ThemeName], field: 'title' | 'description') => {
+    const key = `settings.theme.${theme.name}.${field}` as TranslationKey
+    const translated = t(language, key)
+    return translated !== key ? translated : (field === 'title' ? theme.displayName : theme.description)
   }
 
   return (
@@ -118,18 +124,14 @@ export default function Settings() {
                 marginBottom: 4,
                 color: theme.vars['--text-primary'],
               }}>
-                {t(language, `settings.theme.${theme.name}.title` as TranslationKey) !== (`settings.theme.${theme.name}.title` as TranslationKey)
-                  ? t(language, `settings.theme.${theme.name}.title` as TranslationKey)
-                  : theme.displayName}
+                {getThemeText(theme, 'title')}
               </h4>
               <p style={{ 
                 fontSize: '13px', 
                 color: theme.vars['--text-secondary'],
                 lineHeight: 1.4,
               }}>
-                {t(language, `settings.theme.${theme.name}.description` as TranslationKey) !== (`settings.theme.${theme.name}.description` as TranslationKey)
-                  ? t(language, `settings.theme.${theme.name}.description` as TranslationKey)
-                  : theme.description}
+                {getThemeText(theme, 'description')}
               </p>
               
               <div style={{ display: 'flex', gap: 8, marginTop: 12 }}>
