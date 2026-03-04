@@ -14,7 +14,10 @@ Deployment notes:
 
 import os
 import sys
+import logging
 from sqlalchemy import create_engine, text
+
+logger = logging.getLogger(__name__)
 
 MISSING_DATABASE_URL_MSG = "DATABASE_URL must be set before running migration 20260305_add_timezone_to_datetime_columns"
 
@@ -64,6 +67,7 @@ def _ensure_and_alter_timezone_column(conn, table_name: str, column_name: str, t
         raise ValueError(f"Unsupported target type {target!r}. Allowed values are 'timestamptz' and 'timestamp'.")
 
     if current_type == desired_type:
+        logger.info("Skipping %s.%s: already %s", table_name, column_name, desired_type)
         return
 
     if current_type != expected_source:
@@ -81,21 +85,37 @@ def _ensure_and_alter_timezone_column(conn, table_name: str, column_name: str, t
             """
         )
     )
+    logger.info("Converted %s.%s from %s to %s", table_name, column_name, expected_source, desired_type)
 
 
 def upgrade(conn) -> None:
     for table_name, column_name in TARGET_COLUMNS:
-        _ensure_and_alter_timezone_column(conn, table_name, column_name, "timestamptz")
+        logger.info("[upgrade] Processing %s.%s", table_name, column_name)
+        try:
+            _ensure_and_alter_timezone_column(conn, table_name, column_name, "timestamptz")
+            logger.info("[upgrade] Completed %s.%s", table_name, column_name)
+        except Exception:
+            logger.exception("[upgrade] Failed %s.%s", table_name, column_name)
+            raise
 
 
 def downgrade(conn) -> None:
     for table_name, column_name in TARGET_COLUMNS:
-        _ensure_and_alter_timezone_column(conn, table_name, column_name, "timestamp")
+        logger.info("[downgrade] Processing %s.%s", table_name, column_name)
+        try:
+            _ensure_and_alter_timezone_column(conn, table_name, column_name, "timestamp")
+            logger.info("[downgrade] Completed %s.%s", table_name, column_name)
+        except Exception:
+            logger.exception("[downgrade] Failed %s.%s", table_name, column_name)
+            raise
 
 
 def run(direction: str) -> None:
     if direction not in {"upgrade", "downgrade"}:
         raise ValueError("direction must be 'upgrade' or 'downgrade'")
+
+    if not logging.getLogger().handlers:
+        logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 
     engine = create_engine(DATABASE_URL)
     try:

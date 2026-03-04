@@ -15,15 +15,27 @@ export default function Settings() {
   const [indicesError, setIndicesError] = useState<string | null>(null)
 
   useEffect(() => {
+    let cancelled = false
     setLoadingIndices(true)
     setIndicesError(null)
     api.settings.availableIndices()
-      .then(setAvailableIndices)
+      .then((indices) => {
+        if (cancelled) return
+        setAvailableIndices(indices)
+      })
       .catch((err) => {
+        if (cancelled) return
         console.error('Failed to load available indices:', err)
         setIndicesError(t(language, 'settings.failedLoadIndices'))
       })
-      .finally(() => setLoadingIndices(false))
+      .finally(() => {
+        if (cancelled) return
+        setLoadingIndices(false)
+      })
+
+    return () => {
+      cancelled = true
+    }
   }, [language])
 
   const invalidateHeaderCache = () => {
