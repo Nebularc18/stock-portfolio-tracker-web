@@ -54,7 +54,8 @@ function formatMonthLabel(monthKey: string, locale: string): string {
 
 function parseHistoryDate(value: string): Date {
   if (value.includes('T')) {
-    return new Date(value.endsWith('Z') ? value : `${value}Z`)
+    const hasTimezone = /([zZ]|[+-]\d{2}:\d{2})$/.test(value)
+    return new Date(hasTimezone ? value : `${value}Z`)
   }
   return new Date(`${value}T00:00:00Z`)
 }

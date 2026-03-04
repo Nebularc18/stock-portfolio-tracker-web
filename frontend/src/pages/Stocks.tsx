@@ -308,8 +308,8 @@ export default function Stocks() {
                     <td>{stock.name || '-'}</td>
                     <td>{stock.quantity}</td>
                     <td>{stock.currency}</td>
-                    <td>{formatCurrency(stock.purchase_price, stock.currency)}</td>
-                    <td>{formatCurrency(stock.current_price, stock.currency)}</td>
+                    <td>{formatCurrency(stock.purchase_price, locale, stock.currency)}</td>
+                    <td>{formatCurrency(stock.current_price, locale, stock.currency)}</td>
                     <td className={dailyChange && dailyChange >= 0 ? 'positive' : 'negative'}>
                       {dailyChangePercent !== null ? `${dailyChangePercent >= 0 ? '+' : ''}${dailyChangePercent.toFixed(2)}%` : '-'}
                     </td>

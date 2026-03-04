@@ -56,10 +56,6 @@ function formatMonthLabel(monthKey: string, locale: string): string {
   return date.toLocaleDateString(locale, { year: 'numeric', month: 'long', timeZone: 'UTC' })
 }
 
-function getDisplayedDividendTotal(item: UpcomingDividend): number {
-  return item.total_converted !== null ? item.total_converted : item.total_amount
-}
-
 /**
  * Displays a list of upcoming dividend payments for the user's portfolio, including a summary, per-stock details, unmapped-stock warnings, and controls to refresh or retry loading.
  *
@@ -73,6 +69,7 @@ export default function UpcomingDividends() {
   const [dividends, setDividends] = useState<UpcomingDividend[]>([])
   const [totalExpected, setTotalExpected] = useState(0)
   const [displayCurrency, setDisplayCurrency] = useState('SEK')
+  const [exchangeRates, setExchangeRates] = useState<Record<string, number | null>>({})
   const [unmappedStocks, setUnmappedStocks] = useState<Array<{ ticker: string; name: string | null; reason: string }>>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
@@ -90,6 +87,8 @@ export default function UpcomingDividends() {
       setTotalExpected(data.total_expected)
       setDisplayCurrency(data.display_currency)
       setUnmappedStocks(data.unmapped_stocks)
+      const rates = await api.market.exchangeRates().catch(() => ({}))
+      setExchangeRates(rates)
     } catch (err) {
       console.error('Failed to fetch upcoming dividends:', err)
       setError(t(language, 'upcoming.failedLoad'))
@@ -120,12 +119,36 @@ export default function UpcomingDividends() {
     return acc
   }, {} as Record<string, UpcomingDividend[]>)
 
+  const getDisplayedDividendTotal = (item: UpcomingDividend): number | null => {
+    if (item.total_converted !== null) {
+      return item.total_converted
+    }
+    if (item.currency === displayCurrency) {
+      return item.total_amount
+    }
+
+    const direct = exchangeRates[`${item.currency}_${displayCurrency}`]
+    if (direct != null) {
+      return item.total_amount * direct
+    }
+
+    const inverse = exchangeRates[`${displayCurrency}_${item.currency}`]
+    if (inverse != null && inverse !== 0) {
+      return item.total_amount / inverse
+    }
+
+    return null
+  }
+
   const monthlyGroups = Object.entries(groupedByMonth)
     .sort(([a], [b]) => a.localeCompare(b))
     .map(([monthKey, items]) => ({
       monthKey,
       items,
-      subtotal: items.reduce((sum, item) => sum + getDisplayedDividendTotal(item), 0),
+      subtotal: items.reduce((sum, item) => {
+        const displayedTotal = getDisplayedDividendTotal(item)
+        return displayedTotal === null ? sum : sum + displayedTotal
+      }, 0),
     }))
 
   return (

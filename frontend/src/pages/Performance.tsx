@@ -318,16 +318,16 @@ export default function Performance() {
         <table>
           <thead>
             <tr>
-              <SortHeader field="ticker" label="Ticker" />
-              <SortHeader field="name" label="Name" />
+              <SortHeader field="ticker" label={t(language, 'performance.ticker')} />
+              <SortHeader field="name" label={t(language, 'performance.name')} />
               <th>{t(language, 'performance.qty')}</th>
               <th>{t(language, 'performance.currency')}</th>
-              <SortHeader field="cost" label="Cost (SEK)" />
-              <SortHeader field="value" label="Value (SEK)" />
-              <SortHeader field="gain" label="Gain/Loss" />
-              <SortHeader field="gainPercent" label="Return %" />
-              <SortHeader field="dailyChange" label="Daily (SEK)" />
-              <SortHeader field="dailyChangePercent" label="Daily %" />
+              <SortHeader field="cost" label={t(language, 'performance.costSek')} />
+              <SortHeader field="value" label={t(language, 'performance.valueSek')} />
+              <SortHeader field="gain" label={t(language, 'performance.gainLoss')} />
+              <SortHeader field="gainPercent" label={t(language, 'performance.returnPercent')} />
+              <SortHeader field="dailyChange" label={t(language, 'performance.dailySek')} />
+              <SortHeader field="dailyChangePercent" label={t(language, 'performance.dailyPercent')} />
             </tr>
           </thead>
           <tbody>

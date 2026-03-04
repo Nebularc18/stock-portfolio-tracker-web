@@ -56,14 +56,22 @@ export function HeaderDataProvider({ children }: { children: ReactNode }) {
 
   const scheduleNextRefresh = useCallback(() => {
     if (!nextRefreshAt) return
-    
+
+    if (timeoutRef.current) {
+      clearTimeout(timeoutRef.current)
+    }
+
     const nextTime = new Date(nextRefreshAt)
     const msUntilNext = nextTime.getTime() - Date.now()
-    
+
+    if (!Number.isFinite(msUntilNext) || msUntilNext <= 0) {
+      timeoutRef.current = setTimeout(() => {
+        fetchData()
+      }, 0)
+      return
+    }
+
     if (msUntilNext > 0) {
-      if (timeoutRef.current) {
-        clearTimeout(timeoutRef.current)
-      }
       timeoutRef.current = setTimeout(() => {
         fetchData()
       }, msUntilNext)

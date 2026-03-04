@@ -405,8 +405,9 @@ def get_upcoming_portfolio_dividends(db: Session = Depends(get_db)):
     dividends = []
     unmapped_stocks = []
     seen_unmapped = set()
-    today = utc_now().strftime('%Y-%m-%d')
-    current_year = utc_now().year
+    now = utc_now()
+    today = now.strftime('%Y-%m-%d')
+    current_year = now.year
 
     def normalize_dividend_event(raw_div: dict, event_type: str) -> dict:
         if event_type == 'historical':

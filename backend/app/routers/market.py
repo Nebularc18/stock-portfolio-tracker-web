@@ -192,10 +192,12 @@ def get_market_indices():
     # Check cache first
     cached = _load_indices_cache()
     if cached is not None:
-        next_refresh = datetime.fromtimestamp(
-            cached['cached_at'] + cached['ttl'],
-            tz=timezone.utc
-        )
+        cached_at = cached.get('cached_at')
+        ttl = cached.get('ttl', INDICES_CACHE_TTL)
+        if isinstance(cached_at, (int, float)) and isinstance(ttl, (int, float)) and ttl > 0:
+            next_refresh = datetime.fromtimestamp(cached_at + ttl, tz=timezone.utc)
+        else:
+            next_refresh = datetime.now(timezone.utc) + timedelta(seconds=INDICES_CACHE_TTL)
         return {
             "indices": cached.get('indices', []),
             "updated_at": cached.get('updated_at'),

@@ -15,6 +15,8 @@ export default function Settings() {
   const [indicesError, setIndicesError] = useState<string | null>(null)
 
   useEffect(() => {
+    setLoadingIndices(true)
+    setIndicesError(null)
     api.settings.availableIndices()
       .then(setAvailableIndices)
       .catch((err) => {
@@ -22,7 +24,7 @@ export default function Settings() {
         setIndicesError(t(language, 'settings.failedLoadIndices'))
       })
       .finally(() => setLoadingIndices(false))
-  }, [language])
+  }, [])
 
   const invalidateHeaderCache = () => {
     localStorage.removeItem('header_market_data')
@@ -57,10 +59,12 @@ export default function Settings() {
         
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: '16px' }}>
           {Object.values(THEMES).map((theme) => (
-            <div
+            <button
+              type="button"
               key={theme.name}
               className={`theme-card ${themeName === theme.name ? 'active' : ''}`}
               onClick={() => setTheme(theme.name as ThemeName)}
+              aria-pressed={themeName === theme.name}
               style={{
                 background: theme.vars['--bg-secondary'],
                 border: `2px solid ${themeName === theme.name ? theme.vars['--accent-blue'] : theme.vars['--border-color']}`,
@@ -68,6 +72,7 @@ export default function Settings() {
                 padding: '16px',
                 cursor: 'pointer',
                 transition: 'all 0.3s ease',
+                textAlign: 'left',
               }}
             >
               <div 
@@ -154,7 +159,7 @@ export default function Settings() {
                   background: theme.vars['--accent-yellow'],
                 }} />
               </div>
-            </div>
+            </button>
           ))}
         </div>
       </div>

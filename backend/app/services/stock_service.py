@@ -501,11 +501,17 @@ class StockService:
                     'source': 'avanza'
                 } for div in avanza_dividends]
 
+            if ticker.endswith('.ST'):
+                logger.debug(
+                    f"Avanza mapping found for Swedish ticker {ticker} but no upcoming dividends returned; "
+                    f"keeping Avanza-only behavior"
+                )
+                return []
+
             logger.debug(
-                f"Avanza mapping found for {ticker} but no upcoming dividends returned; "
-                f"not falling back to yfinance because mapped tickers are Avanza-only"
+                f"Avanza mapping found for non-Swedish ticker {ticker} but no upcoming dividends returned; "
+                f"falling back to yfinance"
             )
-            return []
         elif ticker.endswith('.ST'):
             logger.debug(f"Swedish ticker {ticker} has no Avanza mapping or instrument_id, falling back to yfinance")
         
@@ -603,8 +609,8 @@ class StockService:
                     last_div = dividends_attr.iloc[-1]
                     last_div_date = dividends_attr.index[-1]
                     
-                    # Only return if the dividend is recent (within last 90 days) or upcoming
-                    recent_date = datetime.now(tz=timezone.utc) - timedelta(days=90)
+                    now = datetime.now(tz=timezone.utc)
+                    recent_date = now - timedelta(days=90)
                     
                     if hasattr(last_div_date, 'to_pydatetime'):
                         div_datetime = last_div_date.to_pydatetime()
@@ -615,8 +621,12 @@ class StockService:
                     if div_datetime.tzinfo is None:
                         div_datetime = div_datetime.replace(tzinfo=timezone.utc)
                     
-                    # Check if this is a recent or upcoming dividend
-                    if div_datetime >= recent_date:
+                    if recent_date <= div_datetime <= now:
+                        logger.debug(
+                            f"Ignoring recent historical dividend for {ticker}: "
+                            f"ex_date={div_datetime.strftime('%Y-%m-%d')}"
+                        )
+                    elif div_datetime > now:
                         ex_date_str = div_datetime.strftime('%Y-%m-%d')
                         logger.debug(f"Found yfinance dividends attribute for {ticker}: ex_date={ex_date_str}, amount={float(last_div)}")
                         return [{

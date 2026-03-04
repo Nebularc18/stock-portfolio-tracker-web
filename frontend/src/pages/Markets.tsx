@@ -67,7 +67,7 @@ export default function Markets() {
         setLoading(false)
       }
     }
-  }, [timezone])
+  }, [timezone, language])
 
   // Schedule next refresh based on backend's next_refresh_at
   const scheduleNextRefresh = useCallback(() => {

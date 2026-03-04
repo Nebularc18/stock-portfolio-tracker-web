@@ -9,21 +9,21 @@ import { useSettings } from '../SettingsContext'
 import { formatTimeInTimezone } from '../utils/time'
 import { getLocaleForLanguage, t } from '../i18n'
 
-function formatCurrency(value: number | null, currency: string = 'USD'): string {
+function formatCurrency(value: number | null, currency: string = 'USD', locale: string = 'en-US'): string {
   if (value === null) return '-'
-  return new Intl.NumberFormat('en-US', {
+  return new Intl.NumberFormat(locale, {
     style: 'currency',
     currency,
     minimumFractionDigits: 2,
   }).format(value)
 }
 
-function formatDate(dateStr: string): string {
+function formatDate(dateStr: string, locale: string): string {
   if (!dateStr) return '-'
   const [year, month, day] = dateStr.split('-').map(Number)
   if (!year || !month || !day) return dateStr
   const date = new Date(Date.UTC(year, month - 1, day))
-  return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric', timeZone: 'UTC' })
+  return date.toLocaleDateString(locale, { month: 'short', day: 'numeric', year: 'numeric', timeZone: 'UTC' })
 }
 
 function formatDisplayName(name: string | null, ticker: string): string {
@@ -449,10 +449,10 @@ export default function StockDetail() {
 
     return (
       <div style={{ textAlign }}>
-        <div>{formatCurrency(amount, fromCurrency)}</div>
+        <div>{formatCurrency(amount, fromCurrency, locale)}</div>
         {amount !== null && fromCurrency !== 'SEK' && sekValue !== null && (
           <div style={{ color: 'var(--text-secondary)', fontSize: '12px' }}>
-            {formatCurrency(sekValue, 'SEK')}
+            {formatCurrency(sekValue, 'SEK', locale)}
           </div>
         )}
       </div>
@@ -608,11 +608,11 @@ export default function StockDetail() {
         <div style={{ marginTop: '24px', display: 'flex', gap: '32px', alignItems: 'baseline' }}>
           <div>
             <div style={{ fontSize: '36px', fontWeight: '600' }}>
-              {formatCurrency(stock.current_price, stock.currency)}
+              {formatCurrency(stock.current_price, stock.currency, locale)}
             </div>
             {stock.currency !== 'SEK' && convertToSEK(stock.current_price, stock.currency) !== null && (
               <p style={{ color: 'var(--text-secondary)', fontSize: '14px', marginTop: '4px' }}>
-                {formatCurrency(convertToSEK(stock.current_price, stock.currency), 'SEK')}
+                {formatCurrency(convertToSEK(stock.current_price, stock.currency), 'SEK', locale)}
               </p>
             )}
             {dailyChange !== null && (
@@ -620,12 +620,12 @@ export default function StockDetail() {
                 color: dailyChange >= 0 ? 'var(--accent-green)' : 'var(--accent-red)',
                 fontSize: '16px'
               }}>
-                {dailyChange >= 0 ? '+' : ''}{formatCurrency(dailyChange, stock.currency)} ({dailyChangePercent?.toFixed(2)}%)
+                {dailyChange >= 0 ? '+' : ''}{formatCurrency(dailyChange, stock.currency, locale)} ({dailyChangePercent?.toFixed(2)}%)
               </p>
             )}
             {dailyChange !== null && stock.currency !== 'SEK' && convertToSEK(dailyChange, stock.currency) !== null && (
               <p style={{ color: 'var(--text-secondary)', fontSize: '13px', marginTop: '2px' }}>
-                {dailyChange >= 0 ? '+' : ''}{formatCurrency(convertToSEK(dailyChange, stock.currency), 'SEK')}
+                {dailyChange >= 0 ? '+' : ''}{formatCurrency(convertToSEK(dailyChange, stock.currency), 'SEK', locale)}
               </p>
             )}
           </div>
@@ -696,12 +696,12 @@ export default function StockDetail() {
                 </tr>
                 <tr>
                   <td style={{ color: 'var(--text-secondary)' }}>{t(language, 'stockDetail.dividendPerShare')}</td>
-                  <td style={{ textAlign: 'right' }}>{formatCurrency(displayDividendPerShare, stock.currency)}</td>
+                  <td style={{ textAlign: 'right' }}>{formatCurrency(displayDividendPerShare, stock.currency, locale)}</td>
                 </tr>
                 <tr>
                   <td style={{ color: 'var(--text-secondary)' }}>{t(language, 'stockDetail.annualIncome')}</td>
                   <td style={{ textAlign: 'right' }}>
-                    {displayAnnualIncome !== null ? formatCurrency(displayAnnualIncome, stock.currency) : '-'}
+                    {displayAnnualIncome !== null ? formatCurrency(displayAnnualIncome, stock.currency, locale) : '-'}
                   </td>
                 </tr>
               </tbody>
@@ -728,11 +728,11 @@ export default function StockDetail() {
                 </div>
                 <div style={{ background: 'var(--bg-secondary)', border: '1px solid var(--border-color)', borderRadius: 8, padding: '12px' }}>
                   <p style={{ color: 'var(--text-secondary)', fontSize: '12px', marginBottom: '4px' }}>{t(language, 'stockDetail.dividendPerShareModeled')}</p>
-                  <p>{formatCurrency(displayDividendPerShare, stock.currency)}</p>
+                  <p>{formatCurrency(displayDividendPerShare, stock.currency, locale)}</p>
                 </div>
                 <div style={{ background: 'var(--bg-secondary)', border: '1px solid var(--border-color)', borderRadius: 8, padding: '12px' }}>
                   <p style={{ color: 'var(--text-secondary)', fontSize: '12px', marginBottom: '4px' }}>{t(language, 'stockDetail.annualIncome')}</p>
-                  <p>{displayAnnualIncome !== null ? formatCurrency(displayAnnualIncome, stock.currency) : '-'}</p>
+                  <p>{displayAnnualIncome !== null ? formatCurrency(displayAnnualIncome, stock.currency, locale) : '-'}</p>
                 </div>
               </div>
             </div>
@@ -762,8 +762,8 @@ export default function StockDetail() {
                 <tbody>
                   {stock.manual_dividends.map((div) => (
                     <tr key={div.id}>
-                      <td>{formatDate(div.date)}</td>
-                      <td style={{ color: 'var(--accent-green)' }}>{formatCurrency(div.amount, div.currency)}</td>
+                      <td>{formatDate(div.date, locale)}</td>
+                      <td style={{ color: 'var(--accent-green)' }}>{formatCurrency(div.amount, div.currency, locale)}</td>
                       <td>{div.note || '-'}</td>
                       <td>
                         <div style={{ display: 'flex', gap: '8px' }}>
@@ -800,10 +800,10 @@ export default function StockDetail() {
                 <h3>{t(language, 'stockDetail.dividendsThisYear')}</h3>
                 <div style={{ display: 'flex', gap: '16px', fontSize: '13px' }}>
                   <span style={{ color: 'var(--text-secondary)' }}>
-                    {t(language, 'stockDetail.received')}: <strong style={{ color: 'var(--accent-green)' }}>{formatCurrency(yearReceived, 'SEK')}</strong>
+                    {t(language, 'stockDetail.received')}: <strong style={{ color: 'var(--accent-green)' }}>{formatCurrency(yearReceived, 'SEK', locale)}</strong>
                   </span>
                   <span style={{ color: 'var(--text-secondary)' }}>
-                    {t(language, 'stockDetail.remaining')}: <strong style={{ color: 'var(--accent-blue)' }}>{formatCurrency(yearRemaining, 'SEK')}</strong>
+                    {t(language, 'stockDetail.remaining')}: <strong style={{ color: 'var(--accent-blue)' }}>{formatCurrency(yearRemaining, 'SEK', locale)}</strong>
                   </span>
                 </div>
               </div>
@@ -820,9 +820,9 @@ export default function StockDetail() {
                 <tbody>
                   {yearDividends.map((div, i) => (
                     <tr key={i}>
-                      <td>{formatDate(div.ex_date)}</td>
-                      <td>{div.payment_date ? formatDate(div.payment_date) : '-'}</td>
-                      <td>{formatCurrency(div.amount_per_share, div.currency || stock.currency)}</td>
+                      <td>{formatDate(div.ex_date, locale)}</td>
+                      <td>{div.payment_date ? formatDate(div.payment_date, locale) : '-'}</td>
+                      <td>{formatCurrency(div.amount_per_share, div.currency || stock.currency, locale)}</td>
                       <td style={{ color: div.status === 'paid' ? 'var(--accent-green)' : 'var(--accent-blue)', fontSize: '12px' }}>
                         {div.status === 'paid' ? t(language, 'stockDetail.paid') : t(language, 'stockDetail.upcoming')}
                       </td>
@@ -856,9 +856,9 @@ export default function StockDetail() {
                     const suppressed = isDividendSuppressed(div.date)
                     return (
                       <tr key={i} style={{ opacity: suppressed ? 0.5 : 1 }}>
-                        <td>{formatDate(div.date)}</td>
+                        <td>{formatDate(div.date, locale)}</td>
                         <td style={{ color: suppressed ? 'var(--text-secondary)' : 'var(--accent-green)' }}>
-                          {formatCurrency(div.amount, div.currency || stock.currency)}
+                          {formatCurrency(div.amount, div.currency || stock.currency, locale)}
                           {suppressed && <span style={{ marginLeft: '8px', fontSize: '12px' }}>{t(language, 'stockDetail.suppressedTag')}</span>}
                         </td>
                         <td>

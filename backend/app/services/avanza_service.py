@@ -28,6 +28,7 @@ except PermissionError as e:
 DIVIDENDS_CACHE_TTL = 86400
 HISTORICAL_CACHE_TTL = 86400 * 7
 STOCK_DATA_CACHE_TTL = 300
+MAX_STOCK_CACHE_SIZE = 256
 
 MAPPING_FILE = "ticker_mapping.json"
 
@@ -171,6 +172,13 @@ class AvanzaService:
         """Fetch stock data with a short-lived in-memory cache by instrument ID."""
         now = time.time()
         try:
+            expired_keys = [
+                key for key, cached in self._stock_data_cache.items()
+                if (now - cached[0]) >= STOCK_DATA_CACHE_TTL
+            ]
+            for key in expired_keys:
+                self._stock_data_cache.pop(key, None)
+
             cached = self._stock_data_cache.get(instrument_id)
             if cached and (now - cached[0]) < STOCK_DATA_CACHE_TTL:
                 return cached[1]
@@ -179,6 +187,14 @@ class AvanzaService:
 
         data = self._fetch_stock_data(instrument_id)
         if data:
+            if len(self._stock_data_cache) >= MAX_STOCK_CACHE_SIZE:
+                oldest_keys = sorted(
+                    self._stock_data_cache.items(),
+                    key=lambda item: item[1][0]
+                )
+                while len(self._stock_data_cache) >= MAX_STOCK_CACHE_SIZE and oldest_keys:
+                    oldest_key, _ = oldest_keys.pop(0)
+                    self._stock_data_cache.pop(oldest_key, None)
             self._stock_data_cache[instrument_id] = (now, data)
         return data
     
@@ -467,8 +483,6 @@ class AvanzaService:
             return []
 
         data = self._fetch_stock_data_with_cache(mapping.instrument_id)
-        if not data:
-            data = self._fetch_stock_data(mapping.instrument_id)
         if not data:
             return []
 
