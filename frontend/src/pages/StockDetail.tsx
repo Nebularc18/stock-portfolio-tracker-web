@@ -87,8 +87,8 @@ export default function StockDetail() {
   const [stock, setStock] = useState<Stock | null>(null)
   const [dividends, setDividends] = useState<Dividend[]>([])
   const [yearDividends, setYearDividends] = useState<UpcomingDividend[]>([])
-  const [yearReceived, setYearReceived] = useState(0)
-  const [yearRemaining, setYearRemaining] = useState(0)
+  const [yearReceived, setYearReceived] = useState<number | null>(0)
+  const [yearRemaining, setYearRemaining] = useState<number | null>(0)
   const [analystData, setAnalystData] = useState<AnalystData | null>(null)
   const [suppressedDividends, setSuppressedDividends] = useState<ManualDividend[]>([])
   const [loading, setLoading] = useState(true)
@@ -118,13 +118,16 @@ export default function StockDetail() {
 
   useEffect(() => {
     if (!ticker) return
+    let active = true
     
     setVerificationResult(null)
     setMarketstackStatus(null)
     
     const fetchData = async () => {
       try {
-        setLoading(true)
+        if (active) {
+          setLoading(true)
+        }
         const [stockData, divData, stockUpcomingData, suppressedData, ratesData] = await Promise.all([
           api.stocks.get(ticker),
           api.stocks.dividends(ticker),
@@ -132,6 +135,7 @@ export default function StockDetail() {
           api.stocks.getSuppressedDividends(ticker).catch(() => []),
           api.market.exchangeRates().catch(() => ({})),
         ])
+        if (!active) return
 
         const safeRates = ratesData as Record<string, number | null>
 
@@ -217,49 +221,71 @@ export default function StockDetail() {
           const bDate = b.payout_date || b.payment_date || b.ex_date
           return aDate.localeCompare(bDate)
         })
+
+        const aggregateYearlyTotal = (targetStatus: 'paid' | 'upcoming'): number | null => {
+          let total = 0
+          let hasMissingConversion = false
+
+          for (const div of effectiveYearDividends) {
+            if (div.status !== targetStatus) continue
+            if (div.total_converted === null) {
+              hasMissingConversion = true
+              continue
+            }
+            total += div.total_converted
+          }
+
+          return hasMissingConversion ? null : total
+        }
+
         setStock(stockData)
         setDividends(divData)
         setYearDividends(effectiveYearDividends)
-        setYearReceived(
-          effectiveYearDividends.reduce((sum: number, div: UpcomingDividend) => (
-            div.status === 'paid' && div.total_converted !== null ? sum + div.total_converted : sum
-          ), 0)
-        )
-        setYearRemaining(
-          effectiveYearDividends.reduce((sum: number, div: UpcomingDividend) => (
-            div.status === 'upcoming' && div.total_converted !== null ? sum + div.total_converted : sum
-          ), 0)
-        )
+        setYearReceived(aggregateYearlyTotal('paid'))
+        setYearRemaining(aggregateYearlyTotal('upcoming'))
         setSuppressedDividends(suppressedData)
         setExchangeRates(ratesData)
         setError(null)
       } catch (err: any) {
-        setError(err.message || t(language, 'stockDetail.failedLoad'))
+        if (active) {
+          setError(err.message || t(language, 'stockDetail.failedLoad'))
+        }
       } finally {
-        setLoading(false)
+        if (active) {
+          setLoading(false)
+        }
       }
     }
     
     const fetchFinnhubData = async () => {
       try {
-        setFinnhubLoading(true)
+        if (active) {
+          setFinnhubLoading(true)
+        }
         const [profile, metrics, peersData] = await Promise.all([
           api.finnhub.profile(ticker).catch(() => null),
           api.finnhub.metrics(ticker).catch(() => null),
           api.finnhub.peers(ticker).catch(() => []),
         ])
+        if (!active) return
         setCompanyProfile(profile)
         setFinancialMetrics(metrics)
         setPeers(peersData)
       } catch (err) {
         console.error('Failed to load Finnhub data', err)
       } finally {
-        setFinnhubLoading(false)
+        if (active) {
+          setFinnhubLoading(false)
+        }
       }
     }
     
     fetchData()
     fetchFinnhubData()
+
+    return () => {
+      active = false
+    }
   }, [ticker])
 
   useEffect(() => {
@@ -457,6 +483,11 @@ export default function StockDetail() {
         )}
       </div>
     )
+  }
+
+  const formatYearTotal = (value: number | null) => {
+    if (value === null) return t(language, 'stockDetail.partial')
+    return formatCurrency(value, 'SEK', locale)
   }
 
   const displayName = formatDisplayName(stock.name, stock.ticker)
@@ -800,10 +831,10 @@ export default function StockDetail() {
                 <h3>{t(language, 'stockDetail.dividendsThisYear')}</h3>
                 <div style={{ display: 'flex', gap: '16px', fontSize: '13px' }}>
                   <span style={{ color: 'var(--text-secondary)' }}>
-                    {t(language, 'stockDetail.received')}: <strong style={{ color: 'var(--accent-green)' }}>{formatCurrency(yearReceived, 'SEK', locale)}</strong>
+                    {t(language, 'stockDetail.received')}: <strong style={{ color: 'var(--accent-green)' }}>{formatYearTotal(yearReceived)}</strong>
                   </span>
                   <span style={{ color: 'var(--text-secondary)' }}>
-                    {t(language, 'stockDetail.remaining')}: <strong style={{ color: 'var(--accent-blue)' }}>{formatCurrency(yearRemaining, 'SEK', locale)}</strong>
+                    {t(language, 'stockDetail.remaining')}: <strong style={{ color: 'var(--accent-blue)' }}>{formatYearTotal(yearRemaining)}</strong>
                   </span>
                 </div>
               </div>

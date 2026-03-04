@@ -279,7 +279,10 @@ export default function Dashboard() {
     .map(([monthKey, items]) => ({
       monthKey,
       items,
-      subtotal: items.reduce((sum, item) => sum + (item.total_converted ?? item.total_amount), 0),
+      subtotal: items.reduce((sum, item) => {
+        const converted = item.total_converted ?? convertToCurrency(item.total_amount, item.currency)
+        return sum + converted
+      }, 0),
     }))
 
   return (

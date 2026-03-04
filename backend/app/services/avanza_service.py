@@ -1,11 +1,12 @@
 import os
 import json
 import time
+import heapq
 import logging
 import requests
 import tempfile
 import threading
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Optional, Dict, Any, List
 from dataclasses import dataclass, asdict
 
@@ -183,19 +184,20 @@ class AvanzaService:
                 cached = self._stock_data_cache.get(instrument_id)
                 if cached and (now - cached[0]) < STOCK_DATA_CACHE_TTL:
                     return cached[1]
-        except Exception as cache_err:
+        except (KeyError, TypeError, AttributeError) as cache_err:
             logger.debug(f"Stock data cache lookup failed for {instrument_id}: {cache_err}")
 
         data = self._fetch_stock_data(instrument_id)
         if data:
             with self._lock:
                 if len(self._stock_data_cache) >= MAX_STOCK_CACHE_SIZE:
-                    oldest_keys = sorted(
+                    overflow = (len(self._stock_data_cache) - MAX_STOCK_CACHE_SIZE) + 1
+                    oldest_keys = heapq.nsmallest(
+                        max(overflow, 1),
                         self._stock_data_cache.items(),
                         key=lambda item: item[1][0]
                     )
-                    while len(self._stock_data_cache) >= MAX_STOCK_CACHE_SIZE and oldest_keys:
-                        oldest_key, _ = oldest_keys.pop(0)
+                    for oldest_key, _ in oldest_keys:
                         self._stock_data_cache.pop(oldest_key, None)
                 self._stock_data_cache[instrument_id] = (time.time(), data)
         return data
@@ -254,7 +256,7 @@ class AvanzaService:
                 yahoo_ticker=yahoo_ticker,
                 instrument_id=instrument_id,
                 manually_added=True,
-                added_at=datetime.utcnow().isoformat()
+                added_at=datetime.now(timezone.utc).isoformat()
             )
             self.mapping[avanza_name.lower()] = mapping
             if not self._save_mappings():
@@ -443,7 +445,7 @@ class AvanzaService:
             mapping.yahoo_ticker
         )
 
-        today = datetime.utcnow().strftime('%Y-%m-%d')
+        today = datetime.now(timezone.utc).strftime('%Y-%m-%d')
         upcoming = [div for div in dividends if div.ex_date >= today]
         upcoming.sort(key=lambda d: d.ex_date)
 

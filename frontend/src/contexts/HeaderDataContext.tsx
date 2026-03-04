@@ -56,10 +56,13 @@ export function HeaderDataProvider({ children }: { children: ReactNode }) {
   }, [])
 
   const scheduleNextRefresh = useCallback(() => {
-    if (!nextRefreshAt) return
-
     if (timeoutRef.current) {
       clearTimeout(timeoutRef.current)
+      timeoutRef.current = null
+    }
+
+    if (!nextRefreshAt) {
+      return
     }
 
     const nextTime = new Date(nextRefreshAt)
@@ -87,6 +90,7 @@ export function HeaderDataProvider({ children }: { children: ReactNode }) {
       isMountedRef.current = false
       if (timeoutRef.current) {
         clearTimeout(timeoutRef.current)
+        timeoutRef.current = null
       }
     }
   }, [fetchData])
@@ -94,6 +98,9 @@ export function HeaderDataProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     if (nextRefreshAt) {
       scheduleNextRefresh()
+    } else if (timeoutRef.current) {
+      clearTimeout(timeoutRef.current)
+      timeoutRef.current = null
     }
   }, [nextRefreshAt, scheduleNextRefresh])
 

@@ -321,14 +321,14 @@ export default function Stocks() {
                            style={{ padding: '6px 12px', fontSize: '12px' }}
                            onClick={() => openEditModal(stock)}
                          >
-                           Edit
+                           {t(language, 'stocks.edit')}
                          </button>
                          <button 
                            className="btn btn-danger" 
                            style={{ padding: '6px 12px', fontSize: '12px' }}
                            onClick={() => handleDeleteStock(stock.ticker)}
                          >
-                           Delete
+                           {t(language, 'stocks.delete')}
                          </button>
                        </div>
                      </td>
@@ -361,10 +361,10 @@ export default function Stocks() {
              style={{ width: '400px', maxWidth: '90%' }}
              onClick={(e) => e.stopPropagation()}
            >
-             <h3 style={{ marginBottom: '20px' }}>Edit {editStock.ticker}</h3>
+             <h3 style={{ marginBottom: '20px' }}>{t(language, 'stocks.editTitle', { ticker: editStock.ticker })}</h3>
              <div style={{ marginBottom: '16px' }}>
                <label style={{ display: 'block', marginBottom: '8px', color: 'var(--text-secondary)', fontSize: '14px' }}>
-                 Quantity
+                 {t(language, 'stocks.quantity')}
                </label>
                <input
                  type="number"
@@ -376,7 +376,7 @@ export default function Stocks() {
              </div>
              <div style={{ marginBottom: '24px' }}>
                <label style={{ display: 'block', marginBottom: '8px', color: 'var(--text-secondary)', fontSize: '14px' }}>
-                 Purchase Price ({editStock.currency})
+                 {t(language, 'stocks.purchasePrice')} ({editStock.currency})
                </label>
                <input
                  type="number"
@@ -384,15 +384,15 @@ export default function Stocks() {
                  value={editPurchasePrice}
                  onChange={(e) => setEditPurchasePrice(e.target.value)}
                  style={{ width: '100%' }}
-                 placeholder="e.g. 150.00"
+                 placeholder={t(language, 'stocks.placeholderPrice')}
                />
              </div>
              <div style={{ display: 'flex', gap: '12px', justifyContent: 'flex-end' }}>
                <button className="btn btn-secondary" onClick={() => setEditStock(null)}>
-                 Cancel
+                 {t(language, 'stocks.cancel')}
                </button>
                <button className="btn btn-primary" onClick={handleSaveEdit} disabled={saving}>
-                 {saving ? 'Saving...' : 'Save'}
+                 {saving ? t(language, 'stocks.saving') : t(language, 'stocks.save')}
                </button>
              </div>
            </div>

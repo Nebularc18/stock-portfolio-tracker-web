@@ -10,9 +10,11 @@ import os
 import sys
 from sqlalchemy import create_engine, text
 
+MISSING_DATABASE_URL_MSG = "DATABASE_URL must be set before running migration 20260305_add_timezone_to_datetime_columns"
+
 DATABASE_URL = os.getenv("DATABASE_URL")
 if not DATABASE_URL:
-    raise RuntimeError("DATABASE_URL must be set before running migration 20260305_add_timezone_to_datetime_columns")
+    raise RuntimeError(MISSING_DATABASE_URL_MSG)
 
 
 def upgrade(conn) -> None:
@@ -64,13 +66,18 @@ def downgrade(conn) -> None:
 def run(direction: str) -> None:
     if direction not in {"upgrade", "downgrade"}:
         raise ValueError("direction must be 'upgrade' or 'downgrade'")
+    if not DATABASE_URL:
+        raise RuntimeError(MISSING_DATABASE_URL_MSG)
 
     engine = create_engine(DATABASE_URL)
-    with engine.begin() as conn:
-        if direction == "upgrade":
-            upgrade(conn)
-        else:
-            downgrade(conn)
+    try:
+        with engine.begin() as conn:
+            if direction == "upgrade":
+                upgrade(conn)
+            else:
+                downgrade(conn)
+    finally:
+        engine.dispose()
 
 
 if __name__ == "__main__":
