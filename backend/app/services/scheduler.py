@@ -60,55 +60,64 @@ def refresh_all_stocks():
         for stock in stocks:
             try:
                 info = stock_service.get_stock_info(stock.ticker)
-                if info:
-                    stock.current_price = info.get('current_price')
-                    stock.previous_close = info.get('previous_close')
-                    stock.sector = info.get('sector') or stock.sector
-                    stock.dividend_yield = info.get('dividend_yield')
-                    stock.dividend_per_share = info.get('dividend_per_share')
-                    stock.last_updated = request_ts
-                    updated += 1
-                    
-                    if stock.current_price is not None:
-                        existing_price = db.query(StockPriceHistory).filter(
-                            StockPriceHistory.ticker == stock.ticker,
-                            StockPriceHistory.recorded_at >= today
-                        ).first()
-                        
-                        if existing_price:
-                            existing_price.price = stock.current_price
+                if not info:
+                    logger.warning(f"Skipping {stock.ticker}: no quote info returned")
+                    skipped += 1
+                    continue
+
+                current_price = info.get('current_price')
+                if current_price is None:
+                    logger.warning(f"Skipping {stock.ticker}: missing current_price in quote info")
+                    skipped += 1
+                    continue
+
+                stock.current_price = current_price
+                stock.previous_close = info.get('previous_close')
+                stock.sector = info.get('sector') or stock.sector
+                stock.dividend_yield = info.get('dividend_yield')
+                stock.dividend_per_share = info.get('dividend_per_share')
+                stock.last_updated = request_ts
+                updated += 1
+
+                existing_price = db.query(StockPriceHistory).filter(
+                    StockPriceHistory.ticker == stock.ticker,
+                    StockPriceHistory.recorded_at >= today
+                ).first()
+
+                if existing_price:
+                    existing_price.price = stock.current_price
+                else:
+                    price_history = StockPriceHistory(
+                        ticker=stock.ticker,
+                        price=stock.current_price,
+                        currency=stock.currency,
+                        recorded_at=request_ts
+                    )
+                    db.add(price_history)
+
+                # Calculate total portfolio value in SEK for history tracking
+                if stock.quantity is not None:
+                    value = stock.current_price * stock.quantity
+                    converted_value = None
+                    if stock.currency == 'SEK':
+                        converted_value = value
+                    elif rates:
+                        key = f"{stock.currency}_SEK"
+                        if key in rates and rates[key] is not None:
+                            converted_value = value * rates[key]
                         else:
-                            price_history = StockPriceHistory(
-                                ticker=stock.ticker,
-                                price=stock.current_price,
-                                currency=stock.currency,
-                                recorded_at=request_ts
-                            )
-                            db.add(price_history)
-                    
-                    # Calculate total portfolio value in SEK for history tracking
-                    if stock.current_price is not None and stock.quantity is not None:
-                        value = stock.current_price * stock.quantity
-                        converted_value = None
-                        if stock.currency == 'SEK':
-                            converted_value = value
-                        elif rates:
-                            key = f"{stock.currency}_SEK"
-                            if key in rates and rates[key] is not None:
-                                converted_value = value * rates[key]
-                            else:
-                                inverse_key = f"SEK_{stock.currency}"
-                                if inverse_key in rates and rates[inverse_key] is not None and rates[inverse_key] != 0:
-                                    converted_value = value / rates[inverse_key]
-                        
-                        if converted_value is not None:
-                            total_value_sek += converted_value
-                        else:
-                            logger.warning(
-                                f"Skipping {stock.ticker}: no conversion rate for "
-                                f"{stock.currency} to SEK"
-                            )
-                            skipped += 1
+                            inverse_key = f"SEK_{stock.currency}"
+                            if inverse_key in rates and rates[inverse_key] is not None and rates[inverse_key] != 0:
+                                converted_value = value / rates[inverse_key]
+
+                    if converted_value is not None:
+                        total_value_sek += converted_value
+                    else:
+                        logger.warning(
+                            f"Skipping {stock.ticker}: no conversion rate for "
+                            f"{stock.currency} to SEK"
+                        )
+                        skipped += 1
             except Exception:
                 logger.exception(f"Error refreshing {stock.ticker}")
         

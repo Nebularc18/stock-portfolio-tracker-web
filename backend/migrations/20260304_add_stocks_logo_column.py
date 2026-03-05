@@ -50,11 +50,16 @@ def run(direction: str) -> None:
         raise ValueError("direction must be 'upgrade' or 'downgrade'")
 
     engine = create_engine(DATABASE_URL)
-    with engine.begin() as conn:
-        if direction == "upgrade":
-            upgrade(conn)
-        else:
-            downgrade(conn)
+    try:
+        with engine.begin() as conn:
+            conn.execute(text("SET LOCAL lock_timeout = '5s'"))
+            conn.execute(text("SET LOCAL statement_timeout = '30s'"))
+            if direction == "upgrade":
+                upgrade(conn)
+            else:
+                downgrade(conn)
+    finally:
+        engine.dispose()
 
 
 if __name__ == "__main__":

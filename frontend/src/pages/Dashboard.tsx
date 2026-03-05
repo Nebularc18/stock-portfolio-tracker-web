@@ -289,22 +289,35 @@ function getRangeTargetPoints(range: HistoryRangeKey): number | null {
     return null
   }
 
-  const convertToCurrency = (amount: number, currency: string): number => {
-    return tryConvertToCurrency(amount, currency) ?? amount
+  const convertToCurrency = (amount: number, currency: string): number | null => {
+    return tryConvertToCurrency(amount, currency)
   }
 
-  const dailyChangeConverted = stocks.reduce((total, stock) => {
-    if (stock.current_price && stock.previous_close) {
+  const dailyChangeAggregate = stocks.reduce((acc, stock) => {
+    if (stock.current_price !== null && stock.previous_close !== null) {
       const change = (stock.current_price - stock.previous_close) * stock.quantity
-      return total + convertToCurrency(change, stock.currency)
-    }
-    return total
-  }, 0)
+      const converted = convertToCurrency(change, stock.currency)
+      if (converted === null) {
+        acc.partial = true
+        return acc
+      }
 
-  const totalValueConverted = stocks.reduce((total, stock) => {
+      acc.total += converted
+    }
+    return acc
+  }, { total: 0, partial: false })
+
+  const totalValueAggregate = stocks.reduce((acc, stock) => {
     const value = (stock.current_price || 0) * stock.quantity
-    return total + convertToCurrency(value, stock.currency)
-  }, 0)
+    const converted = convertToCurrency(value, stock.currency)
+    if (converted === null) {
+      acc.partial = true
+      return acc
+    }
+
+    acc.total += converted
+    return acc
+  }, { total: 0, partial: false })
 
   const lastUpdate = stocks.reduce((max: string | null, stock) => {
     if (!stock.last_updated) return max
@@ -327,14 +340,14 @@ function getRangeTargetPoints(range: HistoryRangeKey): number | null {
 
   const currency = summary?.display_currency || displayCurrency
   const gainLossClass = (summary?.total_gain_loss ?? 0) >= 0 ? 'positive' : 'negative'
-  const dailyChangeClass = dailyChangeConverted >= 0 ? 'positive' : 'negative'
+  const dailyChangeClass = dailyChangeAggregate.total >= 0 ? 'positive' : 'negative'
   const selectedHistoryRange = HISTORY_RANGE_OPTIONS.find((option) => option.key === historyRange) || HISTORY_RANGE_OPTIONS[1]
 
   const chartData: ChartPoint[] = portfolioHistory.map(h => {
     const convertedValue = convertToCurrency(h.value, 'SEK')
     return {
       date: h.date,
-      value: convertedValue
+      value: convertedValue ?? h.value
     }
   })
   const rangeTargetPoints = getRangeTargetPoints(historyRange)
@@ -357,7 +370,7 @@ function getRangeTargetPoints(range: HistoryRangeKey): number | null {
   const baselineValue = displayedChartData.length > 0 ? displayedChartData[0].value : 0
 
   const groupedDividends = upcomingDividends.reduce((acc, div) => {
-    const payoutDate = div.payment_date || div.ex_date
+    const payoutDate = div.payout_date || div.ex_date
     const key = getMonthKey(payoutDate)
     if (!acc[key]) {
       acc[key] = []
@@ -377,6 +390,14 @@ function getRangeTargetPoints(range: HistoryRangeKey): number | null {
     }
 
     return { amount: item.total_amount, currency: item.currency }
+  }
+
+  const renderConvertedAmount = (amount: number, originalCurrency: string) => {
+    const converted = convertToCurrency(amount, originalCurrency)
+    if (converted !== null) {
+      return formatCurrency(converted, locale, currency)
+    }
+    return formatCurrency(amount, locale, originalCurrency)
   }
 
   const monthlyUpcoming = Object.entries(groupedDividends)
@@ -403,13 +424,13 @@ function getRangeTargetPoints(range: HistoryRangeKey): number | null {
         <div className="card">
           <p style={{ color: 'var(--text-secondary)', fontSize: '12px', marginBottom: '8px' }}>{t(language, 'dashboard.totalValue')} ({currency})</p>
           <p style={{ fontSize: '28px', fontWeight: '600' }}>
-            {formatCurrency(totalValueConverted, locale, currency)}
+            {formatCurrency(totalValueAggregate.total, locale, currency)}{totalValueAggregate.partial ? ' (partial)' : ''}
           </p>
         </div>
         <div className="card">
           <p style={{ color: 'var(--text-secondary)', fontSize: '12px', marginBottom: '8px' }}>{t(language, 'dashboard.dailyChange')}</p>
           <p style={{ fontSize: '28px', fontWeight: '600' }} className={dailyChangeClass}>
-            {formatCurrency(dailyChangeConverted, locale, currency)}
+            {formatCurrency(dailyChangeAggregate.total, locale, currency)}{dailyChangeAggregate.partial ? ' (partial)' : ''}
           </p>
         </div>
         <div className="card">
@@ -613,15 +634,11 @@ function getRangeTargetPoints(range: HistoryRangeKey): number | null {
                   </td>
                   <td>{stock.name || '-'}</td>
                   <td>{stock.quantity}</td>
-                  <td>{formatCurrency(convertToCurrency(stock.current_price, stock.currency), locale, currency)}</td>
+                  <td>{renderConvertedAmount(stock.current_price, stock.currency)}</td>
                   <td>
-                    {formatCurrency(
-                      stock.current_value_converted
-                        ? stock.current_value
-                        : convertToCurrency(stock.current_value, stock.currency),
-                      locale,
-                      currency,
-                    )}
+                    {stock.current_value_converted
+                      ? formatCurrency(stock.current_value, locale, currency)
+                      : renderConvertedAmount(stock.current_value, stock.currency)}
                   </td>
                   <td className={stock.gain_loss === null ? '' : (stock.gain_loss >= 0 ? 'positive' : 'negative')}>
                     {stock.gain_loss !== null ? formatCurrency(stock.gain_loss, locale, currency) : '-'}

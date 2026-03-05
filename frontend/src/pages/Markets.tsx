@@ -129,9 +129,7 @@ export default function Markets() {
 
   // Schedule next refresh when nextRefreshAt changes
   useEffect(() => {
-    if (nextRefreshAt) {
-      scheduleNextRefresh()
-    }
+    scheduleNextRefresh()
   }, [nextRefreshAt, scheduleNextRefresh])
 
   // Combined loading state
@@ -142,7 +140,9 @@ export default function Markets() {
     try {
       await refreshData(true)
       await fetchAdditionalData()
+      setError(null)
     } catch (err) {
+      setError(t(language, 'markets.failedLoad'))
       console.error('Failed to refresh market data:', err)
     } finally {
       setLoading(false)

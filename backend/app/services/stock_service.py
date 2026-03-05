@@ -551,10 +551,16 @@ class StockService:
                     value = value[0]
 
                 if hasattr(value, 'to_pydatetime'):
-                    value = value.to_pydatetime()
+                    try:
+                        value = value.to_pydatetime()
+                    except (ValueError, TypeError):
+                        return None
 
                 if hasattr(value, 'strftime'):
-                    return value.strftime('%Y-%m-%d')
+                    try:
+                        return value.strftime('%Y-%m-%d')
+                    except (ValueError, TypeError):
+                        return None
 
                 if isinstance(value, (int, float)):
                     try:

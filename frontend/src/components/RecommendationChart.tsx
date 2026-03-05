@@ -48,9 +48,18 @@ function parseDateOnlyPeriod(period: string): Date | null {
   const year = Number(match[1])
   const month = Number(match[2])
   const day = Number(match[3])
-  if (!year || !month || !day) return null
+  if (!year || month < 1 || month > 12 || day < 1 || day > 31) return null
 
-  return new Date(year, month - 1, day)
+  const constructedDate = new Date(year, month - 1, day)
+  if (
+    constructedDate.getFullYear() !== year ||
+    constructedDate.getMonth() !== month - 1 ||
+    constructedDate.getDate() !== day
+  ) {
+    return null
+  }
+
+  return constructedDate
 }
 
 /**
@@ -207,7 +216,7 @@ export default function RecommendationChart({
           
           return (
             <div 
-              key={rec.period}
+              key={`${rec.period}-${index}`}
               style={{ 
                 flex: 1, 
                 display: 'flex', 

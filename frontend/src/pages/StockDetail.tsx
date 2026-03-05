@@ -163,8 +163,11 @@ export default function StockDetail() {
   const [marketstackStatus, setMarketstackStatus] = useState<MarketstackUsage | null>(null)
   const [exchangeRates, setExchangeRates] = useState<Record<string, number | null>>({})
   const editModalRef = useRef<HTMLDivElement | null>(null)
+  const dividendModalRef = useRef<HTMLDivElement | null>(null)
+  const dividendDateInputRef = useRef<HTMLInputElement | null>(null)
   const previousFocusedElementRef = useRef<HTMLElement | null>(null)
   const editModalHeadingId = useId()
+  const dividendModalHeadingId = useId()
   const { timezone, language } = useSettings()
   const locale = getLocaleForLanguage(language)
   const tabs = ['overview', 'profile', 'dividends', 'analyst'] as const
@@ -426,6 +429,55 @@ export default function StockDetail() {
     }
   }, [showEditModal])
 
+  useEffect(() => {
+    if (!showDividendModal) return
+
+    const modalElement = dividendModalRef.current
+    if (!modalElement) return
+
+    previousFocusedElementRef.current = document.activeElement as HTMLElement | null
+    if (dividendDateInputRef.current) {
+      dividendDateInputRef.current.focus()
+    } else {
+      modalElement.focus()
+    }
+
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        event.preventDefault()
+        setShowDividendModal(false)
+        return
+      }
+
+      if (event.key !== 'Tab') return
+
+      const currentFocusable = getFocusableElements(modalElement)
+      if (currentFocusable.length === 0) {
+        event.preventDefault()
+        modalElement.focus()
+        return
+      }
+
+      const first = currentFocusable[0]
+      const last = currentFocusable[currentFocusable.length - 1]
+      const activeElement = document.activeElement as HTMLElement | null
+
+      if (event.shiftKey && activeElement === first) {
+        event.preventDefault()
+        last.focus()
+      } else if (!event.shiftKey && activeElement === last) {
+        event.preventDefault()
+        first.focus()
+      }
+    }
+
+    document.addEventListener('keydown', handleKeyDown)
+    return () => {
+      document.removeEventListener('keydown', handleKeyDown)
+      previousFocusedElementRef.current?.focus()
+    }
+  }, [showDividendModal])
+
   const handleVerifyDividends = async () => {
     if (!ticker) return
     try {
@@ -572,10 +624,10 @@ export default function StockDetail() {
     )
   }
 
-  const dailyChange = stock.current_price && stock.previous_close 
+  const dailyChange = stock.current_price !== null && stock.previous_close !== null
     ? stock.current_price - stock.previous_close 
     : null
-  const dailyChangePercent = dailyChange && stock.previous_close 
+  const dailyChangePercent = dailyChange !== null && stock.previous_close !== null && stock.previous_close !== 0
     ? (dailyChange / stock.previous_close) * 100 
     : null
 
@@ -1293,8 +1345,13 @@ export default function StockDetail() {
             className="card" 
             style={{ width: '400px', maxWidth: '90%' }}
             onClick={(e) => e.stopPropagation()}
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby={dividendModalHeadingId}
+            ref={dividendModalRef}
+            tabIndex={-1}
           >
-            <h3 style={{ marginBottom: '20px' }}>
+            <h3 id={dividendModalHeadingId} style={{ marginBottom: '20px' }}>
               {editingDividend ? t(language, 'stockDetail.editDividend') : t(language, 'stockDetail.addDividend')}
             </h3>
             <div style={{ marginBottom: '16px' }}>
@@ -1302,6 +1359,7 @@ export default function StockDetail() {
                 {t(language, 'stockDetail.date')}
               </label>
               <input
+                ref={dividendDateInputRef}
                 type="date"
                 value={divDate}
                 onChange={(e) => setDivDate(e.target.value)}

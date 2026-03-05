@@ -311,7 +311,7 @@ def get_index_sparklines():
     session = get_session()
     sparklines = {}
     
-    for symbol in MARKET_INDICES.keys():
+    for symbol in HEADER_INDICES.keys():
         try:
             url = f"https://query1.finance.yahoo.com/v8/finance/chart/{symbol}?interval=1d&range=30d"
             response = session.get(url, timeout=10)

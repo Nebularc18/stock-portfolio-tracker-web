@@ -39,17 +39,28 @@ function MetricCard({ label, value, format = 'number', locale }: { label: string
     
     switch (format) {
       case 'percent':
-        const pct = Math.abs(numValue) > 1 ? numValue : numValue * 100
-        return `${pct.toFixed(1)}%`
+        return new Intl.NumberFormat(locale, {
+          style: 'percent',
+          minimumFractionDigits: 1,
+          maximumFractionDigits: 1,
+        }).format(Math.abs(numValue) > 1 ? numValue / 100 : numValue)
       case 'currency':
-        return `$${numValue.toFixed(2)}`
+        return new Intl.NumberFormat(locale, {
+          style: 'currency',
+          currency: 'USD',
+          minimumFractionDigits: 2,
+          maximumFractionDigits: 2,
+        }).format(numValue)
       case 'volume':
-        if (numValue >= 1_000_000_000) return `${(numValue / 1_000_000_000).toFixed(1)}B`
-        if (numValue >= 1_000_000) return `${(numValue / 1_000_000).toFixed(1)}M`
-        if (numValue >= 1_000) return `${(numValue / 1_000).toFixed(1)}K`
-        return numValue.toFixed(0)
+        return new Intl.NumberFormat(locale, {
+          notation: 'compact',
+          maximumFractionDigits: 1,
+        }).format(numValue)
       default:
-        return numValue.toFixed(2)
+        return new Intl.NumberFormat(locale, {
+          minimumFractionDigits: 2,
+          maximumFractionDigits: 2,
+        }).format(numValue)
     }
   }
   
@@ -81,6 +92,36 @@ export default function FinancialMetrics({ metrics, loading }: Props) {
   const { language } = useSettings()
   const locale = getLocaleForLanguage(language)
 
+  const tiles: Array<{ id: string; labelKey: Parameters<typeof t>[1]; valueKey: string; format?: 'number' | 'percent' | 'currency' | 'date' | 'volume' }> = [
+    { id: 'peTtm', labelKey: 'financialMetrics.peTtm', valueKey: 'pe_ttm' },
+    { id: 'psTtm', labelKey: 'financialMetrics.psTtm', valueKey: 'ps_ttm' },
+    { id: 'pb', labelKey: 'financialMetrics.pb', valueKey: 'pb_annual' },
+    { id: 'peAnnual', labelKey: 'financialMetrics.peAnnual', valueKey: 'pe_annual' },
+    { id: 'roe', labelKey: 'financialMetrics.roe', valueKey: 'roe_ttm', format: 'percent' },
+    { id: 'roa', labelKey: 'financialMetrics.roa', valueKey: 'roa_ttm', format: 'percent' },
+    { id: 'netMargin', labelKey: 'financialMetrics.netMargin', valueKey: 'net_margin_ttm', format: 'percent' },
+    { id: 'grossMargin', labelKey: 'financialMetrics.grossMargin', valueKey: 'gross_margin_ttm', format: 'percent' },
+    { id: 'operatingMargin', labelKey: 'financialMetrics.operatingMargin', valueKey: 'operating_margin_ttm', format: 'percent' },
+    { id: 'epsTtm', labelKey: 'financialMetrics.epsTtm', valueKey: 'eps_ttm', format: 'currency' },
+    { id: 'bookValuePerShare', labelKey: 'financialMetrics.bookValuePerShare', valueKey: 'book_value_per_share', format: 'currency' },
+    { id: 'cashFlowPerShare', labelKey: 'financialMetrics.cashFlowPerShare', valueKey: 'cash_flow_per_share', format: 'currency' },
+    { id: 'dividendPercent', labelKey: 'financialMetrics.dividendPercent', valueKey: 'dividend_yield', format: 'percent' },
+    { id: 'dividendPerShare', labelKey: 'financialMetrics.dividendPerShare', valueKey: 'dividend_per_share_annual', format: 'currency' },
+    { id: 'divGrowth5y', labelKey: 'financialMetrics.divGrowth5y', valueKey: 'dividend_growth_5y', format: 'percent' },
+    { id: 'divYieldTtm', labelKey: 'financialMetrics.divYieldTtm', valueKey: 'dividend_yield_ttm', format: 'percent' },
+    { id: 'revenueGrowthTtm', labelKey: 'financialMetrics.revenueGrowthTtm', valueKey: 'revenue_growth_ttm', format: 'percent' },
+    { id: 'revenueGrowth3y', labelKey: 'financialMetrics.revenueGrowth3y', valueKey: 'revenue_growth_3y', format: 'percent' },
+    { id: 'epsGrowthTtm', labelKey: 'financialMetrics.epsGrowthTtm', valueKey: 'eps_growth_ttm', format: 'percent' },
+    { id: 'epsGrowth3y', labelKey: 'financialMetrics.epsGrowth3y', valueKey: 'eps_growth_3y', format: 'percent' },
+    { id: 'beta', labelKey: 'financialMetrics.beta', valueKey: 'beta' },
+    { id: 'high52w', labelKey: 'financialMetrics.high52w', valueKey: '52_week_high', format: 'currency' },
+    { id: 'low52w', labelKey: 'financialMetrics.low52w', valueKey: '52_week_low', format: 'currency' },
+    { id: 'high52wDate', labelKey: 'financialMetrics.high52wDate', valueKey: '52_week_high_date', format: 'date' },
+    { id: 'low52wDate', labelKey: 'financialMetrics.low52wDate', valueKey: '52_week_low_date', format: 'date' },
+    { id: 'avgVol10d', labelKey: 'financialMetrics.avgVol10d', valueKey: 'avg_volume_10d', format: 'volume' },
+    { id: 'avgVol3m', labelKey: 'financialMetrics.avgVol3m', valueKey: 'avg_volume_3m', format: 'volume' },
+  ]
+
   if (loading) {
     return (
       <div className="card">
@@ -101,39 +142,15 @@ export default function FinancialMetrics({ metrics, loading }: Props) {
       <h3 style={{ marginBottom: '16px' }}>{t(language, 'financialMetrics.title')}</h3>
       
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '12px' }}>
-        <MetricCard label={t(language, 'financialMetrics.peTtm')} value={metrics.pe_ttm} locale={locale} />
-        <MetricCard label={t(language, 'financialMetrics.psTtm')} value={metrics.ps_ttm} locale={locale} />
-        <MetricCard label={t(language, 'financialMetrics.pb')} value={metrics.pb_annual} locale={locale} />
-        <MetricCard label={t(language, 'financialMetrics.peAnnual')} value={metrics.pe_annual} locale={locale} />
-        
-        <MetricCard label={t(language, 'financialMetrics.roe')} value={metrics.roe_ttm} format="percent" locale={locale} />
-        <MetricCard label={t(language, 'financialMetrics.roa')} value={metrics.roa_ttm} format="percent" locale={locale} />
-        <MetricCard label={t(language, 'financialMetrics.netMargin')} value={metrics.net_margin_ttm} format="percent" locale={locale} />
-        <MetricCard label={t(language, 'financialMetrics.grossMargin')} value={metrics.gross_margin_ttm} format="percent" locale={locale} />
-        
-        <MetricCard label={t(language, 'financialMetrics.operatingMargin')} value={metrics.operating_margin_ttm} format="percent" locale={locale} />
-        <MetricCard label={t(language, 'financialMetrics.epsTtm')} value={metrics.eps_ttm} format="currency" locale={locale} />
-        <MetricCard label={t(language, 'financialMetrics.bookValuePerShare')} value={metrics.book_value_per_share} format="currency" locale={locale} />
-        <MetricCard label={t(language, 'financialMetrics.cashFlowPerShare')} value={metrics.cash_flow_per_share} format="currency" locale={locale} />
-        
-        <MetricCard label={t(language, 'financialMetrics.dividendPercent')} value={metrics.dividend_yield} format="percent" locale={locale} />
-        <MetricCard label={t(language, 'financialMetrics.dividendPerShare')} value={metrics.dividend_per_share_annual} format="currency" locale={locale} />
-        <MetricCard label={t(language, 'financialMetrics.divGrowth5y')} value={metrics.dividend_growth_5y} format="percent" locale={locale} />
-        <MetricCard label={t(language, 'financialMetrics.divYieldTtm')} value={metrics.dividend_yield_ttm} format="percent" locale={locale} />
-        
-        <MetricCard label={t(language, 'financialMetrics.revenueGrowthTtm')} value={metrics.revenue_growth_ttm} format="percent" locale={locale} />
-        <MetricCard label={t(language, 'financialMetrics.revenueGrowth3y')} value={metrics.revenue_growth_3y} format="percent" locale={locale} />
-        <MetricCard label={t(language, 'financialMetrics.epsGrowthTtm')} value={metrics.eps_growth_ttm} format="percent" locale={locale} />
-        <MetricCard label={t(language, 'financialMetrics.epsGrowth3y')} value={metrics.eps_growth_3y} format="percent" locale={locale} />
-        
-        <MetricCard label={t(language, 'financialMetrics.beta')} value={metrics.beta} locale={locale} />
-        <MetricCard label={t(language, 'financialMetrics.high52w')} value={metrics['52_week_high']} format="currency" locale={locale} />
-        <MetricCard label={t(language, 'financialMetrics.low52w')} value={metrics['52_week_low']} format="currency" locale={locale} />
-        <MetricCard label={t(language, 'financialMetrics.high52wDate')} value={metrics['52_week_high_date']} format="date" locale={locale} />
-        
-        <MetricCard label={t(language, 'financialMetrics.low52wDate')} value={metrics['52_week_low_date']} format="date" locale={locale} />
-        <MetricCard label={t(language, 'financialMetrics.avgVol10d')} value={metrics.avg_volume_10d} format="volume" locale={locale} />
-        <MetricCard label={t(language, 'financialMetrics.avgVol3m')} value={metrics.avg_volume_3m} format="volume" locale={locale} />
+        {tiles.map((tile) => (
+          <MetricCard
+            key={tile.id}
+            label={t(language, tile.labelKey)}
+            value={(metrics as Record<string, string | number | null>)[tile.valueKey]}
+            format={tile.format}
+            locale={locale}
+          />
+        ))}
         <div />
       </div>
     </div>
