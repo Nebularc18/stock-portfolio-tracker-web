@@ -17,12 +17,12 @@ const COLORS = {
 }
 
 function formatPeriod(period: string, locale: string): string {
-  try {
-    const date = new Date(period)
-    return date.toLocaleDateString(locale, { month: 'short' })
-  } catch {
+  const date = new Date(period)
+  if (Number.isNaN(date.getTime())) {
     return period
   }
+
+  return date.toLocaleDateString(locale, { month: 'short' })
 }
 
 export default function RecommendationChart({ recommendations, loading }: Props) {
@@ -142,11 +142,11 @@ export default function RecommendationChart({ recommendations, loading }: Props)
                   zIndex: 10
                 }}>
                   <p style={{ fontWeight: 600, marginBottom: 4 }}>{formatPeriod(rec.period, locale)}</p>
-                  <p style={{ color: COLORS.strong_buy, fontSize: '12px' }}>■ {labels.strong_buy}: {rec.strong_buy}</p>
-                  <p style={{ color: COLORS.buy, fontSize: '12px' }}>■ {labels.buy}: {rec.buy}</p>
-                  <p style={{ color: COLORS.hold, fontSize: '12px' }}>■ {labels.hold}: {rec.hold}</p>
-                  <p style={{ color: COLORS.sell, fontSize: '12px' }}>■ {labels.sell}: {rec.sell}</p>
-                  <p style={{ color: COLORS.strong_sell, fontSize: '12px' }}>■ {labels.strong_sell}: {rec.strong_sell}</p>
+                  <p style={{ color: COLORS.strong_buy, fontSize: '12px' }}>■ {labels.strong_buy}: {rec.strong_buy ?? 0}</p>
+                  <p style={{ color: COLORS.buy, fontSize: '12px' }}>■ {labels.buy}: {rec.buy ?? 0}</p>
+                  <p style={{ color: COLORS.hold, fontSize: '12px' }}>■ {labels.hold}: {rec.hold ?? 0}</p>
+                  <p style={{ color: COLORS.sell, fontSize: '12px' }}>■ {labels.sell}: {rec.sell ?? 0}</p>
+                  <p style={{ color: COLORS.strong_sell, fontSize: '12px' }}>■ {labels.strong_sell}: {rec.strong_sell ?? 0}</p>
                   <p style={{ fontWeight: 600, marginTop: 4 }}>{t(language, 'recommendation.total')}: {total}</p>
                 </div>
               )}

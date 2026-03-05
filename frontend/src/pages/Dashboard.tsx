@@ -4,17 +4,17 @@ import { ResponsiveContainer, Tooltip, AreaChart, Area, XAxis, YAxis, CartesianG
 import { api, PortfolioSummary, Stock, UpcomingDividend } from '../services/api'
 import { useSettings } from '../SettingsContext'
 import { formatTimeInTimezone } from '../utils/time'
-import { getLocaleForLanguage, t } from '../i18n'
+import { getLocaleForLanguage, t, type TranslationKey } from '../i18n'
 
 type HistoryRangeKey = '1D' | '1W' | '1M' | 'YTD' | '1Y' | 'SINCE_START'
 
-const HISTORY_RANGE_OPTIONS: Array<{ key: HistoryRangeKey; label: string; query: string; title: string }> = [
-  { key: '1D', label: '1D', query: '1d', title: 'Day' },
-  { key: '1W', label: '1W', query: '1w', title: 'Week' },
-  { key: '1M', label: '1M', query: '1m', title: 'Month' },
-  { key: 'YTD', label: 'YTD', query: 'ytd', title: 'YTD' },
-  { key: '1Y', label: '1Y', query: '1y', title: '1 Year' },
-  { key: 'SINCE_START', label: 'Since Start', query: 'since_start', title: 'Since Start' },
+const HISTORY_RANGE_OPTIONS: Array<{ key: HistoryRangeKey; labelKey: TranslationKey; query: string; title: string }> = [
+  { key: '1D', labelKey: 'dashboard.range1D', query: '1d', title: 'Day' },
+  { key: '1W', labelKey: 'dashboard.range1W', query: '1w', title: 'Week' },
+  { key: '1M', labelKey: 'dashboard.range1M', query: '1m', title: 'Month' },
+  { key: 'YTD', labelKey: 'dashboard.rangeYTD', query: 'ytd', title: 'YTD' },
+  { key: '1Y', labelKey: 'dashboard.range1Y', query: '1y', title: '1 Year' },
+  { key: 'SINCE_START', labelKey: 'dashboard.rangeSinceStart', query: 'since_start', title: 'Since Start' },
 ]
 
 type ChartPoint = {
@@ -201,13 +201,17 @@ export default function Dashboard() {
     fetchHistory(historyRange)
   }, [fetchHistory, historyRange])
 
-  const convertToCurrency = (amount: number, currency: string): number => {
+  const tryConvertToCurrency = (amount: number, currency: string): number | null => {
     if (currency === displayCurrency) return amount
     const rate = exchangeRates[`${currency}_${displayCurrency}`]
     if (rate) return amount * rate
     const inverseRate = exchangeRates[`${displayCurrency}_${currency}`]
     if (inverseRate) return amount / inverseRate
-    return amount
+    return null
+  }
+
+  const convertToCurrency = (amount: number, currency: string): number => {
+    return tryConvertToCurrency(amount, currency) ?? amount
   }
 
   const dailyChangeConverted = stocks.reduce((total, stock) => {
@@ -280,8 +284,8 @@ export default function Dashboard() {
       monthKey,
       items,
       subtotal: items.reduce((sum, item) => {
-        const converted = item.total_converted ?? convertToCurrency(item.total_amount, item.currency)
-        return sum + converted
+        const converted = item.total_converted ?? tryConvertToCurrency(item.total_amount, item.currency)
+        return Number.isFinite(converted) ? sum + converted : sum
       }, 0),
     }))
 
@@ -345,7 +349,7 @@ export default function Dashboard() {
                         cursor: 'pointer'
                       }}
                     >
-                      {option.label}
+                      {t(language, option.labelKey)}
                     </button>
                   )
                 })}

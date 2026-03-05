@@ -19,7 +19,7 @@ const COLORS = {
   strong_sell: '#ef4444',
 }
 
-function formatCurrency(value: number | null, currency: string, locale: string): string {
+function formatCurrency(value: number | null, locale: string, currency: string): string {
   if (value === null || Number.isNaN(value)) return '-'
   return new Intl.NumberFormat(locale, {
     style: 'currency',
@@ -230,7 +230,7 @@ export default function YfinanceAnalystPanel({
   const targetLow = priceTargets?.targetLow ?? null
   const targetHigh = priceTargets?.targetHigh ?? null
   const targetAvg = priceTargets?.targetAvg ?? null
-  const avgLabel = targetAvg !== null ? formatCurrency(targetAvg, currency, locale) : '-'
+  const avgLabel = targetAvg !== null ? formatCurrency(targetAvg, locale, currency) : '-'
 
   const rangeValues = [targetLow, targetHigh, targetAvg, currentPrice]
     .filter((value): value is number => value !== null)
@@ -386,7 +386,7 @@ export default function YfinanceAnalystPanel({
                     textAlign: 'center',
                     width: labelWidth,
                   }}>
-                    <div style={{ fontWeight: 700 }}>{formatCurrency(currentPrice, currency, locale)}</div>
+                    <div style={{ fontWeight: 700 }}>{formatCurrency(currentPrice, locale, currency)}</div>
                     <div style={{ fontSize: 12, color: 'var(--text-secondary)' }}>{t(language, 'analyst.current')}</div>
                   </div>
                 </div>
@@ -395,11 +395,11 @@ export default function YfinanceAnalystPanel({
 
             <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: lowHighMarginTop }}>
               <div>
-                <div style={{ fontSize: 20, fontWeight: 600 }}>{formatCurrency(targetLow, currency, locale)}</div>
+                <div style={{ fontSize: 20, fontWeight: 600 }}>{formatCurrency(targetLow, locale, currency)}</div>
                 <div style={{ fontSize: 12, color: 'var(--text-secondary)' }}>{t(language, 'analyst.low')}</div>
               </div>
               <div style={{ textAlign: 'right' }}>
-                <div style={{ fontSize: 20, fontWeight: 600 }}>{formatCurrency(targetHigh, currency, locale)}</div>
+                <div style={{ fontSize: 20, fontWeight: 600 }}>{formatCurrency(targetHigh, locale, currency)}</div>
                 <div style={{ fontSize: 12, color: 'var(--text-secondary)' }}>{t(language, 'analyst.high')}</div>
               </div>
             </div>

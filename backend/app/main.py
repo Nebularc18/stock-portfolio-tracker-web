@@ -15,12 +15,9 @@ from pydantic import BaseModel, field_validator
 from sqlalchemy import create_engine, Column, Integer, String, Float, DateTime, ForeignKey, JSON
 from sqlalchemy.orm import sessionmaker, relationship, declarative_base
 from sqlalchemy.pool import NullPool
+from app.utils.time import utc_now
 
 logger = logging.getLogger(__name__)
-
-
-def utc_now() -> datetime:
-    return datetime.now(timezone.utc)
 
 DATABASE_URL = os.getenv("DATABASE_URL", "postgresql://portfolio:portfolio@localhost:5432/portfolio")
 
@@ -88,8 +85,8 @@ class Dividend(Base):
     stock_id = Column(Integer, ForeignKey("stocks.id"))
     amount = Column(Float)
     currency = Column(String)
-    ex_date = Column(DateTime, nullable=True)
-    pay_date = Column(DateTime, nullable=True)
+    ex_date = Column(DateTime(timezone=True), nullable=True)
+    pay_date = Column(DateTime(timezone=True), nullable=True)
     created_at = Column(DateTime(timezone=True), default=utc_now)
 
     stock = relationship("Stock", back_populates="dividends")

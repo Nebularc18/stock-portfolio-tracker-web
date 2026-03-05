@@ -5,19 +5,14 @@ stock prices for all stocks in the portfolio when markets are open.
 """
 
 import logging
-from datetime import datetime, timezone
 from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.triggers.cron import CronTrigger
 from sqlalchemy.dialects.postgresql import insert
+from app.utils.time import utc_now
 
 logger = logging.getLogger(__name__)
 
 scheduler = BackgroundScheduler()
-
-
-def utc_now() -> datetime:
-    return datetime.now(timezone.utc)
-
 
 def refresh_all_stocks():
     """Refresh all stock prices in the portfolio.
@@ -104,8 +99,8 @@ def refresh_all_stocks():
                                 f"{stock.currency} to SEK"
                             )
                             skipped += 1
-            except Exception as e:
-                logger.error(f"Error refreshing {stock.ticker}: {e}")
+            except Exception:
+                logger.exception(f"Error refreshing {stock.ticker}")
         
         # Record portfolio history for the dashboard chart
         if updated > 0 and total_value_sek > 0 and skipped == 0:

@@ -4,10 +4,9 @@ import { api, Stock } from '../services/api'
 import { getLocaleForLanguage, t } from '../i18n'
 import { useSettings } from '../SettingsContext'
 
-const MONTH_NAMES: Record<number, string> = {
-  1: 'Jan', 2: 'Feb', 3: 'Mar', 4: 'Apr',
-  5: 'May', 6: 'Jun', 7: 'Jul', 8: 'Aug',
-  9: 'Sep', 10: 'Oct', 11: 'Nov', 12: 'Dec'
+function getMonthName(month: number, locale: string): string {
+  const date = new Date(Date.UTC(2000, month - 1, 1))
+  return new Intl.DateTimeFormat(locale, { month: 'short', timeZone: 'UTC' }).format(date)
 }
 
 function formatCurrency(value: number, locale: string, currency: string = 'USD'): string {
@@ -159,26 +158,26 @@ export default function HistoricalDividends() {
         <div style={{ display: 'flex', gap: '12px', alignItems: 'center' }}>
           <label htmlFor="year-select" style={{ color: 'var(--text-secondary)', fontSize: '14px' }}>{t(language, 'common.year')}:</label>
           <select
-          id="year-select"
-          value={selectedYear}
-          onChange={(e) => setSelectedYear(parseInt(e.target.value))}
-          style={{
-            padding: '8px 12px',
-            border: '1px solid var(--border-color)',
-            borderRadius: '6px',
-            background: 'var(--bg-tertiary)',
-            color: 'var(--text-primary)',
-            fontSize: '14px',
-          }}
-         >
-           {availableYears.map((year) => (
-             <option key={year} value={year}>
-               {year}
-             </option>
-           ))}
-         </select>
-         </div>
-       </div>
+            id="year-select"
+            value={selectedYear}
+            onChange={(e) => setSelectedYear(parseInt(e.target.value))}
+            style={{
+              padding: '8px 12px',
+              border: '1px solid var(--border-color)',
+              borderRadius: '6px',
+              background: 'var(--bg-tertiary)',
+              color: 'var(--text-primary)',
+              fontSize: '14px',
+            }}
+          >
+            {availableYears.map((year) => (
+              <option key={year} value={year}>
+                {year}
+              </option>
+            ))}
+          </select>
+        </div>
+      </div>
 
       {stocks.length === 0 ? (
         <div className="card" style={{ textAlign: 'center', padding: '40px' }}>
@@ -209,7 +208,7 @@ export default function HistoricalDividends() {
             return (
               <div key={month} className="card" style={{ marginBottom: '16px' }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
-                  <h4 style={{ color: 'var(--text-secondary)', fontSize: '14px' }}>{MONTH_NAMES[month]}</h4>
+                  <h4 style={{ color: 'var(--text-secondary)', fontSize: '14px' }}>{getMonthName(month, locale)}</h4>
                   <span style={{ color: 'var(--accent-green)', fontWeight: '600' }}>
                     {formatCurrency(monthTotal, locale, 'SEK')}
                   </span>

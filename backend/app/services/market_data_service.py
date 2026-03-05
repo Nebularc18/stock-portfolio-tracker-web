@@ -8,7 +8,7 @@ import requests
 import json
 import os
 import time
-from datetime import datetime
+from datetime import datetime, timezone, timedelta
 from typing import Optional, Dict, Any, List
 from concurrent.futures import ThreadPoolExecutor, as_completed
 import logging
@@ -210,8 +210,6 @@ def get_header_market_data(force_refresh: bool = False) -> Dict[str, Any]:
     Returns:
         dict: Contains indices list, exchange_rates dict, updated_at, and next_refresh_at.
     """
-    from datetime import timezone, timedelta
-    
     # Check cache with metadata
     cached_data = _load_cache('market_header.json', include_metadata=True)
     if cached_data is not None and not force_refresh:

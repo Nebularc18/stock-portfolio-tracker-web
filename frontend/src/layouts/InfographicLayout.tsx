@@ -57,10 +57,7 @@ export default function InfographicLayout() {
     { to: '/settings', label: t(language, 'nav.settings'), icon: '⚙️' },
   ]
   
-  const isActive = (path: string) => {
-    if (path === '/dividends/history' || path === '/dividends/upcoming') return location.pathname === path
-    return location.pathname === path
-  }
+  const isActive = (path: string) => location.pathname === path
   
   return (
     <div style={{

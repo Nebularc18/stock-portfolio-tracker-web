@@ -52,26 +52,37 @@ def _get_session() -> requests.Session:
     return _session
 
 
-def _load_file_cache(filename: str) -> Optional[str]:
+def _load_file_cache(filename: str) -> tuple[bool, Optional[str]]:
     try:
         filepath = _resolve_cache_path(filename)
         if not os.path.exists(filepath):
-            return None
+            return False, None
         with open(filepath, 'r', encoding='utf-8') as f:
             data = json.load(f)
-        if datetime.now().timestamp() - data.get('timestamp', 0) < data.get('ttl', _LOGO_CACHE_TTL):
-            return data.get('value')
+        if datetime.now().timestamp() - data.get('timestamp', 0) >= data.get('ttl', _LOGO_CACHE_TTL):
+            return False, None
+
+        if data.get('is_null') is True:
+            return True, None
+
+        if 'value' in data:
+            return True, data.get('value')
     except Exception as exc:
         logger.warning(f"Failed to load cache file {filename}: {exc}")
 
-    return None
+    return False, None
 
 
 def _save_file_cache(filename: str, value: Optional[str], ttl: int = _LOGO_CACHE_TTL) -> None:
     try:
         filepath = _resolve_cache_path(filename)
         with open(filepath, 'w', encoding='utf-8') as f:
-            json.dump({'value': value, 'timestamp': datetime.now().timestamp(), 'ttl': ttl}, f)
+            json.dump({
+                'value': value,
+                'is_null': value is None,
+                'timestamp': datetime.now().timestamp(),
+                'ttl': ttl,
+            }, f)
     except Exception as exc:
         logger.warning(f"Failed to save cache file {filename}: {exc}")
 
@@ -207,8 +218,8 @@ class BrandfetchService:
                 return cached_logo
 
         if not force_refresh:
-            cached_logo = _load_file_cache(cache_file)
-            if cached_logo is not None:
+            cache_hit, cached_logo = _load_file_cache(cache_file)
+            if cache_hit:
                 _LOGO_CACHE[ticker_upper] = (cached_logo, datetime.now().timestamp())
                 return cached_logo
 

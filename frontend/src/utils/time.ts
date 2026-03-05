@@ -12,6 +12,7 @@ export function formatTimeInTimezone(date: Date | string | null, timezone: strin
   if (!date) return '-'
 
   const d = parseDatePreservingUtc(date)
+  if (Number.isNaN(d.getTime())) return '-'
   
   try {
     return d.toLocaleTimeString(locale, {
@@ -35,6 +36,7 @@ export function formatDateTimeInTimezone(date: Date | string | null, timezone: s
   if (!date) return '-'
 
   const d = parseDatePreservingUtc(date)
+  if (Number.isNaN(d.getTime())) return '-'
   
   try {
     return d.toLocaleString(locale, {

@@ -6,21 +6,16 @@ including CRUD operations, dividend tracking, and analyst data.
 
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
-from datetime import datetime, timezone
 from pydantic import BaseModel
 from typing import Optional
 import uuid
 import logging
 
 from app.main import get_db, Stock, StockCreate, StockUpdate, StockResponse, StockPriceHistory
+from app.utils.time import utc_now
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
-
-
-def utc_now() -> datetime:
-    return datetime.now(timezone.utc)
-
 
 class ManualDividendCreate(BaseModel):
     date: str

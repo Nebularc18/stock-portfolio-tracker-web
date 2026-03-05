@@ -13,14 +13,10 @@ import logging
 
 from app.main import get_db, Stock, PortfolioHistory, UserSettings, StockPriceHistory
 from app.services.exchange_rate_service import ExchangeRateService
+from app.utils.time import utc_now
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
-
-
-def utc_now() -> datetime:
-    return datetime.now(timezone.utc)
-
 
 def get_display_currency(db: Session) -> str:
     """Retrieve the user's preferred display currency.
@@ -225,7 +221,7 @@ def refresh_all_prices(db: Session = Depends(get_db)):
             stock.last_updated = request_ts
             updated += 1
 
-        should_refresh_logo = not stock.logo
+        should_refresh_logo = True
         if should_refresh_logo:
             logo_url = brandfetch_service.get_logo_url_for_ticker(
                 stock.ticker,

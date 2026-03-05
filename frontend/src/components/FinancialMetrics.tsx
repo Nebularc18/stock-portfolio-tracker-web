@@ -69,18 +69,18 @@ export default function FinancialMetrics({ metrics, loading }: Props) {
       <h3 style={{ marginBottom: '16px' }}>{t(language, 'financialMetrics.title')}</h3>
       
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '12px' }}>
-        <MetricCard label="P/E (TTM)" value={metrics.pe_ttm} />
-        <MetricCard label="P/S (TTM)" value={metrics.ps_ttm} />
-        <MetricCard label="P/B" value={metrics.pb_annual} />
+        <MetricCard label={t(language, 'financialMetrics.peTtm')} value={metrics.pe_ttm} />
+        <MetricCard label={t(language, 'financialMetrics.psTtm')} value={metrics.ps_ttm} />
+        <MetricCard label={t(language, 'financialMetrics.pb')} value={metrics.pb_annual} />
         <MetricCard label={t(language, 'financialMetrics.peAnnual')} value={metrics.pe_annual} />
         
-        <MetricCard label="ROE" value={metrics.roe_ttm} format="percent" />
-        <MetricCard label="ROA" value={metrics.roa_ttm} format="percent" />
+        <MetricCard label={t(language, 'financialMetrics.roe')} value={metrics.roe_ttm} format="percent" />
+        <MetricCard label={t(language, 'financialMetrics.roa')} value={metrics.roa_ttm} format="percent" />
         <MetricCard label={t(language, 'financialMetrics.netMargin')} value={metrics.net_margin_ttm} format="percent" />
         <MetricCard label={t(language, 'financialMetrics.grossMargin')} value={metrics.gross_margin_ttm} format="percent" />
         
         <MetricCard label={t(language, 'financialMetrics.operatingMargin')} value={metrics.operating_margin_ttm} format="percent" />
-        <MetricCard label="EPS (TTM)" value={metrics.eps_ttm} format="currency" />
+        <MetricCard label={t(language, 'financialMetrics.epsTtm')} value={metrics.eps_ttm} format="currency" />
         <MetricCard label={t(language, 'financialMetrics.bookValuePerShare')} value={metrics.book_value_per_share} format="currency" />
         <MetricCard label={t(language, 'financialMetrics.cashFlowPerShare')} value={metrics.cash_flow_per_share} format="currency" />
         
@@ -94,7 +94,7 @@ export default function FinancialMetrics({ metrics, loading }: Props) {
         <MetricCard label={t(language, 'financialMetrics.epsGrowthTtm')} value={metrics.eps_growth_ttm} format="percent" />
         <MetricCard label={t(language, 'financialMetrics.epsGrowth3y')} value={metrics.eps_growth_3y} format="percent" />
         
-        <MetricCard label="Beta" value={metrics.beta} />
+        <MetricCard label={t(language, 'financialMetrics.beta')} value={metrics.beta} />
         <MetricCard label={t(language, 'financialMetrics.high52w')} value={metrics['52_week_high']} format="currency" />
         <MetricCard label={t(language, 'financialMetrics.low52w')} value={metrics['52_week_low']} format="currency" />
         <MetricCard label={t(language, 'financialMetrics.high52wDate')} value={metrics['52_week_high_date']} format="date" />

@@ -482,10 +482,8 @@ class StockService:
         Retrieve upcoming dividend events for a stock.
         
         Avanza is used as the primary data source for any ticker that has an Avanza mapping
-        (instrument_id). If Avanza returns events, those are returned directly. If the ticker
-        has an Avanza mapping but no upcoming events are found, an empty list is returned
-        (no yfinance fallback is attempted for mapped tickers). For unmapped tickers, yfinance
-        is used as the data source.
+        (instrument_id). If Avanza returns events, those are returned directly. If no Avanza
+        events are found, the function falls back to yfinance (same behavior as unmapped tickers).
         
         Parameters:
             ticker (str): Stock ticker symbol (case is ignored).
@@ -518,9 +516,8 @@ class StockService:
 
             logger.debug(
                 f"Avanza mapping found for {ticker} but no upcoming dividends returned; "
-                f"returning empty list (no yfinance fallback for mapped tickers)"
+                f"continuing with yfinance fallback"
             )
-            return []
 
         if ticker.endswith('.ST'):
             logger.debug(f"Swedish ticker {ticker} has no Avanza mapping or instrument_id, falling back to yfinance")
