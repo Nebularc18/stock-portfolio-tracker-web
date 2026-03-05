@@ -442,7 +442,7 @@ export default function Dashboard() {
           <table>
             <thead>
               <tr>
-                <th>Ticker</th>
+                <th>{t(language, 'performance.ticker')}</th>
                 <th>{t(language, 'dashboard.name')}</th>
                 <th>{t(language, 'dashboard.qty')}</th>
                 <th>{t(language, 'dashboard.price')} ({currency})</th>
@@ -554,7 +554,7 @@ export default function Dashboard() {
               <table style={{ width: '100%', tableLayout: 'fixed' }}>
                 <thead>
                   <tr>
-                    <th style={{ width: '18%' }}>Ticker</th>
+                    <th style={{ width: '18%' }}>{t(language, 'performance.ticker')}</th>
                     <th style={{ width: '14%' }}>{t(language, 'dashboard.exDate')}</th>
                     <th style={{ width: '16%' }}>{t(language, 'dashboard.dividendDate')}</th>
                     <th style={{ width: '18%', textAlign: 'right' }}>{t(language, 'dashboard.perShare')}</th>

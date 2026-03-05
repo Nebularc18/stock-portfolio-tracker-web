@@ -244,12 +244,12 @@ def refresh_stock(ticker: str, db: Session = Depends(get_db)):
         stock.sector = info.get("sector") or stock.sector
         stock.last_updated = utc_now()
         
-        should_refresh_logo = (not stock.logo) or ('cdn.brandfetch.io' in stock.logo)
+        should_refresh_logo = not stock.logo
         if should_refresh_logo:
             refreshed_logo = brandfetch_service.get_logo_url_for_ticker(
                 stock.ticker,
                 stock.name or info.get("name"),
-                force_refresh=True,
+                force_refresh=False,
             )
             if refreshed_logo:
                 stock.logo = refreshed_logo
