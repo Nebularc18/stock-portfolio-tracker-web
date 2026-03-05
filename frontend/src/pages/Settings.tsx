@@ -6,6 +6,13 @@ import { api, AvailableIndex } from '../services/api'
 import AvanzaMappings from '../components/AvanzaMappings'
 import { t, TranslationKey } from '../i18n'
 
+/**
+ * Render the Settings page where users can select theme, choose header indices, and update display preferences.
+ *
+ * Loads available header indices on mount and exposes controls that update context-backed settings (theme, language, display currency, timezone, and selected header indices). Selection changes refresh header data as needed.
+ *
+ * @returns The rendered Settings component as a JSX element
+ */
 export default function Settings() {
   const { timezone, setTimezone, displayCurrency, setDisplayCurrency, language, setLanguage, headerIndices, setHeaderIndices } = useSettings()
   const { themeName, setTheme } = useTheme()

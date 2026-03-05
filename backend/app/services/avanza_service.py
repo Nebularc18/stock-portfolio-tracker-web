@@ -160,9 +160,14 @@ def _save_cache(filename: str, value: Any):
 class AvanzaService:
     def __init__(self):
         """
-        Initialize the AvanzaService instance and load persisted ticker mappings.
+        Set up the service's internal state and load persisted ticker mappings.
         
-        Creates an empty mapping dictionary for Avanza names to TickerMapping objects and populates it from the persistent mapping file if available.
+        Initializes:
+        - mapping: dict keyed by Avanza name (lowercased) to TickerMapping objects.
+        - _lock: a reentrant lock protecting mapping and persistence operations.
+        - _stock_data_cache: in-memory cache mapping instrument_id to a tuple of (timestamp, fetched stock data).
+        
+        After initialization, persisted mappings are loaded from disk into `mapping`.
         """
         self.mapping: Dict[str, TickerMapping] = {}
         self._lock = threading.RLock()
@@ -170,7 +175,15 @@ class AvanzaService:
         self._load_mappings()
 
     def _fetch_stock_data_with_cache(self, instrument_id: str) -> Optional[Dict[str, Any]]:
-        """Fetch stock data with a short-lived in-memory cache by instrument ID."""
+        """
+        Retrieve stock data for an instrument using a short-lived in-memory cache with size-based eviction.
+        
+        If a fresh cached entry exists it is returned; otherwise data is fetched, stored in the cache, and returned.
+        
+        Returns:
+            dict: Parsed stock data when available.
+            None: If fetching failed or no data is available.
+        """
         now = time.time()
         try:
             with self._lock:
@@ -388,6 +401,26 @@ class AvanzaService:
         avanza_name: str,
         yahoo_ticker: Optional[str],
     ) -> List[AvanzaDividend]:
+        """
+        Parse upcoming dividend events from raw stock data and return them as AvanzaDividend objects.
+        
+        Parameters:
+            data (Optional[Dict[str, Any]]): Raw JSON-like stock data; expected to contain
+                dataDetails -> dividends -> events where each event may include
+                'amount', 'exDate', 'paymentDate', 'currencyCode', and 'dividendType'.
+            instrument_id (str): Avanza instrument identifier associated with the data.
+            avanza_name (str): Human-readable stock name from Avanza.
+            yahoo_ticker (Optional[str]): Corresponding Yahoo ticker, if known.
+        
+        Returns:
+            List[AvanzaDividend]: A list of parsed dividends where each entry has:
+                - a positive numeric `amount`
+                - `ex_date` and optional `payment_date` normalized to 'YYYY-MM-DD' (if present)
+                - `currency` defaulting to 'SEK' when missing
+                - supplied `avanza_name`, `yahoo_ticker`, `instrument_id`, and `dividend_type`.
+            Events with missing or invalid critical fields (non-positive amount or missing exDate)
+            are skipped; parsing errors for individual events are logged and do not abort processing.
+        """
         if not data:
             return []
 
@@ -423,12 +456,10 @@ class AvanzaService:
     
     def get_stock_dividends(self, yahoo_ticker: str) -> List[AvanzaDividend]:
         """
-        Return all upcoming Avanza dividends for a mapped Yahoo ticker.
-
+        Get upcoming Avanza dividends for the given Yahoo ticker.
+        
         Returns:
-            List[AvanzaDividend]: Upcoming dividends (today or later), sorted by `ex_date`.
-            Returns an empty list when no mapping/instrument_id exists or no upcoming
-            events are available.
+            List[AvanzaDividend]: List of dividends with `ex_date` on or after today, sorted by `ex_date`. Returns an empty list if the ticker has no mapping, no instrument_id, or no upcoming events.
         """
         mapping = self.get_mapping_by_ticker(yahoo_ticker)
         if not mapping:
@@ -469,28 +500,27 @@ class AvanzaService:
 
     def get_stock_dividend(self, yahoo_ticker: str) -> Optional[AvanzaDividend]:
         """
-        Return the nearest upcoming Avanza dividend for a mapped Yahoo ticker.
-
+        Get the nearest upcoming Avanza dividend for the given Yahoo ticker.
+        
+        Parameters:
+            yahoo_ticker (str): Yahoo ticker to resolve to an Avanza instrument.
+        
         Returns:
-            Optional[AvanzaDividend]: The nearest upcoming dividend event or `None` if
-            no upcoming mapped Avanza dividend exists.
+            Optional[AvanzaDividend]: The nearest upcoming dividend, or `None` if no upcoming mapped dividend exists.
         """
         upcoming = self.get_stock_dividends(yahoo_ticker)
         return upcoming[0] if upcoming else None
 
     def get_stock_dividends_for_year(self, yahoo_ticker: str, year: int) -> List[AvanzaDividend]:
         """
-        Return all mapped Avanza dividend events whose payout date falls in the given year.
-
-        This method is intended for current-year dashboard views where both already-paid
-        and upcoming events are needed. It does not enforce Swedish suffix rules.
-
+        Get all Avanza dividend events for the given Yahoo ticker whose payout date falls in the specified year.
+        
         Parameters:
             yahoo_ticker (str): Yahoo ticker to resolve via stored mapping.
             year (int): Target payout year.
-
+        
         Returns:
-            List[AvanzaDividend]: Parsed events sorted by payout date then ex-date.
+            List[AvanzaDividend]: Dividend events whose payout (payment date if present, otherwise ex-date) is in `year`, deduplicated and sorted by payout date then ex-date.
         """
         mapping = self.get_mapping_by_ticker(yahoo_ticker)
         if not mapping or not mapping.instrument_id:
@@ -552,14 +582,14 @@ class AvanzaService:
     
     def get_historical_dividends(self, yahoo_ticker: str, years: int = 5) -> List[Dict[str, Any]]:
         """
-        Return historical dividend records for a Swedish stock ticker within a given lookback window.
+        Get historical dividend records for a Swedish (".ST") stock from Avanza within a given lookback window.
         
         Parameters:
-            yahoo_ticker (str): Yahoo-format ticker for the stock; must end with ".ST". Returns empty list for other tickers.
+            yahoo_ticker (str): Yahoo-format ticker; must end with ".ST". Non-Swedish tickers return an empty list.
             years (int): Number of years to include counting backward from today.
         
         Returns:
-            List[Dict[str, Any]]: A list of dividend dictionaries sorted by date (newest first). Each dictionary contains:
+            List[Dict[str, Any]]: A list of dividend records sorted by date (newest first). Each record contains:
                 - date (str): Ex-dividend date in "YYYY-MM-DD" format.
                 - amount (float): Dividend amount (positive).
                 - currency (str): Currency code (e.g., "SEK").

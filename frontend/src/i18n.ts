@@ -717,6 +717,16 @@ const translations = {
 
 export type TranslationKey = keyof typeof translations.en
 
+/**
+ * Resolves a localized string for the given key and language and interpolates any {{placeholders}} with the provided params.
+ *
+ * In development mode, logs a warning if any interpolation placeholders remain after substitution.
+ *
+ * @param language - Target language to use for resolution
+ * @param key - Translation key to look up
+ * @param params - Mapping of placeholder names to values used to replace `{{placeholder}}` tokens
+ * @returns The final interpolated translation; falls back to the English translation or the key itself if no translation is found
+ */
 export function t(language: Language, key: TranslationKey, params?: Record<string, string | number>): string {
   const template: string = translations[language][key] ?? translations.en[key] ?? key
   if (!params) return template
@@ -738,6 +748,12 @@ export function t(language: Language, key: TranslationKey, params?: Record<strin
   return resolved
 }
 
+/**
+ * Map a Language code to its corresponding locale identifier.
+ *
+ * @param language - The language code to convert
+ * @returns `'sv-SE'` for Swedish (`'sv'`), `'en-US'` for English (`'en'`)
+ */
 export function getLocaleForLanguage(language: Language): string {
   return language === 'sv' ? 'sv-SE' : 'en-US'
 }

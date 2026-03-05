@@ -7,6 +7,14 @@ import { useSettings } from '../SettingsContext'
 import { formatTimeInTimezone } from '../utils/time'
 import { getLocaleForLanguage, t } from '../i18n'
 
+/**
+ * Format a number as a locale-aware string with a fixed number of decimal places.
+ *
+ * @param value - The numeric value to format
+ * @param locale - BCP 47 language tag or locale identifier used for localization (e.g., "en-US")
+ * @param decimals - Number of decimal places to include (defaults to 2)
+ * @returns The number formatted according to `locale` with exactly `decimals` fraction digits
+ */
 function formatNumber(value: number, locale: string, decimals: number = 2): string {
   return value.toLocaleString(locale, {
     minimumFractionDigits: decimals,
@@ -14,6 +22,13 @@ function formatNumber(value: number, locale: string, decimals: number = 2): stri
   })
 }
 
+/**
+ * Render a compact sparkline for a numeric series, using color to indicate positive or negative trend.
+ *
+ * @param data - Ordered numeric values to plot (earliest to latest)
+ * @param isPositive - If `true`, use the positive color; otherwise use the negative color
+ * @returns A small React element containing the rendered sparkline for the provided data
+ */
 function MiniSparkline({ data, isPositive }: { data: number[]; isPositive: boolean }) {
   const chartData = data.map((value, index) => ({ value, index }))
   const color = isPositive ? '#22c55e' : '#ef4444'
@@ -36,6 +51,16 @@ function MiniSparkline({ data, isPositive }: { data: number[]; isPositive: boole
   )
 }
 
+/**
+ * Renders the Markets page with indices, market hours, sparklines, and refresh controls.
+ *
+ * Fetches additional market data (market hours and sparklines), schedules backend-driven refreshes,
+ * and combines shared header-provided market indices with locally loaded details. Respects user
+ * settings for timezone and language to format times and numbers, exposes a manual refresh action,
+ * and displays loading and error states.
+ *
+ * @returns The Markets page React element.
+ */
 export default function Markets() {
   // Use shared market data from context
   const { indices, lastUpdated, nextRefreshAt, loading: headerLoading, refreshData } = useHeaderData()

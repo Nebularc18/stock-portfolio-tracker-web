@@ -5,6 +5,14 @@ import { useSettings } from '../SettingsContext'
 import { formatTimeInTimezone, getLatestTimestamp } from '../utils/time'
 import { getLocaleForLanguage, t } from '../i18n'
 
+/**
+ * Formats a numeric value as a localized currency string or returns "-" when the value is null.
+ *
+ * @param value - Numeric amount to format; pass `null` to indicate missing value
+ * @param locale - BCP 47 language tag used for localization (e.g., `"en-US"`)
+ * @param currency - ISO 4217 currency code to format with (defaults to `"USD"`)
+ * @returns The formatted currency string for `value`, or `"-"` if `value` is `null`
+ */
 function formatCurrency(value: number | null, locale: string, currency: string = 'USD'): string {
   if (value === null) return '-'
   return new Intl.NumberFormat(locale, {
@@ -31,7 +39,17 @@ const EXCHANGES = [
   { code: 'SW', name: 'Switzerland', suffix: '.SW', currency: 'CHF' },
 ]
 
-export default function Stocks() {
+/**
+  * Render the Stocks management user interface for viewing, adding, editing, and removing stock positions.
+  *
+  * The component fetches the user's stock list on mount, displays current prices and daily changes, and provides
+  * controls to add a new stock (with exchange, ticker, quantity, and optional purchase price), edit an existing
+  * stock's quantity and purchase price, and delete a stock. UI strings, time formatting, and currency formatting
+  * are localized using the current language and timezone from settings.
+  *
+  * @returns The rendered Stocks UI as a React element.
+  */
+ export default function Stocks() {
   const [stocks, setStocks] = useState<Stock[]>([])
   const [loading, setLoading] = useState(true)
   const [showAddForm, setShowAddForm] = useState(false)

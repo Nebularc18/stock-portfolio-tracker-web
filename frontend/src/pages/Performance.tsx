@@ -4,6 +4,14 @@ import { api, Stock } from '../services/api'
 import { getLocaleForLanguage, t } from '../i18n'
 import { useSettings } from '../SettingsContext'
 
+/**
+ * Format a numeric amount as a localized currency string.
+ *
+ * @param value - The numeric amount to format; if `null`, a dash (`-`) is returned
+ * @param locale - BCP 47 locale identifier used for localization (e.g., `en-US`, `sv-SE`)
+ * @param currency - ISO 4217 currency code to use for formatting (defaults to `'USD'`)
+ * @returns A localized currency string for `value`, or `'-'` if `value` is `null`
+ */
 function formatCurrency(value: number | null, locale: string, currency: string = 'USD'): string {
   if (value === null) return '-'
   return new Intl.NumberFormat(locale, {
@@ -13,6 +21,13 @@ function formatCurrency(value: number | null, locale: string, currency: string =
   }).format(value)
 }
 
+/**
+ * Formats a numeric percentage value for display with a sign and locale-aware percent formatting.
+ *
+ * @param value - The percentage as a number (e.g., `5` means 5%). If `null`, a dash (`-`) is returned.
+ * @param locale - The locale identifier used for formatting (e.g., `en-US`).
+ * @returns A signed, locale-formatted percent string (e.g., `+5.00%` or `-3.50%`), or `-` if `value` is `null`.
+ */
 function formatPercent(value: number | null, locale: string): string {
   if (value === null) return '-'
   const absValue = Math.abs(value) / 100
@@ -24,6 +39,17 @@ function formatPercent(value: number | null, locale: string): string {
   return value >= 0 ? `+${formatted}` : `-${formatted}`
 }
 
+/**
+ * Sanitize a value for safe inclusion as a CSV cell.
+ *
+ * Converts null/undefined to an empty quoted cell `""`, escapes internal double quotes by doubling them,
+ * and wraps the result in double quotes. If the original string (after optional control/whitespace)
+ * begins with `=`, `+`, `-`, or `@`, prefixes the cell content with a tab character inside the quotes
+ * to mitigate CSV injection.
+ *
+ * @param value - The value to sanitize for CSV output (string, number, null, or undefined)
+ * @returns A CSV-safe, quoted cell string with internal quotes escaped; tab-prefixed inside the quotes when the value could trigger CSV injection
+ */
 function sanitizeCsvCell(value: string | number | null | undefined): string {
   if (value === null || value === undefined) return '""'
   const str = String(value)
@@ -58,6 +84,14 @@ interface PerformanceData {
   dailyChangeSEK: number | null
 }
 
+/**
+ * Renders the portfolio performance dashboard including summaries, best/worst performers, holdings table, and CSV export.
+ *
+ * The component fetches stocks and exchange rates on mount, derives locale from user settings, computes per-stock and aggregate metrics
+ * (values, costs, gains, daily changes and SEK conversions), supports sorting by multiple fields, and provides a CSV export of the current view.
+ *
+ * @returns The React element for the performance dashboard UI.
+ */
 export default function Performance() {
   const [stocks, setStocks] = useState<Stock[]>([])
   const [exchangeRates, setExchangeRates] = useState<Record<string, number | null>>({})

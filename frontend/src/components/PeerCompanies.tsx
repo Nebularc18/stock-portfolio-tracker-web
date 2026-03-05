@@ -7,6 +7,13 @@ interface Props {
   loading?: boolean
 }
 
+/**
+ * Renders a localized card of peer company tickers as clickable buttons that navigate to each stock page.
+ *
+ * @param peers - Array of peer ticker symbols; when `null` or empty, nothing is rendered
+ * @param loading - When `true`, shows a localized loading state instead of the peers list
+ * @returns The rendered peers card, or `null` if `peers` is `null` or empty
+ */
 export default function PeerCompanies({ peers, loading }: Props) {
   const navigate = useNavigate()
   const { language } = useSettings()

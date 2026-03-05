@@ -13,11 +13,24 @@ function formatMarketCap(value: number | null): string {
   return `$${value.toFixed(0)}M`
 }
 
+/**
+ * Format a website URL for display by removing the leading protocol and any trailing slash, or return a placeholder when missing.
+ *
+ * @param url - The website URL to format; may be `null` or an empty string
+ * @returns The URL without `https://` or `http://` and without a trailing slash, or `-` if `url` is `null` or empty
+ */
 function formatWebsite(url: string | null): string {
   if (!url) return '-'
   return url.replace('https://', '').replace('http://', '').replace(/\/$/, '')
 }
 
+/**
+ * Render a company profile card with translated labels, or a translated loading message while loading.
+ *
+ * @param props.profile - The company profile to display; when `null` the component returns `null`.
+ * @param props.loading - If `true`, shows a translated loading state instead of the profile.
+ * @returns A JSX element containing the company profile card, or `null` when no profile is provided.
+ */
 export default function CompanyProfile({ profile, loading }: Props) {
   const { language } = useSettings()
 

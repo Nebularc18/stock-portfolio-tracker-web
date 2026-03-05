@@ -22,6 +22,12 @@ const COLORS = {
 }
 
 
+/**
+ * Resolves a relative month period string (for example, "-3m") to the Date representing the first day of that month.
+ *
+ * @param period - A relative-month string in the form `[-]Nm` (e.g. `-3m` or `3m`); falsy or non-matching values are not interpreted.
+ * @returns The Date set to the first day of the month N months before the current month, or `null` if `period` is falsy or not in the expected format.
+ */
 function getStartOfRelativeMonth(period: string): Date | null {
   if (!period) return null;
   const match = /^-?\d+m$/.exec(period);
@@ -35,6 +41,15 @@ function getStartOfRelativeMonth(period: string): Date | null {
   return null;
 }
 
+/**
+ * Formats a period string as a locale-aware short month name.
+ *
+ * Accepts either an absolute date string or a relative month token like `-3m`. For relative tokens, the function computes the first day of the referenced month before formatting.
+ *
+ * @param period - The period to format; can be an ISO/parsable date string or a relative month token (e.g., `-1m`, `-3m`)
+ * @param locale - BCP 47 locale identifier used for month name localization (e.g., `en-US`)
+ * @returns The short month name for the resolved date in the given locale (e.g., `Jan`, `Feb`), or the original `period` string if it cannot be parsed into a date
+ */
 function formatPeriod(period: string, locale: string): string {
   const relDate = getStartOfRelativeMonth(period);
   if (relDate) {
@@ -47,6 +62,14 @@ function formatPeriod(period: string, locale: string): string {
   return date.toLocaleDateString(locale, { month: 'short' });
 }
 
+/**
+ * Converts a period identifier into a Date representing that period.
+ *
+ * Accepts relative month strings (e.g., "-3m") which resolve to the first day of the target month, or absolute date strings parseable by Date. Returns `null` when the input is falsy or cannot be converted to a valid Date.
+ *
+ * @param period - A period identifier: a relative month (like "-3m") or a date string.
+ * @returns A Date for the period, or `null` if the period is invalid or unspecified.
+ */
 function parsePeriodToDate(period: string): Date | null {
   if (!period) return null;
   const relDate = getStartOfRelativeMonth(period);
@@ -56,15 +79,41 @@ function parsePeriodToDate(period: string): Date | null {
   return null;
 }
 
+/**
+ * Compute the total number of analyst recommendations for a record.
+ *
+ * Uses `rec.total_analysts` when available; otherwise sums `strong_buy`, `buy`, `hold`, `sell`, and `strong_sell`. Returns 0 if no values are present.
+ *
+ * @param rec - The recommendation record to total
+ * @returns The total number of recommendations (0 if none)
+ */
 function getRecTotal(rec: RecommendationTrend | AnalystRecommendation): number {
   const total = rec.total_analysts ?? ((rec.strong_buy ?? 0) + (rec.buy ?? 0) + (rec.hold ?? 0) + (rec.sell ?? 0) + (rec.strong_sell ?? 0))
   return total ?? 0
 }
 
+/**
+ * Provide a positive scale total for a recommendation record.
+ *
+ * @param rec - A recommendation record (RecommendationTrend or AnalystRecommendation) to evaluate
+ * @returns The record's total recommendations if that value is greater than or equal to 1, otherwise 1
+ */
 function getRecScaleTotal(rec: RecommendationTrend | AnalystRecommendation): number {
   return Math.max(getRecTotal(rec), 1)
 }
 
+/**
+ * Render a stacked recommendation bar chart showing up to the four most recent periods, optionally wrapped in a card.
+ *
+ * @param recommendations - Array of recommendation records (each a `RecommendationTrend` or `AnalystRecommendation`) or `null`. Each record's `period` is parsed to determine ordering; records with unparseable periods are ignored.
+ * @param loading - When true, show a localized loading state instead of the chart.
+ * @param labels - Optional overrides for the recommendation labels. Expected keys: `strong_buy`, `buy`, `hold`, `sell`, `strong_sell`.
+ * @param totalLabel - Optional override for the translated "total" label shown in tooltips and totals.
+ * @param locale - Optional locale string used for period formatting; when omitted the locale is derived from app settings.
+ * @param title - Optional override for the chart title displayed when the component is rendered inside a card.
+ * @param withCard - When true (default), wrap the chart and legend in a card with a title; when false, render only the chart content.
+ * @returns A React element containing the chart and legend, or `null` when there is no displayable data.
+ */
 export default function RecommendationChart({
   recommendations,
   loading,

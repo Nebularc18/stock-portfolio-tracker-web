@@ -32,6 +32,15 @@ const SUPPORTED_CURRENCIES = [
   { code: 'USD', label: 'US Dollar' },
 ]
 
+/**
+ * Provides application settings and updater functions to descendant components through SettingsContext.
+ *
+ * The provider initializes state from localStorage, syncs certain settings with the server, and exposes:
+ * `timezone`, `setTimezone`, `displayCurrency`, `setDisplayCurrency`, `language`, `setLanguage`, `headerIndices`, `setHeaderIndices`, and `loading`.
+ *
+ * @param children - React nodes that will receive the settings context
+ * @returns A SettingsContext.Provider element that wraps `children`
+ */
 export function SettingsProvider({ children }: { children: ReactNode }) {
   const [timezone, setTimezoneState] = useState(() => {
     const saved = localStorage.getItem('userTimezone')

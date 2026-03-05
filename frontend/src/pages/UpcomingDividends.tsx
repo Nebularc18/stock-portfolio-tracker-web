@@ -4,11 +4,12 @@ import { api, UpcomingDividend } from '../services/api'
 import { useSettings } from '../SettingsContext'
 import { getLocaleForLanguage, t } from '../i18n'
 /**
- * Format a numeric amount as a localized Swedish currency string.
+ * Format a number as a localized currency string.
  *
  * @param value - The numeric amount to format
- * @param currency - ISO 4217 currency code to display (e.g., `SEK`, `USD`). Defaults to `'SEK'`.
- * @returns The amount formatted for the `sv-SE` locale using the specified currency with two fraction digits
+ * @param locale - BCP 47 locale identifier used for localization (e.g., `sv-SE`, `en-US`)
+ * @param currency - ISO 4217 currency code to display (e.g., `SEK`, `USD`). Defaults to `SEK`
+ * @returns The input formatted as a currency string using the provided `locale` and `currency`, with two fraction digits
  */
 function formatCurrency(value: number, locale: string, currency: string = 'SEK'): string {
   return new Intl.NumberFormat(locale, {
@@ -19,10 +20,11 @@ function formatCurrency(value: number, locale: string, currency: string = 'SEK')
 }
 
 /**
- * Format a date string as a Swedish locale date with year, short month, and day.
+ * Format a "YYYY-MM-DD" date string into a locale-specific date with numeric year, short month, and day.
  *
- * @param dateStr - A date string parseable by the JavaScript `Date` constructor (for example ISO 8601 like `2025-01-01`)
- * @returns A `sv-SE` localized date string using numeric year, short month name, and day (for example `1 jan. 2025`)
+ * @param dateStr - Date in `YYYY-MM-DD` format (year, month, day). Time is treated as UTC.
+ * @param locale - BCP 47 locale string used for formatting (for example `sv-SE` or `en-US`).
+ * @returns A localized date string with numeric year, short month name, and day (for example `1 Jan 2025` or `1 jan. 2025` depending on `locale`)
  */
 function formatDate(dateStr: string, locale: string): string {
   const [year, month, day] = dateStr.split('-').map(Number)
@@ -45,11 +47,24 @@ function getDaysUntil(dateStr: string): number {
   return Math.ceil((target.getTime() - today.getTime()) / (1000 * 60 * 60 * 24))
 }
 
+/**
+ * Extracts a year-month key from an ISO-like date string.
+ *
+ * @param dateStr - A date string in the format `YYYY-MM-DD` (or `YYYY-M-D`)
+ * @returns A string in the form `YYYY-MM` with the month zero-padded
+ */
 function getMonthKey(dateStr: string): string {
   const [year, month] = dateStr.split('-').map(Number)
   return `${year}-${String(month).padStart(2, '0')}`
 }
 
+/**
+ * Produce a localized month label from a year-month key.
+ *
+ * @param monthKey - Year-month key in the format `YYYY-MM`
+ * @param locale - BCP 47 locale identifier used for formatting (for example `sv-SE`)
+ * @returns A locale-formatted month label (e.g., `March 2026`)
+ */
 function formatMonthLabel(monthKey: string, locale: string): string {
   const [year, month] = monthKey.split('-').map(Number)
   const date = new Date(Date.UTC(year, month - 1, 1))
