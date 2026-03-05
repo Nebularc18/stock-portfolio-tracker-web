@@ -56,6 +56,11 @@ function parsePeriodToDate(period: string): Date | null {
   return null;
 }
 
+function getRecTotal(rec: RecommendationTrend | AnalystRecommendation): number {
+  const total = rec.total_analysts ?? ((rec.strong_buy ?? 0) + (rec.buy ?? 0) + (rec.hold ?? 0) + (rec.sell ?? 0) + (rec.strong_sell ?? 0))
+  return total || 1
+}
+
 export default function RecommendationChart({
   recommendations,
   loading,
@@ -103,27 +108,25 @@ export default function RecommendationChart({
 
   const displayData = [...recommendations]
     .map(rec => ({ rec, _date: parsePeriodToDate(rec.period) }))
-    .sort((a, b) => {
-      if (a._date && b._date) return a._date.getTime() - b._date.getTime()
-      if (a._date) return -1
-      if (b._date) return 1
-      return 0
-    })
+    .filter(({ _date }) => _date !== null)
+    .sort((a, b) => a._date!.getTime() - b._date!.getTime())
     .slice(-4)
 
+  if (displayData.length === 0) {
+    return null
+  }
+
   const maxTotal = Math.max(
-    ...displayData.map(({ rec }) => {
-      const total = rec.total_analysts ?? (rec.strong_buy + rec.buy + rec.hold + rec.sell + rec.strong_sell);
-      return total || 1;
-    })
+    ...displayData.map(({ rec }) => getRecTotal(rec))
   );
 
   const content = (
     <>
       <div style={{ display: 'flex', gap: '16px', marginBottom: '24px' }}>
         {displayData.map(({ rec }, index) => {
-          const total = rec.total_analysts ?? (rec.strong_buy + rec.buy + rec.hold + rec.sell + rec.strong_sell)
+          const total = getRecTotal(rec)
           const barHeight = Math.max(4, (total / maxTotal) * 150)
+          const tooltipId = `recommendation-tooltip-${index}`
           
           const segments = [
             { key: 'strong_buy', value: rec.strong_buy ?? 0, color: COLORS.strong_buy },
@@ -145,6 +148,10 @@ export default function RecommendationChart({
               }}
               onMouseEnter={() => setHoveredBar(index)}
               onMouseLeave={() => setHoveredBar(null)}
+              onFocus={() => setHoveredBar(index)}
+              onBlur={() => setHoveredBar(null)}
+              tabIndex={0}
+              aria-describedby={hoveredBar === index ? tooltipId : undefined}
             >
               <div style={{ 
                 display: 'flex', 
@@ -189,7 +196,7 @@ export default function RecommendationChart({
               </p>
               
               {hoveredBar === index && (
-                <div style={{
+                <div id={tooltipId} style={{
                   position: 'absolute',
                   bottom: '100%',
                   left: '50%',

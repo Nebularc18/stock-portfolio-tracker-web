@@ -7,7 +7,7 @@ performance, distribution analysis, and bulk refresh operations.
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy.orm import Session
 from sqlalchemy.dialects.postgresql import insert
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 from typing import List, Optional
 import logging
 
@@ -405,8 +405,38 @@ def get_upcoming_portfolio_dividends(db: Session = Depends(get_db)):
     unmapped_stocks = []
     seen_unmapped = set()
     now = utc_now()
-    today = now.strftime('%Y-%m-%d')
+    today = now.date()
     current_year = now.year
+
+    def parse_event_date(value) -> Optional[date]:
+        if value is None:
+            return None
+        if isinstance(value, datetime):
+            return value.date()
+        if isinstance(value, date):
+            return value
+        if not isinstance(value, str):
+            return None
+
+        normalized = value.strip()
+        if not normalized:
+            return None
+
+        # Handle ISO datetimes with UTC suffix.
+        normalized = normalized.replace('Z', '+00:00')
+
+        try:
+            return datetime.fromisoformat(normalized).date()
+        except ValueError:
+            if 'T' in normalized:
+                normalized = normalized.split('T', 1)[0]
+            elif ' ' in normalized:
+                normalized = normalized.split(' ', 1)[0]
+
+            try:
+                return datetime.fromisoformat(normalized).date()
+            except ValueError:
+                return None
 
     def normalize_dividend_event(raw_div: dict, event_type: str) -> dict:
         if event_type == 'historical':
@@ -422,26 +452,33 @@ def get_upcoming_portfolio_dividends(db: Session = Depends(get_db)):
             'source': raw_div.get('source', 'yahoo'),
             'dividend_type': raw_div.get('dividend_type')
         }
+
+    def get_yahoo_normalized_events(ticker: str) -> list:
+        historical = stock_service.get_dividends(ticker, years=2) or []
+        upcoming = stock_service.get_upcoming_dividends(ticker) or []
+
+        normalized = [normalize_dividend_event(div, 'historical') for div in historical]
+        normalized.extend(normalize_dividend_event(div, 'upcoming') for div in upcoming)
+        return normalized
     
     for stock in stocks:
         avanza_mapping = avanza_service.get_mapping_by_ticker(stock.ticker)
 
         if avanza_mapping and avanza_mapping.instrument_id:
             avanza_events = avanza_service.get_stock_dividends_for_year(stock.ticker, current_year)
-            normalized_events = [{
-                'ex_date': div.ex_date,
-                'payment_date': div.payment_date,
-                'amount': div.amount,
-                'currency': div.currency,
-                'source': 'avanza',
-                'dividend_type': div.dividend_type
-            } for div in avanza_events]
+            if avanza_events:
+                normalized_events = [{
+                    'ex_date': div.ex_date,
+                    'payment_date': div.payment_date,
+                    'amount': div.amount,
+                    'currency': div.currency,
+                    'source': 'avanza',
+                    'dividend_type': div.dividend_type
+                } for div in avanza_events]
+            else:
+                normalized_events = get_yahoo_normalized_events(stock.ticker)
         else:
-            historical = stock_service.get_dividends(stock.ticker, years=2) or []
-            upcoming = stock_service.get_upcoming_dividends(stock.ticker) or []
-
-            normalized_events = [normalize_dividend_event(div, 'historical') for div in historical]
-            normalized_events.extend(normalize_dividend_event(div, 'upcoming') for div in upcoming)
+            normalized_events = get_yahoo_normalized_events(stock.ticker)
 
         if not normalized_events:
             continue
@@ -453,15 +490,11 @@ def get_upcoming_portfolio_dividends(db: Session = Depends(get_db)):
             payment_date = div.get('payment_date')
             payout_date = payment_date or ex_date
 
-            if not payout_date or len(payout_date) < 10:
+            payout_date_parsed = parse_event_date(payout_date)
+            if not payout_date_parsed:
                 continue
 
-            try:
-                payout_year = int(payout_date[:4])
-            except ValueError:
-                continue
-
-            if payout_year != current_year:
+            if payout_date_parsed.year != current_year:
                 continue
 
             event_key = (
@@ -494,7 +527,7 @@ def get_upcoming_portfolio_dividends(db: Session = Depends(get_db)):
             )
             
             source = div.get('source', 'yahoo')
-            status = 'paid' if payout_date < today else 'upcoming'
+            status = 'paid' if payout_date_parsed <= today else 'upcoming'
             
             if stock.ticker.endswith('.ST') and source == 'yahoo':
                 if stock.ticker not in seen_unmapped:
