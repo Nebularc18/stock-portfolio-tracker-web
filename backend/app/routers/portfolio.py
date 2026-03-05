@@ -264,7 +264,12 @@ def refresh_all_prices(db: Session = Depends(get_db)):
                 )
                 skipped += 1
     
-    if updated > 0 and total_value_sek > 0 and skipped == 0:
+    if skipped > 0:
+        logger.warning(
+            f"Portfolio history includes partial FX data: skipped {skipped} stock(s) due to missing conversion rates"
+        )
+
+    if updated > 0 and total_value_sek > 0:
         now = utc_now()
         interval = now.replace(minute=(now.minute // 15) * 15, second=0, microsecond=0)
         stmt = insert(PortfolioHistory).values(

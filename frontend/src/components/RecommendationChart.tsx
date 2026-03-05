@@ -1,11 +1,16 @@
 import { useState } from 'react'
-import { RecommendationTrend } from '../services/api'
+import { AnalystRecommendation, RecommendationTrend } from '../services/api'
 import { useSettings } from '../SettingsContext'
 import { getLocaleForLanguage, t } from '../i18n'
 
 interface Props {
-  recommendations: RecommendationTrend[] | null
+  recommendations: Array<RecommendationTrend | AnalystRecommendation> | null
   loading?: boolean
+  labels?: Record<'strong_buy' | 'buy' | 'hold' | 'sell' | 'strong_sell', string>
+  totalLabel?: string
+  locale?: string
+  title?: string
+  withCard?: boolean
 }
 
 const COLORS = {
@@ -17,6 +22,14 @@ const COLORS = {
 }
 
 function formatPeriod(period: string, locale: string): string {
+  if (/^-?\d+m$/.test(period)) {
+    const monthsAgo = Math.abs(parseInt(period.replace('m', ''), 10))
+    const date = new Date()
+    date.setDate(1)
+    date.setMonth(date.getMonth() - monthsAgo)
+    return date.toLocaleDateString(locale, { month: 'short' })
+  }
+
   const date = new Date(period)
   if (Number.isNaN(date.getTime())) {
     return period
@@ -25,22 +38,56 @@ function formatPeriod(period: string, locale: string): string {
   return date.toLocaleDateString(locale, { month: 'short' })
 }
 
-export default function RecommendationChart({ recommendations, loading }: Props) {
+function parsePeriodToDate(period: string): Date | null {
+  if (!period) return null
+
+  if (/^-?\d+m$/.test(period)) {
+    const monthsAgo = Math.abs(parseInt(period.replace('m', ''), 10))
+    const date = new Date()
+    date.setDate(1)
+    date.setMonth(date.getMonth() - monthsAgo)
+    return date
+  }
+
+  const parsed = new Date(period)
+  if (!Number.isNaN(parsed.getTime())) return parsed
+  return null
+}
+
+export default function RecommendationChart({
+  recommendations,
+  loading,
+  labels: labelsOverride,
+  totalLabel,
+  locale: localeOverride,
+  title,
+  withCard = true,
+}: Props) {
   const [hoveredBar, setHoveredBar] = useState<number | null>(null)
   const { language } = useSettings()
-  const locale = getLocaleForLanguage(language)
-  const labels = {
+  const locale = localeOverride ?? getLocaleForLanguage(language)
+  const labels = labelsOverride ?? {
     strong_buy: t(language, 'recommendation.strongBuy'),
     buy: t(language, 'recommendation.buy'),
     hold: t(language, 'recommendation.hold'),
     sell: t(language, 'recommendation.sell'),
     strong_sell: t(language, 'recommendation.strongSell'),
   }
+  const totalLabelText = totalLabel ?? t(language, 'recommendation.total')
+  const titleText = title ?? t(language, 'recommendation.title')
 
   if (loading) {
+    if (!withCard) {
+      return (
+        <p style={{ color: 'var(--text-secondary)', textAlign: 'center', padding: '20px' }}>
+          {t(language, 'common.loading')}
+        </p>
+      )
+    }
+
     return (
       <div className="card">
-        <h3 style={{ marginBottom: '16px' }}>{t(language, 'recommendation.title')}</h3>
+        <h3 style={{ marginBottom: '16px' }}>{titleText}</h3>
         <p style={{ color: 'var(--text-secondary)', textAlign: 'center', padding: '20px' }}>
           {t(language, 'common.loading')}
         </p>
@@ -52,24 +99,33 @@ export default function RecommendationChart({ recommendations, loading }: Props)
     return null
   }
 
-  const displayData = recommendations.slice(0, 4)
-  const maxTotal = Math.max(...displayData.map(d => d.total_analysts || 1))
+  const displayData = [...recommendations]
+    .map(rec => ({ rec, _date: parsePeriodToDate(rec.period) }))
+    .sort((a, b) => {
+      if (a._date && b._date) return a._date.getTime() - b._date.getTime()
+      if (a._date) return -1
+      if (b._date) return 1
+      return 0
+    })
+    .slice(-4)
 
-  return (
-    <div className="card">
-      <h3 style={{ marginBottom: '16px' }}>{t(language, 'recommendation.title')}</h3>
-      
+  const maxTotal = Math.max(
+    ...displayData.map(({ rec }) => rec.total_analysts ?? (rec.strong_buy + rec.buy + rec.hold + rec.sell + rec.strong_sell) || 1)
+  )
+
+  const content = (
+    <>
       <div style={{ display: 'flex', gap: '16px', marginBottom: '24px' }}>
-        {displayData.map((rec, index) => {
-          const total = rec.total_analysts || 0
+        {displayData.map(({ rec }, index) => {
+          const total = rec.total_analysts ?? (rec.strong_buy + rec.buy + rec.hold + rec.sell + rec.strong_sell)
           const barHeight = Math.max(4, (total / maxTotal) * 150)
           
           const segments = [
-            { key: 'strong_buy', value: rec.strong_buy || 0, color: COLORS.strong_buy },
-            { key: 'buy', value: rec.buy || 0, color: COLORS.buy },
-            { key: 'hold', value: rec.hold || 0, color: COLORS.hold },
-            { key: 'sell', value: rec.sell || 0, color: COLORS.sell },
-            { key: 'strong_sell', value: rec.strong_sell || 0, color: COLORS.strong_sell },
+            { key: 'strong_buy', value: rec.strong_buy ?? 0, color: COLORS.strong_buy },
+            { key: 'buy', value: rec.buy ?? 0, color: COLORS.buy },
+            { key: 'hold', value: rec.hold ?? 0, color: COLORS.hold },
+            { key: 'sell', value: rec.sell ?? 0, color: COLORS.sell },
+            { key: 'strong_sell', value: rec.strong_sell ?? 0, color: COLORS.strong_sell },
           ].filter(s => s.value > 0)
           
           return (
@@ -147,7 +203,7 @@ export default function RecommendationChart({ recommendations, loading }: Props)
                   <p style={{ color: COLORS.hold, fontSize: '12px' }}>■ {labels.hold}: {rec.hold ?? 0}</p>
                   <p style={{ color: COLORS.sell, fontSize: '12px' }}>■ {labels.sell}: {rec.sell ?? 0}</p>
                   <p style={{ color: COLORS.strong_sell, fontSize: '12px' }}>■ {labels.strong_sell}: {rec.strong_sell ?? 0}</p>
-                  <p style={{ fontWeight: 600, marginTop: 4 }}>{t(language, 'recommendation.total')}: {total}</p>
+                  <p style={{ fontWeight: 600, marginTop: 4 }}>{totalLabelText}: {total}</p>
                 </div>
               )}
             </div>
@@ -163,6 +219,15 @@ export default function RecommendationChart({ recommendations, loading }: Props)
           </div>
         ))}
       </div>
+    </>
+  )
+
+  if (!withCard) return content
+
+  return (
+    <div className="card">
+      <h3 style={{ marginBottom: '16px' }}>{titleText}</h3>
+      {content}
     </div>
   )
 }

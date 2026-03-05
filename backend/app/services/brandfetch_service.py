@@ -183,7 +183,7 @@ class BrandfetchService:
             return None
 
         session = _get_session()
-        url = f"https://api.brandfetch.io/v2/search/{quote(query)}"
+        url = f"https://api.brandfetch.io/v2/search/{quote(query, safe='')}"
 
         try:
             response = session.get(url, timeout=10)

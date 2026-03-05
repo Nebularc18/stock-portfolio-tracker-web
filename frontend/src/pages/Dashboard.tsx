@@ -261,8 +261,17 @@ export default function Dashboard() {
   const rangeTargetPoints = getRangeTargetPoints(historyRange)
   const displayedChartData = rangeTargetPoints ? downsampleChartData(chartData, rangeTargetPoints) : chartData
 
-  const minValue = chartData.length > 0 ? Math.min(...chartData.map(h => h.value)) : 0
-  const maxValue = chartData.length > 0 ? Math.max(...chartData.map(h => h.value)) : 0
+  let minValue = 0
+  let maxValue = 0
+  if (chartData.length > 0) {
+    minValue = chartData[0].value
+    maxValue = chartData[0].value
+    for (let i = 1; i < chartData.length; i += 1) {
+      const value = chartData[i].value
+      if (value < minValue) minValue = value
+      if (value > maxValue) maxValue = value
+    }
+  }
   const valueRange = maxValue - minValue || 1
   const yMin = Math.max(0, minValue - valueRange * 0.1)
   const yMax = maxValue + valueRange * 0.1
@@ -400,6 +409,10 @@ export default function Dashboard() {
                     const currentValue = Number(payload[0].value ?? 0)
                     const absoluteChange = currentValue - baselineValue
                     const percentChange = baselineValue !== 0 ? (absoluteChange / baselineValue) * 100 : 0
+                    const percentChangeText = Math.abs(percentChange).toLocaleString(locale, {
+                      minimumFractionDigits: 2,
+                      maximumFractionDigits: 2,
+                    })
                     const changeColor = absoluteChange >= 0 ? 'var(--accent-green)' : 'var(--accent-red)'
                     const sign = absoluteChange >= 0 ? '+' : ''
 
@@ -415,7 +428,7 @@ export default function Dashboard() {
                         <div style={{ marginBottom: '8px', fontWeight: 600 }}>{formatTooltipDate(String(label), historyRange, locale)}</div>
                         <div style={{ marginBottom: '6px' }}>{t(language, 'dashboard.portfolioValue')}: {formatCurrency(currentValue, locale, currency)}</div>
                         <div style={{ color: changeColor, fontWeight: 600 }}>
-                          {t(language, 'dashboard.change')}: {sign}{formatCurrency(absoluteChange, locale, currency)} ({sign}{percentChange.toFixed(2)}%)
+                          {t(language, 'dashboard.change')}: {sign}{formatCurrency(absoluteChange, locale, currency)} ({sign}{percentChangeText}%)
                         </div>
                       </div>
                     )
