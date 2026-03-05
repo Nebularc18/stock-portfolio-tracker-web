@@ -221,19 +221,17 @@ def refresh_all_prices(db: Session = Depends(get_db)):
             stock.last_updated = request_ts
             updated += 1
 
-        should_refresh_logo = True
-        if should_refresh_logo:
-            logo_url = brandfetch_service.get_logo_url_for_ticker(
-                stock.ticker,
-                stock.name,
-                force_refresh=False,
-            )
-            if logo_url and logo_url != stock.logo:
-                if not stock.logo:
-                    logos_backfilled += 1
-                else:
-                    logos_refreshed += 1
-                stock.logo = logo_url
+        logo_url = brandfetch_service.get_logo_url_for_ticker(
+            stock.ticker,
+            stock.name,
+            force_refresh=False,
+        )
+        if logo_url and logo_url != stock.logo:
+            if not stock.logo:
+                logos_backfilled += 1
+            else:
+                logos_refreshed += 1
+            stock.logo = logo_url
         
         if stock.current_price is not None:
             existing_price = db.query(StockPriceHistory).filter(

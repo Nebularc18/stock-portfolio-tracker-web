@@ -21,37 +21,39 @@ const COLORS = {
   strong_sell: '#ef4444',
 }
 
+
+function getStartOfRelativeMonth(period: string): Date | null {
+  if (!period) return null;
+  const match = /^-?\d+m$/.exec(period);
+  if (match) {
+    const monthsAgo = Math.abs(parseInt(period.replace('m', ''), 10));
+    const date = new Date();
+    date.setDate(1);
+    date.setMonth(date.getMonth() - monthsAgo);
+    return date;
+  }
+  return null;
+}
+
 function formatPeriod(period: string, locale: string): string {
-  if (/^-?\d+m$/.test(period)) {
-    const monthsAgo = Math.abs(parseInt(period.replace('m', ''), 10))
-    const date = new Date()
-    date.setDate(1)
-    date.setMonth(date.getMonth() - monthsAgo)
-    return date.toLocaleDateString(locale, { month: 'short' })
+  const relDate = getStartOfRelativeMonth(period);
+  if (relDate) {
+    return relDate.toLocaleDateString(locale, { month: 'short' });
   }
-
-  const date = new Date(period)
+  const date = new Date(period);
   if (Number.isNaN(date.getTime())) {
-    return period
+    return period;
   }
-
-  return date.toLocaleDateString(locale, { month: 'short' })
+  return date.toLocaleDateString(locale, { month: 'short' });
 }
 
 function parsePeriodToDate(period: string): Date | null {
-  if (!period) return null
-
-  if (/^-?\d+m$/.test(period)) {
-    const monthsAgo = Math.abs(parseInt(period.replace('m', ''), 10))
-    const date = new Date()
-    date.setDate(1)
-    date.setMonth(date.getMonth() - monthsAgo)
-    return date
-  }
-
-  const parsed = new Date(period)
-  if (!Number.isNaN(parsed.getTime())) return parsed
-  return null
+  if (!period) return null;
+  const relDate = getStartOfRelativeMonth(period);
+  if (relDate) return relDate;
+  const parsed = new Date(period);
+  if (!Number.isNaN(parsed.getTime())) return parsed;
+  return null;
 }
 
 export default function RecommendationChart({
@@ -110,8 +112,11 @@ export default function RecommendationChart({
     .slice(-4)
 
   const maxTotal = Math.max(
-    ...displayData.map(({ rec }) => rec.total_analysts ?? (rec.strong_buy + rec.buy + rec.hold + rec.sell + rec.strong_sell) || 1)
-  )
+    ...displayData.map(({ rec }) => {
+      const total = rec.total_analysts ?? (rec.strong_buy + rec.buy + rec.hold + rec.sell + rec.strong_sell);
+      return total || 1;
+    })
+  );
 
   const content = (
     <>
