@@ -481,7 +481,11 @@ class StockService:
         """
         Retrieve upcoming dividend events for a stock.
         
-        For Swedish tickers (ending with ".ST"), the Avanza calendar is used when available; for other tickers the function attempts to use yfinance's calendar.
+        Avanza is used as the primary data source for any ticker that has an Avanza mapping
+        (instrument_id). If Avanza returns events, those are returned directly. If the ticker
+        has an Avanza mapping but no upcoming events are found, an empty list is returned
+        (no yfinance fallback is attempted for mapped tickers). For unmapped tickers, yfinance
+        is used as the data source.
         
         Parameters:
             ticker (str): Stock ticker symbol (case is ignored).
@@ -492,6 +496,7 @@ class StockService:
                 - 'amount' (float|None): Dividend amount if available.
                 - 'currency' (str|None): Currency code if available.
                 - 'payment_date' (str|None): Payment date in 'YYYY-MM-DD' format (present for Avanza-sourced events).
+                - 'dividend_type' (str|None): Dividend type identifier (e.g. 'ordinary', 'bonus').
                 - 'source' (str): Data source identifier, e.g. 'avanza' or 'yahoo'.
         """
         ticker = ticker.upper()
@@ -511,18 +516,13 @@ class StockService:
                     'source': 'avanza'
                 } for div in avanza_dividends]
 
-            if ticker.endswith('.ST'):
-                logger.debug(
-                    f"Avanza mapping found for Swedish ticker {ticker} but no upcoming dividends returned; "
-                    f"keeping Avanza-only behavior"
-                )
-                return []
-
             logger.debug(
-                f"Avanza mapping found for non-Swedish ticker {ticker} but no upcoming dividends returned; "
-                f"falling back to yfinance"
+                f"Avanza mapping found for {ticker} but no upcoming dividends returned; "
+                f"returning empty list (no yfinance fallback for mapped tickers)"
             )
-        elif ticker.endswith('.ST'):
+            return []
+
+        if ticker.endswith('.ST'):
             logger.debug(f"Swedish ticker {ticker} has no Avanza mapping or instrument_id, falling back to yfinance")
         
         try:
