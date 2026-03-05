@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useId, useState } from 'react'
 import { AnalystRecommendation, RecommendationTrend } from '../services/api'
 import { useSettings } from '../SettingsContext'
 import { getLocaleForLanguage, t } from '../i18n'
@@ -58,7 +58,11 @@ function parsePeriodToDate(period: string): Date | null {
 
 function getRecTotal(rec: RecommendationTrend | AnalystRecommendation): number {
   const total = rec.total_analysts ?? ((rec.strong_buy ?? 0) + (rec.buy ?? 0) + (rec.hold ?? 0) + (rec.sell ?? 0) + (rec.strong_sell ?? 0))
-  return total || 1
+  return total ?? 0
+}
+
+function getRecScaleTotal(rec: RecommendationTrend | AnalystRecommendation): number {
+  return Math.max(getRecTotal(rec), 1)
 }
 
 export default function RecommendationChart({
@@ -71,6 +75,7 @@ export default function RecommendationChart({
   withCard = true,
 }: Props) {
   const [hoveredBar, setHoveredBar] = useState<number | null>(null)
+  const tooltipIdPrefix = `recommendation-tooltip-${useId().replace(/:/g, '')}`
   const { language } = useSettings()
   const locale = localeOverride ?? getLocaleForLanguage(language)
   const labels = labelsOverride ?? {
@@ -116,8 +121,8 @@ export default function RecommendationChart({
     return null
   }
 
-  const maxTotal = Math.max(
-    ...displayData.map(({ rec }) => getRecTotal(rec))
+  const maxScaleTotal = Math.max(
+    ...displayData.map(({ rec }) => getRecScaleTotal(rec))
   );
 
   const content = (
@@ -125,8 +130,9 @@ export default function RecommendationChart({
       <div style={{ display: 'flex', gap: '16px', marginBottom: '24px' }}>
         {displayData.map(({ rec }, index) => {
           const total = getRecTotal(rec)
-          const barHeight = Math.max(4, (total / maxTotal) * 150)
-          const tooltipId = `recommendation-tooltip-${index}`
+          const scaleTotal = getRecScaleTotal(rec)
+          const barHeight = Math.max(4, (scaleTotal / maxScaleTotal) * 150)
+          const tooltipId = `${tooltipIdPrefix}-${index}`
           
           const segments = [
             { key: 'strong_buy', value: rec.strong_buy ?? 0, color: COLORS.strong_buy },
@@ -163,7 +169,7 @@ export default function RecommendationChart({
                 background: 'var(--bg-tertiary)'
               }}>
                 {segments.map((seg, segIndex) => {
-                  const height = total > 0 ? (seg.value / total) * barHeight : 0
+                  const height = (seg.value / scaleTotal) * barHeight
                   return (
                     <div
                       key={seg.key}
