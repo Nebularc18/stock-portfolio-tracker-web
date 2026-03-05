@@ -12,12 +12,12 @@ export default function Settings() {
   const { refreshData } = useHeaderData()
   const [availableIndices, setAvailableIndices] = useState<AvailableIndex[]>([])
   const [loadingIndices, setLoadingIndices] = useState(true)
-  const [indicesError, setIndicesError] = useState<string | null>(null)
+  const [indicesLoadFailed, setIndicesLoadFailed] = useState(false)
 
   useEffect(() => {
     let cancelled = false
     setLoadingIndices(true)
-    setIndicesError(null)
+    setIndicesLoadFailed(false)
     api.settings.availableIndices()
       .then((indices) => {
         if (cancelled) return
@@ -26,7 +26,7 @@ export default function Settings() {
       .catch((err) => {
         if (cancelled) return
         console.error('Failed to load available indices:', err)
-        setIndicesError(t(language, 'settings.failedLoadIndices'))
+        setIndicesLoadFailed(true)
       })
       .finally(() => {
         if (cancelled) return
@@ -36,7 +36,7 @@ export default function Settings() {
     return () => {
       cancelled = true
     }
-  }, [language])
+  }, [])
 
   const invalidateHeaderCache = () => {
     refreshData(true)
@@ -185,8 +185,8 @@ export default function Settings() {
         
         {loadingIndices ? (
           <p style={{ color: 'var(--text-secondary)' }}>{t(language, 'settings.loadingIndices')}</p>
-        ) : indicesError ? (
-          <p style={{ color: 'var(--accent-red)' }}>{indicesError}</p>
+        ) : indicesLoadFailed ? (
+          <p style={{ color: 'var(--accent-red)' }}>{t(language, 'settings.failedLoadIndices')}</p>
         ) : (
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: '12px' }}>
             {availableIndices.map((idx) => (

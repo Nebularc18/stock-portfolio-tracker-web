@@ -128,6 +128,8 @@ def run(direction: str) -> None:
     engine = create_engine(DATABASE_URL)
     try:
         with engine.begin() as conn:
+            conn.execute(text("SET LOCAL lock_timeout = '5s'"))
+            conn.execute(text("SET LOCAL statement_timeout = '30s'"))
             if direction == "upgrade":
                 upgrade(conn)
             else:
@@ -137,6 +139,15 @@ def run(direction: str) -> None:
 
 
 if __name__ == "__main__":
-    action = sys.argv[1] if len(sys.argv) > 1 else "upgrade"
+    allowed_actions = {"upgrade", "downgrade"}
+    if len(sys.argv) != 2 or sys.argv[1] not in allowed_actions:
+        print(
+            "Usage: python backend/migrations/20260305_add_timezone_to_datetime_columns.py "
+            "<upgrade|downgrade>",
+            file=sys.stderr,
+        )
+        sys.exit(1)
+
+    action = sys.argv[1]
     run(action)
     print(f"Migration completed: {action}")
