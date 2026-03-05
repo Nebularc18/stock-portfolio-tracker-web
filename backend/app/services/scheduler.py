@@ -15,11 +15,20 @@ logger = logging.getLogger(__name__)
 scheduler = BackgroundScheduler()
 
 def refresh_all_stocks():
-    """Refresh all stock prices in the portfolio.
+    """
+    Refresh portfolio stock data and record price and portfolio value history.
     
-    Only refreshes if markets are open or within post-close window.
-    Updates current prices and records daily price history.
-    Also records portfolio value history for the dashboard chart.
+    Checks market hours and, if refresh is allowed, updates each stock's current_price,
+    previous_close, sector (preserving existing when unavailable), dividend_yield,
+    dividend_per_share, and last_updated in the database. For stocks with a current
+    price, records or updates today's StockPriceHistory. Computes the portfolio's
+    total value converted to SEK using available exchange rates and, when all
+    positions could be converted, upserts the total into PortfolioHistory using a
+    15-minute rounded interval. Commits changes and closes the database session.
+    
+    Notes:
+    - If markets are closed according to MarketHoursService.should_refresh(), no work is performed.
+    - Individual stocks lacking a conversion rate to SEK are skipped and logged; in that case portfolio history is not recorded.
     """
     from app.main import get_db, Stock, StockPriceHistory, PortfolioHistory
     from app.services.stock_service import StockService

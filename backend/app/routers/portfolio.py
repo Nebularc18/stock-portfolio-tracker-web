@@ -19,13 +19,11 @@ router = APIRouter()
 logger = logging.getLogger(__name__)
 
 def get_display_currency(db: Session) -> str:
-    """Retrieve the user's preferred display currency.
-    
-    Args:
-        db: Database session.
+    """
+    Get the user's preferred display currency.
     
     Returns:
-        str: Display currency code (defaults to 'SEK').
+        The currency code to use for display (for example, "USD" or "SEK"). Returns "SEK" if no user settings exist.
     """
     settings = db.query(UserSettings).first()
     if settings:
@@ -61,22 +59,22 @@ def convert_value(value: float, from_currency: str, to_currency: str, rates: dic
 
 @router.get("/summary")
 def get_portfolio_summary(db: Session = Depends(get_db)):
-    """Calculate portfolio summary with totals and per-stock data.
-    
-    Args:
-        db: Database session dependency.
+    """
+    Calculate portfolio summary including totals and per-stock metrics in the user's display currency.
     
     Returns:
-        dict: Portfolio summary containing:
-            - total_value (float): Total portfolio value in display currency.
-            - total_cost (float): Total cost basis in display currency.
-            - total_gain_loss (float): Total gain/loss in display currency.
-            - total_gain_loss_percent (float): Gain/loss as percentage.
-            - display_currency (str): Currency used for display values.
-            - stocks (list): List of stock data dictionaries.
-            - stock_count (int): Number of stocks in portfolio.
-            - unconverted_stocks (list): Stocks that could not be converted
-              to display_currency due to missing exchange rates.
+        dict: A summary object with keys:
+            total_value (float): Total portfolio value in display currency.
+            total_cost (float): Total cost basis in display currency.
+            total_gain_loss (float): Aggregate gain or loss in display currency.
+            total_gain_loss_percent (float): Gain or loss as a percentage (0 if total_cost <= 0).
+            display_currency (str): Currency code used for display values.
+            stocks (list): Per-stock dictionaries containing:
+                - ticker, name, quantity, current_price, current_value, currency, sector, logo
+                - gain_loss (float or None), gain_loss_percent (float or None)
+                - current_value_converted (bool), cost_converted (bool)
+            stock_count (int): Number of stocks processed.
+            unconverted_stocks (list): Entries for stocks omitted from totals due to missing exchange rates.
     """
     stocks = db.query(Stock).all()
     display_currency = get_display_currency(db)
@@ -180,18 +178,17 @@ def get_portfolio_summary(db: Session = Depends(get_db)):
 
 @router.post("/refresh-all")
 def refresh_all_prices(db: Session = Depends(get_db)):
-    """Refresh price data for all stocks in the portfolio.
+    """
+    Refresh current prices and logos for all portfolio stocks, record daily price history, and update the portfolio's total value.
     
-    Fetches current prices from external sources, updates stock records,
-    and records daily portfolio value for history tracking.
-    
-    Args:
-        db: Database session dependency.
+    Fetches price and metadata from external services, upserts per-stock today's price history, converts per-stock values to SEK to compute the portfolio total for the current 15-minute interval, and upserts that total into PortfolioHistory.
     
     Returns:
         dict: Response containing:
-            - message (str): Summary message, e.g. "Refreshed 5 stocks".
-            - skipped (int): Count of stocks skipped due to missing exchange rates.
+            - message (str): Summary, e.g. "Refreshed 5 stocks".
+            - skipped (int): Number of stocks skipped due to missing exchange rates.
+            - logos_backfilled (int): Number of stocks that received a logo where none existed.
+            - logos_refreshed (int): Number of stocks whose logo URL was updated.
     """
     from app.services.stock_service import StockService
     from app.services.exchange_rate_service import ExchangeRateService
@@ -295,15 +292,15 @@ def get_portfolio_history(
     range_key: Optional[str] = Query(None, alias="range"),
     db: Session = Depends(get_db)
 ):
-    """Retrieve historical portfolio value snapshots.
+    """
+    Return portfolio total-value snapshots for a requested historical range.
     
-    Args:
-        days: Number of days of history to retrieve.
-        range_key: Optional predefined range (1d, 1w, 1m, ytd, 1y, since_start).
-        db: Database session dependency.
-    
+    Parameters:
+        days (int): Fallback number of days to include when `range_key` is not provided; will be coerced to an integer between 1 and 3650.
+        range_key (Optional[str]): Optional predefined range; supported values: "1d", "1w", "1m", "ytd", "1y", "since_start", "all". If provided, it takes precedence over `days`.
+        
     Returns:
-        List[dict]: List of {date, value} records ordered by date ascending.
+        List[dict]: Ordered list of records with keys `date` (timestamp) and `value` (total portfolio value) sorted ascending by date.
     """
     from datetime import timedelta
     
@@ -376,19 +373,31 @@ def get_portfolio_distribution(db: Session = Depends(get_db)):
 @router.get("/upcoming-dividends")
 def get_upcoming_portfolio_dividends(db: Session = Depends(get_db)):
     """
-    Collect current-year dividend events for all portfolio stocks and convert per-stock totals into the user's display currency.
+    Collect current-year dividend events for all stocks in the portfolio and convert per-stock totals into the user's display currency.
     
     Returns:
-        dict: A mapping with keys:
-                        - dividends (list): Each item is a dict with keys `ticker`, `name`, `quantity`, `ex_date`, `payment_date`,
-              `amount_per_share`, `total_amount` (amount_per_share * quantity), `currency`, `total_converted` (converted to
-                            display currency or `None` if conversion not available), `display_currency`, `source`, `payout_date`, and `status`.
-                        - total_expected (float): Sum of `total_converted` for current-year dividends where conversion succeeded.
-                        - total_received (float): Sum of paid current-year dividends (`status == 'paid'`) where conversion succeeded.
-                        - total_remaining (float): Sum of remaining current-year dividends (`status == 'upcoming'`) where conversion succeeded.
-            - display_currency (str): The user's display currency used for conversions.
-            - unmapped_stocks (list): List of dicts for Swedish tickers without Avanza mapping; each dict has `ticker`,
-              `name`, and `reason`.
+        dict: {
+            'dividends': list of dict — Each item contains:
+                - 'ticker' (str)
+                - 'name' (str)
+                - 'quantity' (number)
+                - 'ex_date' (str or None)
+                - 'payment_date' (str or None)
+                - 'payout_date' (str) — chosen payment_date or ex_date
+                - 'status' (str) — 'paid' or 'upcoming'
+                - 'dividend_type' (str or None)
+                - 'amount_per_share' (number)
+                - 'total_amount' (number) — amount_per_share * quantity
+                - 'currency' (str) — original dividend currency
+                - 'total_converted' (float or None) — total_amount converted to display currency, or None if conversion unavailable
+                - 'display_currency' (str)
+                - 'source' (str) — data source, e.g. 'avanza' or 'yahoo'
+            'total_expected' (float): Sum of `total_converted` for dividends with conversion available.
+            'total_received' (float): Sum of `total_converted` for dividends with status == 'paid'.
+            'total_remaining' (float): Sum of `total_converted` for dividends with status == 'upcoming'.
+            'display_currency' (str): The user's display currency used for conversions.
+            'unmapped_stocks' (list): List of dicts { 'ticker': str, 'name': str, 'reason': str } for securities lacking Avanza mapping.
+        }
     """
     from app.services.stock_service import StockService
     from app.services.avanza_service import avanza_service
@@ -409,6 +418,17 @@ def get_upcoming_portfolio_dividends(db: Session = Depends(get_db)):
     current_year = now.year
 
     def parse_event_date(value) -> Optional[date]:
+        """
+        Parse a date-like value and return a date object.
+        
+        Accepts a datetime.date, datetime.datetime, or string representation (ISO date or ISO datetime; accepts a trailing 'Z' UTC designator). Leading/trailing whitespace is ignored. If the input is None, empty, not a supported type, or cannot be parsed, returns None.
+        
+        Parameters:
+            value: A date/datetime object or a string to parse.
+        
+        Returns:
+            A datetime.date parsed from the input, or `None` if parsing fails or the input is invalid.
+        """
         if value is None:
             return None
         if isinstance(value, datetime):
@@ -439,6 +459,22 @@ def get_upcoming_portfolio_dividends(db: Session = Depends(get_db)):
                 return None
 
     def normalize_dividend_event(raw_div: dict, event_type: str) -> dict:
+        """
+        Normalize a raw dividend event into a standardized dictionary with consistent keys.
+        
+        Parameters:
+            raw_div (dict): Raw dividend data containing any of 'date' (historical), 'ex_date' (upcoming), 'payment_date', 'amount', 'currency', 'source', and 'dividend_type'.
+            event_type (str): Indicates the input shape; use 'historical' when the ex-date is provided under the 'date' key, otherwise the function will read 'ex_date'.
+        
+        Returns:
+            dict: Normalized dividend event with keys:
+                - 'ex_date': ex-dividend date string (from 'date' for historical events or 'ex_date' otherwise).
+                - 'payment_date': payment date value from the input or None.
+                - 'amount': dividend amount per share from the input or None.
+                - 'currency': currency code from the input or None.
+                - 'source': data source (defaults to 'yahoo' if not provided).
+                - 'dividend_type': dividend classification from the input or None.
+        """
         if event_type == 'historical':
             ex_date = raw_div.get('date', '')
         else:
@@ -454,6 +490,15 @@ def get_upcoming_portfolio_dividends(db: Session = Depends(get_db)):
         }
 
     def get_yahoo_normalized_events(ticker: str) -> list:
+        """
+        Fetches and returns a unified list of normalized dividend events (historical and upcoming) for the given stock ticker.
+        
+        Parameters:
+            ticker (str): The stock ticker symbol to retrieve dividend events for.
+        
+        Returns:
+            list: A list of normalized dividend event dictionaries. Each dictionary contains standardized fields such as ex_date, payment_date, amount, currency, and a `source` field indicating `'historical'` or `'upcoming'`.
+        """
         historical = stock_service.get_dividends(ticker, years=2) or []
         upcoming = stock_service.get_upcoming_dividends(ticker) or []
 

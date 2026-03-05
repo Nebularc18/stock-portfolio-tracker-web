@@ -379,17 +379,17 @@ class StockService:
         Retrieve recent dividend history for a stock.
         
         Parameters:
-            ticker (str): Stock ticker symbol (case-insensitive). If the ticker has an Avanza mapping, Avanza data is used.
+            ticker (str): Stock ticker symbol (case-insensitive). If an Avanza mapping with a valid instrument_id exists, Avanza data is used and takes precedence over Yahoo.
             years (int): Number of years of history to retrieve (default 5).
         
         Returns:
-            list: Chronologically sorted (newest first) list of dividend records. Each record is a dict with keys:
+            list: List of dividend records sorted newest first. Each record is a dict with keys:
                 - date (str): Ex-dividend date in "YYYY-MM-DD" format.
                 - amount (float): Dividend amount per share.
                 - currency (str|None): Currency code when known, otherwise `None`.
-                - payment_date (str|None): Payment date in "YYYY-MM-DD" format when available.
-                - dividend_type (str|None): Dividend type identifier when available.
                 - source (str): Origin of the data, e.g., "avanza" or "yahoo".
+                - payment_date (str|None): Payment date in "YYYY-MM-DD" format when available (otherwise `None`).
+                - dividend_type (str|None): Dividend type when available (otherwise `None`).
         """
         ticker = ticker.upper()
         
@@ -531,6 +531,17 @@ class StockService:
             yf_ticker = yf.Ticker(ticker)
 
             def _to_date_str(value: Any) -> Optional[str]:
+                """
+                Normalize various date-like inputs to an ISO date string (YYYY-MM-DD) or return None.
+                
+                Parameters:
+                    value (Any): A date-like input which may be a datetime/date object, a pandas Timestamp (or similar with `to_pydatetime`),
+                                 a list/sequence whose first element is a date-like value, an integer/float epoch timestamp (seconds),
+                                 or a string representation of a date.
+                
+                Returns:
+                    Optional[str]: An ISO-formatted date string `YYYY-MM-DD` if the input can be interpreted as a date, `None` otherwise.
+                """
                 if value is None:
                     return None
 

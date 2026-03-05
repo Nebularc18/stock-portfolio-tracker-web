@@ -31,6 +31,15 @@ class TestStockServiceUpcomingDividends:
         )
 
         def _fail_yfinance_import(_name):
+            """
+            Raise an assertion error if an attempt is made to import yfinance.
+            
+            Parameters:
+                _name (str): The module name passed to the import hook; expected to be `"yfinance"` when used in tests.
+            
+            Raises:
+                AssertionError: Always raised with the message "yfinance fallback should not be used for mapped ticker with Avanza data".
+            """
             raise AssertionError("yfinance fallback should not be used for mapped ticker with Avanza data")
 
         monkeypatch.setattr("app.services.stock_service.importlib.import_module", _fail_yfinance_import)
@@ -44,6 +53,11 @@ class TestStockServiceUpcomingDividends:
         assert upcoming[0]["dividend_type"] == "ordinary"
 
     def test_mapped_ticker_returns_multiple_avanza_events(self, monkeypatch):
+        """
+        Verifies that when a ticker is mapped to an Avanza instrument, multiple Avanza dividend events are returned.
+        
+        Asserts that two upcoming dividend items are produced in the original order with their `dividend_type` values preserved and each item marked with source "avanza".
+        """
         service = StockService()
 
         mapping = SimpleNamespace(instrument_id="145016")
@@ -97,6 +111,15 @@ class TestStockServiceUpcomingDividends:
         )
 
         def _fail_yfinance_import(_name):
+            """
+            Rejects attempts to import the yfinance module by raising an AssertionError.
+            
+            Parameters:
+            	_name (str): The name of the module being imported (ignored).
+            
+            Raises:
+            	AssertionError: Always raised with the message "yfinance fallback should not be used for mapped tickers".
+            """
             raise AssertionError("yfinance fallback should not be used for mapped tickers")
 
         monkeypatch.setattr("app.services.stock_service.importlib.import_module", _fail_yfinance_import)
@@ -115,6 +138,18 @@ class TestStockServiceUpcomingDividends:
 
         class FakeYFTicker:
             def __init__(self):
+                """
+                Initialize a fake yfinance Ticker used in tests with preconfigured dividend data.
+                
+                Attributes:
+                    info (dict): Prepopulated fields:
+                        - `exDividendDate` (int): UNIX timestamp (seconds) of the ex-dividend date.
+                        - `dividendDate` (int): UNIX timestamp (seconds) of the payment/dividend date.
+                        - `dividendRate` (float): Dividend amount.
+                        - `currency` (str): Currency code for the dividend.
+                    calendar: Set to `None` to indicate no calendar data.
+                    dividends (list): Empty list representing historical dividend entries.
+                """
                 self.info = {
                     "exDividendDate": 1772928000,
                     "dividendDate": 1773532800,
@@ -127,6 +162,15 @@ class TestStockServiceUpcomingDividends:
         class FakeYFModule:
             @staticmethod
             def Ticker(_ticker):
+                """
+                Return a FakeYFTicker instance regardless of the provided ticker.
+                
+                Parameters:
+                    _ticker (str): Ignored ticker identifier.
+                
+                Returns:
+                    FakeYFTicker: A newly created fake ticker object.
+                """
                 return FakeYFTicker()
 
         monkeypatch.setattr(

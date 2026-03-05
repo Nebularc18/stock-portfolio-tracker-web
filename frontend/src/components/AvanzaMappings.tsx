@@ -4,11 +4,9 @@ import { useSettings } from '../SettingsContext'
 import { t } from '../i18n'
 
 /**
- * Render a UI for managing mappings between Avanza stock names and Yahoo tickers.
+ * Renders the Avanza-to-Yahoo ticker mappings management UI.
  *
- * Shows existing mappings, computes unmapped stocks, provides a form to add mappings (auto-filling Avanza name from the selected stock), handles creation and deletion via the API, and surfaces loading and error states.
- *
- * @returns The rendered React element for the Avanza mappings management UI.
+ * @returns The React element for managing Avanza stock name to Yahoo ticker mappings, including listing, adding, and deleting mappings and showing loading/error states.
  */
 export default function AvanzaMappings() {
   const { language } = useSettings()

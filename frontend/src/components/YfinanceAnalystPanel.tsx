@@ -12,6 +12,14 @@ interface Props {
   currentPrice: number | null
 }
 
+/**
+ * Format a numeric value as a localized currency string.
+ *
+ * @param value - The numeric amount to format; if `null` or `NaN`, the function returns `-`
+ * @param locale - BCP 47 locale identifier used for formatting (e.g., `en-US`, `fr-FR`)
+ * @param currency - ISO 4217 currency code (e.g., `USD`, `EUR`)
+ * @returns A localized currency string with two decimal places, or `-` if `value` is `null` or `NaN`
+ */
 function formatCurrency(value: number | null, locale: string, currency: string): string {
   if (value === null || Number.isNaN(value)) return '-'
   return new Intl.NumberFormat(locale, {
@@ -22,6 +30,20 @@ function formatCurrency(value: number | null, locale: string, currency: string):
   }).format(value)
 }
 
+/**
+ * Render analyst price targets alongside recommendation charts when any relevant data exists.
+ *
+ * Displays a price-range visualization (low/high/average targets and optional current price)
+ * and one or two recommendation charts (YFinance and optional Finnhub). Handles missing values
+ * gracefully and returns `null` when there are no price targets or recommendations to show.
+ *
+ * @param priceTargets - Analyst-provided target values and optional note (may be null)
+ * @param recommendations - YFinance recommendation history (may be null)
+ * @param finnhubRecommendations - Finnhub recommendation history (may be null)
+ * @param currency - Currency code used for formatting displayed monetary values
+ * @param currentPrice - Current market price (may be null)
+ * @returns A React element containing the analyst panel UI, or `null` if there is no data to render
+ */
 export default function YfinanceAnalystPanel({
   priceTargets,
   recommendations,

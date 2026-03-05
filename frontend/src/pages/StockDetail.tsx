@@ -9,6 +9,14 @@ import { useSettings } from '../SettingsContext'
 import { formatTimeInTimezone } from '../utils/time'
 import { getLocaleForLanguage, t } from '../i18n'
 
+/**
+ * Format a numeric value as a localized currency string.
+ *
+ * @param value - The numeric value to format, or `null` to indicate a missing value
+ * @param locale - BCP 47 locale identifier used for formatting (defaults to `'en-US'`)
+ * @param currency - ISO 4217 currency code to use for formatting (defaults to `'USD'`)
+ * @returns A localized currency string (for example, `"$1,234.56"`), or `'-'` when `value` is `null`
+ */
 function formatCurrency(value: number | null, locale: string = 'en-US', currency: string = 'USD'): string {
   if (value === null) return '-'
   return new Intl.NumberFormat(locale, {
@@ -18,6 +26,13 @@ function formatCurrency(value: number | null, locale: string = 'en-US', currency
   }).format(value)
 }
 
+/**
+ * Formats an ISO date string ("YYYY-MM-DD") into a locale-specific short date.
+ *
+ * @param dateStr - Date string in "YYYY-MM-DD" format; empty or falsy returns "`-`".
+ * @param locale - BCP 47 locale tag used for formatting (e.g., "en-US").
+ * @returns The date formatted with localized month, day, and year (e.g., "Mar 5, 2026"), "`-`" for missing input, or the original string if it cannot be parsed as a valid date.
+ */
 function formatDate(dateStr: string, locale: string): string {
   if (!dateStr) return '-'
   const [year, month, day] = dateStr.split('-').map(Number)
@@ -26,6 +41,15 @@ function formatDate(dateStr: string, locale: string): string {
   return date.toLocaleDateString(locale, { month: 'short', day: 'numeric', year: 'numeric', timeZone: 'UTC' })
 }
 
+/**
+ * Produce a normalized display name for a company, using the ticker when `name` is null.
+ *
+ * Removes a trailing "(The)" (case-insensitive), collapses consecutive whitespace into single spaces, and trims leading/trailing whitespace from `name` before returning it. If `name` is null, returns `ticker`.
+ *
+ * @param name - The company's full name, or `null` to indicate no name is available
+ * @param ticker - The company's ticker symbol returned when `name` is `null`
+ * @returns The cleaned company display name or the `ticker` when no name is provided
+ */
 function formatDisplayName(name: string | null, ticker: string): string {
   if (!name) return ticker
   return name
@@ -34,6 +58,12 @@ function formatDisplayName(name: string | null, ticker: string): string {
     .trim()
 }
 
+/**
+ * Estimate the typical number of dividend payments per year from a list of dividends.
+ *
+ * @param dividends - Array of dividend records; each record may include `payment_date` or `date` (ISO date string) used to determine the payment year.
+ * @returns A number between 1 and 12 representing the estimated number of dividend payments per year.
+ */
 function estimateDividendsPerYear(dividends: Dividend[]): number {
   const countsByYear = new Map<number, number>()
 
@@ -67,6 +97,14 @@ function estimateDividendsPerYear(dividends: Dividend[]): number {
   return Math.max(1, Math.min(12, estimated))
 }
 
+/**
+ * Converts a monetary value to Swedish krona (SEK) using provided exchange rates.
+ *
+ * @param amount - The monetary amount to convert; may be `null`.
+ * @param currency - The ISO currency code of `amount` (e.g., `"USD"`, `"EUR"`).
+ * @param safeRates - A lookup of exchange rates where keys are formatted as `"{FROM}_{TO}"` (e.g., `"USD_SEK"` or `"SEK_USD"`). Values are the numeric exchange rate or `null` if unavailable.
+ * @returns The converted amount in SEK, or `null` if `amount` is `null` or no applicable exchange rate is found.
+ */
 function convertToSEKValue(
   amount: number | null,
   currency: string,
@@ -81,6 +119,17 @@ function convertToSEKValue(
   return null
 }
 
+/**
+ * Renders a detailed view for a single stock and manages its related data and user actions.
+ *
+ * Shows overview, profile, dividends, and analyst tabs; loads stock, dividend, upcoming dividend,
+ * suppressed dividend, Finnhub profile/metrics/peers, analyst data, and exchange rates; displays
+ * locale- and timezone-aware currency and date values (including SEK conversions when rates are available);
+ * and exposes UI actions to edit or delete the position, add/edit/delete manual dividends, suppress/restore
+ * dividends, and verify dividend data with Marketstack.
+ *
+ * @returns The React element for the stock detail page.
+ */
 export default function StockDetail() {
   const { ticker } = useParams<{ ticker: string }>()
   const navigate = useNavigate()

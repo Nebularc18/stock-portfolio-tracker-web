@@ -40,10 +40,13 @@ def get_session():
 
 
 def _load_indices_cache() -> dict | None:
-    """Load cached indices data if valid.
+    """
+    Return cached market indices data if it exists and is still valid.
+    
+    Validates the cache's timestamp against its TTL and yields the stored payload when not expired. Returns None when the cache file is missing, expired, unreadable, or an error occurs while accessing it.
     
     Returns:
-        dict: Cached data with indices and timestamps, or None if expired/missing.
+        dict: Cached payload containing keys such as `indices`, `cached_at`, and `ttl`, or `None` if no valid cache is available.
     """
     try:
         os.makedirs(_CACHE_DIR, exist_ok=True)
@@ -64,10 +67,13 @@ def _load_indices_cache() -> dict | None:
 
 
 def _save_indices_cache(data: dict):
-    """Save indices data to cache.
+    """
+    Persist indices data to the filesystem cache at _CACHE_DIR/market_indices.json.
     
-    Args:
-        data: The indices data to cache.
+    Adds `cached_at` (UTC POSIX timestamp) and `ttl` (seconds) to the payload before writing. Ensures the cache directory exists. Filesystem or other errors are logged and suppressed; the function does not raise on failure.
+    
+    Parameters:
+    	data (dict): Payload containing indices data to persist to cache.
     """
     try:
         os.makedirs(_CACHE_DIR, exist_ok=True)
@@ -84,14 +90,15 @@ def _save_indices_cache(data: dict):
 
 
 def fetch_index_data(symbol: str) -> dict | None:
-    """Fetch current price and change data for a market index.
+    """
+    Retrieve the latest price and percentage change for a market index from Yahoo Finance.
     
-    Args:
-        symbol: Yahoo Finance symbol for the index (e.g., '^GSPC' for S&P 500).
+    Parameters:
+        symbol (str): Yahoo Finance symbol for the index (for example, '^GSPC').
     
     Returns:
-        dict: Contains symbol, price, change, and change_percent fields.
-        None: If data could not be fetched or parsed.
+        dict: Mapping with keys 'symbol' (str), 'price' (number), 'change' (number), and 'change_percent' (number).
+        None: If the data could not be fetched or parsed.
     """
     session = get_session()
     
@@ -168,11 +175,17 @@ def should_refresh():
 
 @router.get("/indices")
 def get_market_indices():
-    """Retrieve current data for all tracked market indices.
+    """
+    Retrieve current market data for all tracked indices.
+    
+    Uses a filesystem-backed cache (15-minute TTL). On a valid cache hit returns cached indices and their next refresh time; on a cache miss fetches fresh data, caches it, and returns the new payload.
     
     Returns:
-        dict: Contains 'indices' list with symbol, name, price, change,
-            and change_percent fields, plus 'updated_at' and 'next_refresh_at' timestamps.
+        dict: {
+            "indices": list of objects each containing `symbol`, `name`, `price`, `change`, and `change_percent`;
+            "updated_at": ISO 8601 UTC timestamp string when the data was produced;
+            "next_refresh_at": ISO 8601 UTC timestamp string indicating when the data should be refreshed
+        }
     """
     # Check cache first
     cached = _load_indices_cache()

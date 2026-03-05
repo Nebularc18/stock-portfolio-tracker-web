@@ -36,6 +36,21 @@ ALLOWED_SQL_TYPES = {"TIMESTAMPTZ", "TIMESTAMP"}
 
 
 def _get_column_data_type(conn, table_name: str, column_name: str) -> str:
+    """
+    Retrieve the SQL `data_type` of a column in the public schema.
+    
+    Queries information_schema.columns for the given table and column names within the `public` schema.
+    
+    Parameters:
+        table_name (str): Name of the table in the `public` schema.
+        column_name (str): Name of the column in the table.
+    
+    Returns:
+        data_type (str): The column's SQL `data_type` as reported by information_schema.columns.
+    
+    Raises:
+        RuntimeError: If the specified table.column is not found in information_schema.columns.
+    """
     result = conn.execute(
         text(
             """
@@ -56,6 +71,19 @@ def _get_column_data_type(conn, table_name: str, column_name: str) -> str:
 
 
 def _ensure_and_alter_timezone_column(conn, table_name: str, column_name: str, target: str) -> None:
+    """
+    Ensure a permitted datetime column is converted to the specified timestamp type and perform the ALTER TABLE conversion if required.
+    
+    Parameters:
+    	conn: A DBAPI/SQLAlchemy connection used to execute queries.
+    	table_name (str): Name of the table containing the target column.
+    	column_name (str): Name of the datetime column to convert.
+    	target (str): Desired target type identifier; allowed values are `"timestamptz"` (convert to timestamp with time zone) and `"timestamp"` (convert to timestamp without time zone).
+    
+    Raises:
+    	ValueError: If the (table_name, column_name) pair is not allowed, if `target` is unsupported, or if the resolved SQL type is not permitted.
+    	RuntimeError: If the column's current data type does not match the expected source type for the requested conversion.
+    """
     if (table_name, column_name) not in ALLOWED_TARGET_COLUMNS:
         raise ValueError(f"Unsupported migration target {table_name}.{column_name}")
 
@@ -97,6 +125,17 @@ def _ensure_and_alter_timezone_column(conn, table_name: str, column_name: str, t
 
 
 def upgrade(conn) -> None:
+    """
+    Convert the configured datetime columns to timezone-aware TIMESTAMPTZ using the provided database connection.
+    
+    Iterates over TARGET_COLUMNS and alters each column to TIMESTAMPTZ; any exception raised during a column conversion is propagated.
+    
+    Parameters:
+        conn: A SQLAlchemy Connection (typically within a transactional context) used to execute the schema changes.
+    
+    Raises:
+        Exception: Propagates any error encountered while converting a column.
+    """
     for table_name, column_name in TARGET_COLUMNS:
         logger.info("[upgrade] Processing %s.%s", table_name, column_name)
         try:
@@ -108,6 +147,14 @@ def upgrade(conn) -> None:
 
 
 def downgrade(conn) -> None:
+    """
+    Reverts each target column to a timezone-naive TIMESTAMP (timestamp without time zone).
+    
+    Iterates over TARGET_COLUMNS and attempts to alter each column back to a timestamp without time zone,
+    logging progress for each column. If a column conversion fails, the exception is logged and re-raised.
+    Parameters:
+        conn: A transactional SQLAlchemy connection used to execute the ALTER TABLE statements.
+    """
     for table_name, column_name in TARGET_COLUMNS:
         logger.info("[downgrade] Processing %s.%s", table_name, column_name)
         try:
@@ -119,6 +166,14 @@ def downgrade(conn) -> None:
 
 
 def run(direction: str) -> None:
+    """
+    Run the migration in the given direction within a short-timeout transactional connection.
+    
+    Validates `direction` is either "upgrade" or "downgrade", ensures a basic logging configuration exists if none is set, creates a SQLAlchemy engine from the module DATABASE_URL, opens a transactional connection with short local lock and statement timeouts, executes the requested migration (calls `upgrade` or `downgrade`), and disposes the engine when finished.
+    
+    Parameters:
+        direction (str): Either "upgrade" to convert target columns to TIMESTAMPTZ or "downgrade" to revert them to TIMESTAMP.
+    """
     if direction not in {"upgrade", "downgrade"}:
         raise ValueError("direction must be 'upgrade' or 'downgrade'")
 

@@ -7,6 +7,15 @@ interface Props {
   loading?: boolean
 }
 
+/**
+ * Render a compact card showing a metric label and its formatted value.
+ *
+ * @param label - Text label displayed above the metric value
+ * @param value - Metric value to display; if `null` or `undefined` a dash (`-`) is shown
+ * @param format - Display format: 'number', 'percent', 'currency', 'date', or 'volume'
+ * @param locale - Locale used for date formatting
+ * @returns A JSX element containing the styled label and the formatted value
+ */
 function MetricCard({ label, value, format = 'number', locale }: { label: string; value: string | number | null; format?: 'number' | 'percent' | 'currency' | 'date' | 'volume'; locale: string }) {
   const formattedValue = () => {
     if (value === null || value === undefined) return '-'
@@ -58,6 +67,16 @@ function MetricCard({ label, value, format = 'number', locale }: { label: string
   )
 }
 
+/**
+ * Renders a localized card containing a 4x4 grid of formatted financial metric tiles.
+ *
+ * Displays a localized loading message when `loading` is true, renders nothing when `metrics` is null,
+ * and otherwise shows metric values formatted (percent, currency, date, volume, or number) with localized labels.
+ *
+ * @param props.metrics - Financial metrics object or `null`. When present, individual fields (e.g., `pe_ttm`, `roe_ttm`, `52_week_high`, `avg_volume_10d`) are displayed in the grid.
+ * @param props.loading - Optional flag that, when true, shows a localized loading state instead of the metrics.
+ * @returns The rendered financial metrics card element, or `null` if `metrics` is falsy.
+ */
 export default function FinancialMetrics({ metrics, loading }: Props) {
   const { language } = useSettings()
   const locale = getLocaleForLanguage(language)

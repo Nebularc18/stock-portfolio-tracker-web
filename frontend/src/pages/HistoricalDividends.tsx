@@ -4,11 +4,26 @@ import { api, Stock } from '../services/api'
 import { getLocaleForLanguage, t } from '../i18n'
 import { useSettings } from '../SettingsContext'
 
+/**
+ * Produces the locale-formatted short name for a given month.
+ *
+ * @param month - The month number (1 = January, 12 = December)
+ * @param locale - BCP 47 locale string used for formatting (e.g., "en-US")
+ * @returns The short month name formatted for `locale` (for example, "Jan" or its localized equivalent)
+ */
 function getMonthName(month: number, locale: string): string {
   const date = new Date(Date.UTC(2000, month - 1, 1))
   return new Intl.DateTimeFormat(locale, { month: 'short', timeZone: 'UTC' }).format(date)
 }
 
+/**
+ * Format a numeric amount as a localized currency string.
+ *
+ * @param value - The numeric amount to format
+ * @param locale - BCP 47 locale identifier used for number formatting (e.g., `"en-US"`, `"sv-SE"`)
+ * @param currency - ISO 4217 currency code to display (defaults to `"USD"`)
+ * @returns The localized currency string, showing at least two fraction digits
+ */
 function formatCurrency(value: number, locale: string, currency: string = 'USD'): string {
   return new Intl.NumberFormat(locale, {
     style: 'currency',
@@ -33,9 +48,9 @@ interface YearlyData {
 }
 
 /**
- * Renders a historical dividend overview for the user's portfolio.
+ * Render a historical dividend overview grouped by year and month, including per-share values and totals converted to SEK and a year selector.
  *
- * Displays dividends grouped by year and month with per-share and total amounts converted to SEK, a year selector, and a link to view upcoming dividends. Handles empty-portfolio and no-dividends-for-year states and shows cumulative totals for the selected year.
+ * The component fetches portfolio stocks, exchange rates, and recent dividends, excludes dividends without a date or dated in the future, computes monthly and yearly totals (converted to SEK when exchange rates are available), and displays appropriate empty states when the portfolio is empty or the selected year has no data.
  *
  * @returns The rendered dividend history UI as a React element.
  */

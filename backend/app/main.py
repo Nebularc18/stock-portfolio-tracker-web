@@ -211,6 +211,17 @@ class StockResponse(BaseModel):
     @field_validator("last_updated", mode="before")
     @classmethod
     def ensure_last_updated_utc(cls, value: Optional[datetime]) -> Optional[datetime]:
+        """
+        Normalize a datetime to UTC.
+        
+        Converts a naive datetime by assigning the UTC timezone, and converts an aware datetime to the equivalent UTC time.
+        
+        Parameters:
+            value (Optional[datetime]): The datetime to normalize; may be timezone-aware or naive.
+        
+        Returns:
+            Optional[datetime]: The input converted to UTC, or None if input is None.
+        """
         if value is None:
             return None
         if value.tzinfo is None:

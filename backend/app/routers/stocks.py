@@ -96,17 +96,19 @@ def get_stock(ticker: str, db: Session = Depends(get_db)):
 
 @router.post("", response_model=StockResponse)
 def create_stock(stock_data: StockCreate, db: Session = Depends(get_db)):
-    """Add a new stock to the portfolio.
+    """
+    Create and persist a new stock record in the portfolio.
     
-    Args:
-        stock_data: Stock creation data (ticker, quantity, purchase_price).
-        db: Database session dependency.
+    Validates the provided ticker, fetches market metadata and a logo, sets timestamps, and saves the new Stock to the database.
+    
+    Parameters:
+        stock_data (StockCreate): Creation data containing at least `ticker`, `quantity`, and `purchase_price`.
     
     Returns:
-        StockResponse: The created stock.
+        Stock: The newly created stock record.
     
     Raises:
-        HTTPException: 400 if stock already exists or ticker is invalid.
+        HTTPException: 400 if the stock already exists, the ticker is invalid, or stock information could not be retrieved.
     """
     from app.services.stock_service import StockService
     from app.services.brandfetch_service import brandfetch_service
@@ -209,17 +211,17 @@ def delete_stock(ticker: str, db: Session = Depends(get_db)):
 
 @router.post("/{ticker}/refresh")
 def refresh_stock(ticker: str, db: Session = Depends(get_db)):
-    """Refresh stock data from external sources.
+    """
+    Refreshes a stock's data from external sources and persists any updates.
     
-    Args:
-        ticker: The stock ticker symbol.
-        db: Database session dependency.
+    Parameters:
+        ticker (str): Stock ticker symbol; case-insensitive.
     
     Returns:
-        StockResponse: The updated stock with fresh data.
+        Stock: The updated Stock ORM instance with refreshed fields, or the existing stock unchanged if no external info was returned.
     
     Raises:
-        HTTPException: 404 if stock not found.
+        HTTPException: 404 if the stock does not exist.
     """
     from app.services.stock_service import StockService
     from app.services.brandfetch_service import brandfetch_service
@@ -342,18 +344,18 @@ def get_analyst_data(ticker: str, db: Session = Depends(get_db)):
 
 @router.post("/{ticker}/manual-dividends", response_model=StockResponse)
 def add_manual_dividend(ticker: str, dividend_data: ManualDividendCreate, db: Session = Depends(get_db)):
-    """Add a manually recorded dividend for a stock.
+    """
+    Add a manually recorded dividend to the specified stock's manual dividends list.
     
-    Args:
-        ticker: The stock ticker symbol.
-        dividend_data: Dividend details (date, amount, currency, note).
-        db: Database session dependency.
-    
+    Parameters:
+        ticker (str): Stock ticker symbol (case-insensitive).
+        dividend_data (ManualDividendCreate): Dividend fields: `date`, `amount`, optional `currency` (defaults to the stock currency), and optional `note`.
+        
     Returns:
-        StockResponse: Updated stock with new manual dividend.
-    
+        The updated Stock object with the new manual dividend appended.
+        
     Raises:
-        HTTPException: 404 if stock not found.
+        HTTPException: 404 if the stock with the given ticker is not found.
     """
     stock = db.query(Stock).filter(Stock.ticker == ticker.upper()).first()
     if not stock:
@@ -383,19 +385,21 @@ def update_manual_dividend(
     dividend_data: ManualDividendUpdate, 
     db: Session = Depends(get_db)
 ):
-    """Update a manually recorded dividend.
+    """
+    Update a manual dividend entry for a stock.
     
-    Args:
-        ticker: The stock ticker symbol.
-        dividend_id: UUID of the dividend to update.
-        dividend_data: Fields to update (date, amount, currency, note).
-        db: Database session dependency.
+    Applies any provided fields from `dividend_data` to the manual dividend identified by `dividend_id` and updates its `updated_at` timestamp to the current UTC time.
     
+    Parameters:
+        ticker (str): Stock ticker symbol (case-insensitive).
+        dividend_id (str): UUID of the manual dividend to update.
+        dividend_data (ManualDividendUpdate): Fields to modify on the dividend.
+        
     Returns:
-        StockResponse: Updated stock with modified dividend.
-    
+        StockResponse: The stock object with the modified `manual_dividends` list.
+        
     Raises:
-        HTTPException: 404 if stock or dividend not found.
+        HTTPException: 404 if the stock or the specified dividend is not found.
     """
     stock = db.query(Stock).filter(Stock.ticker == ticker.upper()).first()
     if not stock:
@@ -554,18 +558,14 @@ def get_suppressed_dividends(ticker: str, db: Session = Depends(get_db)):
 
 @router.get("/{ticker}/price-history")
 def get_stock_price_history(ticker: str, days: int = 30, db: Session = Depends(get_db)):
-    """Retrieve historical price data for a stock.
-    
-    Args:
-        ticker: The stock ticker symbol.
-        days: Number of days of history to retrieve (default 30).
-        db: Database session dependency.
+    """
+    Return historical price records for a stock over the requested number of days.
     
     Returns:
-        list: List of price records with date, price, and currency.
+        list: Each item is a dict with keys `date` (ISO 8601 string), `price` (numeric), and `currency` (string).
     
     Raises:
-        HTTPException: 404 if stock not found.
+        HTTPException: 404 if the stock with the given ticker is not found.
     """
     ticker_upper = ticker.upper()
     stock = db.query(Stock).filter(Stock.ticker == ticker_upper).first()

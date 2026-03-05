@@ -59,15 +59,18 @@ def _get_session():
     return _session
 
 def _load_cache(filename: str, include_metadata: bool = False) -> Optional[Any]:
-    """Load cached data from a file if it exists and hasn't expired.
+    """
+    Load a JSON cache entry from disk if it exists and is still within its TTL.
     
-    Args:
-        filename: Name of the cache file to load.
-        include_metadata: If True, return dict with 'value', 'timestamp', and 'ttl'.
+    Parameters:
+        filename (str): Cache filename located under the module's CACHE_DIR.
+        include_metadata (bool): If True, return the raw cache dict containing keys
+            'value', 'timestamp', and 'ttl' instead of only the stored value.
     
     Returns:
-        The cached value if valid, None if expired or not found.
-        If include_metadata is True, returns dict with metadata.
+        The cached value when present and not expired, `None` if the file is missing,
+        expired, or cannot be read. If `include_metadata` is True, returns a dict with
+        keys `value`, `timestamp`, and `ttl` when the cache is valid.
     """
     filepath = os.path.join(CACHE_DIR, filename)
     if not os.path.exists(filepath):
