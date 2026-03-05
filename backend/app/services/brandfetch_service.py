@@ -209,7 +209,7 @@ class BrandfetchService:
         company_name: Optional[str] = None,
         force_refresh: bool = False,
     ) -> Optional[str]:
-        ticker_upper = ticker.upper()
+        ticker_upper = ticker.strip().upper()
         cache_file = _safe_logo_cache_filename(ticker_upper)
 
         if not force_refresh and ticker_upper in _LOGO_CACHE:

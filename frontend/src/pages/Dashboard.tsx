@@ -8,13 +8,13 @@ import { getLocaleForLanguage, t, type TranslationKey } from '../i18n'
 
 type HistoryRangeKey = '1D' | '1W' | '1M' | 'YTD' | '1Y' | 'SINCE_START'
 
-const HISTORY_RANGE_OPTIONS: Array<{ key: HistoryRangeKey; labelKey: TranslationKey; query: string; title: string }> = [
-  { key: '1D', labelKey: 'dashboard.range1D', query: '1d', title: 'Day' },
-  { key: '1W', labelKey: 'dashboard.range1W', query: '1w', title: 'Week' },
-  { key: '1M', labelKey: 'dashboard.range1M', query: '1m', title: 'Month' },
-  { key: 'YTD', labelKey: 'dashboard.rangeYTD', query: 'ytd', title: 'YTD' },
-  { key: '1Y', labelKey: 'dashboard.range1Y', query: '1y', title: '1 Year' },
-  { key: 'SINCE_START', labelKey: 'dashboard.rangeSinceStart', query: 'since_start', title: 'Since Start' },
+const HISTORY_RANGE_OPTIONS: Array<{ key: HistoryRangeKey; labelKey: TranslationKey; query: string }> = [
+  { key: '1D', labelKey: 'dashboard.range1D', query: '1d' },
+  { key: '1W', labelKey: 'dashboard.range1W', query: '1w' },
+  { key: '1M', labelKey: 'dashboard.range1M', query: '1m' },
+  { key: 'YTD', labelKey: 'dashboard.rangeYTD', query: 'ytd' },
+  { key: '1Y', labelKey: 'dashboard.range1Y', query: '1y' },
+  { key: 'SINCE_START', labelKey: 'dashboard.rangeSinceStart', query: 'since_start' },
 ]
 
 type ChartPoint = {

@@ -85,15 +85,19 @@ function RecommendationChart({
     <div style={{ display: 'flex', gap: '16px' }}>
       <div style={{ display: 'flex', gap: '16px', flex: 1, alignItems: 'flex-end' }}>
         {sortedRecommendations.map((rec, index) => {
-          const total = rec.total_analysts ??
-            (rec.strong_buy + rec.buy + rec.hold + rec.sell + rec.strong_sell)
+          const strongBuy = rec.strong_buy ?? 0
+          const buy = rec.buy ?? 0
+          const hold = rec.hold ?? 0
+          const sell = rec.sell ?? 0
+          const strongSell = rec.strong_sell ?? 0
+          const total = rec.total_analysts ?? (strongBuy + buy + hold + sell + strongSell)
 
           const segments = [
-            { key: 'strong_buy', value: rec.strong_buy, color: COLORS.strong_buy },
-            { key: 'buy', value: rec.buy, color: COLORS.buy },
-            { key: 'hold', value: rec.hold, color: COLORS.hold },
-            { key: 'sell', value: rec.sell, color: COLORS.sell },
-            { key: 'strong_sell', value: rec.strong_sell, color: COLORS.strong_sell },
+            { key: 'strong_buy', value: strongBuy, color: COLORS.strong_buy },
+            { key: 'buy', value: buy, color: COLORS.buy },
+            { key: 'hold', value: hold, color: COLORS.hold },
+            { key: 'sell', value: sell, color: COLORS.sell },
+            { key: 'strong_sell', value: strongSell, color: COLORS.strong_sell },
           ].filter(seg => seg.value > 0)
 
           const barHeight = 180
@@ -160,11 +164,11 @@ function RecommendationChart({
                   zIndex: 10,
                 }}>
                   <div style={{ fontWeight: 600, marginBottom: 4 }}>{formatPeriod(rec.period, locale)}</div>
-                  <div style={{ color: COLORS.strong_buy, fontSize: 12 }}>■ {labels.strong_buy}: {rec.strong_buy}</div>
-                  <div style={{ color: COLORS.buy, fontSize: 12 }}>■ {labels.buy}: {rec.buy}</div>
-                  <div style={{ color: COLORS.hold, fontSize: 12 }}>■ {labels.hold}: {rec.hold}</div>
-                  <div style={{ color: COLORS.sell, fontSize: 12 }}>■ {labels.sell}: {rec.sell}</div>
-                  <div style={{ color: COLORS.strong_sell, fontSize: 12 }}>■ {labels.strong_sell}: {rec.strong_sell}</div>
+                  <div style={{ color: COLORS.strong_buy, fontSize: 12 }}>■ {labels.strong_buy}: {strongBuy}</div>
+                  <div style={{ color: COLORS.buy, fontSize: 12 }}>■ {labels.buy}: {buy}</div>
+                  <div style={{ color: COLORS.hold, fontSize: 12 }}>■ {labels.hold}: {hold}</div>
+                  <div style={{ color: COLORS.sell, fontSize: 12 }}>■ {labels.sell}: {sell}</div>
+                  <div style={{ color: COLORS.strong_sell, fontSize: 12 }}>■ {labels.strong_sell}: {strongSell}</div>
                   <div style={{ fontWeight: 600, marginTop: 4 }}>{totalLabel}: {total}</div>
                 </div>
               )}

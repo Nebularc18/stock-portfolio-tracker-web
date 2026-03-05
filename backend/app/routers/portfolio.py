@@ -235,7 +235,7 @@ def refresh_all_prices(db: Session = Depends(get_db)):
                     logos_refreshed += 1
                 stock.logo = logo_url
         
-        if stock.current_price:
+        if stock.current_price is not None:
             existing_price = db.query(StockPriceHistory).filter(
                 StockPriceHistory.ticker == stock.ticker,
                 StockPriceHistory.recorded_at >= today
@@ -252,7 +252,7 @@ def refresh_all_prices(db: Session = Depends(get_db)):
                 )
                 db.add(price_history)
         
-        if stock.current_price and stock.quantity:
+        if stock.current_price is not None and stock.quantity is not None:
             value = stock.current_price * stock.quantity
             converted_value = convert_value(value, stock.currency, 'SEK', rates)
             if converted_value is not None:
@@ -264,7 +264,7 @@ def refresh_all_prices(db: Session = Depends(get_db)):
                 )
                 skipped += 1
     
-    if updated > 0 and total_value_sek > 0:
+    if updated > 0 and total_value_sek > 0 and skipped == 0:
         now = utc_now()
         interval = now.replace(minute=(now.minute // 15) * 15, second=0, microsecond=0)
         stmt = insert(PortfolioHistory).values(
