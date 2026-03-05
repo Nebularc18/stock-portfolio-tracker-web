@@ -387,6 +387,8 @@ class StockService:
                 - date (str): Ex-dividend date in "YYYY-MM-DD" format.
                 - amount (float): Dividend amount per share.
                 - currency (str|None): Currency code when known, otherwise `None`.
+                - payment_date (str|None): Payment date in "YYYY-MM-DD" format when available.
+                - dividend_type (str|None): Dividend type identifier when available.
                 - source (str): Origin of the data, e.g., "avanza" or "yahoo".
         """
         ticker = ticker.upper()
@@ -462,6 +464,8 @@ class StockService:
                     'date': datetime.fromtimestamp(div_data['date'], tz=timezone.utc).strftime('%Y-%m-%d'),
                     'amount': div_data['amount'],
                     'currency': None,
+                    'payment_date': None,
+                    'dividend_type': None,
                     'source': 'yahoo'
                 })
             

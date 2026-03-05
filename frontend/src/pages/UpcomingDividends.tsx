@@ -111,7 +111,7 @@ export default function UpcomingDividends() {
   }
 
   const groupedByMonth = dividends.reduce((acc, div) => {
-    const key = getMonthKey(div.ex_date)
+    const key = getMonthKey(div.payout_date ?? div.payment_date ?? div.ex_date)
     if (!acc[key]) {
       acc[key] = []
     }

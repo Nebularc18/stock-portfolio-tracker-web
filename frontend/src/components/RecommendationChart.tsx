@@ -35,12 +35,24 @@ function getStartOfRelativeMonth(period: string): Date | null {
   return null;
 }
 
+function parseDateOnlyPeriod(period: string): Date | null {
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(period)
+  if (!match) return null
+
+  const year = Number(match[1])
+  const month = Number(match[2])
+  const day = Number(match[3])
+  if (!year || !month || !day) return null
+
+  return new Date(year, month - 1, day)
+}
+
 function formatPeriod(period: string, locale: string): string {
   const relDate = getStartOfRelativeMonth(period);
   if (relDate) {
     return relDate.toLocaleDateString(locale, { month: 'short' });
   }
-  const date = new Date(period);
+  const date = parseDateOnlyPeriod(period) ?? new Date(period);
   if (Number.isNaN(date.getTime())) {
     return period;
   }
@@ -51,6 +63,8 @@ function parsePeriodToDate(period: string): Date | null {
   if (!period) return null;
   const relDate = getStartOfRelativeMonth(period);
   if (relDate) return relDate;
+  const dateOnly = parseDateOnlyPeriod(period)
+  if (dateOnly) return dateOnly
   const parsed = new Date(period);
   if (!Number.isNaN(parsed.getTime())) return parsed;
   return null;

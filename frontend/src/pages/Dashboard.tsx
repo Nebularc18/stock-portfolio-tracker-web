@@ -287,14 +287,27 @@ export default function Dashboard() {
     return acc
   }, {} as Record<string, UpcomingDividend[]>)
 
+  const getDisplayedDividendAmount = (item: UpcomingDividend): { amount: number; currency: string } => {
+    if (item.total_converted !== null) {
+      return { amount: item.total_converted, currency }
+    }
+
+    const converted = tryConvertToCurrency(item.total_amount, item.currency)
+    if (converted !== null) {
+      return { amount: converted, currency }
+    }
+
+    return { amount: item.total_amount, currency: item.currency }
+  }
+
   const monthlyUpcoming = Object.entries(groupedDividends)
     .sort(([a], [b]) => a.localeCompare(b))
     .map(([monthKey, items]) => ({
       monthKey,
       items,
       subtotal: items.reduce((sum, item) => {
-        const converted = item.total_converted ?? tryConvertToCurrency(item.total_amount, item.currency)
-        return Number.isFinite(converted) ? sum + converted : sum
+        const displayed = getDisplayedDividendAmount(item)
+        return Number.isFinite(displayed.amount) ? sum + displayed.amount : sum
       }, 0),
     }))
 
@@ -580,7 +593,9 @@ export default function Dashboard() {
                   </tr>
                 </thead>
                 <tbody>
-                  {group.items.map((div, i) => (
+                  {group.items.map((div, i) => {
+                    const displayed = getDisplayedDividendAmount(div)
+                    return (
                     <tr key={`${div.ticker}-${div.ex_date}-${div.payment_date ?? 'na'}-${div.dividend_type ?? 'na'}-${i}`}>
                       <td>
                         <Link to={`/stocks/${div.ticker}`} style={{ color: 'var(--accent-blue)', textDecoration: 'none', fontWeight: '600' }}>
@@ -591,7 +606,7 @@ export default function Dashboard() {
                       <td>{div.payment_date ? formatDate(div.payment_date, locale) : '-'}</td>
                       <td style={{ textAlign: 'right' }}>{formatCurrency(div.amount_per_share, locale, div.currency)}</td>
                       <td style={{ color: 'var(--accent-green)', textAlign: 'right' }}>
-                        {formatCurrency(div.total_converted !== null ? div.total_converted : div.total_amount, locale, div.total_converted !== null ? currency : div.currency)}
+                        {formatCurrency(displayed.amount, locale, displayed.currency)}
                       </td>
                       <td>
                         <span style={{
@@ -606,7 +621,8 @@ export default function Dashboard() {
                         </span>
                       </td>
                     </tr>
-                  ))}
+                    )
+                  })}
                 </tbody>
               </table>
             </div>

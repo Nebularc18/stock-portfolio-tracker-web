@@ -36,6 +36,14 @@ def run(direction: str) -> None:
 
 
 if __name__ == "__main__":
-    action = sys.argv[1] if len(sys.argv) > 1 else "upgrade"
+    if len(sys.argv) != 2:
+        print("Usage: python backend/migrations/20260304_add_stocks_logo_column.py [upgrade|downgrade]", file=sys.stderr)
+        sys.exit(1)
+
+    action = sys.argv[1]
+    if action not in {"upgrade", "downgrade"}:
+        print("Invalid action. Use 'upgrade' or 'downgrade'.", file=sys.stderr)
+        sys.exit(1)
+
     run(action)
     print(f"Migration completed: {action}")

@@ -114,8 +114,14 @@ export default function Markets() {
 
   const handleRefresh = async () => {
     setLoading(true)
-    await refreshData(true)
-    await fetchAdditionalData()
+    try {
+      await refreshData(true)
+      await fetchAdditionalData()
+    } catch (err) {
+      console.error('Failed to refresh market data:', err)
+    } finally {
+      setLoading(false)
+    }
   }
 
   if (isLoading && !indices.length) {

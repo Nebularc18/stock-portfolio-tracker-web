@@ -213,16 +213,36 @@ def get_header_market_data(force_refresh: bool = False) -> Dict[str, Any]:
     # Check cache with metadata
     cached_data = _load_cache('market_header.json', include_metadata=True)
     if cached_data is not None and not force_refresh:
-        cached = cached_data.get('value', {})
-        # Calculate next_refresh_at from cache metadata
-        cached_at = cached_data.get('timestamp', 0)
-        ttl = cached_data.get('ttl', HEADER_CACHE_TTL)
-        next_refresh = datetime.fromtimestamp(cached_at + ttl, tz=timezone.utc)
-        
-        return {
-            **cached,
-            'next_refresh_at': next_refresh.isoformat()
-        }
+        cached = cached_data.get('value') if isinstance(cached_data, dict) else None
+        if isinstance(cached, dict):
+            try:
+                cached_at = int(cached_data.get('timestamp', 0))
+            except (TypeError, ValueError, AttributeError):
+                cached_at = 0
+
+            try:
+                ttl = int(cached_data.get('ttl', HEADER_CACHE_TTL))
+            except (TypeError, ValueError, AttributeError):
+                ttl = HEADER_CACHE_TTL
+
+            if ttl <= 0:
+                ttl = HEADER_CACHE_TTL
+
+            next_refresh_at = None
+            if cached_at > 0:
+                try:
+                    next_refresh_at = datetime.fromtimestamp(cached_at + ttl, tz=timezone.utc).isoformat()
+                except (OverflowError, OSError, ValueError, TypeError):
+                    next_refresh_at = None
+
+            if next_refresh_at is None:
+                cached = None
+
+            if isinstance(cached, dict):
+                result = {**cached}
+                result['next_refresh_at'] = next_refresh_at
+
+                return result
     
     all_symbols = list(HEADER_INDICES.keys()) + list(HEADER_FX.keys())
     quotes = _fetch_all_quotes(all_symbols)

@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useId, useRef } from 'react'
 import { useParams, Link, useNavigate } from 'react-router-dom'
 import { api, Stock, Dividend, StockUpcomingDividend, UpcomingDividend, AnalystData, ManualDividend, CompanyProfile, FinancialMetrics, VerificationResult, MarketstackUsage } from '../services/api'
 import CompanyProfileComponent from '../components/CompanyProfile'
@@ -113,8 +113,23 @@ export default function StockDetail() {
   const [verificationLoading, setVerificationLoading] = useState(false)
   const [marketstackStatus, setMarketstackStatus] = useState<MarketstackUsage | null>(null)
   const [exchangeRates, setExchangeRates] = useState<Record<string, number | null>>({})
+  const editModalRef = useRef<HTMLDivElement | null>(null)
+  const previousFocusedElementRef = useRef<HTMLElement | null>(null)
+  const editModalHeadingId = useId()
   const { timezone, language } = useSettings()
   const locale = getLocaleForLanguage(language)
+  const tabs = ['overview', 'profile', 'dividends', 'analyst'] as const
+  const tabLabels: Record<(typeof tabs)[number], string> = {
+    overview: t(language, 'stockDetail.tabOverview'),
+    profile: t(language, 'stockDetail.tabProfile'),
+    dividends: t(language, 'stockDetail.tabDividends'),
+    analyst: t(language, 'stockDetail.tabAnalyst'),
+  }
+
+  const getFocusableElements = (container: HTMLElement): HTMLElement[] => {
+    const selector = 'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])'
+    return Array.from(container.querySelectorAll<HTMLElement>(selector)).filter((el) => !el.hasAttribute('disabled'))
+  }
 
   useEffect(() => {
     if (!ticker) return
@@ -311,6 +326,56 @@ export default function StockDetail() {
     if (activeTab !== 'dividends') return
     api.marketstack.status().then(setMarketstackStatus).catch(() => null)
   }, [activeTab, ticker])
+
+  useEffect(() => {
+    if (!showEditModal) return
+
+    const modalElement = editModalRef.current
+    if (!modalElement) return
+
+    previousFocusedElementRef.current = document.activeElement as HTMLElement | null
+    const focusableElements = getFocusableElements(modalElement)
+    if (focusableElements.length > 0) {
+      focusableElements[0].focus()
+    } else {
+      modalElement.focus()
+    }
+
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        event.preventDefault()
+        setShowEditModal(false)
+        return
+      }
+
+      if (event.key !== 'Tab') return
+
+      const currentFocusable = getFocusableElements(modalElement)
+      if (currentFocusable.length === 0) {
+        event.preventDefault()
+        modalElement.focus()
+        return
+      }
+
+      const first = currentFocusable[0]
+      const last = currentFocusable[currentFocusable.length - 1]
+      const activeElement = document.activeElement as HTMLElement | null
+
+      if (event.shiftKey && activeElement === first) {
+        event.preventDefault()
+        last.focus()
+      } else if (!event.shiftKey && activeElement === last) {
+        event.preventDefault()
+        first.focus()
+      }
+    }
+
+    document.addEventListener('keydown', handleKeyDown)
+    return () => {
+      document.removeEventListener('keydown', handleKeyDown)
+      previousFocusedElementRef.current?.focus()
+    }
+  }, [showEditModal])
 
   const handleVerifyDividends = async () => {
     if (!ticker) return
@@ -668,7 +733,7 @@ export default function StockDetail() {
 
       <div style={{ marginBottom: '24px', borderBottom: '1px solid var(--border-color)' }}>
         <div style={{ display: 'flex', gap: '24px' }}>
-          {(['overview', 'profile', 'dividends', 'analyst'] as const).map((tab) => (
+          {tabs.map((tab) => (
             <button
               key={tab}
               onClick={() => setActiveTab(tab)}
@@ -683,7 +748,7 @@ export default function StockDetail() {
                 fontWeight: 500,
               }}
             >
-              {tab === 'overview' ? t(language, 'stockDetail.tabOverview') : tab === 'profile' ? t(language, 'stockDetail.tabProfile') : tab === 'dividends' ? t(language, 'stockDetail.tabDividends') : t(language, 'stockDetail.tabAnalyst')}
+              {tabLabels[tab] ?? tab}
             </button>
           ))}
         </div>
@@ -1115,8 +1180,13 @@ export default function StockDetail() {
             className="card" 
             style={{ width: '400px', maxWidth: '90%' }}
             onClick={(e) => e.stopPropagation()}
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby={editModalHeadingId}
+            ref={editModalRef}
+            tabIndex={-1}
           >
-            <h3 style={{ marginBottom: '20px' }}>{t(language, 'stockDetail.editPosition')}</h3>
+            <h3 id={editModalHeadingId} style={{ marginBottom: '20px' }}>{t(language, 'stockDetail.editPosition')}</h3>
             <div style={{ marginBottom: '16px' }}>
               <label style={{ display: 'block', marginBottom: '8px', color: 'var(--text-secondary)', fontSize: '14px' }}>
                 {t(language, 'stockDetail.quantity')}

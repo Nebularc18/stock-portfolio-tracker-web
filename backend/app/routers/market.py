@@ -13,25 +13,10 @@ import json
 import os
 
 from app.services.market_hours_service import MarketHoursService
-from app.services.market_data_service import get_header_market_data
+from app.services.market_data_service import get_header_market_data, HEADER_INDICES
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
-
-MARKET_INDICES = {
-    "^OMXS30": "OMX Stockholm 30",
-    "^OMXS30GI": "OMX Stockholm 30 GI",
-    "^OMXSPI": "OMX Stockholm PI",
-    "^OMXC25": "OMX Copenhagen 25",
-    "^OMXH25": "OMX Helsinki 25",
-    "^OSEAX": "Oslo All Share",
-    "^GSPC": "S&P 500",
-    "^DJI": "Dow Jones",
-    "^IXIC": "NASDAQ",
-    "^FTSE": "FTSE 100",
-    "^GDAXI": "DAX",
-    "^STOXX50E": "Euro Stoxx 50",
-}
 
 _session = None
 _CACHE_DIR = os.path.join(os.path.dirname(__file__), '..', '..', 'data', 'cache')
@@ -207,7 +192,7 @@ def get_market_indices():
     # Fetch fresh data
     results = []
     
-    for symbol, name in MARKET_INDICES.items():
+    for symbol, name in HEADER_INDICES.items():
         data = fetch_index_data(symbol)
         if data:
             results.append({
