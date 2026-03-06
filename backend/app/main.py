@@ -105,6 +105,8 @@ def create_access_token(user_id: int) -> str:
 def verify_access_token(token: str) -> int:
     """Validate a bearer token and return the canonical user id."""
     secret = _get_required_env("AUTH_TOKEN_SECRET")
+    expected_issuer = os.getenv("AUTH_TOKEN_ISSUER")
+    expected_audience = os.getenv("AUTH_TOKEN_AUDIENCE")
     try:
         payload_b64, signature_b64 = token.split(".", 1)
     except ValueError as exc:
@@ -129,6 +131,12 @@ def verify_access_token(token: str) -> int:
         exp = int(payload["exp"])
     except (KeyError, ValueError, TypeError, json.JSONDecodeError, binascii.Error) as exc:
         raise ValueError("Malformed token payload") from exc
+
+    if expected_issuer and payload.get("iss") != expected_issuer:
+        raise ValueError("Invalid token issuer")
+
+    if expected_audience and payload.get("aud") != expected_audience:
+        raise ValueError("Invalid token audience")
 
     if exp <= int(time.time()):
         raise ValueError("Token expired")
@@ -337,6 +345,11 @@ def ensure_account_schema_and_seed() -> None:
         conn.execute(text("UPDATE user_settings SET user_id = :uid WHERE user_id IS NOT NULL AND user_id NOT IN (SELECT id FROM users)"), {"uid": default_user_id})
         conn.execute(text("UPDATE portfolio_history SET user_id = :uid WHERE user_id IS NOT NULL AND user_id NOT IN (SELECT id FROM users)"), {"uid": default_user_id})
         conn.execute(text("UPDATE stock_price_history SET user_id = :uid WHERE user_id IS NOT NULL AND user_id NOT IN (SELECT id FROM users)"), {"uid": default_user_id})
+
+        conn.execute(text("ALTER TABLE stocks ALTER COLUMN user_id SET NOT NULL"))
+        conn.execute(text("ALTER TABLE user_settings ALTER COLUMN user_id SET NOT NULL"))
+        conn.execute(text("ALTER TABLE portfolio_history ALTER COLUMN user_id SET NOT NULL"))
+        conn.execute(text("ALTER TABLE stock_price_history ALTER COLUMN user_id SET NOT NULL"))
 
         conn.execute(text("""
             DO $$ BEGIN

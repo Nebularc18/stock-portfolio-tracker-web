@@ -46,7 +46,7 @@ function normalizeToDay(dateInput: string | null | undefined): Date | null {
   const normalized = dateInput.replace('Z', '+00:00')
   const parsed = new Date(normalized)
   if (!Number.isFinite(parsed.getTime())) return null
-  parsed.setHours(0, 0, 0, 0)
+  parsed.setUTCHours(0, 0, 0, 0)
   return parsed
 }
 
@@ -122,9 +122,9 @@ function convertToSEKValue(
   if (amount === null) return null
   if (currency === 'SEK') return amount
   const direct = safeRates[`${currency}_SEK`]
-  if (direct) return amount * direct
+  if (direct != null) return amount * direct
   const inverse = safeRates[`SEK_${currency}`]
-  if (inverse) return amount / inverse
+  if (inverse != null && inverse !== 0) return amount / inverse
   return null
 }
 
@@ -227,7 +227,7 @@ export default function StockDetail() {
 
         const currentYear = new Date().getFullYear()
         const todayDate = new Date()
-        todayDate.setHours(0, 0, 0, 0)
+        todayDate.setUTCHours(0, 0, 0, 0)
 
         const historicalYearDividends: UpcomingDividend[] = divData
           .filter((div: Dividend) => {

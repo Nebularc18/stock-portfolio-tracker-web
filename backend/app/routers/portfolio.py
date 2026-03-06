@@ -187,7 +187,7 @@ def get_portfolio_summary(db: Session = Depends(get_db), current_user: User = De
     unconverted_stocks = []
     
     for stock in stocks:
-        if stock.current_price and stock.quantity:
+        if stock.current_price is not None and stock.quantity is not None:
             current_value_native = stock.current_price * stock.quantity
             current_value = convert_value(current_value_native, stock.currency, display_currency, rates)
             
@@ -222,7 +222,7 @@ def get_portfolio_summary(db: Session = Depends(get_db), current_user: User = De
             cost_native = 0
             cost = 0
             cost_converted = False
-            if stock.purchase_price:
+            if stock.purchase_price is not None:
                 cost_native = stock.purchase_price * stock.quantity
                 cost = convert_value(cost_native, stock.currency, display_currency, rates)
                 if cost is None:
@@ -260,7 +260,7 @@ def get_portfolio_summary(db: Session = Depends(get_db), current_user: User = De
                 "gain_loss": gain_loss,
                 "gain_loss_percent": gain_loss_percent,
                 "current_value_converted": True,
-                "cost_converted": cost_converted if stock.purchase_price else True,
+                "cost_converted": cost_converted if stock.purchase_price is not None else True,
             })
     
     total_gain_loss_percent = (total_gain_loss / total_cost * 100) if total_cost > 0 else 0
@@ -456,7 +456,7 @@ def get_portfolio_distribution(db: Session = Depends(get_db), current_user: User
     by_stock = {}
     
     for stock in stocks:
-        if stock.current_price and stock.quantity:
+        if stock.current_price is not None and stock.quantity is not None:
             value = stock.current_price * stock.quantity
             
             sector = stock.sector or "Unknown"
@@ -522,7 +522,7 @@ def get_upcoming_portfolio_dividends(db: Session = Depends(get_db), current_user
 
     for stock in stocks:
         avanza_mapping = avanza_service.get_mapping_by_ticker(stock.ticker)
-        no_avanza_mapping = avanza_mapping is None
+        no_avanza_mapping = avanza_mapping is None or not avanza_mapping.instrument_id
 
         if avanza_mapping and avanza_mapping.instrument_id:
             avanza_events = avanza_service.get_stock_dividends_for_year(stock.ticker, current_year)

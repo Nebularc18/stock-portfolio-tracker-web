@@ -40,6 +40,7 @@ const translations = {
     'layout.signedInAs': 'Signed in as {{username}}',
     'layout.guestDemo': '(guest demo)',
     'layout.logout': 'Log out',
+    'layout.logoutError': 'Unable to log out. Please try again.',
 
     'settings.title': 'Settings',
     'settings.theme': 'Theme',
@@ -417,6 +418,7 @@ const translations = {
     'layout.signedInAs': 'Inloggad som {{username}}',
     'layout.guestDemo': '(gastdemo)',
     'layout.logout': 'Logga ut',
+    'layout.logoutError': 'Det gick inte att logga ut. Försök igen.',
 
     'settings.title': 'Inställningar',
     'settings.theme': 'Tema',

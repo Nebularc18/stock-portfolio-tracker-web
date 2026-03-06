@@ -76,9 +76,7 @@ export default function InfographicLayout() {
     try {
       await Promise.resolve(logout())
     } catch {
-      setLogoutError(language === 'sv'
-        ? 'Det gick inte att logga ut. Försok igen.'
-        : 'Unable to log out. Please try again.')
+      setLogoutError(t(language, 'layout.logoutError'))
     } finally {
       setIsLoggingOut(false)
     }
@@ -169,19 +167,19 @@ export default function InfographicLayout() {
               </p>
             </div>
             
-            <div style={{ display: 'flex', gap: 24, flexWrap: 'wrap', alignItems: 'flex-start' }}>
-              <button
-                className="btn btn-secondary"
-                style={{ height: 'fit-content' }}
-                onClick={() => void handleLogout()}
-                disabled={isLoggingOut}
-              >
-                {isLoggingOut ? `${t(language, 'layout.logout')}...` : t(language, 'layout.logout')}
-              </button>
-              {logoutError && (
-                <p style={{ color: '#ffb4b4', fontSize: 12, margin: '6px 0 0' }}>{logoutError}</p>
-              )}
-              {indices.map(idx => {
+            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'stretch', gap: 8 }}>
+              <div style={{ display: 'flex', gap: 24, flexWrap: 'wrap', alignItems: 'flex-start', justifyContent: 'flex-end' }}>
+                <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start' }}>
+                  <button
+                    className="btn btn-secondary"
+                    style={{ height: 'fit-content' }}
+                    onClick={() => void handleLogout()}
+                    disabled={isLoggingOut}
+                  >
+                    {isLoggingOut ? `${t(language, 'layout.logout')}...` : t(language, 'layout.logout')}
+                  </button>
+                </div>
+                {indices.map(idx => {
                 const safeChange = idx.change != null && Number.isFinite(Number(idx.change))
                   ? Number(idx.change)
                   : null
@@ -228,31 +226,37 @@ export default function InfographicLayout() {
                    }}>
                      {changeArrow ? `${changeArrow} ${changePercentLabel}` : changePercentLabel}
                    </div>
-                 </div>
-                )
-              })}
-
-              <div style={{
-                background: 'rgba(255,255,255,0.05)',
-                borderRadius: 16,
-                padding: '16px 24px',
-                textAlign: 'center',
-                minWidth: 180,
-              }}>
-                <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.5)', marginBottom: 6 }}>
-                  {t(language, 'layout.fxSek')}
-                </div>
-                <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', gap: 16, fontSize: 18 }}>
-                    <span style={{ color: 'rgba(255,255,255,0.6)' }}>USD/SEK</span>
-                    <span>{formatFx(exchangeRates.USD_SEK)}</span>
                   </div>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', gap: 16, fontSize: 18 }}>
-                    <span style={{ color: 'rgba(255,255,255,0.6)' }}>EUR/SEK</span>
-                    <span>{formatFx(exchangeRates.EUR_SEK)}</span>
+                 )
+                })}
+
+                <div style={{
+                  background: 'rgba(255,255,255,0.05)',
+                  borderRadius: 16,
+                  padding: '16px 24px',
+                  textAlign: 'center',
+                  minWidth: 180,
+                }}>
+                  <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.5)', marginBottom: 6 }}>
+                    {t(language, 'layout.fxSek')}
+                  </div>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', gap: 16, fontSize: 18 }}>
+                      <span style={{ color: 'rgba(255,255,255,0.6)' }}>USD/SEK</span>
+                      <span>{formatFx(exchangeRates.USD_SEK)}</span>
+                    </div>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', gap: 16, fontSize: 18 }}>
+                      <span style={{ color: 'rgba(255,255,255,0.6)' }}>EUR/SEK</span>
+                      <span>{formatFx(exchangeRates.EUR_SEK)}</span>
+                    </div>
                   </div>
                 </div>
               </div>
+              {logoutError && (
+                <div style={{ marginTop: 4 }}>
+                  <p style={{ color: '#ffb4b4', fontSize: 12, margin: 0 }}>{logoutError}</p>
+                </div>
+              )}
             </div>
           </header>
           

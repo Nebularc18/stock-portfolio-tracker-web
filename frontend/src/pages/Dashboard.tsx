@@ -34,7 +34,6 @@ function formatCurrency(value: number, locale: string, currency: string = 'USD')
   return new Intl.NumberFormat(locale, {
     style: 'currency',
     currency,
-    minimumFractionDigits: 2,
   }).format(value)
 }
 

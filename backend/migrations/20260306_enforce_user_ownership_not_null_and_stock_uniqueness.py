@@ -13,6 +13,7 @@ import sys
 from sqlalchemy import create_engine, text
 
 logger = logging.getLogger(__name__)
+ALLOWED_USER_ID_TABLES = {"stocks", "portfolio_history", "stock_price_history", "user_settings"}
 
 
 class MigrationError(Exception):
@@ -27,6 +28,9 @@ def get_database_url() -> str:
 
 
 def _assert_no_null_user_id(conn, table_name: str) -> None:
+    if table_name not in ALLOWED_USER_ID_TABLES:
+        raise MigrationError(f"Unsupported table for NULL user_id assertion: {table_name}")
+
     null_count = conn.execute(
         text(f"SELECT COUNT(*) FROM {table_name} WHERE user_id IS NULL")
     ).scalar_one()
@@ -38,7 +42,7 @@ def _assert_no_null_user_id(conn, table_name: str) -> None:
 
 
 def upgrade(conn) -> None:
-    for table_name in ["stocks", "portfolio_history", "stock_price_history", "user_settings"]:
+    for table_name in ALLOWED_USER_ID_TABLES:
         _assert_no_null_user_id(conn, table_name)
 
     conn.execute(
