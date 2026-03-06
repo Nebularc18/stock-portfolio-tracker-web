@@ -1,9 +1,9 @@
-"""Ensure portfolio_history uniqueness uses (user_id, date) for scheduler upserts.
+"""Ensure stock_price_history upserts use one row per user, ticker, and day.
 
 Manual migration script for projects that do not use Alembic.
 Usage:
-    python backend/migrations/20260306_add_portfolio_history_user_date_unique.py upgrade
-    python backend/migrations/20260306_add_portfolio_history_user_date_unique.py downgrade
+    python backend/migrations/20260306_add_stock_price_history_user_ticker_date_unique.py upgrade
+    python backend/migrations/20260306_add_stock_price_history_user_ticker_date_unique.py downgrade
 """
 
 import logging
@@ -28,47 +28,39 @@ def get_database_url() -> str:
 
 def upgrade(conn) -> None:
     has_null_user_id = conn.execute(
-        text("SELECT EXISTS (SELECT 1 FROM portfolio_history WHERE user_id IS NULL)")
+        text("SELECT EXISTS (SELECT 1 FROM stock_price_history WHERE user_id IS NULL)")
     ).scalar_one()
     if has_null_user_id:
         raise MigrationError(
-            "Cannot create ux_portfolio_history_user_date while portfolio_history contains "
+            "Cannot create ux_stock_price_history_user_ticker_date while stock_price_history contains "
             "rows with NULL user_id. Run the NOT NULL/backfill migration first."
         )
 
-    conn.execute(text("ALTER TABLE portfolio_history DROP CONSTRAINT IF EXISTS portfolio_history_date_key"))
+    has_duplicates = conn.execute(
+        text(
+            "SELECT EXISTS ("
+            "  SELECT 1 FROM stock_price_history "
+            "  GROUP BY user_id, ticker, recorded_at "
+            "  HAVING COUNT(*) > 1"
+            ")"
+        )
+    ).scalar_one()
+    if has_duplicates:
+        raise MigrationError(
+            "Cannot create ux_stock_price_history_user_ticker_date while duplicate "
+            "(user_id, ticker, recorded_at) rows exist in stock_price_history."
+        )
+
     conn.execute(
         text(
-            "CREATE UNIQUE INDEX IF NOT EXISTS ux_portfolio_history_user_date "
-            "ON portfolio_history(user_id, date)"
+            "CREATE UNIQUE INDEX IF NOT EXISTS ux_stock_price_history_user_ticker_date "
+            "ON stock_price_history(user_id, ticker, recorded_at)"
         )
     )
 
 
 def downgrade(conn) -> None:
-    conn.execute(text("DROP INDEX IF EXISTS ux_portfolio_history_user_date"))
-    conn.execute(
-        text(
-            "DO $$ "
-            "DECLARE has_duplicate_dates BOOLEAN; "
-            "BEGIN "
-            "SELECT EXISTS ("
-            "  SELECT 1 FROM ("
-            "    SELECT date FROM portfolio_history GROUP BY date HAVING COUNT(*) > 1"
-            "  ) d"
-            ") INTO has_duplicate_dates; "
-            "IF has_duplicate_dates THEN "
-            "  RAISE NOTICE 'Skipping portfolio_history_date_key creation because duplicate date values exist in portfolio_history'; "
-            "ELSIF NOT EXISTS ("
-            "  SELECT 1 FROM pg_constraint "
-            "  WHERE conname = 'portfolio_history_date_key' "
-            "    AND conrelid = 'portfolio_history'::regclass"
-            ") THEN "
-            "  ALTER TABLE portfolio_history ADD CONSTRAINT portfolio_history_date_key UNIQUE (date); "
-            "END IF; "
-            "END $$;"
-        )
-    )
+    conn.execute(text("DROP INDEX IF EXISTS ux_stock_price_history_user_ticker_date"))
 
 
 def run(direction: str) -> None:
@@ -93,7 +85,7 @@ if __name__ == "__main__":
     logging.basicConfig(level=logging.INFO, format="%(levelname)s:%(name)s:%(message)s")
 
     if len(sys.argv) != 2:
-        logger.error("Usage: python backend/migrations/20260306_add_portfolio_history_user_date_unique.py <upgrade|downgrade>")
+        logger.error("Usage: python backend/migrations/20260306_add_stock_price_history_user_ticker_date_unique.py <upgrade|downgrade>")
         sys.exit(1)
 
     action = sys.argv[1]

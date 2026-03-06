@@ -299,21 +299,29 @@ function getRangeTargetPoints(range: HistoryRangeKey): number | null {
   }
 
   const dailyChangeAggregate = stocks.reduce((acc, stock) => {
-    if (stock.current_price !== null && stock.previous_close !== null) {
-      const change = (stock.current_price - stock.previous_close) * stock.quantity
-      const converted = convertToCurrency(change, stock.currency)
-      if (converted === null) {
-        acc.partial = true
-        return acc
-      }
-
-      acc.total += converted
+    if (stock.current_price === null || stock.previous_close === null) {
+      acc.partial = true
+      return acc
     }
+
+    const change = (stock.current_price - stock.previous_close) * stock.quantity
+    const converted = convertToCurrency(change, stock.currency)
+    if (converted === null) {
+      acc.partial = true
+      return acc
+    }
+
+    acc.total += converted
     return acc
   }, { total: 0, partial: false })
 
   const totalValueAggregate = stocks.reduce((acc, stock) => {
-    const value = (stock.current_price || 0) * stock.quantity
+    if (stock.current_price === null) {
+      acc.partial = true
+      return acc
+    }
+
+    const value = stock.current_price * stock.quantity
     const converted = convertToCurrency(value, stock.currency)
     if (converted === null) {
       acc.partial = true
@@ -363,16 +371,15 @@ function getRangeTargetPoints(range: HistoryRangeKey): number | null {
     .filter((point): point is ChartPoint => point !== null)
   const rangeTargetPoints = getRangeTargetPoints(historyRange)
   const displayedChartData = rangeTargetPoints ? downsampleChartData(chartData, rangeTargetPoints) : chartData
-  const summaryChartData = displayedChartData.length > 0 ? displayedChartData : chartData
-  const hasChartData = summaryChartData.length > 0
+  const hasChartData = chartData.length > 0
 
   let minValue = 0
   let maxValue = 0
   if (hasChartData) {
-    minValue = summaryChartData[0].value
-    maxValue = summaryChartData[0].value
-    for (let i = 1; i < summaryChartData.length; i += 1) {
-      const value = summaryChartData[i].value
+    minValue = chartData[0].value
+    maxValue = chartData[0].value
+    for (let i = 1; i < chartData.length; i += 1) {
+      const value = chartData[i].value
       if (value < minValue) minValue = value
       if (value > maxValue) maxValue = value
     }

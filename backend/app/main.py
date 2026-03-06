@@ -182,7 +182,7 @@ class Stock(Base):
     )
 
     id = Column(Integer, primary_key=True, index=True)
-    user_id = Column(Integer, ForeignKey("users.id"), index=True, nullable=False)
+    user_id = Column(Integer, ForeignKey("users.id", name="fk_stocks_user_id_users"), index=True, nullable=False)
     ticker = Column(String, index=True, nullable=False)
     name = Column(String)
     quantity = Column(Float, default=0)
@@ -240,7 +240,7 @@ class PortfolioHistory(Base):
     )
 
     id = Column(Integer, primary_key=True, index=True)
-    user_id = Column(Integer, ForeignKey("users.id"), index=True, nullable=False)
+    user_id = Column(Integer, ForeignKey("users.id", name="fk_portfolio_history_user_id_users"), index=True, nullable=False)
     total_value = Column(Float)
     date = Column(DateTime(timezone=True), default=utc_now)
 
@@ -256,9 +256,12 @@ class StockPriceHistory(Base):
         recorded_at: Recording timestamp.
     """
     __tablename__ = "stock_price_history"
+    __table_args__ = (
+        UniqueConstraint("user_id", "ticker", "recorded_at", name="ux_stock_price_history_user_ticker_date"),
+    )
 
     id = Column(Integer, primary_key=True, index=True)
-    user_id = Column(Integer, ForeignKey("users.id"), index=True, nullable=False)
+    user_id = Column(Integer, ForeignKey("users.id", name="fk_stock_price_history_user_id_users"), index=True, nullable=False)
     ticker = Column(String, index=True, nullable=False)
     price = Column(Float, nullable=False)
     currency = Column(String, nullable=False)
@@ -276,7 +279,7 @@ class UserSettings(Base):
     __tablename__ = "user_settings"
 
     id = Column(Integer, primary_key=True, index=True)
-    user_id = Column(Integer, ForeignKey("users.id"), index=True, nullable=False)
+    user_id = Column(Integer, ForeignKey("users.id", name="fk_user_settings_user_id_users"), index=True, nullable=False)
     display_currency = Column(String, default="SEK")
     header_indices = Column(String, default="[]")
 
@@ -292,6 +295,27 @@ def ensure_account_schema_and_seed() -> None:
     default_password = _get_required_env("DEFAULT_PASSWORD")
     guest_username = _get_required_env("GUEST_USERNAME")
     guest_password = os.getenv("GUEST_PASSWORD") or secrets.token_urlsafe(24)
+
+    def ensure_user_foreign_key(table_name: str, constraint_name: str) -> None:
+        conn.execute(text(f"""
+            DO $$ BEGIN
+                IF NOT EXISTS (
+                    SELECT 1
+                    FROM pg_constraint
+                    WHERE contype = 'f'
+                      AND conrelid = '{table_name}'::regclass
+                      AND confrelid = 'users'::regclass
+                      AND conkey = ARRAY[(SELECT attnum FROM pg_attribute WHERE attrelid = '{table_name}'::regclass AND attname = 'user_id')]::smallint[]
+                      AND confkey = ARRAY[(SELECT attnum FROM pg_attribute WHERE attrelid = 'users'::regclass AND attname = 'id')]::smallint[]
+                ) THEN
+                    ALTER TABLE {table_name}
+                    ADD CONSTRAINT {constraint_name}
+                    FOREIGN KEY (user_id) REFERENCES users(id);
+                END IF;
+            EXCEPTION
+                WHEN duplicate_object THEN NULL;
+            END $$;
+        """))
 
     with engine.begin() as conn:
         conn.execute(text("""
@@ -351,48 +375,17 @@ def ensure_account_schema_and_seed() -> None:
         conn.execute(text("ALTER TABLE portfolio_history ALTER COLUMN user_id SET NOT NULL"))
         conn.execute(text("ALTER TABLE stock_price_history ALTER COLUMN user_id SET NOT NULL"))
 
-        conn.execute(text("""
-            DO $$ BEGIN
-                ALTER TABLE stocks
-                ADD CONSTRAINT fk_stocks_user_id_users
-                FOREIGN KEY (user_id) REFERENCES users(id);
-            EXCEPTION
-                WHEN duplicate_object THEN NULL;
-            END $$;
-        """))
-        conn.execute(text("""
-            DO $$ BEGIN
-                ALTER TABLE user_settings
-                ADD CONSTRAINT fk_user_settings_user_id_users
-                FOREIGN KEY (user_id) REFERENCES users(id);
-            EXCEPTION
-                WHEN duplicate_object THEN NULL;
-            END $$;
-        """))
-        conn.execute(text("""
-            DO $$ BEGIN
-                ALTER TABLE portfolio_history
-                ADD CONSTRAINT fk_portfolio_history_user_id_users
-                FOREIGN KEY (user_id) REFERENCES users(id);
-            EXCEPTION
-                WHEN duplicate_object THEN NULL;
-            END $$;
-        """))
-        conn.execute(text("""
-            DO $$ BEGIN
-                ALTER TABLE stock_price_history
-                ADD CONSTRAINT fk_stock_price_history_user_id_users
-                FOREIGN KEY (user_id) REFERENCES users(id);
-            EXCEPTION
-                WHEN duplicate_object THEN NULL;
-            END $$;
-        """))
+        ensure_user_foreign_key("stocks", "fk_stocks_user_id_users")
+        ensure_user_foreign_key("user_settings", "fk_user_settings_user_id_users")
+        ensure_user_foreign_key("portfolio_history", "fk_portfolio_history_user_id_users")
+        ensure_user_foreign_key("stock_price_history", "fk_stock_price_history_user_id_users")
 
-        conn.execute(text("DO $$ BEGIN IF EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'stocks_ticker_key') THEN ALTER TABLE stocks DROP CONSTRAINT stocks_ticker_key; END IF; END $$;"))
-        conn.execute(text("DO $$ BEGIN IF EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'portfolio_history_date_key') THEN ALTER TABLE portfolio_history DROP CONSTRAINT portfolio_history_date_key; END IF; END $$;"))
+        conn.execute(text("ALTER TABLE stocks DROP CONSTRAINT IF EXISTS stocks_ticker_key"))
+        conn.execute(text("ALTER TABLE portfolio_history DROP CONSTRAINT IF EXISTS portfolio_history_date_key"))
 
         conn.execute(text("CREATE UNIQUE INDEX IF NOT EXISTS ux_stocks_user_ticker ON stocks(user_id, ticker)"))
         conn.execute(text("CREATE UNIQUE INDEX IF NOT EXISTS ux_portfolio_history_user_date ON portfolio_history(user_id, date)"))
+        conn.execute(text("CREATE UNIQUE INDEX IF NOT EXISTS ux_stock_price_history_user_ticker_date ON stock_price_history(user_id, ticker, recorded_at)"))
         conn.execute(text("CREATE INDEX IF NOT EXISTS ix_stock_price_history_user_ticker ON stock_price_history(user_id, ticker)"))
         conn.execute(text("CREATE UNIQUE INDEX IF NOT EXISTS ux_user_settings_user_id ON user_settings(user_id)"))
 

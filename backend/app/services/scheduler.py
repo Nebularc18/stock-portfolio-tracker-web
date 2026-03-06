@@ -85,23 +85,21 @@ def refresh_all_stocks():
                 if stock.user_id is not None:
                     user_updated[stock.user_id] = user_updated.get(stock.user_id, 0) + 1
 
-                existing_price = db.query(StockPriceHistory).filter(
-                    StockPriceHistory.user_id == stock.user_id,
-                    StockPriceHistory.ticker == stock.ticker,
-                    StockPriceHistory.recorded_at >= today
-                ).first()
-
-                if existing_price:
-                    existing_price.price = stock.current_price
-                else:
-                    price_history = StockPriceHistory(
-                        user_id=stock.user_id,
-                        ticker=stock.ticker,
-                        price=stock.current_price,
-                        currency=stock.currency,
-                        recorded_at=request_ts
-                    )
-                    db.add(price_history)
+                price_stmt = insert(StockPriceHistory).values(
+                    user_id=stock.user_id,
+                    ticker=stock.ticker,
+                    price=stock.current_price,
+                    currency=stock.currency,
+                    recorded_at=today,
+                )
+                price_stmt = price_stmt.on_conflict_do_update(
+                    index_elements=['user_id', 'ticker', 'recorded_at'],
+                    set_={
+                        'price': stock.current_price,
+                        'currency': stock.currency,
+                    },
+                )
+                db.execute(price_stmt)
 
                 # Calculate total portfolio value in SEK for history tracking
                 if stock.quantity is not None:

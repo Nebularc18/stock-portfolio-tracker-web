@@ -31,12 +31,12 @@ def _assert_no_null_user_id(conn, table_name: str) -> None:
     if table_name not in ALLOWED_USER_ID_TABLES:
         raise MigrationError(f"Unsupported table for NULL user_id assertion: {table_name}")
 
-    null_count = conn.execute(
-        text(f"SELECT COUNT(*) FROM {table_name} WHERE user_id IS NULL")
+    has_null_user_id = conn.execute(
+        text(f"SELECT EXISTS (SELECT 1 FROM {table_name} WHERE user_id IS NULL)")
     ).scalar_one()
-    if null_count > 0:
+    if has_null_user_id:
         raise MigrationError(
-            f"Cannot set {table_name}.user_id NOT NULL while {null_count} row(s) have NULL user_id. "
+            f"Cannot set {table_name}.user_id NOT NULL while rows have NULL user_id. "
             "Run the backfill step first."
         )
 
@@ -45,16 +45,7 @@ def upgrade(conn) -> None:
     for table_name in ALLOWED_USER_ID_TABLES:
         _assert_no_null_user_id(conn, table_name)
 
-    conn.execute(
-        text(
-            "DO $$ BEGIN "
-            "IF EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'stocks_ticker_key' "
-            "AND conrelid = 'stocks'::regclass) THEN "
-            "ALTER TABLE stocks DROP CONSTRAINT stocks_ticker_key; "
-            "END IF; "
-            "END $$;"
-        )
-    )
+    conn.execute(text("ALTER TABLE stocks DROP CONSTRAINT IF EXISTS stocks_ticker_key"))
     conn.execute(text("DROP INDEX IF EXISTS ix_stocks_ticker"))
     conn.execute(
         text(
@@ -111,10 +102,11 @@ def run(direction: str) -> None:
         raise MigrationError("direction must be 'upgrade' or 'downgrade'")
 
     engine = create_engine(get_database_url())
+    statement_timeout = os.getenv("MIGRATION_STATEMENT_TIMEOUT", "30s")
     try:
         with engine.begin() as conn:
             conn.execute(text("SET LOCAL lock_timeout = '5s'"))
-            conn.execute(text("SET LOCAL statement_timeout = '30s'"))
+            conn.execute(text("SET LOCAL statement_timeout = :timeout"), {"timeout": statement_timeout})
             if direction == "upgrade":
                 upgrade(conn)
             else:

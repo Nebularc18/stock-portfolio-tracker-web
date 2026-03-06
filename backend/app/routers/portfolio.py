@@ -332,23 +332,25 @@ def refresh_all_prices(db: Session = Depends(get_db), current_user: User = Depen
             stock.logo = logo_url
         
         if stock.current_price is not None:
-            existing_price = db.query(StockPriceHistory).filter(
-                StockPriceHistory.user_id == current_user.id,
-                StockPriceHistory.ticker == stock.ticker,
-                StockPriceHistory.recorded_at >= today
-            ).first()
-            
-            if existing_price:
-                existing_price.price = stock.current_price
-            else:
-                price_history = StockPriceHistory(
-                    user_id=current_user.id,
-                    ticker=stock.ticker,
-                    price=stock.current_price,
-                    currency=stock.currency,
-                    recorded_at=request_ts
-                )
-                db.add(price_history)
+            price_stmt = insert(StockPriceHistory).values(
+                user_id=current_user.id,
+                ticker=stock.ticker,
+                price=stock.current_price,
+                currency=stock.currency,
+                recorded_at=today,
+            )
+            price_stmt = price_stmt.on_conflict_do_update(
+                index_elements=[
+                    StockPriceHistory.user_id,
+                    StockPriceHistory.ticker,
+                    StockPriceHistory.recorded_at,
+                ],
+                set_={
+                    "price": price_stmt.excluded.price,
+                    "currency": price_stmt.excluded.currency,
+                },
+            )
+            db.execute(price_stmt)
         
         if stock.current_price is not None and stock.quantity is not None:
             value = stock.current_price * stock.quantity

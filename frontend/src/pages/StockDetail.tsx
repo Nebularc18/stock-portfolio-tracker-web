@@ -35,9 +35,19 @@ function formatCurrency(value: number | null, locale: string = 'en-US', currency
  */
 function formatDate(dateStr: string, locale: string): string {
   if (!dateStr) return '-'
-  const [year, month, day] = dateStr.split('-').map(Number)
-  if (!year || !month || !day) return dateStr
-  const date = new Date(Date.UTC(year, month - 1, day))
+  const isDateOnly = /^\d{4}-\d{2}-\d{2}$/.test(dateStr)
+  let date: Date
+
+  if (isDateOnly) {
+    const [year, month, day] = dateStr.split('-').map(Number)
+    if (!year || !month || !day) return dateStr
+    date = new Date(Date.UTC(year, month - 1, day))
+  } else {
+    const parsed = new Date(dateStr)
+    if (Number.isNaN(parsed.getTime())) return dateStr
+    date = parsed
+  }
+
   return date.toLocaleDateString(locale, { month: 'short', day: 'numeric', year: 'numeric', timeZone: 'UTC' })
 }
 
@@ -595,8 +605,8 @@ export default function StockDetail() {
     const payoutDate = div.payment_date || div.date
     if (!payoutDate) continue
 
-    const eventDate = new Date(`${payoutDate}T00:00:00Z`)
-    if (Number.isNaN(eventDate.getTime())) continue
+    const eventDate = normalizeToDay(payoutDate)
+    if (eventDate === null || Number.isNaN(eventDate.getTime())) continue
 
     const eventTimestamp = eventDate.getTime()
     if (eventTimestamp >= oneYearAgo.getTime() && eventTimestamp <= today.getTime()) {
@@ -816,7 +826,13 @@ export default function StockDetail() {
                 <tr>
                   <td style={{ color: 'var(--text-secondary)' }}>{t(language, 'stockDetail.dividendYield')}</td>
                   <td style={{ textAlign: 'right' }}>
-                    {displayDividendYield !== null ? `${displayDividendYield.toFixed(2)}%` : '-'}
+                      {displayDividendYield !== null
+                        ? new Intl.NumberFormat(language, {
+                            style: 'percent',
+                            minimumFractionDigits: 2,
+                            maximumFractionDigits: 2,
+                          }).format(displayDividendYield / 100)
+                        : '-'}
                   </td>
                 </tr>
                 <tr>
