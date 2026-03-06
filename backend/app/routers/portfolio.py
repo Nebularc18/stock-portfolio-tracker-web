@@ -510,6 +510,7 @@ def get_upcoming_portfolio_dividends(db: Session = Depends(get_db), current_user
 
     for stock in stocks:
         avanza_mapping = avanza_service.get_mapping_by_ticker(stock.ticker)
+        no_avanza_mapping = avanza_mapping is None
 
         if avanza_mapping and avanza_mapping.instrument_id:
             avanza_events = avanza_service.get_stock_dividends_for_year(stock.ticker, current_year)
@@ -576,7 +577,7 @@ def get_upcoming_portfolio_dividends(db: Session = Depends(get_db), current_user
             source = div.get('source', 'yahoo')
             status = 'paid' if payout_date_parsed <= today else 'upcoming'
             
-            if stock.ticker.endswith('.ST') and source == 'yahoo':
+            if stock.ticker.endswith('.ST') and source == 'yahoo' and no_avanza_mapping:
                 if stock.ticker not in seen_unmapped:
                     seen_unmapped.add(stock.ticker)
                     unmapped_stocks.append({

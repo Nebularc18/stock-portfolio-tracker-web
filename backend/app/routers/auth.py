@@ -2,6 +2,7 @@
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.main import get_db, User, hash_password, verify_password, create_access_token, get_current_user
@@ -48,7 +49,11 @@ def register(data: RegisterRequest, db: Session = Depends(get_db)):
 
     user = User(username=username, password_hash=hash_password(data.password), is_guest=False)
     db.add(user)
-    db.commit()
+    try:
+        db.commit()
+    except IntegrityError as exc:
+        db.rollback()
+        raise HTTPException(status_code=400, detail="Username already exists") from exc
     db.refresh(user)
     token = create_access_token(user.id)
     return AuthResponse(id=user.id, username=user.username, is_guest=user.is_guest, token=token)

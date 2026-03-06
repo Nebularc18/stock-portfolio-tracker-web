@@ -22,9 +22,10 @@ export default function InfographicLayout() {
   
   // Filter indices based on user settings, or show first 5 if no settings
   const hasValidHeaderIndices = Array.isArray(headerIndices) && headerIndices.length > 0
-  const indices = hasValidHeaderIndices
+  const matched = hasValidHeaderIndices
     ? allIndices.filter(idx => headerIndices.includes(idx.symbol))
-    : allIndices.slice(0, 5)
+    : []
+  const indices = matched.length > 0 ? matched : allIndices.slice(0, 5)
 
   const indexLabel = (symbol: string, name: string) => {
     switch (symbol) {

@@ -20,8 +20,9 @@ import logging
 from fastapi import FastAPI, HTTPException, Depends
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from passlib.context import CryptContext
+from passlib.exc import UnknownHashError
 from pydantic import BaseModel, field_validator
-from sqlalchemy import create_engine, Column, Integer, String, Float, DateTime, ForeignKey, JSON, Boolean, text
+from sqlalchemy import create_engine, Column, Integer, String, Float, DateTime, ForeignKey, JSON, Boolean, text, UniqueConstraint
 from sqlalchemy.orm import sessionmaker, relationship, declarative_base
 from sqlalchemy.pool import NullPool
 from app.utils.time import utc_now
@@ -45,7 +46,10 @@ def hash_password(password: str) -> str:
 
 def verify_password(password: str, stored_hash: str) -> bool:
     """Verify a plain-text password against a stored Argon2 hash."""
-    return pwd_context.verify(password, stored_hash)
+    try:
+        return pwd_context.verify(password, stored_hash)
+    except (UnknownHashError, ValueError, TypeError):
+        return False
 
 
 def _b64url_encode(raw: bytes) -> str:
@@ -210,11 +214,14 @@ class PortfolioHistory(Base):
         date: Snapshot timestamp (unique).
     """
     __tablename__ = "portfolio_history"
+    __table_args__ = (
+        UniqueConstraint("user_id", "date", name="ux_portfolio_history_user_date"),
+    )
 
     id = Column(Integer, primary_key=True, index=True)
     user_id = Column(Integer, ForeignKey("users.id"), index=True, nullable=True)
     total_value = Column(Float)
-    date = Column(DateTime(timezone=True), default=utc_now, unique=True)
+    date = Column(DateTime(timezone=True), default=utc_now)
 
 
 class StockPriceHistory(Base):
@@ -312,6 +319,72 @@ def ensure_account_schema_and_seed() -> None:
         conn.execute(text("UPDATE user_settings SET user_id = :uid WHERE user_id IS NULL"), {"uid": default_user_id})
         conn.execute(text("UPDATE portfolio_history SET user_id = :uid WHERE user_id IS NULL"), {"uid": default_user_id})
         conn.execute(text("UPDATE stock_price_history SET user_id = :uid WHERE user_id IS NULL"), {"uid": default_user_id})
+
+        conn.execute(text("UPDATE stocks SET user_id = :uid WHERE user_id IS NOT NULL AND user_id NOT IN (SELECT id FROM users)"), {"uid": default_user_id})
+        conn.execute(text("UPDATE user_settings SET user_id = :uid WHERE user_id IS NOT NULL AND user_id NOT IN (SELECT id FROM users)"), {"uid": default_user_id})
+        conn.execute(text("UPDATE portfolio_history SET user_id = :uid WHERE user_id IS NOT NULL AND user_id NOT IN (SELECT id FROM users)"), {"uid": default_user_id})
+        conn.execute(text("UPDATE stock_price_history SET user_id = :uid WHERE user_id IS NOT NULL AND user_id NOT IN (SELECT id FROM users)"), {"uid": default_user_id})
+
+        conn.execute(text("""
+            DO $$ BEGIN
+                IF NOT EXISTS (
+                    SELECT 1
+                    FROM pg_constraint c
+                    JOIN pg_class t ON t.oid = c.conrelid
+                    JOIN pg_attribute a ON a.attrelid = t.oid AND a.attnum = ANY(c.conkey)
+                    WHERE c.contype = 'f' AND t.relname = 'stocks' AND a.attname = 'user_id'
+                ) THEN
+                    ALTER TABLE stocks
+                    ADD CONSTRAINT fk_stocks_user_id_users
+                    FOREIGN KEY (user_id) REFERENCES users(id);
+                END IF;
+            END $$;
+        """))
+        conn.execute(text("""
+            DO $$ BEGIN
+                IF NOT EXISTS (
+                    SELECT 1
+                    FROM pg_constraint c
+                    JOIN pg_class t ON t.oid = c.conrelid
+                    JOIN pg_attribute a ON a.attrelid = t.oid AND a.attnum = ANY(c.conkey)
+                    WHERE c.contype = 'f' AND t.relname = 'user_settings' AND a.attname = 'user_id'
+                ) THEN
+                    ALTER TABLE user_settings
+                    ADD CONSTRAINT fk_user_settings_user_id_users
+                    FOREIGN KEY (user_id) REFERENCES users(id);
+                END IF;
+            END $$;
+        """))
+        conn.execute(text("""
+            DO $$ BEGIN
+                IF NOT EXISTS (
+                    SELECT 1
+                    FROM pg_constraint c
+                    JOIN pg_class t ON t.oid = c.conrelid
+                    JOIN pg_attribute a ON a.attrelid = t.oid AND a.attnum = ANY(c.conkey)
+                    WHERE c.contype = 'f' AND t.relname = 'portfolio_history' AND a.attname = 'user_id'
+                ) THEN
+                    ALTER TABLE portfolio_history
+                    ADD CONSTRAINT fk_portfolio_history_user_id_users
+                    FOREIGN KEY (user_id) REFERENCES users(id);
+                END IF;
+            END $$;
+        """))
+        conn.execute(text("""
+            DO $$ BEGIN
+                IF NOT EXISTS (
+                    SELECT 1
+                    FROM pg_constraint c
+                    JOIN pg_class t ON t.oid = c.conrelid
+                    JOIN pg_attribute a ON a.attrelid = t.oid AND a.attnum = ANY(c.conkey)
+                    WHERE c.contype = 'f' AND t.relname = 'stock_price_history' AND a.attname = 'user_id'
+                ) THEN
+                    ALTER TABLE stock_price_history
+                    ADD CONSTRAINT fk_stock_price_history_user_id_users
+                    FOREIGN KEY (user_id) REFERENCES users(id);
+                END IF;
+            END $$;
+        """))
 
         conn.execute(text("DO $$ BEGIN IF EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'stocks_ticker_key') THEN ALTER TABLE stocks DROP CONSTRAINT stocks_ticker_key; END IF; END $$;"))
         conn.execute(text("DO $$ BEGIN IF EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'portfolio_history_date_key') THEN ALTER TABLE portfolio_history DROP CONSTRAINT portfolio_history_date_key; END IF; END $$;"))

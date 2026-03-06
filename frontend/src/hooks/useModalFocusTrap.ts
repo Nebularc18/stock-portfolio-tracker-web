@@ -17,6 +17,11 @@ function getFocusableElements(container: HTMLElement): HTMLElement[] {
 
 export function useModalFocusTrap({ modalRef, open, onClose, initialFocusRef }: UseModalFocusTrapOptions) {
   const previousFocusedElementRef = useRef<HTMLElement | null>(null)
+  const onCloseRef = useRef(onClose)
+
+  useEffect(() => {
+    onCloseRef.current = onClose
+  }, [onClose])
 
   useEffect(() => {
     if (!open) return
@@ -40,7 +45,7 @@ export function useModalFocusTrap({ modalRef, open, onClose, initialFocusRef }: 
     const handleKeyDown = (event: KeyboardEvent) => {
       if (event.key === 'Escape') {
         event.preventDefault()
-        onClose()
+        onCloseRef.current()
         return
       }
 
@@ -71,5 +76,5 @@ export function useModalFocusTrap({ modalRef, open, onClose, initialFocusRef }: 
       document.removeEventListener('keydown', handleKeyDown)
       previousFocusedElementRef.current?.focus()
     }
-  }, [initialFocusRef, modalRef, onClose, open])
+  }, [initialFocusRef, modalRef, open])
 }

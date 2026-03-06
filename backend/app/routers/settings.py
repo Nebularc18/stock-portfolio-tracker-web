@@ -7,6 +7,7 @@ such as display currency for the portfolio.
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 from typing import Optional, List
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 import json
 
@@ -77,8 +78,18 @@ def get_or_create_settings(db: Session, user: User) -> UserSettings:
     if not settings:
         settings = UserSettings(user_id=user.id, display_currency="SEK", header_indices="[]")
         db.add(settings)
-        db.commit()
-        db.refresh(settings)
+        try:
+            db.commit()
+            db.refresh(settings)
+        except IntegrityError:
+            db.rollback()
+            settings = db.query(UserSettings).filter(UserSettings.user_id == user.id).first()
+            if not settings:
+                raise
+            db.refresh(settings)
+        except Exception:
+            db.rollback()
+            raise
     return settings
 
 

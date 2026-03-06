@@ -42,6 +42,15 @@ function formatDate(dateStr: string, locale: string): string {
   return date.toLocaleDateString(locale, { month: 'short', day: 'numeric', year: 'numeric', timeZone: 'UTC' })
 }
 
+function normalizeToDay(dateInput: string | null | undefined): Date | null {
+  if (!dateInput) return null
+  const normalized = dateInput.replace('Z', '+00:00')
+  const parsed = new Date(normalized)
+  if (!Number.isFinite(parsed.getTime())) return null
+  parsed.setHours(0, 0, 0, 0)
+  return parsed
+}
+
 /**
  * Produce a normalized display name for a company, using the ticker when `name` is null.
  *
@@ -218,7 +227,8 @@ export default function StockDetail() {
         const safeRates = ratesData as Record<string, number | null>
 
         const currentYear = new Date().getFullYear()
-        const today = new Date().toISOString().slice(0, 10)
+        const todayDate = new Date()
+        todayDate.setHours(0, 0, 0, 0)
 
         const historicalYearDividends: UpcomingDividend[] = divData
           .filter((div: Dividend) => {
@@ -231,6 +241,8 @@ export default function StockDetail() {
             const divCurrency = div.currency || stockData.currency
             const totalConverted = convertToSEKValue(totalAmount, divCurrency, safeRates)
             const payoutDate = div.payment_date || div.date
+            const payoutDateParsed = normalizeToDay(payoutDate)
+            const status = payoutDateParsed && payoutDateParsed.getTime() <= todayDate.getTime() ? 'paid' : 'upcoming'
 
             return {
               ticker: stockData.ticker,
@@ -239,7 +251,7 @@ export default function StockDetail() {
               ex_date: div.date,
               payment_date: div.payment_date,
               payout_date: payoutDate,
-              status: payoutDate < today ? 'paid' : 'upcoming',
+              status,
               dividend_type: null,
               amount_per_share: amountPerShare,
               total_amount: totalAmount,
@@ -261,6 +273,8 @@ export default function StockDetail() {
             const divCurrency = div.currency || stockData.currency
             const totalConverted = convertToSEKValue(totalAmount, divCurrency, safeRates)
             const payoutDate = div.payment_date || div.ex_date
+            const payoutDateParsed = normalizeToDay(payoutDate)
+            const status = payoutDateParsed && payoutDateParsed.getTime() <= todayDate.getTime() ? 'paid' : 'upcoming'
 
             return {
               ticker: stockData.ticker,
@@ -269,7 +283,7 @@ export default function StockDetail() {
               ex_date: div.ex_date,
               payment_date: div.payment_date,
               payout_date: payoutDate,
-              status: payoutDate < today ? 'paid' : 'upcoming',
+              status,
               dividend_type: div.dividend_type,
               amount_per_share: amountPerShare,
               total_amount: totalAmount,

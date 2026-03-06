@@ -704,6 +704,7 @@ function getRangeTargetPoints(range: HistoryRangeKey): number | null {
                 <tbody>
                   {group.items.map((div, i) => {
                     const displayed = getDisplayedDividendAmount(div)
+                    const payoutDisplayDate = div.payment_date ?? div.payout_date
                     return (
                     <tr key={`${div.ticker}-${div.ex_date}-${div.payment_date ?? 'na'}-${div.dividend_type ?? 'na'}-${i}`}>
                       <td>
@@ -712,7 +713,7 @@ function getRangeTargetPoints(range: HistoryRangeKey): number | null {
                         </Link>
                       </td>
                       <td>{formatDate(div.ex_date, locale)}</td>
-                      <td>{div.payment_date ? formatDate(div.payment_date, locale) : '-'}</td>
+                      <td>{payoutDisplayDate ? formatDate(payoutDisplayDate, locale) : '-'}</td>
                       <td style={{ textAlign: 'right' }}>{formatCurrency(div.amount_per_share, locale, div.currency)}</td>
                       <td style={{ color: 'var(--accent-green)', textAlign: 'right' }}>
                         {formatCurrency(displayed.amount, locale, displayed.currency)}
