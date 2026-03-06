@@ -57,8 +57,26 @@ function formatPercent(value: number, locale: string): string {
  * @returns The date formatted with a short month and numeric day according to `locale` (for example, `"Mar 5"` or locale equivalent)
  */
 function formatDate(dateStr: string, locale: string): string {
-  const [year, month, day] = dateStr.split('-').map(Number)
-  const date = new Date(Date.UTC(year, month - 1, day))
+  const trimmedDate = dateStr.trim()
+  let date: Date
+
+  if (/^\d{4}-\d{2}-\d{2}$/.test(trimmedDate)) {
+    const [year, month, day] = trimmedDate.split('-').map(Number)
+    date = new Date(Date.UTC(year, month - 1, day))
+  } else if (/^-?\d+$/.test(trimmedDate)) {
+    const epoch = Number(trimmedDate)
+    const epochMilliseconds = Math.abs(epoch) < 1e12 ? epoch * 1000 : epoch
+    date = new Date(epochMilliseconds)
+  } else if (trimmedDate.includes('T') || /([zZ]|[+-]\d{2}:\d{2})$/.test(trimmedDate)) {
+    date = new Date(trimmedDate)
+  } else {
+    date = new Date(trimmedDate)
+  }
+
+  if (Number.isNaN(date.getTime())) {
+    return trimmedDate
+  }
+
   return date.toLocaleDateString(locale, { month: 'short', day: 'numeric', timeZone: 'UTC' })
 }
 
@@ -212,7 +230,7 @@ function getRangeTargetPoints(range: HistoryRangeKey): number | null {
   *
   * @returns A JSX element that renders the portfolio dashboard.
   */
- export default function Dashboard() {
+export default function Dashboard() {
   const navigate = useNavigate()
   const [summary, setSummary] = useState<PortfolioSummary | null>(null)
   const [upcomingDividends, setUpcomingDividends] = useState<UpcomingDividend[]>([])
@@ -227,6 +245,7 @@ function getRangeTargetPoints(range: HistoryRangeKey): number | null {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const historyRequestIdRef = useRef(0)
+  const dataRequestIdRef = useRef(0)
   const { displayCurrency, timezone, language } = useSettings()
   const locale = getLocaleForLanguage(language)
   const historyRangeTitle = (key: HistoryRangeKey) => {
@@ -253,6 +272,9 @@ function getRangeTargetPoints(range: HistoryRangeKey): number | null {
   }, [])
 
   const fetchData = useCallback(async () => {
+    const requestId = dataRequestIdRef.current + 1
+    dataRequestIdRef.current = requestId
+
     try {
       setLoading(true)
       const [summaryData, stocksData, ratesData, upcomingDivsData] = await Promise.all([
@@ -261,6 +283,9 @@ function getRangeTargetPoints(range: HistoryRangeKey): number | null {
         api.market.exchangeRates(),
         api.portfolio.upcomingDividends().catch(() => ({ dividends: [], total_expected: 0, total_received: 0, total_remaining: 0, display_currency: displayCurrency, unmapped_stocks: [] })),
       ])
+      if (requestId !== dataRequestIdRef.current) {
+        return
+      }
       setSummary(summaryData)
       setStocks(stocksData)
       setExchangeRates(ratesData)
@@ -271,18 +296,29 @@ function getRangeTargetPoints(range: HistoryRangeKey): number | null {
       setFailedLogos({})
       setError(null)
     } catch (err) {
+      if (requestId !== dataRequestIdRef.current) {
+        return
+      }
       setError(t(language, 'dashboard.failedLoad'))
     } finally {
-      setLoading(false)
+      if (requestId === dataRequestIdRef.current) {
+        setLoading(false)
+      }
     }
   }, [displayCurrency, language])
 
   useEffect(() => {
     fetchData()
+    return () => {
+      dataRequestIdRef.current += 1
+    }
   }, [fetchData])
 
   useEffect(() => {
     fetchHistory(historyRange)
+    return () => {
+      historyRequestIdRef.current += 1
+    }
   }, [fetchHistory, historyRange])
 
   const tryConvertToCurrency = (amount: number, currency: string): number | null => {

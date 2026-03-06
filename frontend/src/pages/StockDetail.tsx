@@ -277,9 +277,9 @@ export default function StockDetail() {
 
         const safeRates = ratesData as Record<string, number | null>
 
-        const currentYear = new Date().getFullYear()
         const todayDate = new Date()
         todayDate.setUTCHours(0, 0, 0, 0)
+        const currentYear = todayDate.getUTCFullYear()
 
         const historicalYearDividends: UpcomingDividend[] = divData
           .filter((div: Dividend) => {
@@ -487,9 +487,10 @@ export default function StockDetail() {
     try {
       setSaving(true)
       const parsedQuantity = parseFloat(editQuantity)
+      const parsedPurchasePrice = parseFloat(editPurchasePrice)
       const updated = await api.stocks.update(ticker, {
         quantity: Number.isNaN(parsedQuantity) ? undefined : parsedQuantity,
-        purchase_price: editPurchasePrice ? parseFloat(editPurchasePrice) : undefined,
+        purchase_price: Number.isNaN(parsedPurchasePrice) ? undefined : parsedPurchasePrice,
       })
       const yearlyState = recalculateYearlyDividendState(yearDividends, updated.quantity, exchangeRates)
       setStock(updated)

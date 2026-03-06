@@ -36,6 +36,21 @@ def upgrade(conn) -> None:
             "rows with NULL user_id. Run the NOT NULL/backfill migration first."
         )
 
+    has_duplicates = conn.execute(
+        text(
+            "SELECT EXISTS ("
+            "  SELECT 1 FROM portfolio_history "
+            "  GROUP BY user_id, date "
+            "  HAVING COUNT(*) > 1"
+            ")"
+        )
+    ).scalar_one()
+    if has_duplicates:
+        raise MigrationError(
+            "Cannot create ux_portfolio_history_user_date while duplicate "
+            "(user_id, date) rows exist in portfolio_history. Deduplicate/backfill before rerunning this migration."
+        )
+
     conn.execute(text("ALTER TABLE portfolio_history DROP CONSTRAINT IF EXISTS portfolio_history_date_key"))
     conn.execute(
         text(

@@ -85,6 +85,11 @@ def validate_startup_env() -> None:
         raise RuntimeError(f"Missing required environment variables: {joined}")
 
 
+def validate_auth_token_secret() -> None:
+    """Validate the auth token secret required for token operations."""
+    _get_required_env("AUTH_TOKEN_SECRET")
+
+
 def create_access_token(user_id: int) -> str:
     """Create a signed bearer token for a specific user id."""
     secret = _get_required_env("AUTH_TOKEN_SECRET")
@@ -379,10 +384,18 @@ def ensure_account_schema_and_seed() -> None:
         conn.execute(text("UPDATE portfolio_history SET user_id = :uid WHERE user_id IS NULL"), {"uid": default_user_id})
         conn.execute(text("UPDATE stock_price_history SET user_id = :uid WHERE user_id IS NULL"), {"uid": default_user_id})
 
-        conn.execute(text("UPDATE stocks SET user_id = :uid WHERE user_id IS NOT NULL AND user_id NOT IN (SELECT id FROM users)"), {"uid": default_user_id})
-        conn.execute(text("UPDATE user_settings SET user_id = :uid WHERE user_id IS NOT NULL AND user_id NOT IN (SELECT id FROM users)"), {"uid": default_user_id})
-        conn.execute(text("UPDATE portfolio_history SET user_id = :uid WHERE user_id IS NOT NULL AND user_id NOT IN (SELECT id FROM users)"), {"uid": default_user_id})
-        conn.execute(text("UPDATE stock_price_history SET user_id = :uid WHERE user_id IS NOT NULL AND user_id NOT IN (SELECT id FROM users)"), {"uid": default_user_id})
+        for table_name in ("stocks", "user_settings", "portfolio_history", "stock_price_history"):
+            orphaned_user_id_count = conn.execute(text(f"""
+                SELECT COUNT(*)
+                FROM {table_name}
+                WHERE user_id IS NOT NULL
+                  AND user_id NOT IN (SELECT id FROM users)
+            """)).scalar_one()
+            if orphaned_user_id_count > 0:
+                raise RuntimeError(
+                    f"Cannot backfill {table_name}: found {orphaned_user_id_count} rows with orphaned non-NULL user_id values. "
+                    "Remediate these rows explicitly before startup seeding can continue."
+                )
 
         conn.execute(text("ALTER TABLE stocks ALTER COLUMN user_id SET NOT NULL"))
         conn.execute(text("ALTER TABLE user_settings ALTER COLUMN user_id SET NOT NULL"))
@@ -403,75 +416,83 @@ def ensure_account_schema_and_seed() -> None:
         conn.execute(text("CREATE INDEX IF NOT EXISTS ix_stock_price_history_user_ticker ON stock_price_history(user_id, ticker)"))
         conn.execute(text("CREATE UNIQUE INDEX IF NOT EXISTS ux_user_settings_user_id ON user_settings(user_id)"))
 
-        guest_stock_count = conn.execute(
-            text("SELECT COUNT(*) FROM stocks WHERE user_id = :uid"),
-            {"uid": guest_user_id},
-        ).scalar_one()
-        if guest_stock_count == 0:
-            now = utc_now()
-            guest_stocks = [
-                {
-                    "ticker": "VOLV-B.ST",
-                    "name": "Volvo B",
-                    "quantity": 28.0,
-                    "currency": "SEK",
-                    "sector": "Industrials",
-                    "purchase_price": 245.0,
-                    "current_price": 273.5,
-                    "previous_close": 271.8,
-                    "dividend_yield": 3.2,
-                    "dividend_per_share": 8.8,
-                },
-                {
-                    "ticker": "AAPL",
-                    "name": "Apple Inc.",
-                    "quantity": 12.0,
-                    "currency": "USD",
-                    "sector": "Technology",
-                    "purchase_price": 178.0,
-                    "current_price": 195.3,
-                    "previous_close": 194.2,
-                    "dividend_yield": 0.5,
-                    "dividend_per_share": 0.96,
-                },
-                {
-                    "ticker": "SAP.DE",
-                    "name": "SAP SE",
-                    "quantity": 10.0,
-                    "currency": "EUR",
-                    "sector": "Technology",
-                    "purchase_price": 162.5,
-                    "current_price": 174.9,
-                    "previous_close": 174.0,
-                    "dividend_yield": 1.6,
-                    "dividend_per_share": 2.2,
-                },
-            ]
-            for stock in guest_stocks:
-                conn.execute(text("""
-                    INSERT INTO stocks (
-                        user_id, ticker, name, quantity, currency, sector, purchase_price,
-                        current_price, previous_close, dividend_yield, dividend_per_share,
-                        last_updated, manual_dividends, suppressed_dividends
-                    ) VALUES (
-                        :user_id, :ticker, :name, :quantity, :currency, :sector, :purchase_price,
-                        :current_price, :previous_close, :dividend_yield, :dividend_per_share,
-                        :last_updated, '[]'::json, '[]'::json
-                    )
-                """), {
-                    "user_id": guest_user_id,
-                    "ticker": stock["ticker"],
-                    "name": stock["name"],
-                    "quantity": stock["quantity"],
-                    "currency": stock["currency"],
-                    "sector": stock["sector"],
-                    "purchase_price": stock["purchase_price"],
-                    "current_price": stock["current_price"],
-                    "previous_close": stock["previous_close"],
-                    "dividend_yield": stock["dividend_yield"],
-                    "dividend_per_share": stock["dividend_per_share"],
-                    "last_updated": now,
-                })
+        now = utc_now()
+        guest_stocks = [
+            {
+                "ticker": "VOLV-B.ST",
+                "name": "Volvo B",
+                "quantity": 28.0,
+                "currency": "SEK",
+                "sector": "Industrials",
+                "purchase_price": 245.0,
+                "current_price": 273.5,
+                "previous_close": 271.8,
+                "dividend_yield": 3.2,
+                "dividend_per_share": 8.8,
+            },
+            {
+                "ticker": "AAPL",
+                "name": "Apple Inc.",
+                "quantity": 12.0,
+                "currency": "USD",
+                "sector": "Technology",
+                "purchase_price": 178.0,
+                "current_price": 195.3,
+                "previous_close": 194.2,
+                "dividend_yield": 0.5,
+                "dividend_per_share": 0.96,
+            },
+            {
+                "ticker": "SAP.DE",
+                "name": "SAP SE",
+                "quantity": 10.0,
+                "currency": "EUR",
+                "sector": "Technology",
+                "purchase_price": 162.5,
+                "current_price": 174.9,
+                "previous_close": 174.0,
+                "dividend_yield": 1.6,
+                "dividend_per_share": 2.2,
+            },
+        ]
+        for stock in guest_stocks:
+            conn.execute(text("""
+                INSERT INTO stocks (
+                    user_id, ticker, name, quantity, currency, sector, purchase_price,
+                    current_price, previous_close, dividend_yield, dividend_per_share,
+                    last_updated, manual_dividends, suppressed_dividends
+                ) VALUES (
+                    :user_id, :ticker, :name, :quantity, :currency, :sector, :purchase_price,
+                    :current_price, :previous_close, :dividend_yield, :dividend_per_share,
+                    :last_updated, '[]'::json, '[]'::json
+                )
+                ON CONFLICT (user_id, ticker) DO UPDATE SET
+                    name = EXCLUDED.name,
+                    quantity = EXCLUDED.quantity,
+                    currency = EXCLUDED.currency,
+                    sector = EXCLUDED.sector,
+                    purchase_price = EXCLUDED.purchase_price,
+                    current_price = EXCLUDED.current_price,
+                    previous_close = EXCLUDED.previous_close,
+                    dividend_yield = EXCLUDED.dividend_yield,
+                    dividend_per_share = EXCLUDED.dividend_per_share,
+                    last_updated = EXCLUDED.last_updated,
+                    manual_dividends = '[]'::json,
+                    suppressed_dividends = '[]'::json
+            """), {
+                "user_id": guest_user_id,
+                "ticker": stock["ticker"],
+                "name": stock["name"],
+                "quantity": stock["quantity"],
+                "currency": stock["currency"],
+                "sector": stock["sector"],
+                "purchase_price": stock["purchase_price"],
+                "current_price": stock["current_price"],
+                "previous_close": stock["previous_close"],
+                "dividend_yield": stock["dividend_yield"],
+                "dividend_per_share": stock["dividend_per_share"],
+                "last_updated": now,
+            })
 
 def get_db():
     """Create and yield a database session.
@@ -518,6 +539,7 @@ async def lifespan(app: FastAPI):
         None
     """
     from app.services.scheduler import start_scheduler, stop_scheduler
+    validate_auth_token_secret()
     run_startup_schema_seed = os.getenv("RUN_STARTUP_SCHEMA_SEED", "1").lower() not in {"0", "false", "no"}
     if run_startup_schema_seed:
         try:
