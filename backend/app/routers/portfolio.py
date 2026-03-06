@@ -5,6 +5,7 @@ performance, distribution analysis, and bulk refresh operations.
 """
 
 from fastapi import APIRouter, Depends, Query
+from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.orm import Session
 from datetime import date, datetime, timezone
 from typing import List, Optional
@@ -360,14 +361,16 @@ def refresh_all_prices(db: Session = Depends(get_db), current_user: User = Depen
     if updated > 0 and total_value_sek > 0:
         now = utc_now()
         interval = now.replace(minute=(now.minute // 15) * 15, second=0, microsecond=0)
-        existing_history = db.query(PortfolioHistory).filter(
-            PortfolioHistory.user_id == current_user.id,
-            PortfolioHistory.date == interval,
-        ).first()
-        if existing_history:
-            existing_history.total_value = total_value_sek
-        else:
-            db.add(PortfolioHistory(user_id=current_user.id, total_value=total_value_sek, date=interval))
+        stmt = insert(PortfolioHistory).values(
+            user_id=current_user.id,
+            date=interval,
+            total_value=total_value_sek,
+        )
+        stmt = stmt.on_conflict_do_update(
+            index_elements=[PortfolioHistory.user_id, PortfolioHistory.date],
+            set_={"total_value": stmt.excluded.total_value},
+        )
+        db.execute(stmt)
     
     db.commit()
     

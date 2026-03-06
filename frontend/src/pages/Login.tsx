@@ -13,12 +13,17 @@ export default function Login() {
   const submit = async (e: FormEvent) => {
     e.preventDefault()
     setError(null)
+    const trimmed = username.trim()
+    if (trimmed.length === 0) {
+      setError(language === 'sv' ? 'Anvandarnamn kan inte vara tomt.' : 'Username cannot be empty.')
+      return
+    }
 
     try {
       if (isRegisterMode) {
-        await register(username.trim(), password)
+        await register(trimmed, password)
       } else {
-        await login(username.trim(), password)
+        await login(trimmed, password)
       }
     } catch (err) {
       setError(err instanceof Error ? err.message : t(language, 'login.errorAuthFailed'))
@@ -77,7 +82,11 @@ export default function Login() {
             required
             autoComplete={isRegisterMode ? 'new-password' : 'current-password'}
           />
-          {error && <div style={{ color: '#ff8f8f', fontSize: 13 }}>{error}</div>}
+          {error && (
+            <div role="alert" aria-live="assertive" aria-atomic="true" style={{ color: '#ff8f8f', fontSize: 13 }}>
+              {error}
+            </div>
+          )}
           <button className="btn btn-primary" type="submit" disabled={loading} style={{ width: '100%' }}>
             {loading ? t(language, 'login.loading') : isRegisterMode ? t(language, 'login.submitRegister') : t(language, 'login.submitLogin')}
           </button>

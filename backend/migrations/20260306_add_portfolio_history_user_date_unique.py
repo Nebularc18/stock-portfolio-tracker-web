@@ -47,10 +47,24 @@ def downgrade(conn) -> None:
     conn.execute(text("DROP INDEX IF EXISTS ux_portfolio_history_user_date"))
     conn.execute(
         text(
-            "DO $$ BEGIN "
-            "IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'portfolio_history_date_key') THEN "
-            "ALTER TABLE portfolio_history ADD CONSTRAINT portfolio_history_date_key UNIQUE (date); "
-            "END IF; END $$;"
+            "DO $$ "
+            "DECLARE has_duplicate_dates BOOLEAN; "
+            "BEGIN "
+            "SELECT EXISTS ("
+            "  SELECT 1 FROM ("
+            "    SELECT date FROM portfolio_history GROUP BY date HAVING COUNT(*) > 1"
+            "  ) d"
+            ") INTO has_duplicate_dates; "
+            "IF has_duplicate_dates THEN "
+            "  RAISE NOTICE 'Skipping portfolio_history_date_key creation because duplicate date values exist in portfolio_history'; "
+            "ELSIF NOT EXISTS ("
+            "  SELECT 1 FROM pg_constraint "
+            "  WHERE conname = 'portfolio_history_date_key' "
+            "    AND conrelid = 'portfolio_history'::regclass"
+            ") THEN "
+            "  ALTER TABLE portfolio_history ADD CONSTRAINT portfolio_history_date_key UNIQUE (date); "
+            "END IF; "
+            "END $$;"
         )
     )
 

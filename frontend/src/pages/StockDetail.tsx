@@ -23,7 +23,6 @@ function formatCurrency(value: number | null, locale: string = 'en-US', currency
   return new Intl.NumberFormat(locale, {
     style: 'currency',
     currency,
-    minimumFractionDigits: 2,
   }).format(value)
 }
 
@@ -430,8 +429,9 @@ export default function StockDetail() {
     if (!ticker || !stock) return
     try {
       setSaving(true)
+      const parsedQuantity = parseFloat(editQuantity)
       const updated = await api.stocks.update(ticker, {
-        quantity: parseFloat(editQuantity) || undefined,
+        quantity: Number.isNaN(parsedQuantity) ? undefined : parsedQuantity,
         purchase_price: editPurchasePrice ? parseFloat(editPurchasePrice) : undefined,
       })
       setStock(updated)
@@ -941,8 +941,8 @@ export default function StockDetail() {
                   </tr>
                 </thead>
                 <tbody>
-                  {yearDividends.map((div, i) => (
-                    <tr key={i}>
+                  {yearDividends.map((div) => (
+                    <tr key={`${div.ex_date}-${div.payment_date || ''}-${div.amount_per_share ?? ''}-${div.source || ''}`}>
                       <td>{formatDate(div.ex_date, locale)}</td>
                       <td>{div.payment_date ? formatDate(div.payment_date, locale) : '-'}</td>
                       <td>{formatCurrency(div.amount_per_share, locale, div.currency || stock.currency)}</td>

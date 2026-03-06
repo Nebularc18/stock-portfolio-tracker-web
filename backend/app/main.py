@@ -143,7 +143,7 @@ class Stock(Base):
     
     Attributes:
         id: Primary key.
-        ticker: Stock ticker symbol (unique).
+        ticker: Stock ticker symbol.
         name: Company name.
         quantity: Number of shares owned.
         currency: Trading currency (default 'USD').
@@ -159,10 +159,13 @@ class Stock(Base):
         suppressed_dividends: List of suppressed broker dividends.
     """
     __tablename__ = "stocks"
+    __table_args__ = (
+        UniqueConstraint("user_id", "ticker", name="ux_stocks_user_ticker"),
+    )
 
     id = Column(Integer, primary_key=True, index=True)
-    user_id = Column(Integer, ForeignKey("users.id"), index=True, nullable=True)
-    ticker = Column(String, unique=True, index=True, nullable=False)
+    user_id = Column(Integer, ForeignKey("users.id"), index=True, nullable=False)
+    ticker = Column(String, index=True, nullable=False)
     name = Column(String)
     quantity = Column(Float, default=0)
     currency = Column(String, default="USD")
@@ -219,7 +222,7 @@ class PortfolioHistory(Base):
     )
 
     id = Column(Integer, primary_key=True, index=True)
-    user_id = Column(Integer, ForeignKey("users.id"), index=True, nullable=True)
+    user_id = Column(Integer, ForeignKey("users.id"), index=True, nullable=False)
     total_value = Column(Float)
     date = Column(DateTime(timezone=True), default=utc_now)
 
@@ -237,7 +240,7 @@ class StockPriceHistory(Base):
     __tablename__ = "stock_price_history"
 
     id = Column(Integer, primary_key=True, index=True)
-    user_id = Column(Integer, ForeignKey("users.id"), index=True, nullable=True)
+    user_id = Column(Integer, ForeignKey("users.id"), index=True, nullable=False)
     ticker = Column(String, index=True, nullable=False)
     price = Column(Float, nullable=False)
     currency = Column(String, nullable=False)
@@ -255,7 +258,7 @@ class UserSettings(Base):
     __tablename__ = "user_settings"
 
     id = Column(Integer, primary_key=True, index=True)
-    user_id = Column(Integer, ForeignKey("users.id"), index=True, nullable=True)
+    user_id = Column(Integer, ForeignKey("users.id"), index=True, nullable=False)
     display_currency = Column(String, default="SEK")
     header_indices = Column(String, default="[]")
 
@@ -327,62 +330,38 @@ def ensure_account_schema_and_seed() -> None:
 
         conn.execute(text("""
             DO $$ BEGIN
-                IF NOT EXISTS (
-                    SELECT 1
-                    FROM pg_constraint c
-                    JOIN pg_class t ON t.oid = c.conrelid
-                    JOIN pg_attribute a ON a.attrelid = t.oid AND a.attnum = ANY(c.conkey)
-                    WHERE c.contype = 'f' AND t.relname = 'stocks' AND a.attname = 'user_id'
-                ) THEN
-                    ALTER TABLE stocks
-                    ADD CONSTRAINT fk_stocks_user_id_users
-                    FOREIGN KEY (user_id) REFERENCES users(id);
-                END IF;
+                ALTER TABLE stocks
+                ADD CONSTRAINT fk_stocks_user_id_users
+                FOREIGN KEY (user_id) REFERENCES users(id);
+            EXCEPTION
+                WHEN duplicate_object THEN NULL;
             END $$;
         """))
         conn.execute(text("""
             DO $$ BEGIN
-                IF NOT EXISTS (
-                    SELECT 1
-                    FROM pg_constraint c
-                    JOIN pg_class t ON t.oid = c.conrelid
-                    JOIN pg_attribute a ON a.attrelid = t.oid AND a.attnum = ANY(c.conkey)
-                    WHERE c.contype = 'f' AND t.relname = 'user_settings' AND a.attname = 'user_id'
-                ) THEN
-                    ALTER TABLE user_settings
-                    ADD CONSTRAINT fk_user_settings_user_id_users
-                    FOREIGN KEY (user_id) REFERENCES users(id);
-                END IF;
+                ALTER TABLE user_settings
+                ADD CONSTRAINT fk_user_settings_user_id_users
+                FOREIGN KEY (user_id) REFERENCES users(id);
+            EXCEPTION
+                WHEN duplicate_object THEN NULL;
             END $$;
         """))
         conn.execute(text("""
             DO $$ BEGIN
-                IF NOT EXISTS (
-                    SELECT 1
-                    FROM pg_constraint c
-                    JOIN pg_class t ON t.oid = c.conrelid
-                    JOIN pg_attribute a ON a.attrelid = t.oid AND a.attnum = ANY(c.conkey)
-                    WHERE c.contype = 'f' AND t.relname = 'portfolio_history' AND a.attname = 'user_id'
-                ) THEN
-                    ALTER TABLE portfolio_history
-                    ADD CONSTRAINT fk_portfolio_history_user_id_users
-                    FOREIGN KEY (user_id) REFERENCES users(id);
-                END IF;
+                ALTER TABLE portfolio_history
+                ADD CONSTRAINT fk_portfolio_history_user_id_users
+                FOREIGN KEY (user_id) REFERENCES users(id);
+            EXCEPTION
+                WHEN duplicate_object THEN NULL;
             END $$;
         """))
         conn.execute(text("""
             DO $$ BEGIN
-                IF NOT EXISTS (
-                    SELECT 1
-                    FROM pg_constraint c
-                    JOIN pg_class t ON t.oid = c.conrelid
-                    JOIN pg_attribute a ON a.attrelid = t.oid AND a.attnum = ANY(c.conkey)
-                    WHERE c.contype = 'f' AND t.relname = 'stock_price_history' AND a.attname = 'user_id'
-                ) THEN
-                    ALTER TABLE stock_price_history
-                    ADD CONSTRAINT fk_stock_price_history_user_id_users
-                    FOREIGN KEY (user_id) REFERENCES users(id);
-                END IF;
+                ALTER TABLE stock_price_history
+                ADD CONSTRAINT fk_stock_price_history_user_id_users
+                FOREIGN KEY (user_id) REFERENCES users(id);
+            EXCEPTION
+                WHEN duplicate_object THEN NULL;
             END $$;
         """))
 
@@ -464,10 +443,6 @@ def ensure_account_schema_and_seed() -> None:
                     "last_updated": now,
                 })
 
-
-ensure_account_schema_and_seed()
-
-
 def get_db():
     """Create and yield a database session.
     
@@ -513,6 +488,13 @@ async def lifespan(app: FastAPI):
         None
     """
     from app.services.scheduler import start_scheduler, stop_scheduler
+    run_startup_schema_seed = os.getenv("RUN_STARTUP_SCHEMA_SEED", "1").lower() not in {"0", "false", "no"}
+    if run_startup_schema_seed:
+        try:
+            ensure_account_schema_and_seed()
+        except Exception:
+            logger.exception("Startup schema/seed step failed")
+            raise
     start_scheduler()
     logger.info("Application started")
     yield

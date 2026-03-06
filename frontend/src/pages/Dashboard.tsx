@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { ResponsiveContainer, Tooltip, AreaChart, Area, XAxis, YAxis, CartesianGrid } from 'recharts'
 import { api, PortfolioSummary, Stock, UpcomingDividend } from '../services/api'
@@ -227,6 +227,7 @@ function getRangeTargetPoints(range: HistoryRangeKey): number | null {
   const [failedLogos, setFailedLogos] = useState<Record<string, boolean>>({})
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
+  const historyRequestIdRef = useRef(0)
   const { displayCurrency, timezone, language } = useSettings()
   const locale = getLocaleForLanguage(language)
   const historyRangeTitle = (key: HistoryRangeKey) => {
@@ -242,8 +243,13 @@ function getRangeTargetPoints(range: HistoryRangeKey): number | null {
   }
 
   const fetchHistory = useCallback(async (range: HistoryRangeKey) => {
+    const requestId = historyRequestIdRef.current + 1
+    historyRequestIdRef.current = requestId
     const rangeQuery = HISTORY_RANGE_OPTIONS.find((option) => option.key === range)?.query || '1m'
     const historyData = await api.portfolio.history({ range: rangeQuery }).catch(() => [])
+    if (requestId !== historyRequestIdRef.current) {
+      return
+    }
     setPortfolioHistory(historyData)
   }, [])
 
@@ -532,12 +538,12 @@ function getRangeTargetPoints(range: HistoryRangeKey): number | null {
                     const currentValue = Number(payload[0].value ?? 0)
                     const absoluteChange = currentValue - baselineValue
                     const percentChange = baselineValue !== 0 ? (absoluteChange / baselineValue) * 100 : 0
-                    const percentChangeText = Math.abs(percentChange).toLocaleString(locale, {
+                    const percentChangeText = percentChange.toLocaleString(locale, {
                       minimumFractionDigits: 2,
                       maximumFractionDigits: 2,
                     })
                     const changeColor = absoluteChange >= 0 ? 'var(--accent-green)' : 'var(--accent-red)'
-                    const sign = absoluteChange >= 0 ? '+' : ''
+                    const sign = percentChange >= 0 ? '+' : ''
 
                     return (
                       <div style={{
