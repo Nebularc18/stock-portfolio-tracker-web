@@ -3,6 +3,7 @@ import { useHeaderData } from '../contexts/HeaderDataContext'
 import { useSettings } from '../SettingsContext'
 import { formatTimeInTimezone } from '../utils/time'
 import { getLocaleForLanguage, t } from '../i18n'
+import { useAuth } from '../AuthContext'
 
 /**
  * Render the main infographic layout for the portfolio dashboard.
@@ -16,6 +17,7 @@ export default function InfographicLayout() {
   const location = useLocation()
   const { indices: allIndices, exchangeRates, lastUpdated } = useHeaderData()
   const { timezone, headerIndices, language } = useSettings()
+  const { user, logout } = useAuth()
   const locale = getLocaleForLanguage(language)
   
   // Filter indices based on user settings, or show first 5 if no settings
@@ -143,9 +145,19 @@ export default function InfographicLayout() {
               <p style={{ fontSize: 12, color: 'rgba(255,255,255,0.45)', marginTop: 6 }}>
                 {t(language, 'layout.headerUpdated')}: {formatTimeInTimezone(lastUpdated, timezone, locale)}
               </p>
+              <p style={{ fontSize: 12, color: 'rgba(255,255,255,0.65)', marginTop: 6 }}>
+                Signed in as <strong>{user?.username}</strong>{user?.is_guest ? ' (guest demo)' : ''}
+              </p>
             </div>
             
-            <div style={{ display: 'flex', gap: 24, flexWrap: 'wrap' }}>
+            <div style={{ display: 'flex', gap: 24, flexWrap: 'wrap', alignItems: 'flex-start' }}>
+              <button
+                className="btn btn-secondary"
+                style={{ height: 'fit-content' }}
+                onClick={logout}
+              >
+                Log out
+              </button>
               {indices.map(idx => (
                 <div key={idx.symbol} style={{
                   background: 'rgba(255,255,255,0.05)',

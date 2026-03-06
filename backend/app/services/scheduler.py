@@ -120,6 +120,7 @@ def refresh_all_stocks():
                         skipped += 1
             except Exception:
                 logger.exception(f"Error refreshing {stock.ticker}")
+                skipped += 1
         
         # Record portfolio history for the dashboard chart
         if updated > 0 and total_value_sek > 0 and skipped == 0:

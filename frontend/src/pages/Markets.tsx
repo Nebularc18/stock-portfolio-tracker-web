@@ -72,6 +72,7 @@ export default function Markets() {
   const locale = getLocaleForLanguage(language)
   const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const isMountedRef = useRef(true)
+  const fallbackTimezone = timezone || Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC'
 
   // Fetch additional data (market hours and sparklines) separately
   const fetchAdditionalData = useCallback(async () => {
@@ -184,7 +185,7 @@ export default function Markets() {
           </Link>
         </div>
         <p style={{ color: 'var(--text-secondary)', fontSize: '12px', marginBottom: '12px' }}>
-          {t(language, 'layout.timesInTimezone')} ({marketHours[0]?.timezone || 'CET'})
+          {t(language, 'layout.timesInTimezone')} ({marketHours[0]?.timezone || fallbackTimezone})
         </p>
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '16px' }}>
           {marketHours.map((market) => (

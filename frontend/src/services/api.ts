@@ -1,10 +1,29 @@
 const API_BASE = '/api'
+export const AUTH_STORAGE_KEY = 'portfolioAuthUser'
+
+export interface AuthUser {
+  id: number
+  username: string
+  is_guest: boolean
+}
+
+function getStoredAuthUser(): AuthUser | null {
+  const raw = localStorage.getItem(AUTH_STORAGE_KEY)
+  if (!raw) return null
+  try {
+    return JSON.parse(raw) as AuthUser
+  } catch {
+    return null
+  }
+}
 
 async function fetchAPI(endpoint: string, options?: RequestInit) {
+  const authUser = getStoredAuthUser()
   const response = await fetch(`${API_BASE}${endpoint}`, {
     ...options,
     headers: {
       'Content-Type': 'application/json',
+      ...(authUser ? { 'X-User-Id': String(authUser.id) } : {}),
       ...options?.headers,
     },
   })
@@ -288,6 +307,15 @@ export interface VerificationResult {
 }
 
 export const api = {
+  auth: {
+    login: (data: { username: string; password: string }) =>
+      fetchAPI('/auth/login', { method: 'POST', body: JSON.stringify(data) }) as Promise<AuthUser>,
+    register: (data: { username: string; password: string }) =>
+      fetchAPI('/auth/register', { method: 'POST', body: JSON.stringify(data) }) as Promise<AuthUser>,
+    guest: () => fetchAPI('/auth/guest', { method: 'POST' }) as Promise<AuthUser>,
+    users: () => fetchAPI('/auth/users') as Promise<AuthUser[]>,
+  },
+
   stocks: {
     list: () => fetchAPI('/stocks') as Promise<Stock[]>,
     get: (ticker: string) => fetchAPI(`/stocks/${ticker}`) as Promise<Stock>,

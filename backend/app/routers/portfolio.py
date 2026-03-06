@@ -6,26 +6,25 @@ performance, distribution analysis, and bulk refresh operations.
 
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy.orm import Session
-from sqlalchemy.dialects.postgresql import insert
 from datetime import date, datetime, timezone
 from typing import List, Optional
 import logging
 
-from app.main import get_db, Stock, PortfolioHistory, UserSettings, StockPriceHistory
+from app.main import get_db, get_current_user, User, Stock, PortfolioHistory, UserSettings, StockPriceHistory
 from app.services.exchange_rate_service import ExchangeRateService
 from app.utils.time import utc_now
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
 
-def get_display_currency(db: Session) -> str:
+def get_display_currency(db: Session, user_id: int) -> str:
     """
     Get the user's preferred display currency.
     
     Returns:
         The currency code to use for display (for example, "USD" or "SEK"). Returns "SEK" if no user settings exist.
     """
-    settings = db.query(UserSettings).first()
+    settings = db.query(UserSettings).filter(UserSettings.user_id == user_id).first()
     if settings:
         return settings.display_currency
     return "SEK"
@@ -58,7 +57,7 @@ def convert_value(value: float, from_currency: str, to_currency: str, rates: dic
 
 
 @router.get("/summary")
-def get_portfolio_summary(db: Session = Depends(get_db)):
+def get_portfolio_summary(db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
     """
     Calculate portfolio summary including totals and per-stock metrics in the user's display currency.
     
@@ -76,8 +75,8 @@ def get_portfolio_summary(db: Session = Depends(get_db)):
             stock_count (int): Number of stocks processed.
             unconverted_stocks (list): Entries for stocks omitted from totals due to missing exchange rates.
     """
-    stocks = db.query(Stock).all()
-    display_currency = get_display_currency(db)
+    stocks = db.query(Stock).filter(Stock.user_id == current_user.id).all()
+    display_currency = get_display_currency(db, current_user.id)
     
     currencies = {s.currency for s in stocks if s.currency}
     rates = ExchangeRateService.get_rates_for_currencies(currencies, display_currency)
@@ -177,7 +176,7 @@ def get_portfolio_summary(db: Session = Depends(get_db)):
 
 
 @router.post("/refresh-all")
-def refresh_all_prices(db: Session = Depends(get_db)):
+def refresh_all_prices(db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
     """
     Refresh current prices and logos for all portfolio stocks, record daily price history, and update the portfolio's total value.
     
@@ -195,7 +194,7 @@ def refresh_all_prices(db: Session = Depends(get_db)):
     from app.services.brandfetch_service import brandfetch_service
     stock_service = StockService()
     
-    stocks = db.query(Stock).all()
+    stocks = db.query(Stock).filter(Stock.user_id == current_user.id).all()
     updated = 0
     total_value_sek = 0
     logos_backfilled = 0
@@ -232,6 +231,7 @@ def refresh_all_prices(db: Session = Depends(get_db)):
         
         if stock.current_price is not None:
             existing_price = db.query(StockPriceHistory).filter(
+                StockPriceHistory.user_id == current_user.id,
                 StockPriceHistory.ticker == stock.ticker,
                 StockPriceHistory.recorded_at >= today
             ).first()
@@ -240,6 +240,7 @@ def refresh_all_prices(db: Session = Depends(get_db)):
                 existing_price.price = stock.current_price
             else:
                 price_history = StockPriceHistory(
+                    user_id=current_user.id,
                     ticker=stock.ticker,
                     price=stock.current_price,
                     currency=stock.currency,
@@ -267,14 +268,14 @@ def refresh_all_prices(db: Session = Depends(get_db)):
     if updated > 0 and total_value_sek > 0:
         now = utc_now()
         interval = now.replace(minute=(now.minute // 15) * 15, second=0, microsecond=0)
-        stmt = insert(PortfolioHistory).values(
-            total_value=total_value_sek,
-            date=interval
-        ).on_conflict_do_update(
-            index_elements=['date'],
-            set_={'total_value': total_value_sek}
-        )
-        db.execute(stmt)
+        existing_history = db.query(PortfolioHistory).filter(
+            PortfolioHistory.user_id == current_user.id,
+            PortfolioHistory.date == interval,
+        ).first()
+        if existing_history:
+            existing_history.total_value = total_value_sek
+        else:
+            db.add(PortfolioHistory(user_id=current_user.id, total_value=total_value_sek, date=interval))
     
     db.commit()
     
@@ -290,7 +291,8 @@ def refresh_all_prices(db: Session = Depends(get_db)):
 def get_portfolio_history(
     days: int = Query(30, ge=1),
     range_key: Optional[str] = Query(None, alias="range"),
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
 ):
     """
     Return portfolio total-value snapshots for a requested historical range.
@@ -327,7 +329,7 @@ def get_portfolio_history(
             days = 30
         since = now - timedelta(days=days)
 
-    query = db.query(PortfolioHistory)
+    query = db.query(PortfolioHistory).filter(PortfolioHistory.user_id == current_user.id)
     if since is not None:
         query = query.filter(PortfolioHistory.date >= since)
 
@@ -336,7 +338,7 @@ def get_portfolio_history(
 
 
 @router.get("/distribution")
-def get_portfolio_distribution(db: Session = Depends(get_db)):
+def get_portfolio_distribution(db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
     """
     Compute portfolio value breakdowns aggregated by sector, currency, and ticker.
     
@@ -346,7 +348,7 @@ def get_portfolio_distribution(db: Session = Depends(get_db)):
             - by_currency (dict): currency code -> total market value in that currency.
             - by_stock (dict): ticker -> total market value for that stock.
     """
-    stocks = db.query(Stock).all()
+    stocks = db.query(Stock).filter(Stock.user_id == current_user.id).all()
     
     by_sector = {}
     by_currency = {}
@@ -371,7 +373,7 @@ def get_portfolio_distribution(db: Session = Depends(get_db)):
 
 
 @router.get("/upcoming-dividends")
-def get_upcoming_portfolio_dividends(db: Session = Depends(get_db)):
+def get_upcoming_portfolio_dividends(db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
     """
     Collect current-year dividend events for all stocks in the portfolio and convert per-stock totals into the user's display currency.
     
@@ -403,8 +405,8 @@ def get_upcoming_portfolio_dividends(db: Session = Depends(get_db)):
     from app.services.avanza_service import avanza_service
     
     stock_service = StockService()
-    stocks = db.query(Stock).all()
-    display_currency = get_display_currency(db)
+    stocks = db.query(Stock).filter(Stock.user_id == current_user.id).all()
+    display_currency = get_display_currency(db, current_user.id)
     
     currencies = {s.currency for s in stocks if s.currency}
     currencies.add('SEK')

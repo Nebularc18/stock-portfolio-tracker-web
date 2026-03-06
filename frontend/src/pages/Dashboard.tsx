@@ -405,10 +405,14 @@ function getRangeTargetPoints(range: HistoryRangeKey): number | null {
     .map(([monthKey, items]) => ({
       monthKey,
       items,
-      subtotal: items.reduce((sum, item) => {
+      subtotalsByCurrency: items.reduce((acc, item) => {
         const displayed = getDisplayedDividendAmount(item)
-        return Number.isFinite(displayed.amount) ? sum + displayed.amount : sum
-      }, 0),
+        if (!Number.isFinite(displayed.amount)) {
+          return acc
+        }
+        acc[displayed.currency] = (acc[displayed.currency] ?? 0) + displayed.amount
+        return acc
+      }, {} as Record<string, number>),
     }))
 
   return (
@@ -424,13 +428,13 @@ function getRangeTargetPoints(range: HistoryRangeKey): number | null {
         <div className="card">
           <p style={{ color: 'var(--text-secondary)', fontSize: '12px', marginBottom: '8px' }}>{t(language, 'dashboard.totalValue')} ({currency})</p>
           <p style={{ fontSize: '28px', fontWeight: '600' }}>
-            {formatCurrency(totalValueAggregate.total, locale, currency)}{totalValueAggregate.partial ? ' (partial)' : ''}
+            {formatCurrency(totalValueAggregate.total, locale, currency)}{totalValueAggregate.partial ? ` (${t(language, 'dashboard.partial')})` : ''}
           </p>
         </div>
         <div className="card">
           <p style={{ color: 'var(--text-secondary)', fontSize: '12px', marginBottom: '8px' }}>{t(language, 'dashboard.dailyChange')}</p>
           <p style={{ fontSize: '28px', fontWeight: '600' }} className={dailyChangeClass}>
-            {formatCurrency(dailyChangeAggregate.total, locale, currency)}{dailyChangeAggregate.partial ? ' (partial)' : ''}
+            {formatCurrency(dailyChangeAggregate.total, locale, currency)}{dailyChangeAggregate.partial ? ` (${t(language, 'dashboard.partial')})` : ''}
           </p>
         </div>
         <div className="card">
@@ -674,7 +678,10 @@ function getRangeTargetPoints(range: HistoryRangeKey): number | null {
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
                 <h4 style={{ margin: 0, color: 'var(--text-secondary)', fontSize: '14px' }}>{formatMonthLabel(group.monthKey, locale)}</h4>
                 <span style={{ color: 'var(--accent-green)', fontWeight: '600' }}>
-                  {formatCurrency(group.subtotal, locale, currency)}
+                  {Object.entries(group.subtotalsByCurrency)
+                    .sort(([a], [b]) => a.localeCompare(b))
+                    .map(([subtotalCurrency, subtotalAmount]) => formatCurrency(subtotalAmount, locale, subtotalCurrency))
+                    .join(' + ')}
                 </span>
               </div>
               <table style={{ width: '100%', tableLayout: 'fixed' }}>

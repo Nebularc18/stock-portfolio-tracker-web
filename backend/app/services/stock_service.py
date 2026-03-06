@@ -394,30 +394,34 @@ class StockService:
         ticker = ticker.upper()
         
         # Check if there's an Avanza mapping for this ticker - takes precedence
-        avanza_mapping = avanza_service.get_mapping_by_ticker(ticker)
-        if avanza_mapping:
-            if avanza_mapping.instrument_id:
-                logger.debug(f"get_dividends: Found Avanza mapping for {ticker}, fetching historical dividends")
-                avanza_divs = avanza_service.get_historical_dividends(ticker, years)
-                if avanza_divs:
-                    logger.debug(f"get_dividends: Returning {len(avanza_divs)} Avanza dividends for {ticker}")
-                    normalized_avanza_divs = []
-                    for item in avanza_divs:
-                        normalized_avanza_divs.append({
-                            'date': item.get('date'),
-                            'amount': item.get('amount'),
-                            'currency': item.get('currency'),
-                            'source': 'avanza',
-                            'payment_date': item.get('payment_date'),
-                            'dividend_type': item.get('dividend_type'),
-                        })
-                    return normalized_avanza_divs
-                else:
+        try:
+            avanza_mapping = avanza_service.get_mapping_by_ticker(ticker)
+            if avanza_mapping:
+                if avanza_mapping.instrument_id:
+                    logger.debug(f"get_dividends: Found Avanza mapping for {ticker}, fetching historical dividends")
+                    avanza_divs = avanza_service.get_historical_dividends(ticker, years)
+                    if avanza_divs:
+                        logger.debug(f"get_dividends: Returning {len(avanza_divs)} Avanza dividends for {ticker}")
+                        normalized_avanza_divs = []
+                        for item in avanza_divs:
+                            normalized_avanza_divs.append({
+                                'date': item.get('date'),
+                                'amount': item.get('amount'),
+                                'currency': item.get('currency'),
+                                'source': 'avanza',
+                                'payment_date': item.get('payment_date'),
+                                'dividend_type': item.get('dividend_type'),
+                            })
+                        normalized_avanza_divs.sort(key=lambda x: x.get('date') or '', reverse=True)
+                        return normalized_avanza_divs
+
                     logger.debug(f"get_dividends: Avanza returned no dividends for {ticker}, falling back to Yahoo")
+                else:
+                    logger.debug(f"get_dividends: Avanza mapping for {ticker} has no instrument_id, falling back to Yahoo")
             else:
-                logger.debug(f"get_dividends: Avanza mapping for {ticker} has no instrument_id, falling back to Yahoo")
-        else:
-            logger.debug(f"get_dividends: No Avanza mapping for {ticker}, using Yahoo Finance")
+                logger.debug(f"get_dividends: No Avanza mapping for {ticker}, using Yahoo Finance")
+        except Exception as exc:
+            logger.warning(f"get_dividends: Avanza provider failed for {ticker}, falling back to Yahoo: {exc}")
         
         cache_key = f"{ticker}_{years}"
         cache_file = f"dividends_{cache_key}.json"
@@ -504,24 +508,27 @@ class StockService:
         ticker = ticker.upper()
         
         # Check if there's an Avanza mapping for this ticker - takes precedence
-        avanza_mapping = avanza_service.get_mapping_by_ticker(ticker)
-        if avanza_mapping and avanza_mapping.instrument_id:
-            avanza_dividends = avanza_service.get_stock_dividends(ticker)
-            if avanza_dividends:
-                logger.debug(f"Found {len(avanza_dividends)} Avanza upcoming dividends for {ticker}")
-                return [{
-                    'ex_date': div.ex_date,
-                    'amount': div.amount,
-                    'currency': div.currency,
-                    'payment_date': div.payment_date,
-                    'dividend_type': div.dividend_type,
-                    'source': 'avanza'
-                } for div in avanza_dividends]
+        try:
+            avanza_mapping = avanza_service.get_mapping_by_ticker(ticker)
+            if avanza_mapping and avanza_mapping.instrument_id:
+                avanza_dividends = avanza_service.get_stock_dividends(ticker)
+                if avanza_dividends:
+                    logger.debug(f"Found {len(avanza_dividends)} Avanza upcoming dividends for {ticker}")
+                    return [{
+                        'ex_date': div.ex_date,
+                        'amount': div.amount,
+                        'currency': div.currency,
+                        'payment_date': div.payment_date,
+                        'dividend_type': div.dividend_type,
+                        'source': 'avanza'
+                    } for div in avanza_dividends]
 
-            logger.debug(
-                f"Avanza mapping found for {ticker} but no upcoming dividends returned; "
-                f"continuing with yfinance fallback"
-            )
+                logger.debug(
+                    f"Avanza mapping found for {ticker} but no upcoming dividends returned; "
+                    f"continuing with yfinance fallback"
+                )
+        except Exception as exc:
+            logger.warning(f"get_upcoming_dividends: Avanza provider failed for {ticker}, falling back to Yahoo: {exc}")
 
         if ticker.endswith('.ST'):
             logger.debug(f"Swedish ticker {ticker} has no Avanza mapping or instrument_id, falling back to yfinance")
@@ -565,8 +572,9 @@ class StockService:
                 if isinstance(value, (int, float)):
                     try:
                         return datetime.fromtimestamp(value, tz=timezone.utc).strftime('%Y-%m-%d')
-                    except (OSError, OverflowError, ValueError):
-                        return str(value)[:10]
+                    except (OSError, OverflowError, ValueError) as exc:
+                        logger.debug(f"get_upcoming_dividends: failed to parse timestamp for {ticker}: {exc}")
+                        return None
 
                 value_str = str(value)
                 return value_str[:10] if len(value_str) >= 10 else None

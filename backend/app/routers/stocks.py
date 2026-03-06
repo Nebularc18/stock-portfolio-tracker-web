@@ -11,7 +11,7 @@ from typing import Optional
 import uuid
 import logging
 
-from app.main import get_db, Stock, StockCreate, StockUpdate, StockResponse, StockPriceHistory
+from app.main import get_db, get_current_user, User, Stock, StockCreate, StockUpdate, StockResponse, StockPriceHistory
 from app.utils.time import utc_now
 
 router = APIRouter()
@@ -32,7 +32,7 @@ class ManualDividendUpdate(BaseModel):
 
 
 @router.get("", response_model=list[StockResponse])
-def get_stocks(db: Session = Depends(get_db)):
+def get_stocks(db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
     """Retrieve all stocks in the portfolio.
     
     Args:
@@ -41,7 +41,7 @@ def get_stocks(db: Session = Depends(get_db)):
     Returns:
         list[StockResponse]: List of all stocks.
     """
-    stocks = db.query(Stock).all()
+    stocks = db.query(Stock).filter(Stock.user_id == current_user.id).all()
     return stocks
 
 
@@ -75,7 +75,7 @@ def validate_ticker(ticker: str):
 
 
 @router.get("/{ticker}", response_model=StockResponse)
-def get_stock(ticker: str, db: Session = Depends(get_db)):
+def get_stock(ticker: str, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
     """Retrieve a single stock by ticker symbol.
     
     Args:
@@ -88,14 +88,17 @@ def get_stock(ticker: str, db: Session = Depends(get_db)):
     Raises:
         HTTPException: 404 if stock not found.
     """
-    stock = db.query(Stock).filter(Stock.ticker == ticker.upper()).first()
+    stock = db.query(Stock).filter(
+        Stock.user_id == current_user.id,
+        Stock.ticker == ticker.upper()
+    ).first()
     if not stock:
         raise HTTPException(status_code=404, detail="Stock not found")
     return stock
 
 
 @router.post("", response_model=StockResponse)
-def create_stock(stock_data: StockCreate, db: Session = Depends(get_db)):
+def create_stock(stock_data: StockCreate, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
     """
     Create and persist a new stock record in the portfolio.
     
@@ -117,7 +120,10 @@ def create_stock(stock_data: StockCreate, db: Session = Depends(get_db)):
     ticker = stock_data.ticker.upper()
     logger.info(f"Attempting to add stock: {ticker}")
     
-    existing = db.query(Stock).filter(Stock.ticker == ticker).first()
+    existing = db.query(Stock).filter(
+        Stock.user_id == current_user.id,
+        Stock.ticker == ticker,
+    ).first()
     if existing:
         raise HTTPException(status_code=400, detail=f"Stock {ticker} already exists in portfolio")
     
@@ -136,6 +142,7 @@ def create_stock(stock_data: StockCreate, db: Session = Depends(get_db)):
     logo = brandfetch_service.get_logo_url_for_ticker(ticker, info.get("name"))
     
     stock = Stock(
+        user_id=current_user.id,
         ticker=ticker,
         name=info.get("name"),
         quantity=stock_data.quantity,
@@ -158,7 +165,7 @@ def create_stock(stock_data: StockCreate, db: Session = Depends(get_db)):
 
 
 @router.patch("/{ticker}", response_model=StockResponse)
-def update_stock(ticker: str, stock_data: StockUpdate, db: Session = Depends(get_db)):
+def update_stock(ticker: str, stock_data: StockUpdate, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
     """Update a stock's quantity or purchase price.
     
     Args:
@@ -172,7 +179,10 @@ def update_stock(ticker: str, stock_data: StockUpdate, db: Session = Depends(get
     Raises:
         HTTPException: 404 if stock not found.
     """
-    stock = db.query(Stock).filter(Stock.ticker == ticker.upper()).first()
+    stock = db.query(Stock).filter(
+        Stock.user_id == current_user.id,
+        Stock.ticker == ticker.upper()
+    ).first()
     if not stock:
         raise HTTPException(status_code=404, detail="Stock not found")
     
@@ -187,7 +197,7 @@ def update_stock(ticker: str, stock_data: StockUpdate, db: Session = Depends(get
 
 
 @router.delete("/{ticker}")
-def delete_stock(ticker: str, db: Session = Depends(get_db)):
+def delete_stock(ticker: str, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
     """Remove a stock from the portfolio.
     
     Args:
@@ -200,7 +210,10 @@ def delete_stock(ticker: str, db: Session = Depends(get_db)):
     Raises:
         HTTPException: 404 if stock not found.
     """
-    stock = db.query(Stock).filter(Stock.ticker == ticker.upper()).first()
+    stock = db.query(Stock).filter(
+        Stock.user_id == current_user.id,
+        Stock.ticker == ticker.upper()
+    ).first()
     if not stock:
         raise HTTPException(status_code=404, detail="Stock not found")
     
@@ -210,7 +223,7 @@ def delete_stock(ticker: str, db: Session = Depends(get_db)):
 
 
 @router.post("/{ticker}/refresh")
-def refresh_stock(ticker: str, db: Session = Depends(get_db)):
+def refresh_stock(ticker: str, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
     """
     Refreshes a stock's data from external sources and persists any updates.
     
@@ -227,7 +240,10 @@ def refresh_stock(ticker: str, db: Session = Depends(get_db)):
     from app.services.brandfetch_service import brandfetch_service
     stock_service = StockService()
     
-    stock = db.query(Stock).filter(Stock.ticker == ticker.upper()).first()
+    stock = db.query(Stock).filter(
+        Stock.user_id == current_user.id,
+        Stock.ticker == ticker.upper()
+    ).first()
     if not stock:
         raise HTTPException(status_code=404, detail="Stock not found")
     
@@ -258,7 +274,7 @@ def refresh_stock(ticker: str, db: Session = Depends(get_db)):
 
 
 @router.get("/{ticker}/dividends")
-def get_stock_dividends(ticker: str, years: int = 5, db: Session = Depends(get_db)):
+def get_stock_dividends(ticker: str, years: int = 5, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
     """Retrieve dividend history for a stock.
     
     Args:
@@ -275,7 +291,10 @@ def get_stock_dividends(ticker: str, years: int = 5, db: Session = Depends(get_d
     from app.services.stock_service import StockService
     stock_service = StockService()
     
-    stock = db.query(Stock).filter(Stock.ticker == ticker.upper()).first()
+    stock = db.query(Stock).filter(
+        Stock.user_id == current_user.id,
+        Stock.ticker == ticker.upper()
+    ).first()
     if not stock:
         raise HTTPException(status_code=404, detail="Stock not found")
     
@@ -284,7 +303,7 @@ def get_stock_dividends(ticker: str, years: int = 5, db: Session = Depends(get_d
 
 
 @router.get("/{ticker}/upcoming-dividends")
-def get_upcoming_dividends(ticker: str, db: Session = Depends(get_db)):
+def get_upcoming_dividends(ticker: str, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
     """Retrieve upcoming dividend dates for a stock.
     
     Args:
@@ -300,7 +319,10 @@ def get_upcoming_dividends(ticker: str, db: Session = Depends(get_db)):
     from app.services.stock_service import StockService
     stock_service = StockService()
     
-    stock = db.query(Stock).filter(Stock.ticker == ticker.upper()).first()
+    stock = db.query(Stock).filter(
+        Stock.user_id == current_user.id,
+        Stock.ticker == ticker.upper()
+    ).first()
     if not stock:
         raise HTTPException(status_code=404, detail="Stock not found")
     
@@ -309,7 +331,7 @@ def get_upcoming_dividends(ticker: str, db: Session = Depends(get_db)):
 
 
 @router.get("/{ticker}/analyst")
-def get_analyst_data(ticker: str, db: Session = Depends(get_db)):
+def get_analyst_data(ticker: str, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
     """Retrieve analyst recommendations and price targets for a stock.
     
     Args:
@@ -326,7 +348,10 @@ def get_analyst_data(ticker: str, db: Session = Depends(get_db)):
     from app.services.stock_service import StockService
     stock_service = StockService()
     
-    stock = db.query(Stock).filter(Stock.ticker == ticker.upper()).first()
+    stock = db.query(Stock).filter(
+        Stock.user_id == current_user.id,
+        Stock.ticker == ticker.upper()
+    ).first()
     if not stock:
         raise HTTPException(status_code=404, detail="Stock not found")
     
@@ -343,7 +368,7 @@ def get_analyst_data(ticker: str, db: Session = Depends(get_db)):
 
 
 @router.post("/{ticker}/manual-dividends", response_model=StockResponse)
-def add_manual_dividend(ticker: str, dividend_data: ManualDividendCreate, db: Session = Depends(get_db)):
+def add_manual_dividend(ticker: str, dividend_data: ManualDividendCreate, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
     """
     Add a manually recorded dividend to the specified stock's manual dividends list.
     
@@ -357,7 +382,10 @@ def add_manual_dividend(ticker: str, dividend_data: ManualDividendCreate, db: Se
     Raises:
         HTTPException: 404 if the stock with the given ticker is not found.
     """
-    stock = db.query(Stock).filter(Stock.ticker == ticker.upper()).first()
+    stock = db.query(Stock).filter(
+        Stock.user_id == current_user.id,
+        Stock.ticker == ticker.upper()
+    ).first()
     if not stock:
         raise HTTPException(status_code=404, detail="Stock not found")
     
@@ -383,7 +411,8 @@ def update_manual_dividend(
     ticker: str, 
     dividend_id: str, 
     dividend_data: ManualDividendUpdate, 
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
 ):
     """
     Update a manual dividend entry for a stock.
@@ -401,7 +430,10 @@ def update_manual_dividend(
     Raises:
         HTTPException: 404 if the stock or the specified dividend is not found.
     """
-    stock = db.query(Stock).filter(Stock.ticker == ticker.upper()).first()
+    stock = db.query(Stock).filter(
+        Stock.user_id == current_user.id,
+        Stock.ticker == ticker.upper()
+    ).first()
     if not stock:
         raise HTTPException(status_code=404, detail="Stock not found")
     
@@ -431,7 +463,7 @@ def update_manual_dividend(
 
 
 @router.delete("/{ticker}/manual-dividends/{dividend_id}")
-def delete_manual_dividend(ticker: str, dividend_id: str, db: Session = Depends(get_db)):
+def delete_manual_dividend(ticker: str, dividend_id: str, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
     """Delete a manually recorded dividend.
     
     Args:
@@ -445,7 +477,10 @@ def delete_manual_dividend(ticker: str, dividend_id: str, db: Session = Depends(
     Raises:
         HTTPException: 404 if stock or dividend not found.
     """
-    stock = db.query(Stock).filter(Stock.ticker == ticker.upper()).first()
+    stock = db.query(Stock).filter(
+        Stock.user_id == current_user.id,
+        Stock.ticker == ticker.upper()
+    ).first()
     if not stock:
         raise HTTPException(status_code=404, detail="Stock not found")
     
@@ -467,7 +502,7 @@ class SuppressDividendCreate(BaseModel):
 
 
 @router.post("/{ticker}/suppress-dividend")
-def suppress_broker_dividend(ticker: str, data: SuppressDividendCreate, db: Session = Depends(get_db)):
+def suppress_broker_dividend(ticker: str, data: SuppressDividendCreate, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
     """Suppress a broker-reported dividend from dividend calculations.
     
     Args:
@@ -481,7 +516,10 @@ def suppress_broker_dividend(ticker: str, data: SuppressDividendCreate, db: Sess
     Raises:
         HTTPException: 404 if stock not found.
     """
-    stock = db.query(Stock).filter(Stock.ticker == ticker.upper()).first()
+    stock = db.query(Stock).filter(
+        Stock.user_id == current_user.id,
+        Stock.ticker == ticker.upper()
+    ).first()
     if not stock:
         raise HTTPException(status_code=404, detail="Stock not found")
     
@@ -506,7 +544,7 @@ def suppress_broker_dividend(ticker: str, data: SuppressDividendCreate, db: Sess
 
 
 @router.delete("/{ticker}/suppress-dividend/{date}")
-def restore_broker_dividend(ticker: str, date: str, db: Session = Depends(get_db)):
+def restore_broker_dividend(ticker: str, date: str, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
     """Restore a previously suppressed broker dividend.
     
     Args:
@@ -520,7 +558,10 @@ def restore_broker_dividend(ticker: str, date: str, db: Session = Depends(get_db
     Raises:
         HTTPException: 404 if stock or suppression not found.
     """
-    stock = db.query(Stock).filter(Stock.ticker == ticker.upper()).first()
+    stock = db.query(Stock).filter(
+        Stock.user_id == current_user.id,
+        Stock.ticker == ticker.upper()
+    ).first()
     if not stock:
         raise HTTPException(status_code=404, detail="Stock not found")
     
@@ -536,7 +577,7 @@ def restore_broker_dividend(ticker: str, date: str, db: Session = Depends(get_db
 
 
 @router.get("/{ticker}/suppressed-dividends")
-def get_suppressed_dividends(ticker: str, db: Session = Depends(get_db)):
+def get_suppressed_dividends(ticker: str, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
     """Retrieve all suppressed dividends for a stock.
     
     Args:
@@ -549,7 +590,10 @@ def get_suppressed_dividends(ticker: str, db: Session = Depends(get_db)):
     Raises:
         HTTPException: 404 if stock not found.
     """
-    stock = db.query(Stock).filter(Stock.ticker == ticker.upper()).first()
+    stock = db.query(Stock).filter(
+        Stock.user_id == current_user.id,
+        Stock.ticker == ticker.upper()
+    ).first()
     if not stock:
         raise HTTPException(status_code=404, detail="Stock not found")
     
@@ -557,7 +601,7 @@ def get_suppressed_dividends(ticker: str, db: Session = Depends(get_db)):
 
 
 @router.get("/{ticker}/price-history")
-def get_stock_price_history(ticker: str, days: int = 30, db: Session = Depends(get_db)):
+def get_stock_price_history(ticker: str, days: int = 30, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
     """
     Return historical price records for a stock over the requested number of days.
     
@@ -568,7 +612,10 @@ def get_stock_price_history(ticker: str, days: int = 30, db: Session = Depends(g
         HTTPException: 404 if the stock with the given ticker is not found.
     """
     ticker_upper = ticker.upper()
-    stock = db.query(Stock).filter(Stock.ticker == ticker_upper).first()
+    stock = db.query(Stock).filter(
+        Stock.user_id == current_user.id,
+        Stock.ticker == ticker_upper
+    ).first()
     if not stock:
         raise HTTPException(status_code=404, detail="Stock not found")
     
@@ -576,6 +623,7 @@ def get_stock_price_history(ticker: str, days: int = 30, db: Session = Depends(g
     start_date = utc_now() - timedelta(days=days)
     
     history = db.query(StockPriceHistory).filter(
+        StockPriceHistory.user_id == current_user.id,
         StockPriceHistory.ticker == ticker_upper,
         StockPriceHistory.recorded_at >= start_date
     ).order_by(StockPriceHistory.recorded_at.asc()).all()

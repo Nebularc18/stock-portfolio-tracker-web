@@ -222,8 +222,11 @@ def get_market_indices():
         "next_refresh_at": next_refresh.isoformat()
     }
     
-    # Cache the result
-    _save_indices_cache(result)
+    # Keep previous cache intact when upstream temporarily returns no data.
+    if results:
+        _save_indices_cache(result)
+    else:
+        logger.warning("Skipping indices cache write because fetched result set was empty")
     
     return result
 

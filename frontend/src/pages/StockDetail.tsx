@@ -871,11 +871,11 @@ export default function StockDetail() {
                 </tr>
                 <tr>
                   <td style={{ color: 'var(--text-secondary)' }}>{t(language, 'stockDetail.currentValue')}</td>
-                  <td>{renderValueWithSEK(stock.current_price ? stock.current_price * stock.quantity : null, stock.currency)}</td>
+                  <td>{renderValueWithSEK(stock.current_price != null ? stock.current_price * stock.quantity : null, stock.currency)}</td>
                 </tr>
                 <tr>
                   <td style={{ color: 'var(--text-secondary)' }}>{t(language, 'stockDetail.totalCost')}</td>
-                  <td>{renderValueWithSEK(stock.purchase_price ? stock.purchase_price * stock.quantity : null, stock.currency)}</td>
+                  <td>{renderValueWithSEK(stock.purchase_price != null ? stock.purchase_price * stock.quantity : null, stock.currency)}</td>
                 </tr>
               </tbody>
             </table>

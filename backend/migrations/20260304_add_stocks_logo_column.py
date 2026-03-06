@@ -10,9 +10,13 @@ import os
 import sys
 from sqlalchemy import create_engine, text
 
-DATABASE_URL = os.getenv("DATABASE_URL")
-if not DATABASE_URL:
-    raise RuntimeError("DATABASE_URL environment variable must be set for this migration script.")
+
+def get_database_url() -> str:
+    """Return DATABASE_URL from the environment or raise a runtime error."""
+    database_url = os.getenv("DATABASE_URL")
+    if not database_url:
+        raise RuntimeError("DATABASE_URL environment variable must be set for this migration script.")
+    return database_url
 
 
 def upgrade(conn) -> None:
@@ -49,7 +53,7 @@ def run(direction: str) -> None:
     if direction not in {"upgrade", "downgrade"}:
         raise ValueError("direction must be 'upgrade' or 'downgrade'")
 
-    engine = create_engine(DATABASE_URL)
+    engine = create_engine(get_database_url())
     try:
         with engine.begin() as conn:
             conn.execute(text("SET LOCAL lock_timeout = '5s'"))
@@ -64,7 +68,7 @@ def run(direction: str) -> None:
 
 if __name__ == "__main__":
     if len(sys.argv) != 2:
-        print("Usage: python backend/migrations/20260304_add_stocks_logo_column.py [upgrade|downgrade]", file=sys.stderr)
+        print("Usage: python backend/migrations/20260304_add_stocks_logo_column.py <upgrade|downgrade>", file=sys.stderr)
         sys.exit(1)
 
     action = sys.argv[1]

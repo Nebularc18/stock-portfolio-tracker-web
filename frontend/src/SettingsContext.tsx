@@ -1,5 +1,6 @@
 import { createContext, useContext, useState, useEffect, ReactNode } from 'react'
 import { Language } from './i18n'
+import { api } from './services/api'
 
 interface SettingsContextType {
   timezone: string
@@ -65,10 +66,9 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
-    fetch('/api/settings')
-      .then(res => res.json())
+    api.settings.get()
       .then(data => {
-        if (data.display_currency) {
+        if (data.display_currency || data.display_currency === '') {
           setDisplayCurrencyState(data.display_currency)
           localStorage.setItem('displayCurrency', data.display_currency)
         }
@@ -90,11 +90,7 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
     setDisplayCurrencyState(currency)
     localStorage.setItem('displayCurrency', currency)
     
-    fetch('/api/settings', {
-      method: 'PATCH',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ display_currency: currency }),
-    }).catch(() => {})
+    api.settings.update({ display_currency: currency }).catch(() => {})
   }
 
   const setLanguage = (nextLanguage: Language) => {
@@ -106,11 +102,7 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
     setHeaderIndicesState(indices)
     localStorage.setItem('headerIndices', JSON.stringify(indices))
     
-    fetch('/api/settings', {
-      method: 'PATCH',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ header_indices: indices }),
-    }).catch((err) => console.error('Failed to update header indices:', err))
+    api.settings.update({ header_indices: indices }).catch((err) => console.error('Failed to update header indices:', err))
   }
 
   return (
