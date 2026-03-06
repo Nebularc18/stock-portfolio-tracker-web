@@ -138,6 +138,48 @@ function convertToSEKValue(
   return null
 }
 
+function recalculateYearlyDividendState(
+  items: UpcomingDividend[],
+  quantity: number,
+  safeRates: Record<string, number | null>
+): {
+  yearDividends: UpcomingDividend[]
+  yearReceived: number | null
+  yearRemaining: number | null
+} {
+  const yearDividends = items.map((div) => {
+    const totalAmount = (div.amount_per_share ?? 0) * quantity
+    return {
+      ...div,
+      quantity,
+      total_amount: totalAmount,
+      total_converted: convertToSEKValue(totalAmount, div.currency, safeRates),
+    }
+  })
+
+  const aggregateYearlyTotal = (targetStatus: 'paid' | 'upcoming'): number | null => {
+    let total = 0
+    let hasMissingConversion = false
+
+    for (const div of yearDividends) {
+      if (div.status !== targetStatus) continue
+      if (div.total_converted === null) {
+        hasMissingConversion = true
+        continue
+      }
+      total += div.total_converted
+    }
+
+    return hasMissingConversion ? null : total
+  }
+
+  return {
+    yearDividends,
+    yearReceived: aggregateYearlyTotal('paid'),
+    yearRemaining: aggregateYearlyTotal('upcoming'),
+  }
+}
+
 /**
  * Renders a detailed view for a single stock and manages its related data and user actions.
  *
@@ -323,27 +365,13 @@ export default function StockDetail() {
           return aDate.localeCompare(bDate)
         })
 
-        const aggregateYearlyTotal = (targetStatus: 'paid' | 'upcoming'): number | null => {
-          let total = 0
-          let hasMissingConversion = false
-
-          for (const div of effectiveYearDividends) {
-            if (div.status !== targetStatus) continue
-            if (div.total_converted === null) {
-              hasMissingConversion = true
-              continue
-            }
-            total += div.total_converted
-          }
-
-          return hasMissingConversion ? null : total
-        }
+        const yearlyState = recalculateYearlyDividendState(effectiveYearDividends, stockData.quantity, safeRates)
 
         setStock(stockData)
         setDividends(divData)
-        setYearDividends(effectiveYearDividends)
-        setYearReceived(aggregateYearlyTotal('paid'))
-        setYearRemaining(aggregateYearlyTotal('upcoming'))
+        setYearDividends(yearlyState.yearDividends)
+        setYearReceived(yearlyState.yearReceived)
+        setYearRemaining(yearlyState.yearRemaining)
         setSuppressedDividends(suppressedData)
         setExchangeRates(ratesData)
         setError(null)
@@ -390,22 +418,41 @@ export default function StockDetail() {
   }, [ticker])
 
   useEffect(() => {
+    setAnalystData(null)
+    setAnalystDataLoaded(false)
+    setAnalystDataLoading(false)
+  }, [ticker])
+
+  useEffect(() => {
     if (!ticker || analystDataLoaded || activeTab !== 'analyst') return
+
+    let isCurrent = true
+    setAnalystData(null)
+    setAnalystDataLoaded(false)
+    setAnalystDataLoading(true)
 
     const fetchAnalystData = async () => {
       try {
-        setAnalystDataLoading(true)
         const analystInfo = await api.stocks.analyst(ticker).catch(() => null)
+        if (!isCurrent) return
         setAnalystData(analystInfo)
         setAnalystDataLoaded(true)
       } catch (err) {
-        console.error('Failed to load analyst data', err)
+        if (isCurrent) {
+          console.error('Failed to load analyst data', err)
+        }
       } finally {
-        setAnalystDataLoading(false)
+        if (isCurrent) {
+          setAnalystDataLoading(false)
+        }
       }
     }
 
     fetchAnalystData()
+
+    return () => {
+      isCurrent = false
+    }
   }, [ticker, activeTab, analystDataLoaded])
 
   useEffect(() => {
@@ -444,7 +491,11 @@ export default function StockDetail() {
         quantity: Number.isNaN(parsedQuantity) ? undefined : parsedQuantity,
         purchase_price: editPurchasePrice ? parseFloat(editPurchasePrice) : undefined,
       })
+      const yearlyState = recalculateYearlyDividendState(yearDividends, updated.quantity, exchangeRates)
       setStock(updated)
+      setYearDividends(yearlyState.yearDividends)
+      setYearReceived(yearlyState.yearReceived)
+      setYearRemaining(yearlyState.yearRemaining)
       setShowEditModal(false)
     } catch (err) {
       console.error('Failed to save', err)
@@ -755,7 +806,7 @@ export default function StockDetail() {
                 color: dailyChange >= 0 ? 'var(--accent-green)' : 'var(--accent-red)',
                 fontSize: '16px'
               }}>
-                {dailyChange >= 0 ? '+' : ''}{formatCurrency(dailyChange, locale, stock.currency)} ({dailyChangePercent?.toFixed(2)}%)
+                {dailyChange >= 0 ? '+' : ''}{formatCurrency(dailyChange, locale, stock.currency)} {dailyChangePercent !== null ? `(${dailyChangePercent.toFixed(2)}%)` : '(—)'}
               </p>
             )}
             {dailyChange !== null && stock.currency !== 'SEK' && convertToSEK(dailyChange, stock.currency) !== null && (

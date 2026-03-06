@@ -412,7 +412,11 @@ function getRangeTargetPoints(range: HistoryRangeKey): number | null {
     return { amount: item.total_amount, currency: item.currency }
   }
 
-  const renderConvertedAmount = (amount: number, originalCurrency: string) => {
+  const renderConvertedAmount = (amount: number | null | undefined, originalCurrency: string) => {
+    if (amount == null) {
+      return '—'
+    }
+
     const converted = convertToCurrency(amount, originalCurrency)
     if (converted !== null) {
       return formatCurrency(converted, locale, currency)
@@ -661,7 +665,7 @@ function getRangeTargetPoints(range: HistoryRangeKey): number | null {
                   <td>{stock.quantity}</td>
                   <td>{renderConvertedAmount(stock.current_price, stock.currency)}</td>
                   <td>
-                    {stock.current_value_converted
+                    {stock.current_value_converted && stock.current_value != null
                       ? formatCurrency(stock.current_value, locale, currency)
                       : renderConvertedAmount(stock.current_value, stock.currency)}
                   </td>

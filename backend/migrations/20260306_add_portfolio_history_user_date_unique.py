@@ -46,29 +46,34 @@ def upgrade(conn) -> None:
 
 
 def downgrade(conn) -> None:
-    conn.execute(text("DROP INDEX IF EXISTS ux_portfolio_history_user_date"))
-    conn.execute(
+    has_duplicate_dates = conn.execute(
         text(
-            "DO $$ "
-            "DECLARE has_duplicate_dates BOOLEAN; "
-            "BEGIN "
             "SELECT EXISTS ("
             "  SELECT 1 FROM ("
             "    SELECT date FROM portfolio_history GROUP BY date HAVING COUNT(*) > 1"
             "  ) d"
-            ") INTO has_duplicate_dates; "
-            "IF has_duplicate_dates THEN "
-            "  RAISE NOTICE 'Skipping portfolio_history_date_key creation because duplicate date values exist in portfolio_history'; "
-            "ELSIF NOT EXISTS ("
+            ")"
+        )
+    ).scalar_one()
+    if has_duplicate_dates:
+        raise MigrationError(
+            "Cannot recreate portfolio_history_date_key while duplicate date values exist in portfolio_history. "
+            "Resolve duplicates before downgrading."
+        )
+
+    has_constraint = conn.execute(
+        text(
+            "SELECT EXISTS ("
             "  SELECT 1 FROM pg_constraint "
             "  WHERE conname = 'portfolio_history_date_key' "
             "    AND conrelid = 'portfolio_history'::regclass"
-            ") THEN "
-            "  ALTER TABLE portfolio_history ADD CONSTRAINT portfolio_history_date_key UNIQUE (date); "
-            "END IF; "
-            "END $$;"
+            ")"
         )
-    )
+    ).scalar_one()
+    if not has_constraint:
+        conn.execute(text("ALTER TABLE portfolio_history ADD CONSTRAINT portfolio_history_date_key UNIQUE (date)"))
+
+    conn.execute(text("DROP INDEX IF EXISTS ux_portfolio_history_user_date"))
 
 
 def run(direction: str) -> None:

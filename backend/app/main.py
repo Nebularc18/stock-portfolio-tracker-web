@@ -30,6 +30,13 @@ from app.utils.time import utc_now
 
 logger = logging.getLogger(__name__)
 
+ALLOWED_USER_FK_CONSTRAINTS = {
+    "stocks": "fk_stocks_user_id_users",
+    "user_settings": "fk_user_settings_user_id_users",
+    "portfolio_history": "fk_portfolio_history_user_id_users",
+    "stock_price_history": "fk_stock_price_history_user_id_users",
+}
+
 DATABASE_URL = os.getenv("DATABASE_URL", "postgresql://portfolio:portfolio@localhost:5432/portfolio")
 
 engine = create_engine(DATABASE_URL, poolclass=NullPool)
@@ -277,6 +284,9 @@ class UserSettings(Base):
         header_indices: JSON string of selected header indices symbols.
     """
     __tablename__ = "user_settings"
+    __table_args__ = (
+        UniqueConstraint("user_id", name="ux_user_settings_user_id"),
+    )
 
     id = Column(Integer, primary_key=True, index=True)
     user_id = Column(Integer, ForeignKey("users.id", name="fk_user_settings_user_id_users"), index=True, nullable=False)
@@ -297,6 +307,10 @@ def ensure_account_schema_and_seed() -> None:
     guest_password = os.getenv("GUEST_PASSWORD") or secrets.token_urlsafe(24)
 
     def ensure_user_foreign_key(table_name: str, constraint_name: str) -> None:
+        expected_constraint_name = ALLOWED_USER_FK_CONSTRAINTS.get(table_name)
+        if expected_constraint_name != constraint_name:
+            raise ValueError(f"Unsupported foreign key target: {table_name}.{constraint_name}")
+
         conn.execute(text(f"""
             DO $$ BEGIN
                 IF NOT EXISTS (
