@@ -60,6 +60,11 @@ def parse_event_date(value) -> Optional[date]:
             return None
 
 
+def sort_event_date(value) -> date:
+    parsed = parse_event_date(value)
+    return parsed if parsed is not None else date.max
+
+
 def normalize_dividend_event(raw_div: dict, event_type: str) -> dict:
     """
     Normalize a raw dividend event into a standardized dictionary with consistent keys.
@@ -238,6 +243,10 @@ def get_portfolio_summary(db: Session = Depends(get_db), current_user: User = De
                     cost_converted = True
             else:
                 gain_loss = None
+
+            gain_loss_percent = None
+            if gain_loss is not None and cost_converted and isinstance(cost, (int, float)) and cost > 0:
+                gain_loss_percent = gain_loss / cost * 100
             
             stock_data.append({
                 "ticker": stock.ticker,
@@ -249,7 +258,7 @@ def get_portfolio_summary(db: Session = Depends(get_db), current_user: User = De
                 "sector": stock.sector,
                 "logo": stock.logo,
                 "gain_loss": gain_loss,
-                "gain_loss_percent": ((current_value - cost) / cost * 100) if cost_converted and cost > 0 else None,
+                "gain_loss_percent": gain_loss_percent,
                 "current_value_converted": True,
                 "cost_converted": cost_converted if stock.purchase_price else True,
             })
@@ -606,7 +615,7 @@ def get_upcoming_portfolio_dividends(db: Session = Depends(get_db), current_user
                 'source': source
             })
 
-    dividends.sort(key=lambda x: (x['payout_date'], x['ex_date']))
+    dividends.sort(key=lambda item: (sort_event_date(item.get('payout_date')), sort_event_date(item.get('ex_date'))))
     
     total_expected = sum(
         d['total_converted'] for d in dividends if d['total_converted'] is not None

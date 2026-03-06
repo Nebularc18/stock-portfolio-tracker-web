@@ -584,8 +584,9 @@ export default function StockDetail() {
 
   const displayName = formatDisplayName(stock.name, stock.ticker)
   const today = new Date()
+  today.setUTCHours(0, 0, 0, 0)
   const oneYearAgo = new Date(today)
-  oneYearAgo.setFullYear(today.getFullYear() - 1)
+  oneYearAgo.setUTCFullYear(today.getUTCFullYear() - 1)
 
   let derivedDividendPerShare: number | null = null
   let derivedDividendEvents = 0
@@ -597,7 +598,8 @@ export default function StockDetail() {
     const eventDate = new Date(`${payoutDate}T00:00:00Z`)
     if (Number.isNaN(eventDate.getTime())) continue
 
-    if (eventDate >= oneYearAgo && eventDate <= today) {
+    const eventTimestamp = eventDate.getTime()
+    if (eventTimestamp >= oneYearAgo.getTime() && eventTimestamp <= today.getTime()) {
       if (derivedDividendPerShare === null) derivedDividendPerShare = 0
       derivedDividendPerShare += div.amount
       derivedDividendEvents += 1

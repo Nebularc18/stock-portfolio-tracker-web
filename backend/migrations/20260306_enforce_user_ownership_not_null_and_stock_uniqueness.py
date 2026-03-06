@@ -44,7 +44,8 @@ def upgrade(conn) -> None:
     conn.execute(
         text(
             "DO $$ BEGIN "
-            "IF EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'stocks_ticker_key') THEN "
+            "IF EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'stocks_ticker_key' "
+            "AND conrelid = 'stocks'::regclass) THEN "
             "ALTER TABLE stocks DROP CONSTRAINT stocks_ticker_key; "
             "END IF; "
             "END $$;"
@@ -65,26 +66,30 @@ def upgrade(conn) -> None:
 
 
 def downgrade(conn) -> None:
+    has_duplicate_tickers = conn.execute(
+        text(
+            "SELECT EXISTS ("
+            "  SELECT ticker FROM stocks GROUP BY ticker HAVING COUNT(*) > 1"
+            ")"
+        )
+    ).scalar_one()
+    if has_duplicate_tickers:
+        raise MigrationError(
+            "Cannot recreate stocks_ticker_key while duplicate ticker values exist in stocks. "
+            "Resolve duplicates before dropping ux_stocks_user_ticker."
+        )
+
     conn.execute(text("ALTER TABLE stocks ALTER COLUMN user_id DROP NOT NULL"))
     conn.execute(text("ALTER TABLE portfolio_history ALTER COLUMN user_id DROP NOT NULL"))
     conn.execute(text("ALTER TABLE stock_price_history ALTER COLUMN user_id DROP NOT NULL"))
     conn.execute(text("ALTER TABLE user_settings ALTER COLUMN user_id DROP NOT NULL"))
 
     conn.execute(text("DROP INDEX IF EXISTS ux_stocks_user_ticker"))
-    conn.execute(text("CREATE INDEX IF NOT EXISTS ix_stocks_ticker ON stocks(ticker)"))
     conn.execute(
         text(
             "DO $$ "
-            "DECLARE has_duplicate_tickers BOOLEAN; "
             "BEGIN "
-            "SELECT EXISTS ("
-            "  SELECT 1 FROM ("
-            "    SELECT ticker FROM stocks GROUP BY ticker HAVING COUNT(*) > 1"
-            "  ) s"
-            ") INTO has_duplicate_tickers; "
-            "IF has_duplicate_tickers THEN "
-            "  RAISE NOTICE 'Skipping stocks_ticker_key creation because duplicate ticker values exist in stocks'; "
-            "ELSIF NOT EXISTS ("
+            "IF NOT EXISTS ("
             "  SELECT 1 FROM pg_constraint "
             "  WHERE conname = 'stocks_ticker_key' "
             "    AND conrelid = 'stocks'::regclass"
@@ -94,6 +99,7 @@ def downgrade(conn) -> None:
             "END $$;"
         )
     )
+    conn.execute(text("CREATE INDEX IF NOT EXISTS ix_stocks_ticker ON stocks(ticker)"))
 
 
 def run(direction: str) -> None:

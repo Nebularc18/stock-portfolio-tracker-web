@@ -1,3 +1,4 @@
+import { useCallback, useState } from 'react'
 import { Link, useLocation, Outlet } from 'react-router-dom'
 import { useHeaderData } from '../contexts/HeaderDataContext'
 import { useSettings } from '../SettingsContext'
@@ -19,6 +20,8 @@ export default function InfographicLayout() {
   const { timezone, headerIndices, language } = useSettings()
   const { user, logout } = useAuth()
   const locale = getLocaleForLanguage(language)
+  const [logoutError, setLogoutError] = useState<string | null>(null)
+  const [isLoggingOut, setIsLoggingOut] = useState(false)
   
   // Filter indices based on user settings, or show first 5 if no settings
   const hasValidHeaderIndices = Array.isArray(headerIndices) && headerIndices.length > 0
@@ -66,6 +69,20 @@ export default function InfographicLayout() {
     }
     return location.pathname === path || location.pathname.startsWith(`${path}/`)
   }
+
+  const handleLogout = useCallback(async () => {
+    setLogoutError(null)
+    setIsLoggingOut(true)
+    try {
+      await Promise.resolve(logout())
+    } catch {
+      setLogoutError(language === 'sv'
+        ? 'Det gick inte att logga ut. Försok igen.'
+        : 'Unable to log out. Please try again.')
+    } finally {
+      setIsLoggingOut(false)
+    }
+  }, [language, logout])
   
   return (
     <div style={{
@@ -156,11 +173,34 @@ export default function InfographicLayout() {
               <button
                 className="btn btn-secondary"
                 style={{ height: 'fit-content' }}
-                onClick={logout}
+                onClick={() => void handleLogout()}
+                disabled={isLoggingOut}
               >
-                {t(language, 'layout.logout')}
+                {isLoggingOut ? `${t(language, 'layout.logout')}...` : t(language, 'layout.logout')}
               </button>
-              {indices.map(idx => (
+              {logoutError && (
+                <p style={{ color: '#ffb4b4', fontSize: 12, margin: '6px 0 0' }}>{logoutError}</p>
+              )}
+              {indices.map(idx => {
+                const safeChange = idx.change != null && Number.isFinite(Number(idx.change))
+                  ? Number(idx.change)
+                  : null
+                const safeChangePercent = idx.change_percent != null && Number.isFinite(Number(idx.change_percent))
+                  ? Number(idx.change_percent)
+                  : null
+                const isPositive = safeChange !== null && safeChange >= 0
+                const changeBackground = safeChange === null
+                  ? 'rgba(255,255,255,0.12)'
+                  : (isPositive ? 'rgba(0, 230, 118, 0.2)' : 'rgba(255, 82, 82, 0.2)')
+                const changeColor = safeChange === null
+                  ? 'rgba(255,255,255,0.7)'
+                  : (isPositive ? '#00e676' : '#ff5252')
+                const changeArrow = safeChange === null ? '' : (isPositive ? '↑' : '↓')
+                const changePercentLabel = safeChangePercent === null
+                  ? '—'
+                  : `${Math.abs(safeChangePercent).toFixed(2)}%`
+
+                return (
                 <div key={idx.symbol} style={{
                   background: 'rgba(255,255,255,0.05)',
                   borderRadius: 16,
@@ -177,19 +217,20 @@ export default function InfographicLayout() {
                         ? Number(idx.price).toLocaleString(locale, { maximumFractionDigits: 0 })
                         : '-')}
                   </div>
-                  <div style={{
-                    fontSize: 14,
-                    marginTop: 4,
-                    padding: '4px 12px',
-                    borderRadius: 20,
-                    background: idx.change >= 0 ? 'rgba(0, 230, 118, 0.2)' : 'rgba(255, 82, 82, 0.2)',
-                    color: idx.change >= 0 ? '#00e676' : '#ff5252',
-                    display: 'inline-block',
-                  }}>
-                    {idx.change >= 0 ? '↑' : '↓'} {Math.abs(idx.change_percent).toFixed(2)}%
-                  </div>
-                </div>
-              ))}
+                   <div style={{
+                     fontSize: 14,
+                     marginTop: 4,
+                     padding: '4px 12px',
+                     borderRadius: 20,
+                     background: changeBackground,
+                     color: changeColor,
+                     display: 'inline-block',
+                   }}>
+                     {changeArrow ? `${changeArrow} ${changePercentLabel}` : changePercentLabel}
+                   </div>
+                 </div>
+                )
+              })}
 
               <div style={{
                 background: 'rgba(255,255,255,0.05)',

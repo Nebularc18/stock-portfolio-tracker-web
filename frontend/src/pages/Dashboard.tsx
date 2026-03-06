@@ -364,14 +364,16 @@ function getRangeTargetPoints(range: HistoryRangeKey): number | null {
     .filter((point): point is ChartPoint => point !== null)
   const rangeTargetPoints = getRangeTargetPoints(historyRange)
   const displayedChartData = rangeTargetPoints ? downsampleChartData(chartData, rangeTargetPoints) : chartData
+  const summaryChartData = displayedChartData.length > 0 ? displayedChartData : chartData
+  const hasChartData = summaryChartData.length > 0
 
   let minValue = 0
   let maxValue = 0
-  if (chartData.length > 0) {
-    minValue = chartData[0].value
-    maxValue = chartData[0].value
-    for (let i = 1; i < chartData.length; i += 1) {
-      const value = chartData[i].value
+  if (hasChartData) {
+    minValue = summaryChartData[0].value
+    maxValue = summaryChartData[0].value
+    for (let i = 1; i < summaryChartData.length; i += 1) {
+      const value = summaryChartData[i].value
       if (value < minValue) minValue = value
       if (value > maxValue) maxValue = value
     }
@@ -463,7 +465,7 @@ function getRangeTargetPoints(range: HistoryRangeKey): number | null {
         </div>
       </div>
 
-      {portfolioHistory.length > 0 && (
+      {hasChartData && (
         <div className="card" style={{ marginBottom: '24px' }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
             <div style={{ display: 'flex', gap: '12px', alignItems: 'center', flexWrap: 'wrap' }}>
@@ -472,12 +474,13 @@ function getRangeTargetPoints(range: HistoryRangeKey): number | null {
                 {HISTORY_RANGE_OPTIONS.map((option) => {
                   const selected = option.key === historyRange
                   return (
-                    <button
-                      key={option.key}
-                      type="button"
-                      onClick={() => setHistoryRange(option.key)}
-                      style={{
-                        border: '1px solid var(--border-color)',
+                     <button
+                       key={option.key}
+                       type="button"
+                       onClick={() => setHistoryRange(option.key)}
+                       aria-pressed={selected}
+                       style={{
+                         border: '1px solid var(--border-color)',
                         borderRadius: 6,
                         padding: '4px 10px',
                         fontSize: '12px',
@@ -709,10 +712,10 @@ function getRangeTargetPoints(range: HistoryRangeKey): number | null {
                 </thead>
                 <tbody>
                   {group.items.map((div, i) => {
-                    const displayed = getDisplayedDividendAmount(div)
-                    const payoutDisplayDate = div.payment_date ?? div.payout_date
-                    return (
-                    <tr key={`${div.ticker}-${div.ex_date}-${div.payment_date ?? 'na'}-${div.dividend_type ?? 'na'}-${i}`}>
+                     const displayed = getDisplayedDividendAmount(div)
+                     const payoutDisplayDate = div.payout_date || div.payment_date || div.ex_date
+                     return (
+                    <tr key={`${div.ticker}-${div.ex_date}-${payoutDisplayDate ?? 'na'}-${div.dividend_type ?? 'na'}-${i}`}>
                       <td>
                         <Link to={`/stocks/${div.ticker}`} style={{ color: 'var(--accent-blue)', textDecoration: 'none', fontWeight: '600' }}>
                           {div.ticker}

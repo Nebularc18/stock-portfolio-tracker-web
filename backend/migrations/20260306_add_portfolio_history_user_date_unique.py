@@ -27,10 +27,20 @@ def get_database_url() -> str:
 
 
 def upgrade(conn) -> None:
+    null_user_id_count = conn.execute(
+        text("SELECT COUNT(*) FROM portfolio_history WHERE user_id IS NULL")
+    ).scalar_one()
+    if null_user_id_count > 0:
+        raise MigrationError(
+            "Cannot create ux_portfolio_history_user_date while portfolio_history contains "
+            f"{null_user_id_count} row(s) with NULL user_id. Run the NOT NULL/backfill migration first."
+        )
+
     conn.execute(
         text(
             "DO $$ BEGIN "
-            "IF EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'portfolio_history_date_key') THEN "
+            "IF EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'portfolio_history_date_key' "
+            "AND conrelid = 'portfolio_history'::regclass) THEN "
             "ALTER TABLE portfolio_history DROP CONSTRAINT portfolio_history_date_key; "
             "END IF; END $$;"
         )

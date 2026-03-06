@@ -12,6 +12,7 @@ import hmac
 import json
 import secrets
 import time
+import uuid
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 from typing import List, Optional, Any
@@ -81,10 +82,19 @@ def create_access_token(user_id: int) -> str:
     """Create a signed bearer token for a specific user id."""
     secret = _get_required_env("AUTH_TOKEN_SECRET")
     ttl_seconds = int(os.getenv("AUTH_TOKEN_TTL_SECONDS", "43200"))
+    issued_at = int(time.time())
     payload = {
         "sub": user_id,
-        "exp": int(time.time()) + ttl_seconds,
+        "iat": issued_at,
+        "exp": issued_at + ttl_seconds,
+        "jti": uuid.uuid4().hex,
     }
+    issuer = os.getenv("AUTH_TOKEN_ISSUER")
+    audience = os.getenv("AUTH_TOKEN_AUDIENCE")
+    if issuer:
+        payload["iss"] = issuer
+    if audience:
+        payload["aud"] = audience
     payload_bytes = json.dumps(payload, separators=(",", ":"), sort_keys=True).encode("utf-8")
     payload_b64 = _b64url_encode(payload_bytes)
     signature = hmac.new(secret.encode("utf-8"), payload_b64.encode("ascii"), hashlib.sha256).digest()
