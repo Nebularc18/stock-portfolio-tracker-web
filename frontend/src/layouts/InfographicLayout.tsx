@@ -146,7 +146,8 @@ export default function InfographicLayout() {
                 {t(language, 'layout.headerUpdated')}: {formatTimeInTimezone(lastUpdated, timezone, locale)}
               </p>
               <p style={{ fontSize: 12, color: 'rgba(255,255,255,0.65)', marginTop: 6 }}>
-                Signed in as <strong>{user?.username}</strong>{user?.is_guest ? ' (guest demo)' : ''}
+                {t(language, 'layout.signedInAs', { username: user?.username || '-' })}
+                {user?.is_guest ? ` ${t(language, 'layout.guestDemo')}` : ''}
               </p>
             </div>
             
@@ -156,7 +157,7 @@ export default function InfographicLayout() {
                 style={{ height: 'fit-content' }}
                 onClick={logout}
               >
-                Log out
+                {t(language, 'layout.logout')}
               </button>
               {indices.map(idx => (
                 <div key={idx.symbol} style={{

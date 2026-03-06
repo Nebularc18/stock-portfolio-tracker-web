@@ -343,13 +343,19 @@ function getRangeTargetPoints(range: HistoryRangeKey): number | null {
   const dailyChangeClass = dailyChangeAggregate.total >= 0 ? 'positive' : 'negative'
   const selectedHistoryRange = HISTORY_RANGE_OPTIONS.find((option) => option.key === historyRange) || HISTORY_RANGE_OPTIONS[1]
 
-  const chartData: ChartPoint[] = portfolioHistory.map(h => {
-    const convertedValue = convertToCurrency(h.value, 'SEK')
-    return {
-      date: h.date,
-      value: convertedValue ?? h.value
-    }
-  })
+  const chartData: ChartPoint[] = portfolioHistory
+    .map((h) => {
+      const convertedValue = convertToCurrency(h.value, 'SEK')
+      if (convertedValue === null || !Number.isFinite(convertedValue)) {
+        return null
+      }
+
+      return {
+        date: h.date,
+        value: convertedValue,
+      }
+    })
+    .filter((point): point is ChartPoint => point !== null)
   const rangeTargetPoints = getRangeTargetPoints(historyRange)
   const displayedChartData = rangeTargetPoints ? downsampleChartData(chartData, rangeTargetPoints) : chartData
 
@@ -370,7 +376,7 @@ function getRangeTargetPoints(range: HistoryRangeKey): number | null {
   const baselineValue = displayedChartData.length > 0 ? displayedChartData[0].value : 0
 
   const groupedDividends = upcomingDividends.reduce((acc, div) => {
-    const payoutDate = div.payout_date || div.ex_date
+    const payoutDate = div.payout_date || div.payment_date || div.ex_date
     const key = getMonthKey(payoutDate)
     if (!acc[key]) {
       acc[key] = []

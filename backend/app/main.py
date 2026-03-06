@@ -5,13 +5,21 @@ schemas, and API routing configuration for the stock portfolio tracker.
 """
 
 import os
+import base64
+import binascii
 import hashlib
+import hmac
+import json
+import secrets
+import time
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 from typing import List, Optional, Any
 import logging
 
-from fastapi import FastAPI, HTTPException, Depends, Header
+from fastapi import FastAPI, HTTPException, Depends
+from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
+from passlib.context import CryptContext
 from pydantic import BaseModel, field_validator
 from sqlalchemy import create_engine, Column, Integer, String, Float, DateTime, ForeignKey, JSON, Boolean, text
 from sqlalchemy.orm import sessionmaker, relationship, declarative_base
@@ -26,10 +34,92 @@ engine = create_engine(DATABASE_URL, poolclass=NullPool)
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 Base = declarative_base()
 
+pwd_context = CryptContext(schemes=["argon2"], deprecated="auto")
+bearer_scheme = HTTPBearer(auto_error=False)
+
 
 def hash_password(password: str) -> str:
-    """Return a deterministic hash for a plain-text password."""
-    return hashlib.sha256(password.encode("utf-8")).hexdigest()
+    """Hash a plain-text password using Argon2."""
+    return pwd_context.hash(password)
+
+
+def verify_password(password: str, stored_hash: str) -> bool:
+    """Verify a plain-text password against a stored Argon2 hash."""
+    return pwd_context.verify(password, stored_hash)
+
+
+def _b64url_encode(raw: bytes) -> str:
+    return base64.urlsafe_b64encode(raw).rstrip(b"=").decode("ascii")
+
+
+def _b64url_decode(raw: str) -> bytes:
+    padding = "=" * (-len(raw) % 4)
+    return base64.urlsafe_b64decode(f"{raw}{padding}")
+
+
+def _get_required_env(var_name: str) -> str:
+    value = os.getenv(var_name)
+    if value:
+        return value
+    raise RuntimeError(f"Missing required environment variable: {var_name}")
+
+
+def validate_startup_env() -> None:
+    """Validate required security-sensitive environment variables."""
+    required = ["DEFAULT_USERNAME", "DEFAULT_PASSWORD", "GUEST_USERNAME", "AUTH_TOKEN_SECRET"]
+    missing = [name for name in required if not os.getenv(name)]
+    if missing:
+        joined = ", ".join(missing)
+        raise RuntimeError(f"Missing required environment variables: {joined}")
+
+
+def create_access_token(user_id: int) -> str:
+    """Create a signed bearer token for a specific user id."""
+    secret = _get_required_env("AUTH_TOKEN_SECRET")
+    ttl_seconds = int(os.getenv("AUTH_TOKEN_TTL_SECONDS", "43200"))
+    payload = {
+        "sub": user_id,
+        "exp": int(time.time()) + ttl_seconds,
+    }
+    payload_bytes = json.dumps(payload, separators=(",", ":"), sort_keys=True).encode("utf-8")
+    payload_b64 = _b64url_encode(payload_bytes)
+    signature = hmac.new(secret.encode("utf-8"), payload_b64.encode("ascii"), hashlib.sha256).digest()
+    signature_b64 = _b64url_encode(signature)
+    return f"{payload_b64}.{signature_b64}"
+
+
+def verify_access_token(token: str) -> int:
+    """Validate a bearer token and return the canonical user id."""
+    secret = _get_required_env("AUTH_TOKEN_SECRET")
+    try:
+        payload_b64, signature_b64 = token.split(".", 1)
+    except ValueError as exc:
+        raise ValueError("Malformed token") from exc
+
+    expected_signature = hmac.new(
+        secret.encode("utf-8"),
+        payload_b64.encode("ascii"),
+        hashlib.sha256,
+    ).digest()
+    try:
+        provided_signature = _b64url_decode(signature_b64)
+    except (binascii.Error, ValueError) as exc:
+        raise ValueError("Malformed token signature") from exc
+
+    if not hmac.compare_digest(provided_signature, expected_signature):
+        raise ValueError("Invalid token signature")
+
+    try:
+        payload = json.loads(_b64url_decode(payload_b64).decode("utf-8"))
+        user_id = int(payload["sub"])
+        exp = int(payload["exp"])
+    except (KeyError, ValueError, TypeError, json.JSONDecodeError, binascii.Error) as exc:
+        raise ValueError("Malformed token payload") from exc
+
+    if exp <= int(time.time()):
+        raise ValueError("Token expired")
+
+    return user_id
 
 
 class User(Base):
@@ -168,9 +258,12 @@ Base.metadata.create_all(bind=engine)
 
 def ensure_account_schema_and_seed() -> None:
     """Backfill auth-related schema and seed default/guest users with demo data."""
-    default_username = os.getenv("DEFAULT_USERNAME", "admin")
-    default_password = os.getenv("DEFAULT_PASSWORD", "admin123")
-    guest_username = os.getenv("GUEST_USERNAME", "guest")
+    validate_startup_env()
+
+    default_username = _get_required_env("DEFAULT_USERNAME")
+    default_password = _get_required_env("DEFAULT_PASSWORD")
+    guest_username = _get_required_env("GUEST_USERNAME")
+    guest_password = os.getenv("GUEST_PASSWORD") or secrets.token_urlsafe(24)
 
     with engine.begin() as conn:
         conn.execute(text("""
@@ -203,7 +296,7 @@ def ensure_account_schema_and_seed() -> None:
             ON CONFLICT (username) DO NOTHING
         """), {
             "username": guest_username,
-            "password_hash": hash_password("guest"),
+            "password_hash": hash_password(guest_password),
         })
 
         default_user_id = conn.execute(
@@ -316,20 +409,21 @@ def get_db():
 
 
 def get_current_user(
-    x_user_id: Optional[str] = Header(default=None, alias="X-User-Id"),
+    credentials: Optional[HTTPAuthorizationCredentials] = Depends(bearer_scheme),
     db=Depends(get_db),
 ) -> User:
-    """Resolve the active user from request headers."""
-    if not x_user_id:
-        raise HTTPException(status_code=401, detail="Missing user context")
+    """Resolve the active user from a validated bearer token."""
+    if not credentials or not credentials.credentials:
+        raise HTTPException(status_code=401, detail="Missing authentication token")
+
     try:
-        user_id = int(x_user_id)
+        user_id = verify_access_token(credentials.credentials)
     except ValueError as exc:
-        raise HTTPException(status_code=401, detail="Invalid user context") from exc
+        raise HTTPException(status_code=401, detail="Invalid authentication token") from exc
 
     user = db.query(User).filter(User.id == user_id).first()
     if not user:
-        raise HTTPException(status_code=401, detail="Unknown user")
+        raise HTTPException(status_code=401, detail="Unknown user for provided token")
     return user
 
 

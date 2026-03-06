@@ -20,6 +20,9 @@ const translations = {
     'layout.changeTimezone': 'Change timezone',
     'layout.localTime': 'Local time',
     'layout.marketIndices': 'Market Indices',
+    'layout.signedInAs': 'Signed in as {{username}}',
+    'layout.guestDemo': '(guest demo)',
+    'layout.logout': 'Log out',
 
     'settings.title': 'Settings',
     'settings.theme': 'Theme',
@@ -377,6 +380,9 @@ const translations = {
     'layout.changeTimezone': 'Byt tidszon',
     'layout.localTime': 'Lokal tid',
     'layout.marketIndices': 'Marknadsindex',
+    'layout.signedInAs': 'Inloggad som {{username}}',
+    'layout.guestDemo': '(gastdemo)',
+    'layout.logout': 'Logga ut',
 
     'settings.title': 'Inställningar',
     'settings.theme': 'Tema',

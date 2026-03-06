@@ -56,14 +56,18 @@ export default function Login() {
         </p>
 
         <form onSubmit={submit} style={{ display: 'grid', gap: 12 }}>
+          <label htmlFor="username" style={{ fontSize: 13, color: 'rgba(255,255,255,0.85)' }}>Username</label>
           <input
+            id="username"
             placeholder="Username"
             value={username}
             onChange={(e) => setUsername(e.target.value)}
             required
             autoComplete="username"
           />
+          <label htmlFor="password" style={{ fontSize: 13, color: 'rgba(255,255,255,0.85)' }}>Password</label>
           <input
+            id="password"
             type="password"
             placeholder="Password"
             value={password}
@@ -87,7 +91,7 @@ export default function Login() {
         </div>
 
         <div style={{ marginTop: 16, color: 'rgba(255,255,255,0.55)', fontSize: 12 }}>
-          Existing data from before this change is kept under default account: <code>admin / admin123</code>
+          Use your account credentials or continue with the guest demo user.
         </div>
       </div>
     </div>

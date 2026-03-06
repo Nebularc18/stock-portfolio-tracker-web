@@ -1,4 +1,4 @@
-import { createContext, useContext, useMemo, useState, type ReactNode } from 'react'
+import { createContext, useCallback, useContext, useMemo, useState, type ReactNode } from 'react'
 import { api, AUTH_STORAGE_KEY, type AuthUser } from './services/api'
 
 interface AuthContextType {
@@ -16,7 +16,34 @@ function readStoredUser(): AuthUser | null {
   const raw = localStorage.getItem(AUTH_STORAGE_KEY)
   if (!raw) return null
   try {
-    return JSON.parse(raw) as AuthUser
+    const parsed: unknown = JSON.parse(raw)
+    if (!parsed || typeof parsed !== 'object') {
+      localStorage.removeItem(AUTH_STORAGE_KEY)
+      return null
+    }
+
+    const candidate = parsed as Record<string, unknown>
+    const isValid =
+      typeof candidate.id === 'number' &&
+      Number.isFinite(candidate.id) &&
+      candidate.id > 0 &&
+      typeof candidate.username === 'string' &&
+      candidate.username.trim().length > 0 &&
+      typeof candidate.is_guest === 'boolean' &&
+      typeof candidate.token === 'string' &&
+      candidate.token.trim().length > 0
+
+    if (!isValid) {
+      localStorage.removeItem(AUTH_STORAGE_KEY)
+      return null
+    }
+
+    return {
+      id: candidate.id as number,
+      username: candidate.username as string,
+      is_guest: candidate.is_guest as boolean,
+      token: candidate.token as string,
+    }
   } catch {
     localStorage.removeItem(AUTH_STORAGE_KEY)
     return null
@@ -32,7 +59,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setUser(nextUser)
   }
 
-  const login = async (username: string, password: string) => {
+  const login = useCallback(async (username: string, password: string) => {
     setLoading(true)
     try {
       const authUser = await api.auth.login({ username, password })
@@ -40,9 +67,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     } finally {
       setLoading(false)
     }
-  }
+  }, [])
 
-  const register = async (username: string, password: string) => {
+  const register = useCallback(async (username: string, password: string) => {
     setLoading(true)
     try {
       const authUser = await api.auth.register({ username, password })
@@ -50,9 +77,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     } finally {
       setLoading(false)
     }
-  }
+  }, [])
 
-  const loginAsGuest = async () => {
+  const loginAsGuest = useCallback(async () => {
     setLoading(true)
     try {
       const authUser = await api.auth.guest()
@@ -60,16 +87,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     } finally {
       setLoading(false)
     }
-  }
+  }, [])
 
-  const logout = () => {
+  const logout = useCallback(() => {
     localStorage.removeItem(AUTH_STORAGE_KEY)
     setUser(null)
-  }
+  }, [])
 
   const value = useMemo(
     () => ({ user, loading, login, register, loginAsGuest, logout }),
-    [user, loading],
+    [user, loading, login, register, loginAsGuest, logout],
   )
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>

@@ -5,14 +5,42 @@ export interface AuthUser {
   id: number
   username: string
   is_guest: boolean
+  token: string
+}
+
+export interface AuthUserProfile {
+  id: number
+  username: string
+  is_guest: boolean
+}
+
+function isAuthUser(value: unknown): value is AuthUser {
+  if (!value || typeof value !== 'object') return false
+  const candidate = value as Record<string, unknown>
+  return (
+    typeof candidate.id === 'number' &&
+    Number.isFinite(candidate.id) &&
+    candidate.id > 0 &&
+    typeof candidate.username === 'string' &&
+    candidate.username.trim().length > 0 &&
+    typeof candidate.is_guest === 'boolean' &&
+    typeof candidate.token === 'string' &&
+    candidate.token.trim().length > 0
+  )
 }
 
 function getStoredAuthUser(): AuthUser | null {
   const raw = localStorage.getItem(AUTH_STORAGE_KEY)
   if (!raw) return null
   try {
-    return JSON.parse(raw) as AuthUser
+    const parsed: unknown = JSON.parse(raw)
+    if (!isAuthUser(parsed)) {
+      localStorage.removeItem(AUTH_STORAGE_KEY)
+      return null
+    }
+    return parsed
   } catch {
+    localStorage.removeItem(AUTH_STORAGE_KEY)
     return null
   }
 }
@@ -23,7 +51,7 @@ async function fetchAPI(endpoint: string, options?: RequestInit) {
     ...options,
     headers: {
       'Content-Type': 'application/json',
-      ...(authUser ? { 'X-User-Id': String(authUser.id) } : {}),
+      ...(authUser ? { Authorization: `Bearer ${authUser.token}` } : {}),
       ...options?.headers,
     },
   })
@@ -313,7 +341,7 @@ export const api = {
     register: (data: { username: string; password: string }) =>
       fetchAPI('/auth/register', { method: 'POST', body: JSON.stringify(data) }) as Promise<AuthUser>,
     guest: () => fetchAPI('/auth/guest', { method: 'POST' }) as Promise<AuthUser>,
-    users: () => fetchAPI('/auth/users') as Promise<AuthUser[]>,
+    users: () => fetchAPI('/auth/users') as Promise<AuthUserProfile>,
   },
 
   stocks: {

@@ -11,3 +11,4 @@ requests==2.31.0
 pytz==2024.1
 platformdirs==4.2.0
 apscheduler==3.10.4
+passlib[argon2]==1.7.4

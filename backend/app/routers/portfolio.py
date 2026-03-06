@@ -17,6 +17,98 @@ from app.utils.time import utc_now
 router = APIRouter()
 logger = logging.getLogger(__name__)
 
+
+def parse_event_date(value) -> Optional[date]:
+    """
+    Parse a date-like value and return a date object.
+
+    Accepts a datetime.date, datetime.datetime, or string representation (ISO date or ISO datetime; accepts a trailing 'Z' UTC designator). Leading/trailing whitespace is ignored. If the input is None, empty, not a supported type, or cannot be parsed, returns None.
+
+    Parameters:
+        value: A date/datetime object or a string to parse.
+
+    Returns:
+        A datetime.date parsed from the input, or `None` if parsing fails or the input is invalid.
+    """
+    if value is None:
+        return None
+    if isinstance(value, datetime):
+        return value.date()
+    if isinstance(value, date):
+        return value
+    if not isinstance(value, str):
+        return None
+
+    normalized = value.strip()
+    if not normalized:
+        return None
+
+    normalized = normalized.replace('Z', '+00:00')
+
+    try:
+        return datetime.fromisoformat(normalized).date()
+    except ValueError:
+        if 'T' in normalized:
+            normalized = normalized.split('T', 1)[0]
+        elif ' ' in normalized:
+            normalized = normalized.split(' ', 1)[0]
+
+        try:
+            return datetime.fromisoformat(normalized).date()
+        except ValueError:
+            return None
+
+
+def normalize_dividend_event(raw_div: dict, event_type: str) -> dict:
+    """
+    Normalize a raw dividend event into a standardized dictionary with consistent keys.
+
+    Parameters:
+        raw_div (dict): Raw dividend data containing any of 'date' (historical), 'ex_date' (upcoming), 'payment_date', 'amount', 'currency', 'source', and 'dividend_type'.
+        event_type (str): Indicates the input shape; use 'historical' when the ex-date is provided under the 'date' key, otherwise the function will read 'ex_date'.
+
+    Returns:
+        dict: Normalized dividend event with keys:
+            - 'ex_date': ex-dividend date string (from 'date' for historical events or 'ex_date' otherwise).
+            - 'payment_date': payment date value from the input or None.
+            - 'amount': dividend amount per share from the input or None.
+            - 'currency': currency code from the input or None.
+            - 'source': data source (defaults to 'yahoo' if not provided).
+            - 'dividend_type': dividend classification from the input or None.
+    """
+    if event_type == 'historical':
+        ex_date = raw_div.get('date', '')
+    else:
+        ex_date = raw_div.get('ex_date', '')
+
+    return {
+        'ex_date': ex_date,
+        'payment_date': raw_div.get('payment_date'),
+        'amount': raw_div.get('amount'),
+        'currency': raw_div.get('currency'),
+        'source': raw_div.get('source', 'yahoo'),
+        'dividend_type': raw_div.get('dividend_type')
+    }
+
+
+def get_yahoo_normalized_events(stock_service, ticker: str) -> list:
+    """
+    Fetch and return a unified list of normalized historical and upcoming dividend events.
+
+    Parameters:
+        stock_service: Stock service instance exposing dividend-fetch methods.
+        ticker (str): The stock ticker symbol to retrieve dividend events for.
+
+    Returns:
+        list: A list of normalized dividend event dictionaries.
+    """
+    historical = stock_service.get_dividends(ticker, years=2) or []
+    upcoming = stock_service.get_upcoming_dividends(ticker) or []
+
+    normalized = [normalize_dividend_event(div, 'historical') for div in historical]
+    normalized.extend(normalize_dividend_event(div, 'upcoming') for div in upcoming)
+    return normalized
+
 def get_display_currency(db: Session, user_id: int) -> str:
     """
     Get the user's preferred display currency.
@@ -323,10 +415,7 @@ def get_portfolio_history(
     elif normalized_range in {"since_start", "all"}:
         since = None
     else:
-        try:
-            days = max(1, min(int(days), 3650))
-        except (ValueError, TypeError):
-            days = 30
+        days = max(1, min(days, 3650))
         since = now - timedelta(days=days)
 
     query = db.query(PortfolioHistory).filter(PortfolioHistory.user_id == current_user.id)
@@ -419,95 +508,6 @@ def get_upcoming_portfolio_dividends(db: Session = Depends(get_db), current_user
     today = now.date()
     current_year = now.year
 
-    def parse_event_date(value) -> Optional[date]:
-        """
-        Parse a date-like value and return a date object.
-        
-        Accepts a datetime.date, datetime.datetime, or string representation (ISO date or ISO datetime; accepts a trailing 'Z' UTC designator). Leading/trailing whitespace is ignored. If the input is None, empty, not a supported type, or cannot be parsed, returns None.
-        
-        Parameters:
-            value: A date/datetime object or a string to parse.
-        
-        Returns:
-            A datetime.date parsed from the input, or `None` if parsing fails or the input is invalid.
-        """
-        if value is None:
-            return None
-        if isinstance(value, datetime):
-            return value.date()
-        if isinstance(value, date):
-            return value
-        if not isinstance(value, str):
-            return None
-
-        normalized = value.strip()
-        if not normalized:
-            return None
-
-        # Handle ISO datetimes with UTC suffix.
-        normalized = normalized.replace('Z', '+00:00')
-
-        try:
-            return datetime.fromisoformat(normalized).date()
-        except ValueError:
-            if 'T' in normalized:
-                normalized = normalized.split('T', 1)[0]
-            elif ' ' in normalized:
-                normalized = normalized.split(' ', 1)[0]
-
-            try:
-                return datetime.fromisoformat(normalized).date()
-            except ValueError:
-                return None
-
-    def normalize_dividend_event(raw_div: dict, event_type: str) -> dict:
-        """
-        Normalize a raw dividend event into a standardized dictionary with consistent keys.
-        
-        Parameters:
-            raw_div (dict): Raw dividend data containing any of 'date' (historical), 'ex_date' (upcoming), 'payment_date', 'amount', 'currency', 'source', and 'dividend_type'.
-            event_type (str): Indicates the input shape; use 'historical' when the ex-date is provided under the 'date' key, otherwise the function will read 'ex_date'.
-        
-        Returns:
-            dict: Normalized dividend event with keys:
-                - 'ex_date': ex-dividend date string (from 'date' for historical events or 'ex_date' otherwise).
-                - 'payment_date': payment date value from the input or None.
-                - 'amount': dividend amount per share from the input or None.
-                - 'currency': currency code from the input or None.
-                - 'source': data source (defaults to 'yahoo' if not provided).
-                - 'dividend_type': dividend classification from the input or None.
-        """
-        if event_type == 'historical':
-            ex_date = raw_div.get('date', '')
-        else:
-            ex_date = raw_div.get('ex_date', '')
-
-        return {
-            'ex_date': ex_date,
-            'payment_date': raw_div.get('payment_date'),
-            'amount': raw_div.get('amount'),
-            'currency': raw_div.get('currency'),
-            'source': raw_div.get('source', 'yahoo'),
-            'dividend_type': raw_div.get('dividend_type')
-        }
-
-    def get_yahoo_normalized_events(ticker: str) -> list:
-        """
-        Fetches and returns a unified list of normalized dividend events (historical and upcoming) for the given stock ticker.
-        
-        Parameters:
-            ticker (str): The stock ticker symbol to retrieve dividend events for.
-        
-        Returns:
-            list: A list of normalized dividend event dictionaries. Each dictionary contains standardized fields such as ex_date, payment_date, amount, currency, and a `source` field indicating `'historical'` or `'upcoming'`.
-        """
-        historical = stock_service.get_dividends(ticker, years=2) or []
-        upcoming = stock_service.get_upcoming_dividends(ticker) or []
-
-        normalized = [normalize_dividend_event(div, 'historical') for div in historical]
-        normalized.extend(normalize_dividend_event(div, 'upcoming') for div in upcoming)
-        return normalized
-    
     for stock in stocks:
         avanza_mapping = avanza_service.get_mapping_by_ticker(stock.ticker)
 
@@ -523,9 +523,9 @@ def get_upcoming_portfolio_dividends(db: Session = Depends(get_db), current_user
                     'dividend_type': div.dividend_type
                 } for div in avanza_events]
             else:
-                normalized_events = get_yahoo_normalized_events(stock.ticker)
+                normalized_events = get_yahoo_normalized_events(stock_service, stock.ticker)
         else:
-            normalized_events = get_yahoo_normalized_events(stock.ticker)
+            normalized_events = get_yahoo_normalized_events(stock_service, stock.ticker)
 
         if not normalized_events:
             continue

@@ -68,6 +68,7 @@ def get_or_create_settings(db: Session, user: User) -> UserSettings:
     
     Args:
         db: Database session.
+        user: Authenticated user whose settings should be fetched or created.
     
     Returns:
         UserSettings: The existing or newly created settings record.

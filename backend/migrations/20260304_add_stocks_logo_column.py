@@ -8,14 +8,21 @@ Usage:
 
 import os
 import sys
+import logging
 from sqlalchemy import create_engine, text
+
+logger = logging.getLogger(__name__)
+
+
+class MigrationError(Exception):
+    """Raised when migration preconditions or arguments are invalid."""
 
 
 def get_database_url() -> str:
     """Return DATABASE_URL from the environment or raise a runtime error."""
     database_url = os.getenv("DATABASE_URL")
     if not database_url:
-        raise RuntimeError("DATABASE_URL environment variable must be set for this migration script.")
+        raise MigrationError("DATABASE_URL environment variable must be set for this migration script.")
     return database_url
 
 
@@ -48,10 +55,10 @@ def run(direction: str) -> None:
             or "downgrade" to remove that column.
     
     Raises:
-        ValueError: If `direction` is not "upgrade" or "downgrade".
+        MigrationError: If `direction` is not "upgrade" or "downgrade".
     """
     if direction not in {"upgrade", "downgrade"}:
-        raise ValueError("direction must be 'upgrade' or 'downgrade'")
+        raise MigrationError("direction must be 'upgrade' or 'downgrade'")
 
     engine = create_engine(get_database_url())
     try:
@@ -67,14 +74,16 @@ def run(direction: str) -> None:
 
 
 if __name__ == "__main__":
+    logging.basicConfig(level=logging.INFO, format="%(levelname)s:%(name)s:%(message)s")
+
     if len(sys.argv) != 2:
-        print("Usage: python backend/migrations/20260304_add_stocks_logo_column.py <upgrade|downgrade>", file=sys.stderr)
+        logger.error("Usage: python backend/migrations/20260304_add_stocks_logo_column.py <upgrade|downgrade>")
         sys.exit(1)
 
     action = sys.argv[1]
     if action not in {"upgrade", "downgrade"}:
-        print("Invalid action. Use 'upgrade' or 'downgrade'.", file=sys.stderr)
+        logger.error("Invalid action. Use 'upgrade' or 'downgrade'.")
         sys.exit(1)
 
     run(action)
-    print(f"Migration completed: {action}")
+    logger.info("Migration completed: %s", action)

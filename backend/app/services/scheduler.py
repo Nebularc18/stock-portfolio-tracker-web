@@ -52,10 +52,13 @@ def refresh_all_stocks():
         rates = ExchangeRateService.get_rates_for_currencies(currencies, "SEK")
         
         updated = 0
-        total_value_sek = 0
         skipped = 0
         request_ts = utc_now()
         today = request_ts.replace(hour=0, minute=0, second=0, microsecond=0)
+        user_totals: dict[int, float] = {}
+        user_skipped: dict[int, int] = {}
+        user_updated: dict[int, int] = {}
+        user_ids = {s.user_id for s in stocks if s.user_id is not None}
         
         for stock in stocks:
             try:
@@ -79,7 +82,11 @@ def refresh_all_stocks():
                 stock.last_updated = request_ts
                 updated += 1
 
+                if stock.user_id is not None:
+                    user_updated[stock.user_id] = user_updated.get(stock.user_id, 0) + 1
+
                 existing_price = db.query(StockPriceHistory).filter(
+                    StockPriceHistory.user_id == stock.user_id,
                     StockPriceHistory.ticker == stock.ticker,
                     StockPriceHistory.recorded_at >= today
                 ).first()
@@ -88,6 +95,7 @@ def refresh_all_stocks():
                     existing_price.price = stock.current_price
                 else:
                     price_history = StockPriceHistory(
+                        user_id=stock.user_id,
                         ticker=stock.ticker,
                         price=stock.current_price,
                         currency=stock.currency,
@@ -111,26 +119,37 @@ def refresh_all_stocks():
                                 converted_value = value / rates[inverse_key]
 
                     if converted_value is not None:
-                        total_value_sek += converted_value
+                        if stock.user_id is not None:
+                            user_totals[stock.user_id] = user_totals.get(stock.user_id, 0) + converted_value
                     else:
                         logger.warning(
                             f"Skipping {stock.ticker}: no conversion rate for "
                             f"{stock.currency} to SEK"
                         )
+                        if stock.user_id is not None:
+                            user_skipped[stock.user_id] = user_skipped.get(stock.user_id, 0) + 1
                         skipped += 1
             except Exception:
                 logger.exception(f"Error refreshing {stock.ticker}")
+                if stock.user_id is not None:
+                    user_skipped[stock.user_id] = user_skipped.get(stock.user_id, 0) + 1
                 skipped += 1
         
-        # Record portfolio history for the dashboard chart
-        if updated > 0 and total_value_sek > 0 and skipped == 0:
-            now = utc_now()
-            interval = now.replace(minute=(now.minute // 15) * 15, second=0, microsecond=0)
+        # Record per-user portfolio history for the dashboard chart.
+        interval = request_ts.replace(minute=(request_ts.minute // 15) * 15, second=0, microsecond=0)
+        for user_id in user_ids:
+            total_value_sek = user_totals.get(user_id, 0)
+            skipped_for_user = user_skipped.get(user_id, 0)
+            updated_for_user = user_updated.get(user_id, 0)
+            if updated_for_user <= 0 or total_value_sek <= 0 or skipped_for_user > 0:
+                continue
+
             stmt = insert(PortfolioHistory).values(
+                user_id=user_id,
                 total_value=total_value_sek,
                 date=interval
             ).on_conflict_do_update(
-                index_elements=['date'],
+                index_elements=['user_id', 'date'],
                 set_={'total_value': total_value_sek}
             )
             db.execute(stmt)
