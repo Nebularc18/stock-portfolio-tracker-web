@@ -56,6 +56,7 @@ const EXCHANGES = [
   const [newTicker, setNewTicker] = useState('')
   const [newQuantity, setNewQuantity] = useState('')
   const [newPurchasePrice, setNewPurchasePrice] = useState('')
+  const [newPurchaseDate, setNewPurchaseDate] = useState('')
   const [selectedExchange, setSelectedExchange] = useState('ST')
   const [adding, setAdding] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -63,6 +64,7 @@ const EXCHANGES = [
   const [editStock, setEditStock] = useState<Stock | null>(null)
   const [editQuantity, setEditQuantity] = useState('')
   const [editPurchasePrice, setEditPurchasePrice] = useState('')
+  const [editPurchaseDate, setEditPurchaseDate] = useState('')
   const [saving, setSaving] = useState(false)
   const [lastUpdate, setLastUpdate] = useState<string | null>(null)
   const [failedLogos, setFailedLogos] = useState<Record<string, boolean>>({})
@@ -117,10 +119,12 @@ const EXCHANGES = [
         ticker: fullTicker,
         quantity: parseFloat(newQuantity),
         purchase_price: newPurchasePrice ? parseFloat(newPurchasePrice) : undefined,
+        purchase_date: newPurchaseDate || undefined,
       })
       setNewTicker('')
       setNewQuantity('')
       setNewPurchasePrice('')
+      setNewPurchaseDate('')
       setValidationStatus('idle')
       setShowAddForm(false)
       await fetchStocks()
@@ -146,6 +150,7 @@ const EXCHANGES = [
     setEditStock(stock)
     setEditQuantity(stock.quantity.toString())
     setEditPurchasePrice(stock.purchase_price?.toString() || '')
+    setEditPurchaseDate(stock.purchase_date || '')
   }
 
   const handleSaveEdit = async () => {
@@ -155,6 +160,7 @@ const EXCHANGES = [
       await api.stocks.update(editStock.ticker, {
         quantity: parseFloat(editQuantity) || undefined,
         purchase_price: editPurchasePrice ? parseFloat(editPurchasePrice) : undefined,
+        purchase_date: editPurchaseDate || undefined,
       })
       setEditStock(null)
       await fetchStocks()
@@ -195,7 +201,7 @@ const EXCHANGES = [
         <div className="card" style={{ marginBottom: '20px' }}>
           <h3 style={{ marginBottom: '16px' }}>{t(language, 'stocks.addNewStock')}</h3>
           <form onSubmit={handleAddStock}>
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: '16px' }}>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(6, 1fr)', gap: '16px' }}>
               <div>
                 <label style={{ display: 'block', marginBottom: '8px', color: 'var(--text-secondary)', fontSize: '12px' }}>
                   {t(language, 'stocks.exchange')}
@@ -271,6 +277,17 @@ const EXCHANGES = [
                   style={{ width: '100%' }}
                 />
               </div>
+              <div>
+                <label style={{ display: 'block', marginBottom: '8px', color: 'var(--text-secondary)', fontSize: '12px' }}>
+                  {t(language, 'stocks.purchaseDate')}
+                </label>
+                <input
+                  type="date"
+                  value={newPurchaseDate}
+                  onChange={(e) => setNewPurchaseDate(e.target.value)}
+                  style={{ width: '100%' }}
+                />
+              </div>
               <div style={{ display: 'flex', alignItems: 'flex-end' }}>
                 <button 
                   type="submit" 
@@ -300,6 +317,7 @@ const EXCHANGES = [
                 <th>{t(language, 'stocks.tableQty')}</th>
                 <th>{t(language, 'stocks.tableCurr')}</th>
                 <th>{t(language, 'stocks.tablePurchase')}</th>
+                <th>{t(language, 'stocks.purchaseDate')}</th>
                 <th>{t(language, 'stocks.tablePrice')}</th>
                 <th>{t(language, 'stocks.tableChange')}</th>
                 <th>{t(language, 'stocks.tableDivYield')}</th>
@@ -361,6 +379,7 @@ const EXCHANGES = [
                     <td>{stock.quantity}</td>
                     <td>{stock.currency}</td>
                     <td>{formatCurrency(stock.purchase_price, locale, stock.currency)}</td>
+                    <td>{stock.purchase_date || '-'}</td>
                     <td>{formatCurrency(stock.current_price, locale, stock.currency)}</td>
                     <td className={dailyChange && dailyChange >= 0 ? 'positive' : 'negative'}>
                       {dailyChangePercent !== null ? `${dailyChangePercent >= 0 ? '+' : ''}${dailyChangePercent.toFixed(2)}%` : '-'}
@@ -426,9 +445,9 @@ const EXCHANGES = [
                  style={{ width: '100%' }}
                />
              </div>
-             <div style={{ marginBottom: '24px' }}>
-               <label style={{ display: 'block', marginBottom: '8px', color: 'var(--text-secondary)', fontSize: '14px' }}>
-                 {t(language, 'stocks.purchasePrice')} ({editStock.currency})
+              <div style={{ marginBottom: '24px' }}>
+                <label style={{ display: 'block', marginBottom: '8px', color: 'var(--text-secondary)', fontSize: '14px' }}>
+                  {t(language, 'stocks.purchasePrice')} ({editStock.currency})
                </label>
                <input
                  type="number"
@@ -436,9 +455,20 @@ const EXCHANGES = [
                  value={editPurchasePrice}
                  onChange={(e) => setEditPurchasePrice(e.target.value)}
                  style={{ width: '100%' }}
-                 placeholder={t(language, 'stocks.placeholderPrice')}
-               />
-             </div>
+                  placeholder={t(language, 'stocks.placeholderPrice')}
+                />
+              </div>
+              <div style={{ marginBottom: '24px' }}>
+                <label style={{ display: 'block', marginBottom: '8px', color: 'var(--text-secondary)', fontSize: '14px' }}>
+                  {t(language, 'stocks.purchaseDate')}
+                </label>
+                <input
+                  type="date"
+                  value={editPurchaseDate}
+                  onChange={(e) => setEditPurchaseDate(e.target.value)}
+                  style={{ width: '100%' }}
+                />
+              </div>
              <div style={{ display: 'flex', gap: '12px', justifyContent: 'flex-end' }}>
                <button className="btn btn-secondary" onClick={() => setEditStock(null)}>
                  {t(language, 'stocks.cancel')}

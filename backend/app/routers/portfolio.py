@@ -172,7 +172,48 @@ def convert_value(value: float, from_currency: str, to_currency: str, rates: dic
     inverse_key = f"{to_currency}_{from_currency}"
     if inverse_key in rates and rates[inverse_key]:
         return value / rates[inverse_key]
-    
+
+    if from_currency != 'SEK' and to_currency != 'SEK':
+        sek_key = f"{from_currency}_SEK"
+        target_key = f"SEK_{to_currency}"
+        inverse_sek_key = f"SEK_{from_currency}"
+        inverse_target_key = f"{to_currency}_SEK"
+
+        if rates.get(sek_key) and rates.get(target_key):
+            return value * rates[sek_key] * rates[target_key]
+        if rates.get(sek_key) and rates.get(inverse_target_key):
+            return value * rates[sek_key] / rates[inverse_target_key]
+        if rates.get(inverse_sek_key) and rates.get(target_key):
+            return (value / rates[inverse_sek_key]) * rates[target_key]
+        if rates.get(inverse_sek_key) and rates.get(inverse_target_key):
+            return (value / rates[inverse_sek_key]) / rates[inverse_target_key]
+
+    return None
+
+
+COUNTRY_BY_TICKER_SUFFIX = {
+    '.ST': 'Sweden',
+    '.DE': 'Germany',
+    '.PA': 'France',
+    '.MI': 'Italy',
+    '.AS': 'Netherlands',
+    '.BR': 'Belgium',
+    '.TO': 'Canada',
+    '.L': 'United Kingdom',
+    '.SW': 'Switzerland',
+    '.HE': 'Finland',
+    '.CO': 'Denmark',
+    '.OL': 'Norway',
+}
+
+
+def infer_country_from_ticker(ticker: str) -> Optional[str]:
+    ticker_upper = (ticker or '').upper()
+    for suffix, country in COUNTRY_BY_TICKER_SUFFIX.items():
+        if ticker_upper.endswith(suffix):
+            return country
+    if '.' not in ticker_upper and ticker_upper:
+        return 'United States'
     return None
 
 
@@ -473,9 +514,11 @@ def get_portfolio_distribution(db: Session = Depends(get_db), current_user: User
             - by_currency (dict): currency code -> total market value in that currency.
             - by_stock (dict): ticker -> total market value for that stock.
     """
-    from app.services.finnhub_service import finnhub_service
-
     stocks = db.query(Stock).filter(Stock.user_id == current_user.id).all()
+    display_currency = get_display_currency(db, current_user.id)
+    currencies = {stock.currency for stock in stocks if stock.currency}
+    currencies.add('SEK')
+    rates = ExchangeRateService.get_rates_for_currencies(currencies, display_currency)
     
     by_sector = {}
     by_country = {}
@@ -484,20 +527,23 @@ def get_portfolio_distribution(db: Session = Depends(get_db), current_user: User
     
     for stock in stocks:
         if stock.current_price is not None and stock.quantity is not None:
-            value = stock.current_price * stock.quantity
+            value_native = stock.current_price * stock.quantity
+            value = convert_value(value_native, stock.currency, display_currency, rates)
+            if value is None:
+                continue
             
             sector = stock.sector or "Unknown"
             by_sector[sector] = by_sector.get(sector, 0) + value
 
-            profile = finnhub_service.get_company_profile(stock.ticker) or {}
-            country = profile.get('country') or "Unknown"
+            country = infer_country_from_ticker(stock.ticker) or "Unknown"
             by_country[country] = by_country.get(country, 0) + value
             
-            by_currency[stock.currency] = by_currency.get(stock.currency, 0) + value
+            by_currency[stock.currency] = by_currency.get(stock.currency, 0) + value_native
             
             by_stock[stock.ticker] = by_stock.get(stock.ticker, 0) + value
     
     return {
+        "display_currency": display_currency,
         "by_sector": by_sector,
         "by_country": by_country,
         "by_currency": by_currency,
@@ -553,6 +599,7 @@ def get_upcoming_portfolio_dividends(db: Session = Depends(get_db), current_user
     current_year = now.year
 
     for stock in stocks:
+        purchase_date = stock.purchase_date
         avanza_mapping = avanza_service.get_mapping_by_ticker(stock.ticker)
         no_avanza_mapping = avanza_mapping is None or not avanza_mapping.instrument_id
 
@@ -581,10 +628,16 @@ def get_upcoming_portfolio_dividends(db: Session = Depends(get_db), current_user
             ex_date = div.get('ex_date', '')
             payment_date = div.get('payment_date')
             payout_date = payment_date or ex_date
+            ex_date_parsed = parse_event_date(ex_date)
 
             payout_date_parsed = parse_event_date(payout_date)
             if not payout_date_parsed:
                 continue
+
+            if purchase_date is not None:
+                entitlement_date = ex_date_parsed or payout_date_parsed
+                if entitlement_date and entitlement_date < purchase_date:
+                    continue
 
             if payout_date_parsed.year != current_year:
                 continue

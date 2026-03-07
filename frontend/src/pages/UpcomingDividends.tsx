@@ -169,6 +169,10 @@ export default function UpcomingDividends() {
       }, {} as Record<string, number>),
     }))
 
+  const averagePerQuarter = totalExpected / 4
+  const averagePerMonth = totalExpected / 12
+  const averagePerDay = totalExpected / 365
+
   return (
     <div>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '24px' }}>
@@ -242,6 +246,15 @@ export default function UpcomingDividends() {
                   </span>
                   <span style={{ color: 'var(--text-secondary)' }}>
                     {t(language, 'dashboard.remaining')}: <strong style={{ color: 'var(--accent-blue)' }}>{formatCurrency(totalRemaining, locale, displayCurrency)}</strong>
+                  </span>
+                  <span style={{ color: 'var(--text-secondary)' }}>
+                    {t(language, 'upcoming.perQuarter')}: <strong style={{ color: 'var(--text-primary)' }}>{formatCurrency(averagePerQuarter, locale, displayCurrency)}</strong>
+                  </span>
+                  <span style={{ color: 'var(--text-secondary)' }}>
+                    {t(language, 'upcoming.perMonth')}: <strong style={{ color: 'var(--text-primary)' }}>{formatCurrency(averagePerMonth, locale, displayCurrency)}</strong>
+                  </span>
+                  <span style={{ color: 'var(--text-secondary)' }}>
+                    {t(language, 'upcoming.perDay')}: <strong style={{ color: 'var(--text-primary)' }}>{formatCurrency(averagePerDay, locale, displayCurrency)}</strong>
                   </span>
                 </div>
               </div>

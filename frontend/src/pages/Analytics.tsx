@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from 'react'
-import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip } from 'recharts'
-import { api } from '../services/api'
+import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip, BarChart, Bar, XAxis, YAxis, CartesianGrid, Legend } from 'recharts'
+import { api, Stock } from '../services/api'
 import { useSettings } from '../SettingsContext'
 import { getLocaleForLanguage, t } from '../i18n'
 
@@ -23,6 +23,7 @@ function formatCurrency(value: number, locale: string, currency: string = 'USD')
 }
 
 interface Distribution {
+  display_currency: string
   by_sector: Record<string, number>
   by_country: Record<string, number>
   by_currency: Record<string, number>
@@ -38,16 +39,52 @@ interface Distribution {
  */
 export default function Analytics() {
   const [distribution, setDistribution] = useState<Distribution | null>(null)
+  const [stocks, setStocks] = useState<Stock[]>([])
+  const [dividendComparisonData, setDividendComparisonData] = useState<Array<Record<string, number | string>>>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const { displayCurrency, language } = useSettings()
   const locale = getLocaleForLanguage(language)
+  const chartCurrency = distribution?.display_currency || displayCurrency
 
   const fetchData = useCallback(async () => {
     try {
       setLoading(true)
-      const distributionData = await api.portfolio.distribution()
+      const [distributionData, stocksData] = await Promise.all([
+        api.portfolio.distribution(),
+        api.stocks.list(),
+      ])
       setDistribution(distributionData)
+      setStocks(stocksData)
+
+      const now = new Date()
+      const currentYear = now.getUTCFullYear()
+      const previousYear = currentYear - 1
+      const monthTotals = Array.from({ length: 12 }, (_, monthIndex) => ({
+        month: new Date(Date.UTC(2000, monthIndex, 1)).toLocaleDateString(locale, { month: 'long', timeZone: 'UTC' }),
+        [String(previousYear)]: 0,
+        [String(currentYear)]: 0,
+      }))
+
+      const dividendResults = await Promise.all(
+        stocksData.map(async (stock) => ({
+          stock,
+          dividends: await api.stocks.dividends(stock.ticker, 2).catch(() => []),
+        }))
+      )
+
+      for (const { stock, dividends } of dividendResults) {
+        for (const div of dividends) {
+          if (stock.purchase_date && div.date < stock.purchase_date) continue
+          const year = Number(div.date.slice(0, 4))
+          const monthIndex = Number(div.date.slice(5, 7)) - 1
+          if (!Number.isFinite(year) || monthIndex < 0 || monthIndex > 11) continue
+          if (year !== previousYear && year !== currentYear) continue
+          monthTotals[monthIndex][String(year)] = Number(monthTotals[monthIndex][String(year)] || 0) + ((div.amount || 0) * stock.quantity)
+        }
+      }
+
+      setDividendComparisonData(monthTotals)
       setError(null)
     } catch (err) {
       console.error('Failed to load analytics data:', err)
@@ -123,7 +160,7 @@ export default function Analytics() {
                       ))}
                     </Pie>
                     <Tooltip 
-                      formatter={(value: number) => formatCurrency(value, locale, displayCurrency)}
+                      formatter={(value: number) => formatCurrency(value, locale, chartCurrency)}
                       contentStyle={{ 
                         background: '#2a2a2a', 
                         border: '1px solid #444', 
@@ -159,7 +196,7 @@ export default function Analytics() {
                       ))}
                     </Pie>
                     <Tooltip 
-                      formatter={(value: number) => formatCurrency(value, locale, displayCurrency)}
+                      formatter={(value: number) => formatCurrency(value, locale, chartCurrency)}
                       contentStyle={{ 
                         background: '#2a2a2a', 
                         border: '1px solid #444', 
@@ -195,7 +232,7 @@ export default function Analytics() {
                       ))}
                     </Pie>
                     <Tooltip 
-                      formatter={(value: number) => formatCurrency(value, locale, displayCurrency)}
+                      formatter={(value: number) => formatCurrency(value, locale, chartCurrency)}
                       contentStyle={{ 
                         background: '#2a2a2a', 
                         border: '1px solid #444', 
@@ -205,6 +242,34 @@ export default function Analytics() {
                       itemStyle={{ color: '#fff' }}
                     />
                   </PieChart>
+                </ResponsiveContainer>
+              </div>
+            </div>
+          )}
+
+          {dividendComparisonData.length > 0 && (
+            <div className="card" style={{ gridColumn: '1 / -1' }}>
+              <h3 style={{ marginBottom: '16px' }}>{t(language, 'analytics.dividendComparison')}</h3>
+              <div style={{ height: 320 }}>
+                <ResponsiveContainer width="100%" height="100%">
+                  <BarChart data={dividendComparisonData}>
+                    <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.08)" vertical={true} />
+                    <XAxis dataKey="month" stroke="#888" fontSize={12} />
+                    <YAxis stroke="#888" fontSize={12} />
+                    <Tooltip
+                      formatter={(value: number) => formatCurrency(value, locale, chartCurrency)}
+                      contentStyle={{
+                        background: '#111827',
+                        border: '1px solid #374151',
+                        borderRadius: '10px',
+                        color: '#fff'
+                      }}
+                      itemStyle={{ color: '#fff' }}
+                    />
+                    <Legend />
+                    <Bar dataKey={String(new Date().getUTCFullYear() - 1)} fill="#8b5cf6" radius={[6, 6, 0, 0]} />
+                    <Bar dataKey={String(new Date().getUTCFullYear())} fill="#c084fc" radius={[6, 6, 0, 0]} />
+                  </BarChart>
                 </ResponsiveContainer>
               </div>
             </div>

@@ -73,6 +73,7 @@ export interface Stock {
   sector: string | null
   logo: string | null
   purchase_price: number | null
+  purchase_date: string | null
   current_price: number | null
   previous_close: number | null
   dividend_yield: number | null
@@ -169,6 +170,7 @@ export interface UpcomingDividendsResponse {
 }
 
 export interface DistributionResponse {
+  display_currency: string
   by_sector: Record<string, number>
   by_country: Record<string, number>
   by_currency: Record<string, number>
@@ -354,9 +356,9 @@ export const api = {
   stocks: {
     list: () => fetchAPI('/stocks') as Promise<Stock[]>,
     get: (ticker: string) => fetchAPI(`/stocks/${ticker}`) as Promise<Stock>,
-    create: (data: { ticker: string; quantity: number; purchase_price?: number }) => 
+    create: (data: { ticker: string; quantity: number; purchase_price?: number; purchase_date?: string }) => 
       fetchAPI('/stocks', { method: 'POST', body: JSON.stringify(data) }) as Promise<Stock>,
-    update: (ticker: string, data: { quantity?: number; purchase_price?: number }) =>
+    update: (ticker: string, data: { quantity?: number; purchase_price?: number; purchase_date?: string }) =>
       fetchAPI(`/stocks/${ticker}`, { method: 'PATCH', body: JSON.stringify(data) }) as Promise<Stock>,
     delete: (ticker: string) => fetchAPI(`/stocks/${ticker}`, { method: 'DELETE' }),
     refresh: (ticker: string) => fetchAPI(`/stocks/${ticker}/refresh`, { method: 'POST' }) as Promise<Stock>,

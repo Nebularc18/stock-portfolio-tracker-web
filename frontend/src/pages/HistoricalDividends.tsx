@@ -37,6 +37,7 @@ interface DividendWithStock {
   name: string | null
   currency: string
   quantity: number
+  purchaseDate: string | null
   date: string
   amount: number
   dividendCurrency: string
@@ -100,11 +101,15 @@ export default function HistoricalDividends() {
           try {
             const divs = await api.stocks.dividends(stock.ticker, 25)
             for (const div of divs) {
+              if (stock.purchase_date && div.date < stock.purchase_date) {
+                continue
+              }
               allDividends.push({
                 ticker: stock.ticker,
                 name: stock.name,
                 currency: stock.currency,
                 quantity: stock.quantity,
+                purchaseDate: stock.purchase_date,
                 date: div.date,
                 amount: div.amount,
                 dividendCurrency: div.currency || stock.currency,

@@ -10,12 +10,19 @@ from pydantic import BaseModel
 from typing import Optional
 import uuid
 import logging
+from datetime import date
 
 from app.main import get_db, get_current_user, User, Stock, StockCreate, StockUpdate, StockResponse, StockPriceHistory
 from app.utils.time import utc_now
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
+
+
+def _is_on_or_after_purchase_date(event_date: Optional[str], purchase_date: Optional[date]) -> bool:
+    if purchase_date is None or not event_date:
+        return True
+    return event_date >= purchase_date.isoformat()
 
 class ManualDividendCreate(BaseModel):
     date: str
@@ -150,6 +157,7 @@ def create_stock(stock_data: StockCreate, db: Session = Depends(get_db), current
         sector=info.get("sector"),
         logo=logo,
         purchase_price=stock_data.purchase_price,
+        purchase_date=stock_data.purchase_date,
         current_price=info.get("current_price"),
         previous_close=info.get("previous_close"),
         dividend_yield=info.get("dividend_yield"),
@@ -190,6 +198,8 @@ def update_stock(ticker: str, stock_data: StockUpdate, db: Session = Depends(get
         stock.quantity = stock_data.quantity
     if stock_data.purchase_price is not None:
         stock.purchase_price = stock_data.purchase_price
+    if stock_data.purchase_date is not None:
+        stock.purchase_date = stock_data.purchase_date
     
     db.commit()
     db.refresh(stock)
@@ -289,6 +299,7 @@ def get_stock_dividends(ticker: str, years: int = 5, db: Session = Depends(get_d
         HTTPException: 404 if stock not found.
     """
     from app.services.stock_service import StockService
+    from app.services.avanza_service import avanza_service
     stock_service = StockService()
     
     stock = db.query(Stock).filter(
@@ -298,8 +309,56 @@ def get_stock_dividends(ticker: str, years: int = 5, db: Session = Depends(get_d
     if not stock:
         raise HTTPException(status_code=404, detail="Stock not found")
     
-    dividends = stock_service.get_dividends(ticker, years)
-    return dividends
+    dividends = [
+        div for div in stock_service.get_dividends(ticker, years)
+        if _is_on_or_after_purchase_date(div.get('date'), stock.purchase_date)
+    ]
+    mapped_year_dividends = []
+
+    avanza_mapping = avanza_service.get_mapping_by_ticker(ticker)
+    if avanza_mapping and avanza_mapping.instrument_id:
+        current_year = utc_now().year
+        for year in range(current_year - years + 1, current_year + 1):
+            year_dividends = avanza_service.get_stock_dividends_for_year(ticker, year)
+            for div in year_dividends:
+                mapped_year_dividends.append({
+                    'date': div.ex_date,
+                    'amount': div.amount,
+                    'currency': div.currency,
+                    'source': 'avanza',
+                    'payment_date': div.payment_date,
+                    'dividend_type': div.dividend_type,
+                })
+
+    mapped_year_dividends = [
+        div for div in mapped_year_dividends
+        if _is_on_or_after_purchase_date(div.get('date'), stock.purchase_date)
+    ]
+
+    deduped = {}
+    for div in [*dividends, *mapped_year_dividends]:
+        normalized_currency = div.get('currency') or stock.currency or ''
+        key = (
+            div.get('date') or '',
+            div.get('amount'),
+            normalized_currency,
+        )
+        existing = deduped.get(key)
+        if existing is None:
+            if not div.get('currency'):
+                div = {**div, 'currency': stock.currency}
+            deduped[key] = div
+            continue
+
+        existing_score = int(bool(existing.get('payment_date'))) + int(bool(existing.get('dividend_type'))) + (2 if existing.get('source') == 'avanza' else 0)
+        candidate = div if div.get('currency') else {**div, 'currency': stock.currency}
+        candidate_score = int(bool(candidate.get('payment_date'))) + int(bool(candidate.get('dividend_type'))) + (2 if candidate.get('source') == 'avanza' else 0)
+        if candidate_score >= existing_score:
+            deduped[key] = candidate
+
+    merged_dividends = list(deduped.values())
+    merged_dividends.sort(key=lambda item: item.get('date') or '', reverse=True)
+    return merged_dividends
 
 
 @router.get("/{ticker}/upcoming-dividends")
@@ -317,6 +376,7 @@ def get_upcoming_dividends(ticker: str, db: Session = Depends(get_db), current_u
         HTTPException: 404 if stock not found.
     """
     from app.services.stock_service import StockService
+    from app.services.avanza_service import avanza_service
     stock_service = StockService()
     
     stock = db.query(Stock).filter(
@@ -326,8 +386,54 @@ def get_upcoming_dividends(ticker: str, db: Session = Depends(get_db), current_u
     if not stock:
         raise HTTPException(status_code=404, detail="Stock not found")
     
-    upcoming = stock_service.get_upcoming_dividends(ticker)
-    return upcoming or []
+    historical_dividends = [
+        div for div in (stock_service.get_dividends(ticker, 2) or [])
+        if _is_on_or_after_purchase_date(div.get('date'), stock.purchase_date)
+    ]
+    historical_event_keys = {
+        (
+            div.get('date') or '',
+            div.get('payment_date') or '',
+            div.get('amount'),
+            div.get('currency') or '',
+            div.get('dividend_type') or '',
+        )
+        for div in historical_dividends
+    }
+
+    current_year = utc_now().year
+    avanza_mapping = avanza_service.get_mapping_by_ticker(ticker)
+    if avanza_mapping and avanza_mapping.instrument_id:
+        year_dividends = avanza_service.get_stock_dividends_for_year(ticker, current_year)
+        if year_dividends:
+            upcoming_or_remaining = []
+            for div in year_dividends:
+                event_key = (
+                    div.ex_date or '',
+                    div.payment_date or '',
+                    div.amount,
+                    div.currency or '',
+                    div.dividend_type or '',
+                )
+                if event_key in historical_event_keys:
+                    continue
+                if not _is_on_or_after_purchase_date(div.ex_date, stock.purchase_date):
+                    continue
+                upcoming_or_remaining.append({
+                    'ex_date': div.ex_date,
+                    'amount': div.amount,
+                    'currency': div.currency,
+                    'payment_date': div.payment_date,
+                    'dividend_type': div.dividend_type,
+                    'source': 'avanza',
+                })
+            return upcoming_or_remaining
+
+    upcoming = stock_service.get_upcoming_dividends(ticker) or []
+    return [
+        div for div in upcoming
+        if _is_on_or_after_purchase_date(div.get('ex_date'), stock.purchase_date)
+    ]
 
 
 @router.get("/{ticker}/analyst")

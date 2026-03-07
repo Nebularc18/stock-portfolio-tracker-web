@@ -14,7 +14,7 @@ import secrets
 import time
 import uuid
 from contextlib import asynccontextmanager
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 from typing import List, Optional, Any
 import logging
 
@@ -23,7 +23,7 @@ from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from passlib.context import CryptContext
 from passlib.exc import UnknownHashError
 from pydantic import BaseModel, field_validator
-from sqlalchemy import create_engine, Column, Integer, String, Float, DateTime, ForeignKey, JSON, Boolean, text, UniqueConstraint
+from sqlalchemy import create_engine, Column, Integer, String, Float, Date, DateTime, ForeignKey, JSON, Boolean, text, UniqueConstraint
 from sqlalchemy.orm import sessionmaker, relationship, declarative_base
 from sqlalchemy.pool import NullPool
 from app.utils.time import utc_now
@@ -216,6 +216,7 @@ class Stock(Base):
     sector = Column(String)
     logo = Column(String, nullable=True)
     purchase_price = Column(Float, nullable=True)
+    purchase_date = Column(Date, nullable=True)
     current_price = Column(Float, nullable=True)
     previous_close = Column(Float, nullable=True)
     dividend_yield = Column(Float, nullable=True)
@@ -362,6 +363,7 @@ def ensure_account_schema_and_seed() -> None:
         """))
 
         conn.execute(text("ALTER TABLE stocks ADD COLUMN IF NOT EXISTS user_id INTEGER"))
+        conn.execute(text("ALTER TABLE stocks ADD COLUMN IF NOT EXISTS purchase_date DATE"))
         conn.execute(text("ALTER TABLE user_settings ADD COLUMN IF NOT EXISTS user_id INTEGER"))
         conn.execute(text("ALTER TABLE portfolio_history ADD COLUMN IF NOT EXISTS user_id INTEGER"))
         conn.execute(text("ALTER TABLE stock_price_history ADD COLUMN IF NOT EXISTS user_id INTEGER"))
@@ -461,6 +463,7 @@ def ensure_account_schema_and_seed() -> None:
                 "currency": "SEK",
                 "sector": "Industrials",
                 "purchase_price": 245.0,
+                "purchase_date": date(2024, 2, 15),
                 "current_price": 273.5,
                 "previous_close": 271.8,
                 "dividend_yield": 3.2,
@@ -473,6 +476,7 @@ def ensure_account_schema_and_seed() -> None:
                 "currency": "USD",
                 "sector": "Technology",
                 "purchase_price": 178.0,
+                "purchase_date": date(2024, 11, 1),
                 "current_price": 195.3,
                 "previous_close": 194.2,
                 "dividend_yield": 0.5,
@@ -485,6 +489,7 @@ def ensure_account_schema_and_seed() -> None:
                 "currency": "EUR",
                 "sector": "Technology",
                 "purchase_price": 162.5,
+                "purchase_date": date(2024, 10, 10),
                 "current_price": 174.9,
                 "previous_close": 174.0,
                 "dividend_yield": 1.6,
@@ -495,10 +500,12 @@ def ensure_account_schema_and_seed() -> None:
             conn.execute(text("""
                 INSERT INTO stocks (
                     user_id, ticker, name, quantity, currency, sector, purchase_price,
+                    purchase_date,
                     current_price, previous_close, dividend_yield, dividend_per_share,
                     last_updated, manual_dividends, suppressed_dividends
                 ) VALUES (
                     :user_id, :ticker, :name, :quantity, :currency, :sector, :purchase_price,
+                    :purchase_date,
                     :current_price, :previous_close, :dividend_yield, :dividend_per_share,
                     :last_updated, '[]'::json, '[]'::json
                 )
@@ -508,6 +515,7 @@ def ensure_account_schema_and_seed() -> None:
                     currency = EXCLUDED.currency,
                     sector = EXCLUDED.sector,
                     purchase_price = EXCLUDED.purchase_price,
+                    purchase_date = EXCLUDED.purchase_date,
                     current_price = EXCLUDED.current_price,
                     previous_close = EXCLUDED.previous_close,
                     dividend_yield = EXCLUDED.dividend_yield,
@@ -523,6 +531,7 @@ def ensure_account_schema_and_seed() -> None:
                 "currency": stock["currency"],
                 "sector": stock["sector"],
                 "purchase_price": stock["purchase_price"],
+                "purchase_date": stock["purchase_date"],
                 "current_price": stock["current_price"],
                 "previous_close": stock["previous_close"],
                 "dividend_yield": stock["dividend_yield"],
@@ -597,11 +606,13 @@ class StockCreate(BaseModel):
     ticker: str
     quantity: float
     purchase_price: Optional[float] = None
+    purchase_date: Optional[date] = None
 
 
 class StockUpdate(BaseModel):
     quantity: Optional[float] = None
     purchase_price: Optional[float] = None
+    purchase_date: Optional[date] = None
 
 
 class StockResponse(BaseModel):
@@ -613,6 +624,7 @@ class StockResponse(BaseModel):
     sector: Optional[str]
     logo: Optional[str] = None
     purchase_price: Optional[float]
+    purchase_date: Optional[date]
     current_price: Optional[float]
     previous_close: Optional[float]
     dividend_yield: Optional[float]
