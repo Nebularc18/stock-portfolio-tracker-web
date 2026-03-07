@@ -8,7 +8,7 @@ import requests
 import json
 import os
 import time
-from datetime import datetime
+from datetime import datetime, timezone, timedelta
 from typing import Optional, Dict, Any, List
 from concurrent.futures import ThreadPoolExecutor, as_completed
 import logging
@@ -24,8 +24,13 @@ HEADER_INDICES = {
     "^OMXSPI": "OMX Stockholm PI",
     "^OMXC25": "OMX Copenhagen 25",
     "^OMXH25": "OMX Helsinki 25",
+    "^OSEAX": "Oslo All Share",
     "^GSPC": "S&P 500",
+    "^DJI": "Dow Jones",
     "^IXIC": "NASDAQ",
+    "^FTSE": "FTSE 100",
+    "^GDAXI": "DAX",
+    "^STOXX50E": "Euro Stoxx 50",
 }
 
 HEADER_FX = {
@@ -53,14 +58,19 @@ def _get_session():
         })
     return _session
 
-def _load_cache(filename: str) -> Optional[Any]:
-    """Load cached data from a file if it exists and hasn't expired.
+def _load_cache(filename: str, include_metadata: bool = False) -> Optional[Any]:
+    """
+    Load a JSON cache entry from disk if it exists and is still within its TTL.
     
-    Args:
-        filename: Name of the cache file to load.
+    Parameters:
+        filename (str): Cache filename located under the module's CACHE_DIR.
+        include_metadata (bool): If True, return the raw cache dict containing keys
+            'value', 'timestamp', and 'ttl' instead of only the stored value.
     
     Returns:
-        The cached value if valid, None if expired or not found.
+        The cached value when present and not expired, `None` if the file is missing,
+        expired, or cannot be read. If `include_metadata` is True, returns a dict with
+        keys `value`, `timestamp`, and `ttl` when the cache is valid.
     """
     filepath = os.path.join(CACHE_DIR, filename)
     if not os.path.exists(filepath):
@@ -69,6 +79,8 @@ def _load_cache(filename: str) -> Optional[Any]:
         with open(filepath, 'r') as f:
             data = json.load(f)
         if datetime.now().timestamp() - data.get('timestamp', 0) < data.get('ttl', 300):
+            if include_metadata:
+                return data
             return data.get('value')
         return None
     except Exception:
@@ -188,32 +200,58 @@ def _fetch_all_quotes(symbols: List[str]) -> Dict[str, Dict]:
     
     return results
 
-def get_header_market_data(force_refresh: bool = False, selected_indices: Optional[List[str]] = None) -> Dict[str, Any]:
+def get_header_market_data(force_refresh: bool = False) -> Dict[str, Any]:
     """Retrieve market data for the header component.
     
     Fetches index and exchange rate data in parallel and caches
-    the result for 15 minutes.
+    the result for 15 minutes. Returns all indices; filtering
+    by user settings is done on the frontend.
     
     Args:
         force_refresh: If True, bypass cache and fetch fresh data.
-        selected_indices: List of index symbols to include. If None or empty, includes all.
     
     Returns:
-        dict: Contains indices list, exchange_rates dict, and updated_at.
+        dict: Contains indices list, exchange_rates dict, updated_at, and next_refresh_at.
     """
-    cached = _load_cache('market_header.json')
-    if cached is not None and not force_refresh:
-        if selected_indices:
-            cached['indices'] = [i for i in cached.get('indices', []) if i['symbol'] in selected_indices]
-        return cached
+    # Check cache with metadata
+    cached_data = _load_cache('market_header.json', include_metadata=True)
+    if cached_data is not None and not force_refresh:
+        cached = cached_data.get('value') if isinstance(cached_data, dict) else None
+        if isinstance(cached, dict):
+            try:
+                cached_at = int(cached_data.get('timestamp', 0))
+            except (TypeError, ValueError, AttributeError):
+                cached_at = 0
+
+            try:
+                ttl = int(cached_data.get('ttl', HEADER_CACHE_TTL))
+            except (TypeError, ValueError, AttributeError):
+                ttl = HEADER_CACHE_TTL
+
+            if ttl <= 0:
+                ttl = HEADER_CACHE_TTL
+
+            next_refresh_at = None
+            if cached_at > 0:
+                try:
+                    next_refresh_at = datetime.fromtimestamp(cached_at + ttl, tz=timezone.utc).isoformat()
+                except (OverflowError, OSError, ValueError, TypeError):
+                    next_refresh_at = None
+
+            if next_refresh_at is None:
+                cached = None
+
+            if isinstance(cached, dict):
+                result = {**cached}
+                result['next_refresh_at'] = next_refresh_at
+
+                return result
     
     all_symbols = list(HEADER_INDICES.keys()) + list(HEADER_FX.keys())
     quotes = _fetch_all_quotes(all_symbols)
     
     indices = []
     for symbol, name in HEADER_INDICES.items():
-        if selected_indices and symbol not in selected_indices:
-            continue
         if symbol in quotes:
             data = quotes[symbol]
             indices.append({
@@ -229,10 +267,14 @@ def get_header_market_data(force_refresh: bool = False, selected_indices: Option
         if symbol in quotes:
             exchange_rates[key] = quotes[symbol]['price']
     
+    now = datetime.now(timezone.utc)
+    next_refresh = now + timedelta(seconds=HEADER_CACHE_TTL)
+    
     result = {
         'indices': indices,
         'exchange_rates': exchange_rates,
-        'updated_at': datetime.utcnow().isoformat() + 'Z',
+        'updated_at': now.isoformat(),
+        'next_refresh_at': next_refresh.isoformat()
     }
     
     _save_cache('market_header.json', result, HEADER_CACHE_TTL)

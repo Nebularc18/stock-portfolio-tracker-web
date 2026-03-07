@@ -3,10 +3,19 @@ import { Link } from 'react-router-dom'
 import { api, Stock } from '../services/api'
 import { useSettings } from '../SettingsContext'
 import { formatTimeInTimezone, getLatestTimestamp } from '../utils/time'
+import { getLocaleForLanguage, t } from '../i18n'
 
-function formatCurrency(value: number | null, currency: string = 'USD'): string {
+/**
+ * Formats a numeric value as a localized currency string or returns "-" when the value is null.
+ *
+ * @param value - Numeric amount to format; pass `null` to indicate missing value
+ * @param locale - BCP 47 language tag used for localization (e.g., `"en-US"`)
+ * @param currency - ISO 4217 currency code to format with (defaults to `"USD"`)
+ * @returns The formatted currency string for `value`, or `"-"` if `value` is `null`
+ */
+function formatCurrency(value: number | null, locale: string, currency: string = 'USD'): string {
   if (value === null) return '-'
-  return new Intl.NumberFormat('en-US', {
+  return new Intl.NumberFormat(locale, {
     style: 'currency',
     currency,
     minimumFractionDigits: 2,
@@ -30,7 +39,17 @@ const EXCHANGES = [
   { code: 'SW', name: 'Switzerland', suffix: '.SW', currency: 'CHF' },
 ]
 
-export default function Stocks() {
+/**
+  * Render the Stocks management user interface for viewing, adding, editing, and removing stock positions.
+  *
+  * The component fetches the user's stock list on mount, displays current prices and daily changes, and provides
+  * controls to add a new stock (with exchange, ticker, quantity, and optional purchase price), edit an existing
+  * stock's quantity and purchase price, and delete a stock. UI strings, time formatting, and currency formatting
+  * are localized using the current language and timezone from settings.
+  *
+  * @returns The rendered Stocks UI as a React element.
+  */
+ export default function Stocks() {
   const [stocks, setStocks] = useState<Stock[]>([])
   const [loading, setLoading] = useState(true)
   const [showAddForm, setShowAddForm] = useState(false)
@@ -46,7 +65,8 @@ export default function Stocks() {
   const [editPurchasePrice, setEditPurchasePrice] = useState('')
   const [saving, setSaving] = useState(false)
   const [lastUpdate, setLastUpdate] = useState<string | null>(null)
-  const { timezone } = useSettings()
+  const { timezone, language } = useSettings()
+  const locale = getLocaleForLanguage(language)
 
   const fetchStocks = useCallback(async () => {
     try {
@@ -56,11 +76,11 @@ export default function Stocks() {
       setLastUpdate(getLatestTimestamp(data))
       setError(null)
     } catch (err) {
-      setError('Failed to load stocks')
+      setError(t(language, 'stocks.failedLoad'))
     } finally {
       setLoading(false)
     }
-  }, [])
+  }, [language])
 
   useEffect(() => {
     fetchStocks()
@@ -103,20 +123,20 @@ export default function Stocks() {
       setShowAddForm(false)
       await fetchStocks()
     } catch (err: any) {
-      setError(err.message || 'Failed to add stock')
+      setError(err.message || t(language, 'stocks.failedAdd'))
     } finally {
       setAdding(false)
     }
   }
 
   const handleDeleteStock = async (ticker: string) => {
-    if (!confirm(`Remove ${ticker} from portfolio?`)) return
+    if (!confirm(t(language, 'stocks.removeConfirm', { ticker }))) return
     
     try {
       await api.stocks.delete(ticker)
       await fetchStocks()
     } catch (err) {
-      setError('Failed to delete stock')
+      setError(t(language, 'stocks.failedDelete'))
     }
   }
 
@@ -137,7 +157,7 @@ export default function Stocks() {
       setEditStock(null)
       await fetchStocks()
     } catch (err) {
-      setError('Failed to save changes')
+      setError(t(language, 'stocks.failedSave'))
     } finally {
       setSaving(false)
     }
@@ -146,20 +166,20 @@ export default function Stocks() {
   const selectedExchangeData = EXCHANGES.find(e => e.code === selectedExchange)
 
   if (loading) {
-    return <div style={{ textAlign: 'center', padding: '40px' }}>Loading...</div>
+    return <div style={{ textAlign: 'center', padding: '40px' }}>{t(language, 'common.loading')}</div>
   }
 
   return (
     <div>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '24px' }}>
         <div>
-          <h2 style={{ fontSize: '24px', fontWeight: '600' }}>Stocks</h2>
+          <h2 style={{ fontSize: '24px', fontWeight: '600' }}>{t(language, 'stocks.title')}</h2>
           <p style={{ color: 'var(--text-secondary)', fontSize: '12px', marginTop: '4px' }}>
-            Last updated: {formatTimeInTimezone(lastUpdate, timezone)} · Auto-refresh every 10 min
+            {t(language, 'common.lastUpdated')}: {formatTimeInTimezone(lastUpdate, timezone, locale)} · {t(language, 'common.autoRefresh10m')}
           </p>
         </div>
         <button className="btn btn-primary" onClick={() => setShowAddForm(!showAddForm)}>
-          {showAddForm ? 'Cancel' : 'Add Stock'}
+          {showAddForm ? t(language, 'stocks.cancel') : t(language, 'stocks.addStock')}
         </button>
       </div>
 
@@ -171,12 +191,12 @@ export default function Stocks() {
 
       {showAddForm && (
         <div className="card" style={{ marginBottom: '20px' }}>
-          <h3 style={{ marginBottom: '16px' }}>Add New Stock</h3>
+          <h3 style={{ marginBottom: '16px' }}>{t(language, 'stocks.addNewStock')}</h3>
           <form onSubmit={handleAddStock}>
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: '16px' }}>
               <div>
                 <label style={{ display: 'block', marginBottom: '8px', color: 'var(--text-secondary)', fontSize: '12px' }}>
-                  Exchange
+                  {t(language, 'stocks.exchange')}
                 </label>
                 <select
                   value={selectedExchange}
@@ -200,7 +220,7 @@ export default function Stocks() {
               </div>
               <div>
                 <label style={{ display: 'block', marginBottom: '8px', color: 'var(--text-secondary)', fontSize: '12px' }}>
-                  Ticker Symbol
+                  {t(language, 'stocks.tickerSymbol')}
                 </label>
                 <input
                   type="text"
@@ -216,13 +236,13 @@ export default function Stocks() {
                 />
                 {newTicker && (
                   <p style={{ fontSize: '11px', color: 'var(--text-secondary)', marginTop: '4px' }}>
-                    Full: {getFullTicker(newTicker, selectedExchange)}
+                    {t(language, 'stocks.full')}: {getFullTicker(newTicker, selectedExchange)}
                   </p>
                 )}
               </div>
               <div>
                 <label style={{ display: 'block', marginBottom: '8px', color: 'var(--text-secondary)', fontSize: '12px' }}>
-                  Quantity
+                  {t(language, 'stocks.quantity')}
                 </label>
                 <input
                   type="number"
@@ -230,14 +250,14 @@ export default function Stocks() {
                   min="0"
                   value={newQuantity}
                   onChange={(e) => setNewQuantity(e.target.value)}
-                  placeholder="10"
+                  placeholder={t(language, 'stocks.placeholderQuantity')}
                   style={{ width: '100%' }}
                   required
                 />
               </div>
               <div>
                 <label style={{ display: 'block', marginBottom: '8px', color: 'var(--text-secondary)', fontSize: '12px' }}>
-                  Purchase Price ({selectedExchangeData?.currency})
+                  {t(language, 'stocks.purchasePrice')} ({selectedExchangeData?.currency})
                 </label>
                 <input
                   type="number"
@@ -245,7 +265,7 @@ export default function Stocks() {
                   min="0"
                   value={newPurchasePrice}
                   onChange={(e) => setNewPurchasePrice(e.target.value)}
-                  placeholder="150.00"
+                  placeholder={t(language, 'stocks.placeholderPrice')}
                   style={{ width: '100%' }}
                 />
               </div>
@@ -256,7 +276,7 @@ export default function Stocks() {
                   style={{ width: '100%' }} 
                   disabled={adding}
                 >
-                  {adding ? 'Adding...' : 'Add'}
+                  {adding ? t(language, 'stocks.adding') : t(language, 'stocks.add')}
                 </button>
               </div>
             </div>
@@ -267,21 +287,21 @@ export default function Stocks() {
       <div className="card">
         {!stocks.length ? (
           <p style={{ color: 'var(--text-secondary)', textAlign: 'center', padding: '40px' }}>
-            No stocks in portfolio. Click "Add Stock" to get started.
+            {t(language, 'stocks.noStocksMessage')}
           </p>
         ) : (
           <table>
             <thead>
               <tr>
-                <th>Ticker</th>
-                <th>Name</th>
-                <th>Qty</th>
-                <th>Curr</th>
-                <th>Purchase</th>
-                <th>Price</th>
-                <th>Change</th>
-                <th>Div Yield</th>
-                <th>Actions</th>
+                <th>{t(language, 'stocks.tableTicker')}</th>
+                <th>{t(language, 'stocks.tableName')}</th>
+                <th>{t(language, 'stocks.tableQty')}</th>
+                <th>{t(language, 'stocks.tableCurr')}</th>
+                <th>{t(language, 'stocks.tablePurchase')}</th>
+                <th>{t(language, 'stocks.tablePrice')}</th>
+                <th>{t(language, 'stocks.tableChange')}</th>
+                <th>{t(language, 'stocks.tableDivYield')}</th>
+                <th>{t(language, 'stocks.tableActions')}</th>
               </tr>
             </thead>
             <tbody>
@@ -306,8 +326,8 @@ export default function Stocks() {
                     <td>{stock.name || '-'}</td>
                     <td>{stock.quantity}</td>
                     <td>{stock.currency}</td>
-                    <td>{formatCurrency(stock.purchase_price, stock.currency)}</td>
-                    <td>{formatCurrency(stock.current_price, stock.currency)}</td>
+                    <td>{formatCurrency(stock.purchase_price, locale, stock.currency)}</td>
+                    <td>{formatCurrency(stock.current_price, locale, stock.currency)}</td>
                     <td className={dailyChange && dailyChange >= 0 ? 'positive' : 'negative'}>
                       {dailyChangePercent !== null ? `${dailyChangePercent >= 0 ? '+' : ''}${dailyChangePercent.toFixed(2)}%` : '-'}
                     </td>
@@ -319,14 +339,14 @@ export default function Stocks() {
                            style={{ padding: '6px 12px', fontSize: '12px' }}
                            onClick={() => openEditModal(stock)}
                          >
-                           Edit
+                           {t(language, 'stocks.edit')}
                          </button>
                          <button 
                            className="btn btn-danger" 
                            style={{ padding: '6px 12px', fontSize: '12px' }}
                            onClick={() => handleDeleteStock(stock.ticker)}
                          >
-                           Delete
+                           {t(language, 'stocks.delete')}
                          </button>
                        </div>
                      </td>
@@ -359,10 +379,10 @@ export default function Stocks() {
              style={{ width: '400px', maxWidth: '90%' }}
              onClick={(e) => e.stopPropagation()}
            >
-             <h3 style={{ marginBottom: '20px' }}>Edit {editStock.ticker}</h3>
+             <h3 style={{ marginBottom: '20px' }}>{t(language, 'stocks.editTitle', { ticker: editStock.ticker })}</h3>
              <div style={{ marginBottom: '16px' }}>
                <label style={{ display: 'block', marginBottom: '8px', color: 'var(--text-secondary)', fontSize: '14px' }}>
-                 Quantity
+                 {t(language, 'stocks.quantity')}
                </label>
                <input
                  type="number"
@@ -374,7 +394,7 @@ export default function Stocks() {
              </div>
              <div style={{ marginBottom: '24px' }}>
                <label style={{ display: 'block', marginBottom: '8px', color: 'var(--text-secondary)', fontSize: '14px' }}>
-                 Purchase Price ({editStock.currency})
+                 {t(language, 'stocks.purchasePrice')} ({editStock.currency})
                </label>
                <input
                  type="number"
@@ -382,15 +402,15 @@ export default function Stocks() {
                  value={editPurchasePrice}
                  onChange={(e) => setEditPurchasePrice(e.target.value)}
                  style={{ width: '100%' }}
-                 placeholder="e.g. 150.00"
+                 placeholder={t(language, 'stocks.placeholderPrice')}
                />
              </div>
              <div style={{ display: 'flex', gap: '12px', justifyContent: 'flex-end' }}>
                <button className="btn btn-secondary" onClick={() => setEditStock(null)}>
-                 Cancel
+                 {t(language, 'stocks.cancel')}
                </button>
                <button className="btn btn-primary" onClick={handleSaveEdit} disabled={saving}>
-                 {saving ? 'Saving...' : 'Save'}
+                 {saving ? t(language, 'stocks.saving') : t(language, 'stocks.save')}
                </button>
              </div>
            </div>

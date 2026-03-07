@@ -1,5 +1,8 @@
 import { useEffect, useRef, useState } from 'react'
 import { AnalystRecommendation, AnalystData } from '../services/api'
+import { useSettings } from '../SettingsContext'
+import { getLocaleForLanguage, t } from '../i18n'
+import RecommendationChart from './RecommendationChart'
 
 interface Props {
   priceTargets: AnalystData['price_targets']
@@ -9,25 +12,17 @@ interface Props {
   currentPrice: number | null
 }
 
-const COLORS = {
-  strong_buy: '#22c55e',
-  buy: '#86efac',
-  hold: '#facc15',
-  sell: '#fb923c',
-  strong_sell: '#ef4444',
-}
-
-const LABELS = {
-  strong_buy: 'Strong Buy',
-  buy: 'Buy',
-  hold: 'Hold',
-  sell: 'Underperform',
-  strong_sell: 'Sell',
-}
-
-function formatCurrency(value: number | null, currency: string): string {
+/**
+ * Format a numeric value as a localized currency string.
+ *
+ * @param value - The numeric amount to format; if `null` or `NaN`, the function returns `-`
+ * @param locale - BCP 47 locale identifier used for formatting (e.g., `en-US`, `fr-FR`)
+ * @param currency - ISO 4217 currency code (e.g., `USD`, `EUR`)
+ * @returns A localized currency string with two decimal places, or `-` if `value` is `null` or `NaN`
+ */
+function formatCurrency(value: number | null, locale: string, currency: string): string {
   if (value === null || Number.isNaN(value)) return '-'
-  return new Intl.NumberFormat('en-US', {
+  return new Intl.NumberFormat(locale, {
     style: 'currency',
     currency,
     minimumFractionDigits: 2,
@@ -35,156 +30,20 @@ function formatCurrency(value: number | null, currency: string): string {
   }).format(value)
 }
 
-function parsePeriodToDate(period: string): Date | null {
-  if (!period) return null
-
-  if (/^-?\d+m$/.test(period)) {
-    const monthsAgo = Math.abs(parseInt(period.replace('m', ''), 10))
-    const date = new Date()
-    date.setDate(1)
-    date.setMonth(date.getMonth() - monthsAgo)
-    return date
-  }
-
-  const parsed = new Date(period)
-  if (!Number.isNaN(parsed.getTime())) return parsed
-
-  return null
-}
-
-function formatPeriod(period: string): string {
-  const date = parsePeriodToDate(period)
-  if (date) {
-    return date.toLocaleDateString('en-US', { month: 'short' })
-  }
-
-  return period
-}
-
-function RecommendationChart({
-  recommendations,
-}: {
-  recommendations: AnalystRecommendation[]
-}) {
-  const [hoveredBar, setHoveredBar] = useState<number | null>(null)
-
-  const sortedRecommendations = recommendations
-    .map(rec => ({
-      ...rec,
-      _date: parsePeriodToDate(rec.period),
-    }))
-    .sort((a, b) => {
-      if (a._date && b._date) return a._date.getTime() - b._date.getTime()
-      if (a._date) return -1
-      if (b._date) return 1
-      return 0
-    })
-    .slice(-4)
-
-  return (
-    <div style={{ display: 'flex', gap: '16px' }}>
-      <div style={{ display: 'flex', gap: '16px', flex: 1, alignItems: 'flex-end' }}>
-        {sortedRecommendations.map((rec, index) => {
-          const total = rec.total_analysts ??
-            (rec.strong_buy + rec.buy + rec.hold + rec.sell + rec.strong_sell)
-
-          const segments = [
-            { key: 'strong_buy', value: rec.strong_buy, color: COLORS.strong_buy },
-            { key: 'buy', value: rec.buy, color: COLORS.buy },
-            { key: 'hold', value: rec.hold, color: COLORS.hold },
-            { key: 'sell', value: rec.sell, color: COLORS.sell },
-            { key: 'strong_sell', value: rec.strong_sell, color: COLORS.strong_sell },
-          ].filter(seg => seg.value > 0)
-
-          const barHeight = 180
-
-          return (
-            <div
-              key={rec.period}
-              style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', position: 'relative' }}
-              onMouseEnter={() => setHoveredBar(index)}
-              onMouseLeave={() => setHoveredBar(null)}
-            >
-              <div style={{ fontSize: 14, fontWeight: 600, marginBottom: 6 }}>{total}</div>
-              <div style={{
-                width: 46,
-                height: barHeight,
-                display: 'flex',
-                flexDirection: 'column-reverse',
-                borderRadius: 10,
-                overflow: 'hidden',
-                background: 'var(--bg-tertiary)',
-              }}>
-                {segments.map((seg, segIndex) => {
-                  const height = total > 0 ? (seg.value / total) * barHeight : 0
-                  const radiusTop = segIndex === segments.length - 1 ? 10 : 0
-                  const radiusBottom = segIndex === 0 ? 10 : 0
-
-                  return (
-                    <div
-                      key={seg.key}
-                      style={{
-                        height,
-                        minHeight: seg.value > 0 ? 16 : 0,
-                        background: seg.color,
-                        display: 'flex',
-                        alignItems: 'center',
-                        justifyContent: 'center',
-                        fontSize: 12,
-                        fontWeight: 700,
-                        color: '#0a0a0a',
-                        borderTopLeftRadius: radiusTop,
-                        borderTopRightRadius: radiusTop,
-                        borderBottomLeftRadius: radiusBottom,
-                        borderBottomRightRadius: radiusBottom,
-                      }}
-                    >
-                      {seg.value}
-                    </div>
-                  )
-                })}
-              </div>
-              <div style={{ marginTop: 8, fontSize: 14 }}>{formatPeriod(rec.period)}</div>
-              {hoveredBar === index && (
-                <div style={{
-                  position: 'absolute',
-                  bottom: '100%',
-                  left: '50%',
-                  transform: 'translateX(-50%)',
-                  background: 'rgba(0, 0, 0, 0.9)',
-                  border: '1px solid var(--accent-blue)',
-                  borderRadius: 6,
-                  padding: '8px 12px',
-                  marginBottom: 8,
-                  whiteSpace: 'nowrap',
-                  zIndex: 10,
-                }}>
-                  <div style={{ fontWeight: 600, marginBottom: 4 }}>{formatPeriod(rec.period)}</div>
-                  <div style={{ color: COLORS.strong_buy, fontSize: 12 }}>■ {LABELS.strong_buy}: {rec.strong_buy}</div>
-                  <div style={{ color: COLORS.buy, fontSize: 12 }}>■ {LABELS.buy}: {rec.buy}</div>
-                  <div style={{ color: COLORS.hold, fontSize: 12 }}>■ {LABELS.hold}: {rec.hold}</div>
-                  <div style={{ color: COLORS.sell, fontSize: 12 }}>■ {LABELS.sell}: {rec.sell}</div>
-                  <div style={{ color: COLORS.strong_sell, fontSize: 12 }}>■ {LABELS.strong_sell}: {rec.strong_sell}</div>
-                  <div style={{ fontWeight: 600, marginTop: 4 }}>Total: {total}</div>
-                </div>
-              )}
-            </div>
-          )
-        })}
-      </div>
-
-      <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', justifyContent: 'center' }}>
-        {Object.entries(LABELS).map(([key, label]) => (
-          <div key={key} style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-            <div style={{ width: 10, height: 10, borderRadius: '50%', background: COLORS[key as keyof typeof COLORS] }} />
-            <span style={{ fontSize: 13, color: 'var(--text-secondary)' }}>{label}</span>
-          </div>
-        ))}
-      </div>
-    </div>
-  )
-}
-
+/**
+ * Render analyst price targets alongside recommendation charts when any relevant data exists.
+ *
+ * Displays a price-range visualization (low/high/average targets and optional current price)
+ * and one or two recommendation charts (YFinance and optional Finnhub). Handles missing values
+ * gracefully and returns `null` when there are no price targets or recommendations to show.
+ *
+ * @param priceTargets - Analyst-provided target values and optional note (may be null)
+ * @param recommendations - YFinance recommendation history (may be null)
+ * @param finnhubRecommendations - Finnhub recommendation history (may be null)
+ * @param currency - Currency code used for formatting displayed monetary values
+ * @param currentPrice - Current market price (may be null)
+ * @returns A React element containing the analyst panel UI, or `null` if there is no data to render
+ */
 export default function YfinanceAnalystPanel({
   priceTargets,
   recommendations,
@@ -192,6 +51,15 @@ export default function YfinanceAnalystPanel({
   currency,
   currentPrice,
 }: Props) {
+  const { language } = useSettings()
+  const locale = getLocaleForLanguage(language)
+  const labels = {
+    strong_buy: t(language, 'analystRec.strongBuy'),
+    buy: t(language, 'analystRec.buy'),
+    hold: t(language, 'analystRec.hold'),
+    sell: t(language, 'analystRec.sell'),
+    strong_sell: t(language, 'analystRec.strongSell'),
+  }
   const targetsContainerRef = useRef<HTMLDivElement | null>(null)
   const [targetsContainerWidth, setTargetsContainerWidth] = useState(0)
 
@@ -221,7 +89,7 @@ export default function YfinanceAnalystPanel({
   const targetLow = priceTargets?.targetLow ?? null
   const targetHigh = priceTargets?.targetHigh ?? null
   const targetAvg = priceTargets?.targetAvg ?? null
-  const avgLabel = targetAvg !== null ? formatCurrency(targetAvg, currency) : '-'
+  const avgLabel = targetAvg !== null ? formatCurrency(targetAvg, locale, currency) : '-'
 
   const rangeValues = [targetLow, targetHigh, targetAvg, currentPrice]
     .filter((value): value is number => value !== null)
@@ -271,7 +139,7 @@ export default function YfinanceAnalystPanel({
   return (
     <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: '16px', marginBottom: '20px' }}>
       <div className="card" style={{ marginBottom: 0 }}>
-        <h3 style={{ marginBottom: '18px' }}>{hasAnalystTargets ? 'Analyst Price Targets' : '52-Week Range'}</h3>
+        <h3 style={{ marginBottom: '18px' }}>{hasAnalystTargets ? t(language, 'analyst.priceTargets') : t(language, 'analyst.range52w')}</h3>
 
         {hasPriceTargets ? (
           <div ref={targetsContainerRef} style={{ position: 'relative', paddingTop: targetAvg !== null ? '96px' : '46px', paddingBottom: '44px' }}>
@@ -292,7 +160,7 @@ export default function YfinanceAnalystPanel({
                   width: labelWidth,
                 }}>
                   <div style={{ fontWeight: 700 }}>{avgLabel}</div>
-                  <div style={{ fontSize: 12, color: 'var(--text-secondary)' }}>Average</div>
+                  <div style={{ fontSize: 12, color: 'var(--text-secondary)' }}>{t(language, 'analyst.average')}</div>
                 </div>
                 <div style={{ width: 2, height: 14, background: 'rgba(88, 166, 255, 0.6)', marginTop: 4, marginLeft: avgLayout.pointerPx }} />
               </div>
@@ -377,8 +245,8 @@ export default function YfinanceAnalystPanel({
                     textAlign: 'center',
                     width: labelWidth,
                   }}>
-                    <div style={{ fontWeight: 700 }}>{formatCurrency(currentPrice, currency)}</div>
-                    <div style={{ fontSize: 12, color: 'var(--text-secondary)' }}>Current</div>
+                    <div style={{ fontWeight: 700 }}>{formatCurrency(currentPrice, locale, currency)}</div>
+                    <div style={{ fontSize: 12, color: 'var(--text-secondary)' }}>{t(language, 'analyst.current')}</div>
                   </div>
                 </div>
               </div>
@@ -386,39 +254,51 @@ export default function YfinanceAnalystPanel({
 
             <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: lowHighMarginTop }}>
               <div>
-                <div style={{ fontSize: 20, fontWeight: 600 }}>{formatCurrency(targetLow, currency)}</div>
-                <div style={{ fontSize: 12, color: 'var(--text-secondary)' }}>Low</div>
+                <div style={{ fontSize: 20, fontWeight: 600 }}>{formatCurrency(targetLow, locale, currency)}</div>
+                <div style={{ fontSize: 12, color: 'var(--text-secondary)' }}>{t(language, 'analyst.low')}</div>
               </div>
               <div style={{ textAlign: 'right' }}>
-                <div style={{ fontSize: 20, fontWeight: 600 }}>{formatCurrency(targetHigh, currency)}</div>
-                <div style={{ fontSize: 12, color: 'var(--text-secondary)' }}>High</div>
+                <div style={{ fontSize: 20, fontWeight: 600 }}>{formatCurrency(targetHigh, locale, currency)}</div>
+                <div style={{ fontSize: 12, color: 'var(--text-secondary)' }}>{t(language, 'analyst.high')}</div>
               </div>
             </div>
           </div>
         ) : (
-          <div style={{ color: 'var(--text-secondary)' }}>No price target data.</div>
+          <div style={{ color: 'var(--text-secondary)' }}>{t(language, 'analyst.noPriceTarget')}</div>
         )}
       </div>
 
       <div className="card" style={{ marginBottom: 0 }}>
-        <h3 style={{ marginBottom: '18px' }}>Analyst Recommendations</h3>
+        <h3 style={{ marginBottom: '18px' }}>{t(language, 'analyst.recommendations')}</h3>
 
         {hasYfinanceRecs ? (
-          <RecommendationChart recommendations={recommendations!} />
+          <RecommendationChart
+            recommendations={recommendations}
+            labels={labels}
+            totalLabel={t(language, 'recommendation.total')}
+            locale={locale}
+            withCard={false}
+          />
         ) : (
-          <div style={{ color: 'var(--text-secondary)' }}>No analyst recommendations.</div>
+          <div style={{ color: 'var(--text-secondary)' }}>{t(language, 'analyst.noRecommendations')}</div>
         )}
       </div>
 
       {hasFinnhubRecs && (
         <div className="card" style={{ marginBottom: 0 }}>
           <h3 style={{ marginBottom: '18px' }}>
-            Finnhub Recommendations
+            {t(language, 'analyst.finnhubRecommendations')}
             <span style={{ fontSize: 12, color: 'var(--text-secondary)', fontWeight: 400, marginLeft: 8 }}>
-              (US Market)
+              {t(language, 'analyst.usMarket')}
             </span>
           </h3>
-          <RecommendationChart recommendations={finnhubRecommendations!} />
+          <RecommendationChart
+            recommendations={finnhubRecommendations}
+            labels={labels}
+            totalLabel={t(language, 'recommendation.total')}
+            locale={locale}
+            withCard={false}
+          />
         </div>
       )}
     </div>

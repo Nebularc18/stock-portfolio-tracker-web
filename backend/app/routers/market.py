@@ -4,36 +4,23 @@ This module provides API endpoints for market index data, exchange rates,
 market hours status, and sparkline charts for the header component.
 """
 
-from fastapi import APIRouter, Query, Depends
-from sqlalchemy.orm import Session
+from fastapi import APIRouter, Query
 from typing import List
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 import requests
 import logging
+import json
+import os
 
 from app.services.market_hours_service import MarketHoursService
-from app.services.market_data_service import get_header_market_data
-from app.main import get_db
+from app.services.market_data_service import get_header_market_data, HEADER_INDICES
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
 
-MARKET_INDICES = {
-    "^OMXS30": "OMX Stockholm 30",
-    "^OMXS30GI": "OMX Stockholm 30 GI",
-    "^OMXSPI": "OMX Stockholm PI",
-    "^OMXC25": "OMX Copenhagen 25",
-    "^OMXH25": "OMX Helsinki 25",
-    "^OSEAX": "Oslo All Share",
-    "^GSPC": "S&P 500",
-    "^DJI": "Dow Jones",
-    "^IXIC": "NASDAQ",
-    "^FTSE": "FTSE 100",
-    "^GDAXI": "DAX",
-    "^STOXX50E": "Euro Stoxx 50",
-}
-
 _session = None
+_CACHE_DIR = os.path.join(os.path.dirname(__file__), '..', '..', 'data', 'cache')
+INDICES_CACHE_TTL = 900  # 15 minutes
 
 def get_session():
     """Get or create a shared requests session with default headers.
@@ -52,15 +39,66 @@ def get_session():
     return _session
 
 
-def fetch_index_data(symbol: str) -> dict | None:
-    """Fetch current price and change data for a market index.
+def _load_indices_cache() -> dict | None:
+    """
+    Return cached market indices data if it exists and is still valid.
     
-    Args:
-        symbol: Yahoo Finance symbol for the index (e.g., '^GSPC' for S&P 500).
+    Validates the cache's timestamp against its TTL and yields the stored payload when not expired. Returns None when the cache file is missing, expired, unreadable, or an error occurs while accessing it.
     
     Returns:
-        dict: Contains symbol, price, change, and change_percent fields.
-        None: If data could not be fetched or parsed.
+        dict: Cached payload containing keys such as `indices`, `cached_at`, and `ttl`, or `None` if no valid cache is available.
+    """
+    try:
+        os.makedirs(_CACHE_DIR, exist_ok=True)
+        filepath = os.path.join(_CACHE_DIR, 'market_indices.json')
+        if not os.path.exists(filepath):
+            return None
+        with open(filepath, 'r') as f:
+            data = json.load(f)
+        cached_at = data.get('cached_at', 0)
+        if datetime.now(timezone.utc).timestamp() - cached_at < data.get('ttl', INDICES_CACHE_TTL):
+            return data
+        return None
+    except OSError as e:
+        logger.warning(f"Failed to read indices cache due to filesystem error: {e}")
+        return None
+    except Exception:
+        return None
+
+
+def _save_indices_cache(data: dict):
+    """
+    Persist indices data to the filesystem cache at _CACHE_DIR/market_indices.json.
+    
+    Adds `cached_at` (UTC POSIX timestamp) and `ttl` (seconds) to the payload before writing. Ensures the cache directory exists. Filesystem or other errors are logged and suppressed; the function does not raise on failure.
+    
+    Parameters:
+    	data (dict): Payload containing indices data to persist to cache.
+    """
+    try:
+        os.makedirs(_CACHE_DIR, exist_ok=True)
+        filepath = os.path.join(_CACHE_DIR, 'market_indices.json')
+        cache_data = {**data}
+        cache_data['cached_at'] = datetime.now(timezone.utc).timestamp()
+        cache_data['ttl'] = INDICES_CACHE_TTL
+        with open(filepath, 'w') as f:
+            json.dump(cache_data, f)
+    except OSError as e:
+        logger.warning(f"Failed to save indices cache due to filesystem error: {e}")
+    except Exception as e:
+        logger.warning(f"Failed to save indices cache: {e}")
+
+
+def fetch_index_data(symbol: str) -> dict | None:
+    """
+    Retrieve the latest price and percentage change for a market index from Yahoo Finance.
+    
+    Parameters:
+        symbol (str): Yahoo Finance symbol for the index (for example, '^GSPC').
+    
+    Returns:
+        dict: Mapping with keys 'symbol' (str), 'price' (number), 'change' (number), and 'change_percent' (number).
+        None: If the data could not be fetched or parsed.
     """
     session = get_session()
     
@@ -112,34 +150,17 @@ def fetch_index_data(symbol: str) -> dict | None:
 
 
 @router.get("/header")
-def get_header_data(force: bool = Query(False), indices: str = Query(None), db: Session = Depends(get_db)):
+def get_header_data(force: bool = Query(False)):
     """Retrieve market data for the header component.
     
     Args:
         force: If True, bypass cache and force refresh.
-        indices: Comma-separated list of index symbols to fetch. If not provided, uses user settings.
-        db: Database session dependency.
     
     Returns:
-        dict: Header market data with indices and exchange rates.
+        dict: Header market data with all indices and exchange rates.
+            Filtering by user settings is done on the frontend.
     """
-    from app.routers.settings import get_or_create_settings
-    import json
-    
-    selected_symbols = []
-    if indices:
-        selected_symbols = [s.strip() for s in indices.split(',') if s.strip()]
-    else:
-        try:
-            settings = get_or_create_settings(db)
-            if settings.header_indices:
-                parsed = json.loads(settings.header_indices)
-                if parsed:
-                    selected_symbols = parsed
-        except (json.JSONDecodeError, TypeError) as e:
-            logger.warning(f"Failed to parse header_indices: {e}")
-    
-    return get_header_market_data(force_refresh=force, selected_indices=selected_symbols if selected_symbols else None)
+    return get_header_market_data(force_refresh=force)
 
 
 @router.get("/should-refresh")
@@ -154,15 +175,37 @@ def should_refresh():
 
 @router.get("/indices")
 def get_market_indices():
-    """Retrieve current data for all tracked market indices.
+    """
+    Retrieve current market data for all tracked indices.
+    
+    Uses a filesystem-backed cache (15-minute TTL). On a valid cache hit returns cached indices and their next refresh time; on a cache miss fetches fresh data, caches it, and returns the new payload.
     
     Returns:
-        dict: Contains 'indices' list with symbol, name, price, change,
-            and change_percent fields, plus 'updated_at' timestamp.
+        dict: {
+            "indices": list of objects each containing `symbol`, `name`, `price`, `change`, and `change_percent`;
+            "updated_at": ISO 8601 UTC timestamp string when the data was produced;
+            "next_refresh_at": ISO 8601 UTC timestamp string indicating when the data should be refreshed
+        }
     """
+    # Check cache first
+    cached = _load_indices_cache()
+    if cached is not None:
+        cached_at = cached.get('cached_at')
+        ttl = cached.get('ttl', INDICES_CACHE_TTL)
+        if isinstance(cached_at, (int, float)) and isinstance(ttl, (int, float)) and ttl > 0:
+            next_refresh = datetime.fromtimestamp(cached_at + ttl, tz=timezone.utc)
+        else:
+            next_refresh = datetime.now(timezone.utc) + timedelta(seconds=INDICES_CACHE_TTL)
+        return {
+            "indices": cached.get('indices', []),
+            "updated_at": cached.get('updated_at'),
+            "next_refresh_at": next_refresh.isoformat()
+        }
+    
+    # Fetch fresh data
     results = []
     
-    for symbol, name in MARKET_INDICES.items():
+    for symbol, name in HEADER_INDICES.items():
         data = fetch_index_data(symbol)
         if data:
             results.append({
@@ -170,10 +213,22 @@ def get_market_indices():
                 "name": name,
             })
     
-    return {
+    now = datetime.now(timezone.utc)
+    next_refresh = now + timedelta(seconds=INDICES_CACHE_TTL)
+    
+    result = {
         "indices": results,
-        "updated_at": datetime.now(timezone.utc).isoformat()
+        "updated_at": now.isoformat(),
+        "next_refresh_at": next_refresh.isoformat()
     }
+    
+    # Keep previous cache intact when upstream temporarily returns no data.
+    if results:
+        _save_indices_cache(result)
+    else:
+        logger.warning("Skipping indices cache write because fetched result set was empty")
+    
+    return result
 
 
 @router.get("/exchange-rates")
@@ -259,7 +314,7 @@ def get_index_sparklines():
     session = get_session()
     sparklines = {}
     
-    for symbol in MARKET_INDICES.keys():
+    for symbol in HEADER_INDICES.keys():
         try:
             url = f"https://query1.finance.yahoo.com/v8/finance/chart/{symbol}?interval=1d&range=30d"
             response = session.get(url, timeout=10)

@@ -1,0 +1,32 @@
+{
+  "mappings": [
+    {
+      "avanza_name": "Investor ser. B",
+      "yahoo_ticker": "INVE-B.ST",
+      "instrument_id": "5247",
+      "manually_added": true,
+      "added_at": "2026-03-03T19:36:44.265767Z"
+    },
+    {
+      "avanza_name": "Volvo, ser. B",
+      "yahoo_ticker": "VOLV-B.ST",
+      "instrument_id": "5269",
+      "manually_added": true,
+      "added_at": "2026-03-03T19:37:15.749040Z"
+    },
+    {
+      "avanza_name": "Coca-Cola Company (The)",
+      "yahoo_ticker": "KO",
+      "instrument_id": "3803",
+      "manually_added": true,
+      "added_at": "2026-03-03T19:37:37.520354Z"
+    },
+    {
+      "avanza_name": "Microsoft Corporation",
+      "yahoo_ticker": "MSFT",
+      "instrument_id": "3873",
+      "manually_added": true,
+      "added_at": "2026-03-03T19:37:52.274288Z"
+    }
+  ]
+}

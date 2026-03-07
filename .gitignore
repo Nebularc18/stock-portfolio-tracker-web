@@ -55,7 +55,6 @@ frontend/build/
 
 # Docker volumes (local data)
 postgres_data/
-data/
 
 # Database files
 *.db
@@ -107,6 +106,8 @@ temp/
 
 # Documentation
 docs/
+plans/
 
 # Cache files
+backend/data/cache/
 data/cache/

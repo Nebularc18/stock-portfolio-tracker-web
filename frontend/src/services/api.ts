@@ -1,10 +1,57 @@
 const API_BASE = '/api'
+export const AUTH_STORAGE_KEY = 'portfolioAuthUser'
+
+export interface AuthUser {
+  id: number
+  username: string
+  is_guest: boolean
+  token: string
+}
+
+export interface AuthUserProfile {
+  id: number
+  username: string
+  is_guest: boolean
+}
+
+function isAuthUser(value: unknown): value is AuthUser {
+  if (!value || typeof value !== 'object') return false
+  const candidate = value as Record<string, unknown>
+  return (
+    typeof candidate.id === 'number' &&
+    Number.isFinite(candidate.id) &&
+    candidate.id > 0 &&
+    typeof candidate.username === 'string' &&
+    candidate.username.trim().length > 0 &&
+    typeof candidate.is_guest === 'boolean' &&
+    typeof candidate.token === 'string' &&
+    candidate.token.trim().length > 0
+  )
+}
+
+function getStoredAuthUser(): AuthUser | null {
+  const raw = localStorage.getItem(AUTH_STORAGE_KEY)
+  if (!raw) return null
+  try {
+    const parsed: unknown = JSON.parse(raw)
+    if (!isAuthUser(parsed)) {
+      localStorage.removeItem(AUTH_STORAGE_KEY)
+      return null
+    }
+    return parsed
+  } catch {
+    localStorage.removeItem(AUTH_STORAGE_KEY)
+    return null
+  }
+}
 
 async function fetchAPI(endpoint: string, options?: RequestInit) {
+  const authUser = getStoredAuthUser()
   const response = await fetch(`${API_BASE}${endpoint}`, {
     ...options,
     headers: {
       'Content-Type': 'application/json',
+      ...(authUser ? { Authorization: `Bearer ${authUser.token}` } : {}),
       ...options?.headers,
     },
   })
@@ -24,6 +71,7 @@ export interface Stock {
   quantity: number
   currency: string
   sector: string | null
+  logo: string | null
   purchase_price: number | null
   current_price: number | null
   previous_close: number | null
@@ -63,8 +111,10 @@ export interface PortfolioSummary {
     quantity: number
     current_price: number
     current_value: number
+    current_value_converted?: boolean
     currency: string
     sector: string | null
+    logo: string | null
     gain_loss: number | null
     gain_loss_percent: number | null
   }>
@@ -85,6 +135,9 @@ export interface UpcomingDividend {
   quantity: number
   ex_date: string
   payment_date: string | null
+  payout_date?: string
+  status?: 'paid' | 'upcoming'
+  dividend_type?: string | null
   amount_per_share: number
   total_amount: number
   currency: string
@@ -93,9 +146,20 @@ export interface UpcomingDividend {
   source: string
 }
 
+export interface StockUpcomingDividend {
+  ex_date: string
+  amount: number | null
+  currency?: string
+  payment_date: string | null
+  dividend_type?: string | null
+  source?: string
+}
+
 export interface UpcomingDividendsResponse {
   dividends: UpcomingDividend[]
   total_expected: number
+  total_received: number
+  total_remaining: number
   display_currency: string
   unmapped_stocks: Array<{
     ticker: string
@@ -178,6 +242,7 @@ export interface HeaderMarketData {
   indices: MarketIndex[]
   exchange_rates: Record<string, number | null>
   updated_at: string
+  next_refresh_at: string
 }
 
 export interface CompanyProfile {
@@ -270,6 +335,15 @@ export interface VerificationResult {
 }
 
 export const api = {
+  auth: {
+    login: (data: { username: string; password: string }) =>
+      fetchAPI('/auth/login', { method: 'POST', body: JSON.stringify(data) }) as Promise<AuthUser>,
+    register: (data: { username: string; password: string }) =>
+      fetchAPI('/auth/register', { method: 'POST', body: JSON.stringify(data) }) as Promise<AuthUser>,
+    guest: () => fetchAPI('/auth/guest', { method: 'POST' }) as Promise<AuthUser>,
+    users: () => fetchAPI('/auth/users') as Promise<AuthUserProfile>,
+  },
+
   stocks: {
     list: () => fetchAPI('/stocks') as Promise<Stock[]>,
     get: (ticker: string) => fetchAPI(`/stocks/${ticker}`) as Promise<Stock>,
@@ -280,7 +354,7 @@ export const api = {
     delete: (ticker: string) => fetchAPI(`/stocks/${ticker}`, { method: 'DELETE' }),
     refresh: (ticker: string) => fetchAPI(`/stocks/${ticker}/refresh`, { method: 'POST' }) as Promise<Stock>,
     dividends: (ticker: string, years: number = 5) => fetchAPI(`/stocks/${ticker}/dividends?years=${years}`) as Promise<Dividend[]>,
-    upcomingDividends: (ticker: string) => fetchAPI(`/stocks/${ticker}/upcoming-dividends`) as Promise<Dividend[]>,
+    upcomingDividends: (ticker: string) => fetchAPI(`/stocks/${ticker}/upcoming-dividends`) as Promise<StockUpcomingDividend[]>,
     analyst: (ticker: string) => fetchAPI(`/stocks/${ticker}/analyst`) as Promise<AnalystData>,
     validate: (ticker: string) => fetchAPI(`/stocks/validate/${ticker}`),
     addManualDividend: (ticker: string, data: { date: string; amount: number; currency?: string; note?: string }) =>
@@ -301,13 +375,27 @@ export const api = {
     summary: () => fetchAPI('/portfolio/summary') as Promise<PortfolioSummary>,
     refreshAll: () => fetchAPI('/portfolio/refresh-all', { method: 'POST' }),
     distribution: () => fetchAPI('/portfolio/distribution'),
-    history: (days: number = 30) => fetchAPI(`/portfolio/history?days=${days}`),
+    history: (options: number | { days?: number; range?: string } = 30) => {
+      const params = new URLSearchParams()
+      if (typeof options === 'number') {
+        params.set('days', String(options))
+      } else {
+        if (options.days !== undefined) {
+          params.set('days', String(options.days))
+        }
+        if (options.range) {
+          params.set('range', options.range)
+        }
+      }
+      const query = params.toString()
+      return fetchAPI(`/portfolio/history${query ? `?${query}` : ''}`)
+    },
     upcomingDividends: () => fetchAPI('/portfolio/upcoming-dividends') as Promise<UpcomingDividendsResponse>,
   },
   
   market: {
     header: (force: boolean = false) => fetchAPI(`/market/header${force ? '?force=true' : ''}`) as Promise<HeaderMarketData>,
-    indices: () => fetchAPI('/market/indices') as Promise<{ indices: MarketIndex[]; updated_at: string }>,
+    indices: () => fetchAPI('/market/indices') as Promise<{ indices: MarketIndex[]; updated_at: string; next_refresh_at: string }>,
     exchangeRates: () => fetchAPI('/market/exchange-rates') as Promise<Record<string, number | null>>,
     convert: (amount: number, from: string, to: string) => 
       fetchAPI(`/market/convert?amount=${amount}&from_currency=${from}&to_currency=${to}`),

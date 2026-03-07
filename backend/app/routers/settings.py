@@ -7,10 +7,11 @@ such as display currency for the portfolio.
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 from typing import Optional, List
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 import json
 
-from app.main import get_db, UserSettings
+from app.main import get_db, get_current_user, User, UserSettings
 
 router = APIRouter()
 
@@ -63,26 +64,37 @@ def parse_header_indices(header_indices_str: Optional[str]) -> List[str]:
         return []
 
 
-def get_or_create_settings(db: Session) -> UserSettings:
+def get_or_create_settings(db: Session, user: User) -> UserSettings:
     """Retrieve user settings or create default settings if none exist.
     
     Args:
         db: Database session.
+        user: Authenticated user whose settings should be fetched or created.
     
     Returns:
         UserSettings: The existing or newly created settings record.
     """
-    settings = db.query(UserSettings).first()
+    settings = db.query(UserSettings).filter(UserSettings.user_id == user.id).first()
     if not settings:
-        settings = UserSettings(display_currency="SEK", header_indices="[]")
+        settings = UserSettings(user_id=user.id, display_currency="SEK", header_indices="[]")
         db.add(settings)
-        db.commit()
-        db.refresh(settings)
+        try:
+            db.commit()
+            db.refresh(settings)
+        except IntegrityError:
+            db.rollback()
+            settings = db.query(UserSettings).filter(UserSettings.user_id == user.id).first()
+            if not settings:
+                raise
+            db.refresh(settings)
+        except Exception:
+            db.rollback()
+            raise
     return settings
 
 
 @router.get("", response_model=SettingsResponse)
-def get_settings(db: Session = Depends(get_db)):
+def get_settings(db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
     """Retrieve user display preferences.
     
     Args:
@@ -91,7 +103,7 @@ def get_settings(db: Session = Depends(get_db)):
     Returns:
         SettingsResponse: Current display currency and header indices settings.
     """
-    settings = get_or_create_settings(db)
+    settings = get_or_create_settings(db, current_user)
     header_indices = parse_header_indices(settings.header_indices)
     return SettingsResponse(
         display_currency=settings.display_currency,
@@ -110,7 +122,7 @@ def get_available_indices():
 
 
 @router.patch("", response_model=SettingsResponse)
-def update_settings(data: SettingsUpdate, db: Session = Depends(get_db)):
+def update_settings(data: SettingsUpdate, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
     """Update user display preferences.
     
     Args:
@@ -120,7 +132,7 @@ def update_settings(data: SettingsUpdate, db: Session = Depends(get_db)):
     Returns:
         SettingsResponse: Updated settings.
     """
-    settings = get_or_create_settings(db)
+    settings = get_or_create_settings(db, current_user)
     
     if data.display_currency is not None:
         settings.display_currency = data.display_currency

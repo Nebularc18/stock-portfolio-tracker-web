@@ -1,17 +1,34 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
 import { Link } from 'react-router-dom'
 import { LineChart, Line, ResponsiveContainer, YAxis } from 'recharts'
-import { api, MarketStatus, SparklineData, MarketIndex } from '../services/api'
+import { api, MarketStatus, SparklineData } from '../services/api'
+import { useHeaderData } from '../contexts/HeaderDataContext'
 import { useSettings } from '../SettingsContext'
-import { formatTimeInTimezone, getTimeUntilNextInterval } from '../utils/time'
+import { formatTimeInTimezone } from '../utils/time'
+import { getLocaleForLanguage, t } from '../i18n'
 
-function formatNumber(value: number, decimals: number = 2): string {
-  return value.toLocaleString('en-US', { 
+/**
+ * Format a number as a locale-aware string with a fixed number of decimal places.
+ *
+ * @param value - The numeric value to format
+ * @param locale - BCP 47 language tag or locale identifier used for localization (e.g., "en-US")
+ * @param decimals - Number of decimal places to include (defaults to 2)
+ * @returns The number formatted according to `locale` with exactly `decimals` fraction digits
+ */
+function formatNumber(value: number, locale: string, decimals: number = 2): string {
+  return value.toLocaleString(locale, {
     minimumFractionDigits: decimals,
-    maximumFractionDigits: decimals 
+    maximumFractionDigits: decimals
   })
 }
 
+/**
+ * Render a compact sparkline for a numeric series, using color to indicate positive or negative trend.
+ *
+ * @param data - Ordered numeric values to plot (earliest to latest)
+ * @param isPositive - If `true`, use the positive color; otherwise use the negative color
+ * @returns A small React element containing the rendered sparkline for the provided data
+ */
 function MiniSparkline({ data, isPositive }: { data: number[]; isPositive: boolean }) {
   const chartData = data.map((value, index) => ({ value, index }))
   const color = isPositive ? '#22c55e' : '#ef4444'
@@ -34,66 +51,74 @@ function MiniSparkline({ data, isPositive }: { data: number[]; isPositive: boole
   )
 }
 
+/**
+ * Renders the Markets page with indices, market hours, sparklines, and refresh controls.
+ *
+ * Fetches additional market data (market hours and sparklines), schedules backend-driven refreshes,
+ * and combines shared header-provided market indices with locally loaded details. Respects user
+ * settings for timezone and language to format times and numbers, exposes a manual refresh action,
+ * and displays loading and error states.
+ *
+ * @returns The Markets page React element.
+ */
 export default function Markets() {
-  const [indices, setIndices] = useState<MarketIndex[]>([])
-  const [lastUpdated, setLastUpdated] = useState<string | null>(null)
+  // Use shared market data from context
+  const { indices, lastUpdated, nextRefreshAt, loading: headerLoading, refreshData } = useHeaderData()
   const [marketHours, setMarketHours] = useState<MarketStatus[]>([])
   const [sparklines, setSparklines] = useState<Record<string, SparklineData>>({})
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
-  const [nextRefresh, setNextRefresh] = useState<Date | null>(null)
-  const { timezone } = useSettings()
+  const { timezone, language } = useSettings()
+  const locale = getLocaleForLanguage(language)
   const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const isMountedRef = useRef(true)
+  const fallbackTimezone = timezone || Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC'
 
-  const fetchData = useCallback(async () => {
+  // Fetch additional data (market hours and sparklines) separately
+  const fetchAdditionalData = useCallback(async () => {
     try {
-      setLoading(true)
-      const [indicesData, sparklineData, hoursData] = await Promise.all([
-        api.market.indices(),
+      const [sparklineData, hoursData] = await Promise.all([
         api.market.sparklines().catch(() => ({ sparklines: {}, updated_at: '' })),
         api.market.hours(timezone),
       ])
       if (!isMountedRef.current) return
-      setIndices(indicesData.indices)
-      setLastUpdated(indicesData.updated_at)
       setSparklines(sparklineData.sparklines || {})
       setMarketHours(hoursData)
       setError(null)
     } catch (err) {
       if (!isMountedRef.current) return
-      setError('Failed to load market data')
+      setError(t(language, 'markets.failedLoad'))
     } finally {
       if (isMountedRef.current) {
         setLoading(false)
       }
     }
-  }, [timezone])
+  }, [timezone, language])
 
-  const scheduleNextRefresh = useCallback(async () => {
-    try {
-      const { should_refresh } = await api.market.shouldRefresh()
-      if (!should_refresh) {
-        return
-      }
-    } catch {
+  // Schedule next refresh based on backend's next_refresh_at
+  const scheduleNextRefresh = useCallback(() => {
+    if (timeoutRef.current) {
+      clearTimeout(timeoutRef.current)
+    }
+
+    if (!nextRefreshAt) return
+
+    const nextTime = new Date(nextRefreshAt)
+    const msUntilNext = nextTime.getTime() - Date.now()
+
+    if (msUntilNext > 0) {
+      timeoutRef.current = setTimeout(() => {
+        fetchAdditionalData()
+      }, msUntilNext)
       return
     }
-    
-    const msUntilNext = getTimeUntilNextInterval(15)
-    const nextTime = new Date(Date.now() + msUntilNext)
-    setNextRefresh(nextTime)
-    
-    timeoutRef.current = setTimeout(() => {
-      fetchData()
-      scheduleNextRefresh()
-    }, msUntilNext)
-  }, [fetchData])
+
+    fetchAdditionalData()
+  }, [nextRefreshAt, fetchAdditionalData])
 
   useEffect(() => {
     isMountedRef.current = true
-    fetchData()
-    scheduleNextRefresh()
+    fetchAdditionalData()
     
     return () => {
       isMountedRef.current = false
@@ -101,26 +126,48 @@ export default function Markets() {
         clearTimeout(timeoutRef.current)
       }
     }
-  }, [fetchData, scheduleNextRefresh])
+  }, [fetchAdditionalData])
 
-  if (loading && !indices.length) {
-    return <div style={{ textAlign: 'center', padding: '40px' }}>Loading market data...</div>
+  // Schedule next refresh when nextRefreshAt changes
+  useEffect(() => {
+    scheduleNextRefresh()
+  }, [nextRefreshAt, scheduleNextRefresh])
+
+  // Combined loading state
+  const isLoading = headerLoading || loading
+
+  const handleRefresh = async () => {
+    setLoading(true)
+    try {
+      await refreshData(true)
+      await fetchAdditionalData()
+      setError(null)
+    } catch (err) {
+      setError(t(language, 'markets.failedLoad'))
+      console.error('Failed to refresh market data:', err)
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  if (isLoading && !indices.length) {
+    return <div style={{ textAlign: 'center', padding: '40px' }}>{t(language, 'markets.loadingData')}</div>
   }
 
   return (
     <div>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '24px' }}>
         <div>
-          <h2 style={{ fontSize: '24px', fontWeight: '600' }}>Markets</h2>
+          <h2 style={{ fontSize: '24px', fontWeight: '600' }}>{t(language, 'markets.title')}</h2>
           {lastUpdated && (
             <p style={{ color: 'var(--text-secondary)', fontSize: '12px', marginTop: '4px' }}>
-              Last updated: {formatTimeInTimezone(lastUpdated, timezone)}
-              {nextRefresh && <span> · Next: {formatTimeInTimezone(nextRefresh, timezone)}</span>}
+              {t(language, 'common.lastUpdated')}: {formatTimeInTimezone(lastUpdated, timezone, locale)}
+              {nextRefreshAt && <span> · {t(language, 'common.next')}: {formatTimeInTimezone(nextRefreshAt, timezone, locale)}</span>}
             </p>
           )}
         </div>
-        <button className="btn btn-primary" onClick={fetchData} disabled={loading}>
-          {loading ? 'Refreshing...' : 'Refresh'}
+        <button className="btn btn-primary" onClick={handleRefresh} disabled={isLoading}>
+          {isLoading ? t(language, 'common.refreshing') : t(language, 'common.refresh')}
         </button>
       </div>
 
@@ -132,13 +179,13 @@ export default function Markets() {
 
       <div className="card" style={{ marginBottom: '24px' }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
-          <h3>Market Hours</h3>
+          <h3>{t(language, 'layout.marketHours')}</h3>
           <Link to="/settings" style={{ color: 'var(--accent-blue)', fontSize: '12px', textDecoration: 'none' }}>
-            Change timezone
+            {t(language, 'layout.changeTimezone')}
           </Link>
         </div>
         <p style={{ color: 'var(--text-secondary)', fontSize: '12px', marginBottom: '12px' }}>
-          Times shown in your timezone ({marketHours[0]?.timezone || 'CET'})
+          {t(language, 'layout.timesInTimezone')} ({marketHours[0]?.timezone || fallbackTimezone})
         </p>
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '16px' }}>
           {marketHours.map((market) => (
@@ -170,7 +217,7 @@ export default function Markets() {
               </p>
               {market.local_time && (
                 <p style={{ color: 'var(--text-primary)', fontSize: '12px', marginTop: '4px' }}>
-                  Local time: {market.local_time}
+                  {t(language, 'layout.localTime')}: {market.local_time}
                 </p>
               )}
             </div>
@@ -178,7 +225,7 @@ export default function Markets() {
         </div>
       </div>
 
-      <h3 style={{ marginBottom: '16px' }}>Market Indices</h3>
+      <h3 style={{ marginBottom: '16px' }}>{t(language, 'layout.marketIndices')}</h3>
       <div className="grid grid-2">
         {indices.map((index) => {
           const isPositive = index.change >= 0
@@ -202,17 +249,17 @@ export default function Markets() {
                   )}
                   <div>
                     <p style={{ fontSize: '24px', fontWeight: '600' }}>
-                      {formatNumber(index.price)}
+                      {formatNumber(index.price, locale)}
                     </p>
                   </div>
                 </div>
               </div>
               <div style={{ display: 'flex', gap: '16px', marginTop: '12px' }}>
                 <span className={changeClass}>
-                  {isPositive ? '+' : ''}{formatNumber(index.change)}
+                  {isPositive ? '+' : ''}{formatNumber(index.change, locale)}
                 </span>
                 <span className={changeClass}>
-                  {isPositive ? '+' : ''}{formatNumber(index.change_percent)}%
+                  {isPositive ? '+' : ''}{formatNumber(index.change_percent, locale)}%
                 </span>
               </div>
             </div>

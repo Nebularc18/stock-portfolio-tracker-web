@@ -4,30 +4,125 @@ This module provides API endpoints for portfolio summaries, historical
 performance, distribution analysis, and bulk refresh operations.
 """
 
-from fastapi import APIRouter, Depends
-from sqlalchemy.orm import Session
+from fastapi import APIRouter, Depends, Query
 from sqlalchemy.dialects.postgresql import insert
-from datetime import datetime
+from sqlalchemy.orm import Session
+from datetime import date, datetime, timezone
 from typing import List, Optional
 import logging
 
-from app.main import get_db, Stock, PortfolioHistory, UserSettings, StockPriceHistory
+from app.main import get_db, get_current_user, User, Stock, PortfolioHistory, UserSettings, StockPriceHistory
 from app.services.exchange_rate_service import ExchangeRateService
+from app.utils.time import utc_now
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
 
 
-def get_display_currency(db: Session) -> str:
-    """Retrieve the user's preferred display currency.
-    
-    Args:
-        db: Database session.
+def parse_event_date(value) -> Optional[date]:
+    """
+    Parse a date-like value and return a date object.
+
+    Accepts a datetime.date, datetime.datetime, or string representation (ISO date or ISO datetime; accepts a trailing 'Z' UTC designator). Leading/trailing whitespace is ignored. If the input is None, empty, not a supported type, or cannot be parsed, returns None.
+
+    Parameters:
+        value: A date/datetime object or a string to parse.
+
+    Returns:
+        A datetime.date parsed from the input, or `None` if parsing fails or the input is invalid.
+    """
+    if value is None:
+        return None
+    if isinstance(value, datetime):
+        return value.date()
+    if isinstance(value, date):
+        return value
+    if not isinstance(value, str):
+        return None
+
+    normalized = value.strip()
+    if not normalized:
+        return None
+
+    normalized = normalized.replace('Z', '+00:00')
+
+    try:
+        return datetime.fromisoformat(normalized).date()
+    except ValueError:
+        if 'T' in normalized:
+            normalized = normalized.split('T', 1)[0]
+        elif ' ' in normalized:
+            normalized = normalized.split(' ', 1)[0]
+
+        try:
+            return datetime.fromisoformat(normalized).date()
+        except ValueError:
+            return None
+
+
+def sort_event_date(value) -> date:
+    parsed = parse_event_date(value)
+    return parsed if parsed is not None else date.max
+
+
+def normalize_dividend_event(raw_div: dict, event_type: str) -> dict:
+    """
+    Normalize a raw dividend event into a standardized dictionary with consistent keys.
+
+    Parameters:
+        raw_div (dict): Raw dividend data containing any of 'date' (historical), 'ex_date' (upcoming), 'payment_date', 'amount', 'currency', 'source', and 'dividend_type'.
+        event_type (str): Indicates the input shape; use 'historical' when the ex-date is provided under the 'date' key, otherwise the function will read 'ex_date'.
+
+    Returns:
+        dict: Normalized dividend event with keys:
+            - 'ex_date': ex-dividend date string (from 'date' for historical events or 'ex_date' otherwise).
+            - 'payment_date': payment date value from the input or None.
+            - 'amount': dividend amount per share from the input or None.
+            - 'currency': currency code from the input or None.
+            - 'source': data source (defaults to 'yahoo' if not provided).
+            - 'dividend_type': dividend classification from the input or None.
+    """
+    if event_type == 'historical':
+        ex_date = raw_div.get('date', '')
+    else:
+        ex_date = raw_div.get('ex_date', '')
+
+    return {
+        'ex_date': ex_date,
+        'payment_date': raw_div.get('payment_date'),
+        'amount': raw_div.get('amount'),
+        'currency': raw_div.get('currency'),
+        'source': raw_div.get('source', 'yahoo'),
+        'dividend_type': raw_div.get('dividend_type')
+    }
+
+
+def get_yahoo_normalized_events(stock_service, ticker: str) -> list:
+    """
+    Fetch and return a unified list of normalized historical and upcoming dividend events.
+
+    Parameters:
+        stock_service: Stock service instance exposing dividend-fetch methods.
+        ticker (str): The stock ticker symbol to retrieve dividend events for.
+
+    Returns:
+        list: A list of normalized dividend event dictionaries.
+    """
+    historical = stock_service.get_dividends(ticker, years=2) or []
+    upcoming = stock_service.get_upcoming_dividends(ticker) or []
+
+    normalized = [normalize_dividend_event(div, 'historical') for div in historical]
+    normalized.extend(normalize_dividend_event(div, 'upcoming') for div in upcoming)
+    return normalized
+
+def get_display_currency(db: Session, user_id: int) -> str:
+    """
+    Get the user's preferred display currency.
     
     Returns:
-        str: Display currency code (defaults to 'SEK').
+        The currency code to use for display (for example, "USD" or "SEK"). Returns "SEK" if no user settings exist.
     """
-    settings = db.query(UserSettings).first()
+    settings = db.query(UserSettings).filter(UserSettings.user_id == user_id).first()
     if settings:
         return settings.display_currency
     return "SEK"
@@ -60,26 +155,26 @@ def convert_value(value: float, from_currency: str, to_currency: str, rates: dic
 
 
 @router.get("/summary")
-def get_portfolio_summary(db: Session = Depends(get_db)):
-    """Calculate portfolio summary with totals and per-stock data.
-    
-    Args:
-        db: Database session dependency.
+def get_portfolio_summary(db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
+    """
+    Calculate portfolio summary including totals and per-stock metrics in the user's display currency.
     
     Returns:
-        dict: Portfolio summary containing:
-            - total_value (float): Total portfolio value in display currency.
-            - total_cost (float): Total cost basis in display currency.
-            - total_gain_loss (float): Total gain/loss in display currency.
-            - total_gain_loss_percent (float): Gain/loss as percentage.
-            - display_currency (str): Currency used for display values.
-            - stocks (list): List of stock data dictionaries.
-            - stock_count (int): Number of stocks in portfolio.
-            - unconverted_stocks (list): Stocks that could not be converted
-              to display_currency due to missing exchange rates.
+        dict: A summary object with keys:
+            total_value (float): Total portfolio value in display currency.
+            total_cost (float): Total cost basis in display currency.
+            total_gain_loss (float): Aggregate gain or loss in display currency.
+            total_gain_loss_percent (float): Gain or loss as a percentage (0 if total_cost <= 0).
+            display_currency (str): Currency code used for display values.
+            stocks (list): Per-stock dictionaries containing:
+                - ticker, name, quantity, current_price, current_value, currency, sector, logo
+                - gain_loss (float or None), gain_loss_percent (float or None)
+                - current_value_converted (bool), cost_converted (bool)
+            stock_count (int): Number of stocks processed.
+            unconverted_stocks (list): Entries for stocks omitted from totals due to missing exchange rates.
     """
-    stocks = db.query(Stock).all()
-    display_currency = get_display_currency(db)
+    stocks = db.query(Stock).filter(Stock.user_id == current_user.id).all()
+    display_currency = get_display_currency(db, current_user.id)
     
     currencies = {s.currency for s in stocks if s.currency}
     rates = ExchangeRateService.get_rates_for_currencies(currencies, display_currency)
@@ -92,7 +187,7 @@ def get_portfolio_summary(db: Session = Depends(get_db)):
     unconverted_stocks = []
     
     for stock in stocks:
-        if stock.current_price and stock.quantity:
+        if stock.current_price is not None and stock.quantity is not None:
             current_value_native = stock.current_price * stock.quantity
             current_value = convert_value(current_value_native, stock.currency, display_currency, rates)
             
@@ -114,6 +209,7 @@ def get_portfolio_summary(db: Session = Depends(get_db)):
                     "current_value": current_value_native,
                     "currency": stock.currency,
                     "sector": stock.sector,
+                    "logo": stock.logo,
                     "gain_loss": None,
                     "gain_loss_percent": None,
                     "current_value_converted": False,
@@ -126,7 +222,7 @@ def get_portfolio_summary(db: Session = Depends(get_db)):
             cost_native = 0
             cost = 0
             cost_converted = False
-            if stock.purchase_price:
+            if stock.purchase_price is not None:
                 cost_native = stock.purchase_price * stock.quantity
                 cost = convert_value(cost_native, stock.currency, display_currency, rates)
                 if cost is None:
@@ -147,6 +243,10 @@ def get_portfolio_summary(db: Session = Depends(get_db)):
                     cost_converted = True
             else:
                 gain_loss = None
+
+            gain_loss_percent = None
+            if gain_loss is not None and cost_converted and isinstance(cost, (int, float)) and cost > 0:
+                gain_loss_percent = gain_loss / cost * 100
             
             stock_data.append({
                 "ticker": stock.ticker,
@@ -156,10 +256,11 @@ def get_portfolio_summary(db: Session = Depends(get_db)):
                 "current_value": current_value,
                 "currency": stock.currency,
                 "sector": stock.sector,
+                "logo": stock.logo,
                 "gain_loss": gain_loss,
-                "gain_loss_percent": ((current_value - cost) / cost * 100) if cost_converted and cost > 0 else None,
+                "gain_loss_percent": gain_loss_percent,
                 "current_value_converted": True,
-                "cost_converted": cost_converted if stock.purchase_price else True,
+                "cost_converted": cost_converted if stock.purchase_price is not None else True,
             })
     
     total_gain_loss_percent = (total_gain_loss / total_cost * 100) if total_cost > 0 else 0
@@ -177,32 +278,36 @@ def get_portfolio_summary(db: Session = Depends(get_db)):
 
 
 @router.post("/refresh-all")
-def refresh_all_prices(db: Session = Depends(get_db)):
-    """Refresh price data for all stocks in the portfolio.
+def refresh_all_prices(db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
+    """
+    Refresh current prices and logos for all portfolio stocks, record daily price history, and update the portfolio's total value.
     
-    Fetches current prices from external sources, updates stock records,
-    and records daily portfolio value for history tracking.
-    
-    Args:
-        db: Database session dependency.
+    Fetches price and metadata from external services, upserts per-stock today's price history, converts per-stock values to SEK to compute the portfolio total for the current 15-minute interval, and upserts that total into PortfolioHistory.
     
     Returns:
         dict: Response containing:
-            - message (str): Summary message, e.g. "Refreshed 5 stocks".
-            - skipped (int): Count of stocks skipped due to missing exchange rates.
+            - message (str): Summary, e.g. "Refreshed 5 stocks".
+            - skipped (int): Number of stocks skipped due to missing exchange rates.
+            - logos_backfilled (int): Number of stocks that received a logo where none existed.
+            - logos_refreshed (int): Number of stocks whose logo URL was updated.
     """
     from app.services.stock_service import StockService
     from app.services.exchange_rate_service import ExchangeRateService
+    from app.services.brandfetch_service import brandfetch_service
     stock_service = StockService()
     
-    stocks = db.query(Stock).all()
+    stocks = db.query(Stock).filter(Stock.user_id == current_user.id).all()
     updated = 0
     total_value_sek = 0
+    logos_backfilled = 0
+    logos_refreshed = 0
     
     currencies = {s.currency for s in stocks if s.currency}
     rates = ExchangeRateService.get_rates_for_currencies(currencies, "SEK")
     
     skipped = 0
+    request_ts = utc_now()
+    today = request_ts.replace(hour=0, minute=0, second=0, microsecond=0)
     for stock in stocks:
         info = stock_service.get_stock_info(stock.ticker)
         if info:
@@ -211,82 +316,131 @@ def refresh_all_prices(db: Session = Depends(get_db)):
             stock.sector = info.get('sector') or stock.sector
             stock.dividend_yield = info.get('dividend_yield')
             stock.dividend_per_share = info.get('dividend_per_share')
-            stock.last_updated = datetime.utcnow()
+            stock.last_updated = request_ts
             updated += 1
-            
-            if stock.current_price:
-                today = datetime.utcnow().replace(hour=0, minute=0, second=0, microsecond=0)
-                existing_price = db.query(StockPriceHistory).filter(
-                    StockPriceHistory.ticker == stock.ticker,
-                    StockPriceHistory.recorded_at >= today
-                ).first()
-                
-                if existing_price:
-                    existing_price.price = stock.current_price
-                else:
-                    price_history = StockPriceHistory(
-                        ticker=stock.ticker,
-                        price=stock.current_price,
-                        currency=stock.currency,
-                        recorded_at=datetime.utcnow()
-                    )
-                    db.add(price_history)
-            
-            if stock.current_price and stock.quantity:
-                value = stock.current_price * stock.quantity
-                converted_value = convert_value(value, stock.currency, 'SEK', rates)
-                if converted_value is not None:
-                    total_value_sek += converted_value
-                else:
-                    logger.warning(
-                        f"Skipping {stock.ticker}: no conversion rate for "
-                        f"{stock.currency} to SEK"
-                    )
-                    skipped += 1
+
+        logo_url = brandfetch_service.get_logo_url_for_ticker(
+            stock.ticker,
+            stock.name,
+            force_refresh=False,
+        )
+        if logo_url and logo_url != stock.logo:
+            if not stock.logo:
+                logos_backfilled += 1
+            else:
+                logos_refreshed += 1
+            stock.logo = logo_url
+        
+        if stock.current_price is not None:
+            price_stmt = insert(StockPriceHistory).values(
+                user_id=current_user.id,
+                ticker=stock.ticker,
+                price=stock.current_price,
+                currency=stock.currency,
+                recorded_at=today,
+            )
+            price_stmt = price_stmt.on_conflict_do_update(
+                index_elements=[
+                    StockPriceHistory.user_id,
+                    StockPriceHistory.ticker,
+                    StockPriceHistory.recorded_at,
+                ],
+                set_={
+                    "price": price_stmt.excluded.price,
+                    "currency": price_stmt.excluded.currency,
+                },
+            )
+            db.execute(price_stmt)
+        
+        if stock.current_price is not None and stock.quantity is not None:
+            value = stock.current_price * stock.quantity
+            converted_value = convert_value(value, stock.currency, 'SEK', rates)
+            if converted_value is not None:
+                total_value_sek += converted_value
+            else:
+                logger.warning(
+                    f"Skipping {stock.ticker}: no conversion rate for "
+                    f"{stock.currency} to SEK"
+                )
+                skipped += 1
     
+    if skipped > 0:
+        logger.warning(
+            f"Portfolio history includes partial FX data: skipped {skipped} stock(s) due to missing conversion rates"
+        )
+
     if updated > 0 and total_value_sek > 0:
-        now = datetime.utcnow()
-        interval = now.replace(minute=(now.minute // 15) * 15, second=0, microsecond=0)
+        interval = request_ts.replace(minute=(request_ts.minute // 15) * 15, second=0, microsecond=0)
         stmt = insert(PortfolioHistory).values(
+            user_id=current_user.id,
+            date=interval,
             total_value=total_value_sek,
-            date=interval
-        ).on_conflict_do_update(
-            index_elements=['date'],
-            set_={'total_value': total_value_sek}
+        )
+        stmt = stmt.on_conflict_do_update(
+            index_elements=[PortfolioHistory.user_id, PortfolioHistory.date],
+            set_={"total_value": stmt.excluded.total_value},
         )
         db.execute(stmt)
     
     db.commit()
     
-    return {"message": f"Refreshed {updated} stocks", "skipped": skipped}
+    return {
+        "message": f"Refreshed {updated} stocks",
+        "skipped": skipped,
+        "logos_backfilled": logos_backfilled,
+        "logos_refreshed": logos_refreshed,
+    }
 
 
 @router.get("/history", response_model=List[dict])
-def get_portfolio_history(days: int = 30, db: Session = Depends(get_db)):
-    """Retrieve historical portfolio value snapshots.
+def get_portfolio_history(
+    days: int = Query(30, ge=1),
+    range_key: Optional[str] = Query(None, alias="range"),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """
+    Return portfolio total-value snapshots for a requested historical range.
     
-    Args:
-        days: Number of days of history to retrieve (default 30, max 90).
-        db: Database session dependency.
-    
+    Parameters:
+        days (int): Fallback number of days to include when `range_key` is not provided; will be coerced to an integer between 1 and 3650.
+        range_key (Optional[str]): Optional predefined range; supported values: "1d", "1w", "1m", "ytd", "1y", "since_start", "all". If provided, it takes precedence over `days`.
+        
     Returns:
-        List[dict]: List of {date, value} records ordered by date ascending.
+        List[dict]: Ordered list of records with keys `date` (timestamp) and `value` (total portfolio value) sorted ascending by date.
     """
     from datetime import timedelta
     
-    MAX_DAYS = 90
-    try:
-        days = max(1, min(int(days), MAX_DAYS))
-    except (ValueError, TypeError):
-        days = 30
-    
-    since = datetime.utcnow() - timedelta(days=days)
-    history = db.query(PortfolioHistory).filter(PortfolioHistory.date >= since).order_by(PortfolioHistory.date.asc()).all()
+    now = utc_now()
+    since = None
+    normalized_range = (range_key or "").strip().lower()
+
+    if normalized_range == "1d":
+        since = now - timedelta(days=1)
+    elif normalized_range == "1w":
+        since = now - timedelta(days=7)
+    elif normalized_range == "1m":
+        since = now - timedelta(days=30)
+    elif normalized_range == "ytd":
+        since = datetime(now.year, 1, 1, tzinfo=timezone.utc)
+    elif normalized_range == "1y":
+        since = now - timedelta(days=365)
+    elif normalized_range in {"since_start", "all"}:
+        since = None
+    else:
+        days = max(1, min(days, 3650))
+        since = now - timedelta(days=days)
+
+    query = db.query(PortfolioHistory).filter(PortfolioHistory.user_id == current_user.id)
+    if since is not None:
+        query = query.filter(PortfolioHistory.date >= since)
+
+    history = query.order_by(PortfolioHistory.date.asc()).all()
     return [{"date": h.date, "value": h.total_value} for h in history]
 
 
 @router.get("/distribution")
-def get_portfolio_distribution(db: Session = Depends(get_db)):
+def get_portfolio_distribution(db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
     """
     Compute portfolio value breakdowns aggregated by sector, currency, and ticker.
     
@@ -296,14 +450,14 @@ def get_portfolio_distribution(db: Session = Depends(get_db)):
             - by_currency (dict): currency code -> total market value in that currency.
             - by_stock (dict): ticker -> total market value for that stock.
     """
-    stocks = db.query(Stock).all()
+    stocks = db.query(Stock).filter(Stock.user_id == current_user.id).all()
     
     by_sector = {}
     by_currency = {}
     by_stock = {}
     
     for stock in stocks:
-        if stock.current_price and stock.quantity:
+        if stock.current_price is not None and stock.quantity is not None:
             value = stock.current_price * stock.quantity
             
             sector = stock.sector or "Unknown"
@@ -321,25 +475,40 @@ def get_portfolio_distribution(db: Session = Depends(get_db)):
 
 
 @router.get("/upcoming-dividends")
-def get_upcoming_portfolio_dividends(db: Session = Depends(get_db)):
+def get_upcoming_portfolio_dividends(db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
     """
-    Collect upcoming dividend events for all portfolio stocks and convert per-stock totals into the user's display currency.
+    Collect current-year dividend events for all stocks in the portfolio and convert per-stock totals into the user's display currency.
     
     Returns:
-        dict: A mapping with keys:
-            - dividends (list): Each item is a dict with keys `ticker`, `name`, `quantity`, `ex_date`, `payment_date`,
-              `amount_per_share`, `total_amount` (amount_per_share * quantity), `currency`, `total_converted` (converted to
-              display currency or `None` if conversion not available), `display_currency`, and `source`.
-            - total_expected (float): Sum of `total_converted` for dividends where conversion succeeded.
-            - display_currency (str): The user's display currency used for conversions.
-            - unmapped_stocks (list): List of dicts for Swedish tickers without Avanza mapping; each dict has `ticker`,
-              `name`, and `reason`.
+        dict: {
+            'dividends': list of dict — Each item contains:
+                - 'ticker' (str)
+                - 'name' (str)
+                - 'quantity' (number)
+                - 'ex_date' (str or None)
+                - 'payment_date' (str or None)
+                - 'payout_date' (str) — chosen payment_date or ex_date
+                - 'status' (str) — 'paid' or 'upcoming'
+                - 'dividend_type' (str or None)
+                - 'amount_per_share' (number)
+                - 'total_amount' (number) — amount_per_share * quantity
+                - 'currency' (str) — original dividend currency
+                - 'total_converted' (float or None) — total_amount converted to display currency, or None if conversion unavailable
+                - 'display_currency' (str)
+                - 'source' (str) — data source, e.g. 'avanza' or 'yahoo'
+            'total_expected' (float): Sum of `total_converted` for dividends with conversion available.
+            'total_received' (float): Sum of `total_converted` for dividends with status == 'paid'.
+            'total_remaining' (float): Sum of `total_converted` for dividends with status == 'upcoming'.
+            'display_currency' (str): The user's display currency used for conversions.
+            'unmapped_stocks' (list): List of dicts { 'ticker': str, 'name': str, 'reason': str } for securities lacking Avanza mapping.
+        }
     """
     from app.services.stock_service import StockService
+    from app.services.avanza_service import avanza_service
     
     stock_service = StockService()
-    stocks = db.query(Stock).all()
-    display_currency = get_display_currency(db)
+    stocks = db.query(Stock).filter(Stock.user_id == current_user.id).all()
+    display_currency = get_display_currency(db, current_user.id)
     
     currencies = {s.currency for s in stocks if s.currency}
     currencies.add('SEK')
@@ -348,18 +517,57 @@ def get_upcoming_portfolio_dividends(db: Session = Depends(get_db)):
     dividends = []
     unmapped_stocks = []
     seen_unmapped = set()
-    today = datetime.utcnow().strftime('%Y-%m-%d')
-    
+    now = utc_now()
+    today = now.date()
+    current_year = now.year
+
     for stock in stocks:
-        upcoming = stock_service.get_upcoming_dividends(stock.ticker)
-        
-        if not upcoming:
+        avanza_mapping = avanza_service.get_mapping_by_ticker(stock.ticker)
+        no_avanza_mapping = avanza_mapping is None or not avanza_mapping.instrument_id
+
+        if avanza_mapping and avanza_mapping.instrument_id:
+            avanza_events = avanza_service.get_stock_dividends_for_year(stock.ticker, current_year)
+            if avanza_events:
+                normalized_events = [{
+                    'ex_date': div.ex_date,
+                    'payment_date': div.payment_date,
+                    'amount': div.amount,
+                    'currency': div.currency,
+                    'source': 'avanza',
+                    'dividend_type': div.dividend_type
+                } for div in avanza_events]
+            else:
+                normalized_events = get_yahoo_normalized_events(stock_service, stock.ticker)
+        else:
+            normalized_events = get_yahoo_normalized_events(stock_service, stock.ticker)
+
+        if not normalized_events:
             continue
-        
-        for div in upcoming:
+
+        seen_event_keys = set()
+
+        for div in normalized_events:
             ex_date = div.get('ex_date', '')
-            if ex_date < today:
+            payment_date = div.get('payment_date')
+            payout_date = payment_date or ex_date
+
+            payout_date_parsed = parse_event_date(payout_date)
+            if not payout_date_parsed:
                 continue
+
+            if payout_date_parsed.year != current_year:
+                continue
+
+            event_key = (
+                ex_date,
+                payment_date,
+                div.get('amount'),
+                div.get('currency') or stock.currency,
+                div.get('dividend_type')
+            )
+            if event_key in seen_event_keys:
+                continue
+            seen_event_keys.add(event_key)
             
             amount = div.get('amount')
             if not amount or amount < 0:
@@ -380,8 +588,9 @@ def get_upcoming_portfolio_dividends(db: Session = Depends(get_db)):
             )
             
             source = div.get('source', 'yahoo')
+            status = 'paid' if payout_date_parsed <= today else 'upcoming'
             
-            if stock.ticker.endswith('.ST') and source == 'yahoo':
+            if stock.ticker.endswith('.ST') and source == 'yahoo' and no_avanza_mapping:
                 if stock.ticker not in seen_unmapped:
                     seen_unmapped.add(stock.ticker)
                     unmapped_stocks.append({
@@ -395,7 +604,10 @@ def get_upcoming_portfolio_dividends(db: Session = Depends(get_db)):
                 'name': stock.name,
                 'quantity': stock.quantity,
                 'ex_date': ex_date,
-                'payment_date': div.get('payment_date'),
+                'payment_date': payment_date,
+                'payout_date': payout_date,
+                'status': status,
+                'dividend_type': div.get('dividend_type'),
                 'amount_per_share': amount,
                 'total_amount': total_amount,
                 'currency': div_currency,
@@ -403,16 +615,30 @@ def get_upcoming_portfolio_dividends(db: Session = Depends(get_db)):
                 'display_currency': display_currency,
                 'source': source
             })
-    
-    dividends.sort(key=lambda x: x['ex_date'])
+
+    dividends.sort(key=lambda item: (sort_event_date(item.get('payout_date')), sort_event_date(item.get('ex_date'))))
     
     total_expected = sum(
         d['total_converted'] for d in dividends if d['total_converted'] is not None
+    )
+
+    total_received = sum(
+        d['total_converted']
+        for d in dividends
+        if d['total_converted'] is not None and d.get('status') == 'paid'
+    )
+
+    total_remaining = sum(
+        d['total_converted']
+        for d in dividends
+        if d['total_converted'] is not None and d.get('status') == 'upcoming'
     )
     
     return {
         'dividends': dividends,
         'total_expected': total_expected,
+        'total_received': total_received,
+        'total_remaining': total_remaining,
         'display_currency': display_currency,
         'unmapped_stocks': unmapped_stocks
     }

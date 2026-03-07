@@ -2,18 +2,20 @@ import { useState, useEffect, useCallback } from 'react'
 import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip } from 'recharts'
 import { api } from '../services/api'
 import { useSettings } from '../SettingsContext'
+import { getLocaleForLanguage, t } from '../i18n'
 
 const COLORS = ['#6366f1', '#ec4899', '#ef4444', '#f97316', '#22c55e', '#3b82f6', '#a855f7', '#f43f5e']
 
 /**
- * Formats a numeric value as an en-US currency string with two decimal places.
+ * Format a number as a currency string using the specified locale and currency.
  *
- * @param value - Numeric amount to format
- * @param currency - ISO 4217 currency code to use (defaults to 'USD')
+ * @param value - The numeric amount to format
+ * @param locale - BCP 47 locale tag to use for formatting (e.g., "en-US")
+ * @param currency - ISO 4217 currency code to display (defaults to 'USD')
  * @returns The formatted currency string (for example, "$1,234.56")
  */
-function formatCurrency(value: number, currency: string = 'USD'): string {
-  return new Intl.NumberFormat('en-US', {
+function formatCurrency(value: number, locale: string, currency: string = 'USD'): string {
+  return new Intl.NumberFormat(locale, {
     style: 'currency',
     currency,
     minimumFractionDigits: 2,
@@ -27,20 +29,18 @@ interface Distribution {
 }
 
 /**
- * Render the Analytics page that visualizes portfolio and sector distributions with pie charts.
+ * Render the Analytics page showing portfolio and sector distributions using pie charts.
  *
- * Fetches portfolio distribution on mount and when the Retry button is used; shows a loading
- * indicator while fetching, an error card with a retry action on failure, and a fallback message
- * when no distribution data is available. Chart labels are omitted for slices smaller than 5%,
- * and tooltip values are formatted according to the current display currency.
+ * Displays locale- and currency-aware tooltips and manages loading, error (with retry), and empty-data states.
  *
- * @returns The Analytics page UI as a React element containing charts, loading/error states, or an empty-data message.
+ * @returns A React element that renders distribution charts, a centered loading indicator, an error card with a retry action, or an empty-data message.
  */
 export default function Analytics() {
   const [distribution, setDistribution] = useState<Distribution | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
-  const { displayCurrency } = useSettings()
+  const { displayCurrency, language } = useSettings()
+  const locale = getLocaleForLanguage(language)
 
   const fetchData = useCallback(async () => {
     try {
@@ -50,11 +50,11 @@ export default function Analytics() {
       setError(null)
     } catch (err) {
       console.error('Failed to load analytics data:', err)
-      setError('Failed to load analytics data')
+      setError(t(language, 'analytics.failedLoad'))
     } finally {
       setLoading(false)
     }
-  }, [])
+  }, [language])
 
   useEffect(() => {
     fetchData()
@@ -74,14 +74,14 @@ export default function Analytics() {
   }
 
   if (loading) {
-    return <div style={{ textAlign: 'center', padding: '40px' }}>Loading...</div>
+    return <div style={{ textAlign: 'center', padding: '40px' }}>{t(language, 'common.loading')}</div>
   }
 
   if (error) {
     return (
       <div className="card" style={{ textAlign: 'center', padding: '40px' }}>
         <p style={{ color: 'var(--accent-red)', marginBottom: '16px' }}>{error}</p>
-        <button className="btn btn-primary" onClick={fetchData}>Retry</button>
+        <button className="btn btn-primary" onClick={fetchData}>{t(language, 'common.retry')}</button>
       </div>
     )
   }
@@ -89,9 +89,9 @@ export default function Analytics() {
   return (
     <div>
       <div style={{ marginBottom: '24px' }}>
-        <h2 style={{ fontSize: '24px', fontWeight: '600' }}>Analytics</h2>
+        <h2 style={{ fontSize: '24px', fontWeight: '600' }}>{t(language, 'analytics.title')}</h2>
         <p style={{ color: 'var(--text-secondary)', fontSize: '12px', marginTop: '4px' }}>
-          Portfolio distribution Overview
+          {t(language, 'analytics.overview')}
         </p>
       </div>
 
@@ -99,7 +99,7 @@ export default function Analytics() {
         <div className="grid grid-2">
           {stockData.length > 0 && (
             <div className="card">
-              <h3 style={{ marginBottom: '16px' }}>Portfolio Distribution</h3>
+              <h3 style={{ marginBottom: '16px' }}>{t(language, 'analytics.portfolioDistribution')}</h3>
               <div style={{ height: 280 }}>
                 <ResponsiveContainer width="100%" height="100%">
                   <PieChart>
@@ -118,7 +118,7 @@ export default function Analytics() {
                       ))}
                     </Pie>
                     <Tooltip 
-                      formatter={(value: number) => formatCurrency(value, displayCurrency)}
+                      formatter={(value: number) => formatCurrency(value, locale, displayCurrency)}
                       contentStyle={{ 
                         background: '#2a2a2a', 
                         border: '1px solid #444', 
@@ -135,7 +135,7 @@ export default function Analytics() {
           
           {sectorData.length > 0 && (
             <div className="card">
-              <h3 style={{ marginBottom: '16px' }}>Sector Distribution</h3>
+              <h3 style={{ marginBottom: '16px' }}>{t(language, 'analytics.sectorDistribution')}</h3>
               <div style={{ height: 280 }}>
                 <ResponsiveContainer width="100%" height="100%">
                   <PieChart>
@@ -154,7 +154,7 @@ export default function Analytics() {
                       ))}
                     </Pie>
                     <Tooltip 
-                      formatter={(value: number) => formatCurrency(value, displayCurrency)}
+                      formatter={(value: number) => formatCurrency(value, locale, displayCurrency)}
                       contentStyle={{ 
                         background: '#2a2a2a', 
                         border: '1px solid #444', 
@@ -171,7 +171,7 @@ export default function Analytics() {
         </div>
       ) : (
         <div className="card" style={{ textAlign: 'center', padding: '40px' }}>
-          <p style={{ color: 'var(--text-secondary)' }}>No portfolio data available. Add stocks to see analytics.</p>
+          <p style={{ color: 'var(--text-secondary)' }}>{t(language, 'analytics.noData')}</p>
         </div>
       )}
     </div>

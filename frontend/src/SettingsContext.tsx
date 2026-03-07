@@ -1,10 +1,14 @@
 import { createContext, useContext, useState, useEffect, ReactNode } from 'react'
+import { Language } from './i18n'
+import { api } from './services/api'
 
 interface SettingsContextType {
   timezone: string
   setTimezone: (tz: string) => void
   displayCurrency: string
   setDisplayCurrency: (currency: string) => void
+  language: Language
+  setLanguage: (language: Language) => void
   headerIndices: string[]
   setHeaderIndices: (indices: string[]) => void
   loading: boolean
@@ -29,6 +33,15 @@ const SUPPORTED_CURRENCIES = [
   { code: 'USD', label: 'US Dollar' },
 ]
 
+/**
+ * Provides application settings and updater functions to descendant components through SettingsContext.
+ *
+ * The provider initializes state from localStorage, syncs certain settings with the server, and exposes:
+ * `timezone`, `setTimezone`, `displayCurrency`, `setDisplayCurrency`, `language`, `setLanguage`, `headerIndices`, `setHeaderIndices`, and `loading`.
+ *
+ * @param children - React nodes that will receive the settings context
+ * @returns A SettingsContext.Provider element that wraps `children`
+ */
 export function SettingsProvider({ children }: { children: ReactNode }) {
   const [timezone, setTimezoneState] = useState(() => {
     const saved = localStorage.getItem('userTimezone')
@@ -37,6 +50,10 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
   const [displayCurrency, setDisplayCurrencyState] = useState(() => {
     const saved = localStorage.getItem('displayCurrency')
     return saved || 'SEK'
+  })
+  const [language, setLanguageState] = useState<Language>(() => {
+    const saved = localStorage.getItem('language')
+    return saved === 'sv' ? 'sv' : 'en'
   })
   const [headerIndices, setHeaderIndicesState] = useState<string[]>(() => {
     const saved = localStorage.getItem('headerIndices')
@@ -49,10 +66,9 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
-    fetch('/api/settings')
-      .then(res => res.json())
+    api.settings.get()
       .then(data => {
-        if (data.display_currency) {
+        if (data.display_currency || data.display_currency === '') {
           setDisplayCurrencyState(data.display_currency)
           localStorage.setItem('displayCurrency', data.display_currency)
         }
@@ -74,27 +90,24 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
     setDisplayCurrencyState(currency)
     localStorage.setItem('displayCurrency', currency)
     
-    fetch('/api/settings', {
-      method: 'PATCH',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ display_currency: currency }),
-    }).catch(() => {})
+    api.settings.update({ display_currency: currency }).catch(() => {})
+  }
+
+  const setLanguage = (nextLanguage: Language) => {
+    setLanguageState(nextLanguage)
+    localStorage.setItem('language', nextLanguage)
   }
 
   const setHeaderIndices = (indices: string[]) => {
     setHeaderIndicesState(indices)
     localStorage.setItem('headerIndices', JSON.stringify(indices))
     
-    fetch('/api/settings', {
-      method: 'PATCH',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ header_indices: indices }),
-    }).catch((err) => console.error('Failed to update header indices:', err))
+    api.settings.update({ header_indices: indices }).catch((err) => console.error('Failed to update header indices:', err))
   }
 
   return (
     <SettingsContext.Provider value={{ 
-      timezone, setTimezone, displayCurrency, setDisplayCurrency, 
+      timezone, setTimezone, displayCurrency, setDisplayCurrency, language, setLanguage,
       headerIndices, setHeaderIndices, loading 
     }}>
       {children}

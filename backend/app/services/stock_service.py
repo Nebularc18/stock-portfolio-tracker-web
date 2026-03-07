@@ -379,47 +379,79 @@ class StockService:
         Retrieve recent dividend history for a stock.
         
         Parameters:
-            ticker (str): Stock ticker symbol (case-insensitive). For Swedish tickers ending with ".ST", Avanza data is preferred when available.
+            ticker (str): Stock ticker symbol (case-insensitive). If an Avanza mapping with a valid instrument_id exists, Avanza data is used and takes precedence over Yahoo.
             years (int): Number of years of history to retrieve (default 5).
         
         Returns:
-            list: Chronologically sorted (newest first) list of dividend records. Each record is a dict with keys:
+            list: List of dividend records sorted newest first. Each record is a dict with keys:
                 - date (str): Ex-dividend date in "YYYY-MM-DD" format.
                 - amount (float): Dividend amount per share.
                 - currency (str|None): Currency code when known, otherwise `None`.
                 - source (str): Origin of the data, e.g., "avanza" or "yahoo".
+                - payment_date (str|None): Payment date in "YYYY-MM-DD" format when available (otherwise `None`).
+                - dividend_type (str|None): Dividend type when available (otherwise `None`).
         """
         ticker = ticker.upper()
         
-        if ticker.endswith('.ST'):
-            avanza_divs = avanza_service.get_historical_dividends(ticker, years)
-            if avanza_divs:
-                return avanza_divs
+        # Check if there's an Avanza mapping for this ticker - takes precedence
+        try:
+            avanza_mapping = avanza_service.get_mapping_by_ticker(ticker)
+            if avanza_mapping:
+                if avanza_mapping.instrument_id:
+                    logger.debug(f"get_dividends: Found Avanza mapping for {ticker}, fetching historical dividends")
+                    avanza_divs = avanza_service.get_historical_dividends(ticker, years)
+                    if avanza_divs:
+                        logger.debug(f"get_dividends: Returning {len(avanza_divs)} Avanza dividends for {ticker}")
+                        normalized_avanza_divs = []
+                        for item in avanza_divs:
+                            normalized_avanza_divs.append({
+                                'date': item.get('date'),
+                                'amount': item.get('amount'),
+                                'currency': item.get('currency'),
+                                'source': 'avanza',
+                                'payment_date': item.get('payment_date'),
+                                'dividend_type': item.get('dividend_type'),
+                            })
+                        normalized_avanza_divs.sort(key=lambda x: x.get('date') or '', reverse=True)
+                        return normalized_avanza_divs
+
+                    logger.debug(f"get_dividends: Avanza returned no dividends for {ticker}, falling back to Yahoo")
+                else:
+                    logger.debug(f"get_dividends: Avanza mapping for {ticker} has no instrument_id, falling back to Yahoo")
+            else:
+                logger.debug(f"get_dividends: No Avanza mapping for {ticker}, using Yahoo Finance")
+        except Exception as exc:
+            logger.warning(f"get_dividends: Avanza provider failed for {ticker}, falling back to Yahoo: {exc}")
         
         cache_key = f"{ticker}_{years}"
         cache_file = f"dividends_{cache_key}.json"
         
         cached = _load_file_cache(cache_file)
         if cached is not None:
+            logger.debug(f"get_dividends: Returning cached dividends for {ticker}")
             return cached
         
         if cache_key in _DIVIDEND_CACHE:
             cached_data, timestamp = _DIVIDEND_CACHE[cache_key]
             if datetime.now().timestamp() - timestamp < _DIVIDEND_CACHE_TTL:
+                logger.debug(f"get_dividends: Returning memory-cached dividends for {ticker}")
                 return cached_data
         
         session = get_session()
         
         try:
             url = f"https://query1.finance.yahoo.com/v8/finance/chart/{ticker}?interval=1d&range={years}y&events=div"
+            logger.debug(f"get_dividends: Fetching dividends from Yahoo for {ticker}")
             response = session.get(url, timeout=15)
             
             if response.status_code != 200:
+                logger.warning(f"get_dividends: Yahoo returned {response.status_code} for {ticker}")
                 return []
             
             data = response.json()
             
             if 'chart' not in data or 'result' not in data['chart'] or not data['chart']['result']:
+                logger.debug(f"get_dividends: No chart result in Yahoo response for {ticker}")
                 return []
             
             result = data['chart']['result'][0]
@@ -427,6 +459,7 @@ class StockService:
             dividends = events.get('dividends', {})
             
             if not dividends:
+                logger.debug(f"get_dividends: No dividend events found for {ticker}")
                 return []
             
             result_list = []
@@ -435,10 +468,14 @@ class StockService:
                     'date': datetime.fromtimestamp(div_data['date'], tz=timezone.utc).strftime('%Y-%m-%d'),
                     'amount': div_data['amount'],
                     'currency': None,
+                    'payment_date': None,
+                    'dividend_type': None,
                     'source': 'yahoo'
                 })
             
             result_list.sort(key=lambda x: x['date'], reverse=True)
+            
+            logger.debug(f"get_dividends: Found {len(result_list)} Yahoo dividends for {ticker}")
             
             _DIVIDEND_CACHE[cache_key] = (result_list, datetime.now().timestamp())
             _save_file_cache(cache_file, result_list, _DIVIDEND_CACHE_TTL)
@@ -452,7 +489,9 @@ class StockService:
         """
         Retrieve upcoming dividend events for a stock.
         
-        For Swedish tickers (ending with ".ST"), the Avanza calendar is used when available; for other tickers the function attempts to use yfinance's calendar.
+        Avanza is used as the primary data source for any ticker that has an Avanza mapping
+        (instrument_id). If Avanza returns events, those are returned directly. If no Avanza
+        events are found, the function falls back to yfinance (same behavior as unmapped tickers).
         
         Parameters:
             ticker (str): Stock ticker symbol (case is ignored).
@@ -463,54 +502,181 @@ class StockService:
                 - 'amount' (float|None): Dividend amount if available.
                 - 'currency' (str|None): Currency code if available.
                 - 'payment_date' (str|None): Payment date in 'YYYY-MM-DD' format (present for Avanza-sourced events).
+                - 'dividend_type' (str|None): Dividend type identifier (e.g. 'ordinary', 'bonus').
                 - 'source' (str): Data source identifier, e.g. 'avanza' or 'yahoo'.
         """
         ticker = ticker.upper()
         
+        # Check if there's an Avanza mapping for this ticker - takes precedence
+        try:
+            avanza_mapping = avanza_service.get_mapping_by_ticker(ticker)
+            if avanza_mapping and avanza_mapping.instrument_id:
+                avanza_dividends = avanza_service.get_stock_dividends(ticker)
+                if avanza_dividends:
+                    logger.debug(f"Found {len(avanza_dividends)} Avanza upcoming dividends for {ticker}")
+                    return [{
+                        'ex_date': div.ex_date,
+                        'amount': div.amount,
+                        'currency': div.currency,
+                        'payment_date': div.payment_date,
+                        'dividend_type': div.dividend_type,
+                        'source': 'avanza'
+                    } for div in avanza_dividends]
+
+                logger.debug(
+                    f"Avanza mapping found for {ticker} but no upcoming dividends returned; "
+                    f"continuing with yfinance fallback"
+                )
+        except Exception as exc:
+            logger.warning(f"get_upcoming_dividends: Avanza provider failed for {ticker}, falling back to Yahoo: {exc}")
+
         if ticker.endswith('.ST'):
-            avanza_div = avanza_service.get_stock_dividend(ticker)
-            if avanza_div:
-                return [{
-                    'ex_date': avanza_div.ex_date,
-                    'amount': avanza_div.amount,
-                    'currency': avanza_div.currency,
-                    'payment_date': avanza_div.payment_date,
-                    'source': 'avanza'
-                }]
+            logger.debug(f"Swedish ticker {ticker} has no Avanza mapping or instrument_id, falling back to yfinance")
         
         try:
             yf = importlib.import_module('yfinance')
             yf_ticker = yf.Ticker(ticker)
+
+            def _to_date_str(value: Any) -> Optional[str]:
+                """
+                Normalize various date-like inputs to an ISO date string (YYYY-MM-DD) or return None.
+                
+                Parameters:
+                    value (Any): A date-like input which may be a datetime/date object, a pandas Timestamp (or similar with `to_pydatetime`),
+                                 a list/sequence whose first element is a date-like value, an integer/float epoch timestamp (seconds),
+                                 or a string representation of a date.
+                
+                Returns:
+                    Optional[str]: An ISO-formatted date string `YYYY-MM-DD` if the input can be interpreted as a date, `None` otherwise.
+                """
+                if value is None:
+                    return None
+
+                if isinstance(value, list):
+                    if not value:
+                        return None
+                    value = value[0]
+
+                if hasattr(value, 'to_pydatetime'):
+                    try:
+                        value = value.to_pydatetime()
+                    except (ValueError, TypeError):
+                        return None
+
+                if hasattr(value, 'strftime'):
+                    try:
+                        return value.strftime('%Y-%m-%d')
+                    except (ValueError, TypeError):
+                        return None
+
+                if isinstance(value, (int, float)):
+                    try:
+                        return datetime.fromtimestamp(value, tz=timezone.utc).strftime('%Y-%m-%d')
+                    except (OSError, OverflowError, ValueError) as exc:
+                        logger.debug(f"get_upcoming_dividends: failed to parse timestamp for {ticker}: {exc}")
+                        return None
+
+                value_str = str(value)
+                return value_str[:10] if len(value_str) >= 10 else None
             
+            # Try to get dividend info from yfinance
+            info = getattr(yf_ticker, 'info', {}) or {}
+            
+            # Method 1: Try calendar attribute (newer yfinance versions)
             calendar = getattr(yf_ticker, 'calendar', None)
             
-            if calendar is None:
-                return []
-            
-            if isinstance(calendar, dict):
-                dividend_date = calendar.get('Dividend Date')
-                
-                if dividend_date:
-                    if isinstance(dividend_date, list) and len(dividend_date) > 0:
-                        div_date = dividend_date[0]
-                    else:
-                        div_date = dividend_date
-                    
-                    if hasattr(div_date, 'strftime'):
-                        div_date_str = div_date.strftime('%Y-%m-%d')
-                    else:
-                        div_date_str = str(div_date)[:10]
-                    
-                    info = getattr(yf_ticker, 'info', {}) or {}
-                    div_rate = info.get('dividendRate')
-                    
+            if calendar is not None and isinstance(calendar, dict):
+                calendar_ex_date = (
+                    calendar.get('Ex-Dividend Date')
+                    or calendar.get('Ex Dividend Date')
+                    or info.get('exDividendDate')
+                )
+                calendar_payment_date = calendar.get('Dividend Date') or info.get('dividendDate')
+                ex_date_str = _to_date_str(calendar_ex_date)
+                payment_date_str = _to_date_str(calendar_payment_date)
+
+                div_rate = info.get('dividendRate') or info.get('forwardDividendRate')
+
+                if ex_date_str and div_rate:
+                    logger.debug(
+                        f"Found yfinance calendar dividend for {ticker}: "
+                        f"ex_date={ex_date_str}, payment_date={payment_date_str}, amount={div_rate}"
+                    )
                     return [{
-                        'ex_date': div_date_str,
+                        'ex_date': ex_date_str,
                         'amount': div_rate,
                         'currency': info.get('currency'),
+                        'payment_date': payment_date_str,
+                        'dividend_type': None,
                         'source': 'yahoo'
                     }]
             
+            # Method 2: Fallback to info dict for ex-dividend date and dividend rate
+            ex_dividend_timestamp = info.get('exDividendDate')
+            payment_timestamp = info.get('dividendDate')
+            div_rate = info.get('dividendRate')
+            forward_div_rate = info.get('forwardDividendRate')
+            
+            # Use forward dividend rate if dividend rate is not available
+            effective_div_rate = div_rate or forward_div_rate
+            
+            if ex_dividend_timestamp and effective_div_rate:
+                ex_date = _to_date_str(ex_dividend_timestamp)
+                payment_date = _to_date_str(payment_timestamp)
+                if ex_date:
+                    logger.debug(
+                        f"Found yfinance info dividend for {ticker}: "
+                        f"ex_date={ex_date}, payment_date={payment_date}, amount={effective_div_rate}"
+                    )
+                    return [{
+                        'ex_date': ex_date,
+                        'amount': effective_div_rate,
+                        'currency': info.get('currency'),
+                        'payment_date': payment_date,
+                        'dividend_type': None,
+                        'source': 'yahoo'
+                    }]
+            
+            # Method 3: Try dividends attribute for recent dividend data
+            dividends_attr = getattr(yf_ticker, 'dividends', None)
+            if dividends_attr is not None and len(dividends_attr) > 0:
+                # Get the most recent dividend
+                try:
+                    last_div = dividends_attr.iloc[-1]
+                    last_div_date = dividends_attr.index[-1]
+                    
+                    now = datetime.now(tz=timezone.utc)
+                    recent_date = now - timedelta(days=90)
+                    
+                    if hasattr(last_div_date, 'to_pydatetime'):
+                        div_datetime = last_div_date.to_pydatetime()
+                    else:
+                        div_datetime = last_div_date
+                    
+                    # Convert to timezone-aware if needed
+                    if div_datetime.tzinfo is None:
+                        div_datetime = div_datetime.replace(tzinfo=timezone.utc)
+                    
+                    if recent_date <= div_datetime <= now:
+                        logger.debug(
+                            f"Ignoring recent historical dividend for {ticker}: "
+                            f"ex_date={div_datetime.strftime('%Y-%m-%d')}"
+                        )
+                    elif div_datetime > now:
+                        ex_date_str = div_datetime.strftime('%Y-%m-%d')
+                        logger.debug(f"Found yfinance dividends attribute for {ticker}: ex_date={ex_date_str}, amount={float(last_div)}")
+                        return [{
+                            'ex_date': ex_date_str,
+                            'amount': float(last_div),
+                            'currency': info.get('currency'),
+                            'payment_date': _to_date_str(info.get('dividendDate')),
+                            'dividend_type': None,
+                            'source': 'yahoo'
+                        }]
+                except (AttributeError, TypeError, ValueError, IndexError) as div_err:
+                    logger.debug(f"Error parsing dividends attribute for {ticker}: {div_err}")
+            
+            logger.debug(f"No upcoming dividend found for {ticker} via yfinance")
             return []
             
         except Exception as e:

@@ -1,15 +1,31 @@
 import { useState, useEffect } from 'react'
 import { Link } from 'react-router-dom'
 import { api, Stock } from '../services/api'
+import { getLocaleForLanguage, t } from '../i18n'
+import { useSettings } from '../SettingsContext'
 
-const MONTH_NAMES: Record<number, string> = {
-  1: 'Jan', 2: 'Feb', 3: 'Mar', 4: 'Apr',
-  5: 'May', 6: 'Jun', 7: 'Jul', 8: 'Aug',
-  9: 'Sep', 10: 'Oct', 11: 'Nov', 12: 'Dec'
+/**
+ * Produces the locale-formatted short name for a given month.
+ *
+ * @param month - The month number (1 = January, 12 = December)
+ * @param locale - BCP 47 locale string used for formatting (e.g., "en-US")
+ * @returns The short month name formatted for `locale` (for example, "Jan" or its localized equivalent)
+ */
+function getMonthName(month: number, locale: string): string {
+  const date = new Date(Date.UTC(2000, month - 1, 1))
+  return new Intl.DateTimeFormat(locale, { month: 'short', timeZone: 'UTC' }).format(date)
 }
 
-function formatCurrency(value: number, currency: string = 'USD'): string {
-  return new Intl.NumberFormat('en-US', {
+/**
+ * Format a numeric amount as a localized currency string.
+ *
+ * @param value - The numeric amount to format
+ * @param locale - BCP 47 locale identifier used for number formatting (e.g., `"en-US"`, `"sv-SE"`)
+ * @param currency - ISO 4217 currency code to display (defaults to `"USD"`)
+ * @returns The localized currency string, showing at least two fraction digits
+ */
+function formatCurrency(value: number, locale: string, currency: string = 'USD'): string {
+  return new Intl.NumberFormat(locale, {
     style: 'currency',
     currency,
     minimumFractionDigits: 2,
@@ -32,17 +48,19 @@ interface YearlyData {
 }
 
 /**
- * Renders a historical dividend overview for the user's portfolio.
+ * Render a historical dividend overview grouped by year and month, including per-share values and totals converted to SEK and a year selector.
  *
- * Displays dividends grouped by year and month with per-share and total amounts converted to SEK, a year selector, and a link to view upcoming dividends. Handles empty-portfolio and no-dividends-for-year states and shows cumulative totals for the selected year.
+ * The component fetches portfolio stocks, exchange rates, and recent dividends, excludes dividends without a date or dated in the future, computes monthly and yearly totals (converted to SEK when exchange rates are available), and displays appropriate empty states when the portfolio is empty or the selected year has no data.
  *
  * @returns The rendered dividend history UI as a React element.
  */
 export default function HistoricalDividends() {
+  const { language } = useSettings()
+  const locale = getLocaleForLanguage(language)
   const [stocks, setStocks] = useState<Stock[]>([])
   const [exchangeRates, setExchangeRates] = useState<Record<string, number | null>>({})
   const [loading, setLoading] = useState(true)
-  const [selectedYear, setSelectedYear] = useState<number>(new Date().getFullYear() - 1)
+  const [selectedYear, setSelectedYear] = useState<number>(new Date().getFullYear())
   const [dividendsByYear, setDividendsByYear] = useState<Record<number, YearlyData>>({})
   const [availableYears, setAvailableYears] = useState<number[]>([])
 
@@ -72,8 +90,9 @@ export default function HistoricalDividends() {
       setLoading(true)
       try {
         const currentYear = new Date().getFullYear()
-        const years = Array.from({ length: currentYear - 2000 + 1 }, (_, i) => currentYear - i)
+        const years = Array.from({ length: currentYear - 1999 }, (_, i) => currentYear - i)
         setAvailableYears(years)
+        const todayIso = new Date().toISOString().slice(0, 10)
 
         const allDividends: DividendWithStock[] = []
         
@@ -99,6 +118,9 @@ export default function HistoricalDividends() {
         const byYear: Record<number, YearlyData> = {}
         
         for (const div of allDividends) {
+          if (!div.date || div.date > todayIso) {
+            continue
+          }
           const year = parseInt(div.date.split('-')[0])
           if (!byYear[year]) {
             byYear[year] = { total: 0, months: {} }
@@ -141,20 +163,16 @@ export default function HistoricalDividends() {
   }
 
   if (loading && stocks.length === 0) {
-    return <div style={{ textAlign: 'center', padding: '40px' }}>Loading dividend history...</div>
+    return <div style={{ textAlign: 'center', padding: '40px' }}>{t(language, 'history.loading')}</div>
   }
 
   return (
     <div>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '24px' }}>
-        <h2 style={{ fontSize: '24px', fontWeight: '600' }}>Dividend History</h2>
+        <h2 style={{ fontSize: '24px', fontWeight: '600' }}>{t(language, 'history.title')}</h2>
         <div style={{ display: 'flex', gap: '12px', alignItems: 'center' }}>
-          <Link to="/dividends" style={{ color: 'var(--accent-blue)', textDecoration: 'none', fontSize: '14px' }}>
-            View Upcoming →
-          </Link>
-          <div style={{ display: 'flex', gap: '12px', alignItems: 'center' }}>
-            <label htmlFor="year-select" style={{ color: 'var(--text-secondary)', fontSize: '14px' }}>Year:</label>
-            <select
+          <label htmlFor="year-select" style={{ color: 'var(--text-secondary)', fontSize: '14px' }}>{t(language, 'common.year')}:</label>
+          <select
             id="year-select"
             value={selectedYear}
             onChange={(e) => setSelectedYear(parseInt(e.target.value))}
@@ -166,32 +184,31 @@ export default function HistoricalDividends() {
               color: 'var(--text-primary)',
               fontSize: '14px',
             }}
-           >
-             {availableYears.map((year) => (
-               <option key={year} value={year}>
-                 {year}
-               </option>
-             ))}
-           </select>
-           </div>
-         </div>
-       </div>
+          >
+            {availableYears.map((year) => (
+              <option key={year} value={year}>
+                {year}
+              </option>
+            ))}
+          </select>
+        </div>
+      </div>
 
       {stocks.length === 0 ? (
         <div className="card" style={{ textAlign: 'center', padding: '40px' }}>
-          <p style={{ color: 'var(--text-secondary)' }}>No stocks in portfolio. Add stocks from the Stocks page.</p>
+          <p style={{ color: 'var(--text-secondary)' }}>{t(language, 'history.noStocks')}</p>
         </div>
       ) : !yearData || Object.keys(yearData.months).length === 0 ? (
         <div className="card" style={{ textAlign: 'center', padding: '40px' }}>
-          <p style={{ color: 'var(--text-secondary)' }}>No dividends found for {selectedYear}.</p>
+          <p style={{ color: 'var(--text-secondary)' }}>{t(language, 'history.noDataYear', { year: selectedYear })}</p>
         </div>
       ) : (
         <>
           <div className="card" style={{ marginBottom: '24px' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-              <h3 style={{ fontSize: '16px' }}>Total {selectedYear}</h3>
+              <h3 style={{ fontSize: '16px' }}>{t(language, 'history.totalYear', { year: selectedYear })}</h3>
               <span style={{ fontSize: '24px', fontWeight: '600', color: 'var(--accent-green)' }}>
-                {formatCurrency(yearTotalSEK, 'SEK')}
+                {formatCurrency(yearTotalSEK, locale, 'SEK')}
               </span>
             </div>
           </div>
@@ -206,18 +223,18 @@ export default function HistoricalDividends() {
             return (
               <div key={month} className="card" style={{ marginBottom: '16px' }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
-                  <h4 style={{ color: 'var(--text-secondary)', fontSize: '14px' }}>{MONTH_NAMES[month]}</h4>
+                  <h4 style={{ color: 'var(--text-secondary)', fontSize: '14px' }}>{getMonthName(month, locale)}</h4>
                   <span style={{ color: 'var(--accent-green)', fontWeight: '600' }}>
-                    {formatCurrency(monthTotal, 'SEK')}
+                    {formatCurrency(monthTotal, locale, 'SEK')}
                   </span>
                 </div>
                 <table>
                   <thead>
                     <tr>
-                      <th>Stock</th>
-                      <th>Date</th>
-                      <th>Per Share</th>
-                      <th>Total (SEK)</th>
+                      <th>{t(language, 'history.stock')}</th>
+                      <th>{t(language, 'history.date')}</th>
+                      <th>{t(language, 'history.perShare')}</th>
+                      <th>{t(language, 'history.totalSek')}</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -236,8 +253,8 @@ export default function HistoricalDividends() {
                               </span>
                             </td>
                             <td>{div.date}</td>
-                            <td>{formatCurrency(div.amount, div.dividendCurrency)}</td>
-                            <td style={{ color: 'var(--accent-green)' }}>{formatCurrency(totalSEK, 'SEK')}</td>
+                            <td>{formatCurrency(div.amount, locale, div.dividendCurrency)}</td>
+                            <td style={{ color: 'var(--accent-green)' }}>{formatCurrency(totalSEK, locale, 'SEK')}</td>
                           </tr>
                         )
                       })}

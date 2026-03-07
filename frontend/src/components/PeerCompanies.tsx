@@ -1,19 +1,29 @@
 import { useNavigate } from 'react-router-dom'
+import { useSettings } from '../SettingsContext'
+import { t } from '../i18n'
 
 interface Props {
   peers: string[] | null
   loading?: boolean
 }
 
+/**
+ * Renders a localized card of peer company tickers as clickable buttons that navigate to each stock page.
+ *
+ * @param peers - Array of peer ticker symbols; when `null` or empty, nothing is rendered
+ * @param loading - When `true`, shows a localized loading state instead of the peers list
+ * @returns The rendered peers card, or `null` if `peers` is `null` or empty
+ */
 export default function PeerCompanies({ peers, loading }: Props) {
   const navigate = useNavigate()
+  const { language } = useSettings()
 
   if (loading) {
     return (
       <div className="card">
-        <h3 style={{ marginBottom: '16px' }}>Liknande bolag</h3>
+        <h3 style={{ marginBottom: '16px' }}>{t(language, 'peers.title')}</h3>
         <p style={{ color: 'var(--text-secondary)', textAlign: 'center', padding: '20px' }}>
-          Laddar...
+          {t(language, 'common.loading')}
         </p>
       </div>
     )
@@ -29,7 +39,7 @@ export default function PeerCompanies({ peers, loading }: Props) {
 
   return (
     <div className="card">
-      <h3 style={{ marginBottom: '16px' }}>Liknande bolag</h3>
+      <h3 style={{ marginBottom: '16px' }}>{t(language, 'peers.title')}</h3>
       
       <div style={{ 
         display: 'flex', 

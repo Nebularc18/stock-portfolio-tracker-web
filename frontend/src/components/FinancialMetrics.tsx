@@ -1,32 +1,66 @@
 import { FinancialMetrics as FinancialMetricsType } from '../services/api'
+import { useSettings } from '../SettingsContext'
+import { getLocaleForLanguage, t } from '../i18n'
 
 interface Props {
   metrics: FinancialMetricsType | null
   loading?: boolean
 }
 
-function MetricCard({ label, value, format = 'number' }: { label: string; value: string | number | null; format?: 'number' | 'percent' | 'currency' | 'date' | 'volume' }) {
+/**
+ * Render a compact card showing a metric label and its formatted value.
+ *
+ * @param label - Text label displayed above the metric value
+ * @param value - Metric value to display; if `null` or `undefined` a dash (`-`) is shown
+ * @param format - Display format: 'number', 'percent', 'currency', 'date', or 'volume'
+ * @param locale - Locale used for date formatting
+ * @returns A JSX element containing the styled label and the formatted value
+ */
+function MetricCard({ label, value, format = 'number', locale }: { label: string; value: string | number | null; format?: 'number' | 'percent' | 'currency' | 'date' | 'volume'; locale: string }) {
   const formattedValue = () => {
     if (value === null || value === undefined) return '-'
+
+    if (format === 'date') {
+      const rawValue = String(value)
+      const dateOnlyMatch = /^(\d{4})-(\d{2})-(\d{2})$/.exec(rawValue)
+      const date = dateOnlyMatch
+        ? new Date(Number(dateOnlyMatch[1]), Number(dateOnlyMatch[2]) - 1, Number(dateOnlyMatch[3]))
+        : new Date(rawValue)
+      if (Number.isNaN(date.getTime())) return '-'
+      return new Intl.DateTimeFormat(locale, {
+        year: 'numeric',
+        month: 'short',
+        day: 'numeric',
+      }).format(date)
+    }
     
     const numValue = typeof value === 'number' ? value : parseFloat(value)
     if (isNaN(numValue)) return '-'
     
     switch (format) {
       case 'percent':
-        const pct = Math.abs(numValue) > 1 ? numValue : numValue * 100
-        return `${pct.toFixed(1)}%`
+        return new Intl.NumberFormat(locale, {
+          style: 'percent',
+          minimumFractionDigits: 1,
+          maximumFractionDigits: 1,
+        }).format(Math.abs(numValue) > 1 ? numValue / 100 : numValue)
       case 'currency':
-        return `$${numValue.toFixed(2)}`
+        return new Intl.NumberFormat(locale, {
+          style: 'currency',
+          currency: 'USD',
+          minimumFractionDigits: 2,
+          maximumFractionDigits: 2,
+        }).format(numValue)
       case 'volume':
-        if (numValue >= 1_000_000_000) return `${(numValue / 1_000_000_000).toFixed(1)}B`
-        if (numValue >= 1_000_000) return `${(numValue / 1_000_000).toFixed(1)}M`
-        if (numValue >= 1_000) return `${(numValue / 1_000).toFixed(1)}K`
-        return numValue.toFixed(0)
-      case 'date':
-        return String(value)
+        return new Intl.NumberFormat(locale, {
+          notation: 'compact',
+          maximumFractionDigits: 1,
+        }).format(numValue)
       default:
-        return numValue.toFixed(2)
+        return new Intl.NumberFormat(locale, {
+          minimumFractionDigits: 2,
+          maximumFractionDigits: 2,
+        }).format(numValue)
     }
   }
   
@@ -44,13 +78,56 @@ function MetricCard({ label, value, format = 'number' }: { label: string; value:
   )
 }
 
+/**
+ * Renders a localized card containing a 4x4 grid of formatted financial metric tiles.
+ *
+ * Displays a localized loading message when `loading` is true, renders nothing when `metrics` is null,
+ * and otherwise shows metric values formatted (percent, currency, date, volume, or number) with localized labels.
+ *
+ * @param props.metrics - Financial metrics object or `null`. When present, individual fields (e.g., `pe_ttm`, `roe_ttm`, `52_week_high`, `avg_volume_10d`) are displayed in the grid.
+ * @param props.loading - Optional flag that, when true, shows a localized loading state instead of the metrics.
+ * @returns The rendered financial metrics card element, or `null` if `metrics` is falsy.
+ */
 export default function FinancialMetrics({ metrics, loading }: Props) {
+  const { language } = useSettings()
+  const locale = getLocaleForLanguage(language)
+
+  const tiles: Array<{ id: string; labelKey: Parameters<typeof t>[1]; valueKey: string; format?: 'number' | 'percent' | 'currency' | 'date' | 'volume' }> = [
+    { id: 'peTtm', labelKey: 'financialMetrics.peTtm', valueKey: 'pe_ttm' },
+    { id: 'psTtm', labelKey: 'financialMetrics.psTtm', valueKey: 'ps_ttm' },
+    { id: 'pb', labelKey: 'financialMetrics.pb', valueKey: 'pb_annual' },
+    { id: 'peAnnual', labelKey: 'financialMetrics.peAnnual', valueKey: 'pe_annual' },
+    { id: 'roe', labelKey: 'financialMetrics.roe', valueKey: 'roe_ttm', format: 'percent' },
+    { id: 'roa', labelKey: 'financialMetrics.roa', valueKey: 'roa_ttm', format: 'percent' },
+    { id: 'netMargin', labelKey: 'financialMetrics.netMargin', valueKey: 'net_margin_ttm', format: 'percent' },
+    { id: 'grossMargin', labelKey: 'financialMetrics.grossMargin', valueKey: 'gross_margin_ttm', format: 'percent' },
+    { id: 'operatingMargin', labelKey: 'financialMetrics.operatingMargin', valueKey: 'operating_margin_ttm', format: 'percent' },
+    { id: 'epsTtm', labelKey: 'financialMetrics.epsTtm', valueKey: 'eps_ttm', format: 'currency' },
+    { id: 'bookValuePerShare', labelKey: 'financialMetrics.bookValuePerShare', valueKey: 'book_value_per_share', format: 'currency' },
+    { id: 'cashFlowPerShare', labelKey: 'financialMetrics.cashFlowPerShare', valueKey: 'cash_flow_per_share', format: 'currency' },
+    { id: 'dividendPercent', labelKey: 'financialMetrics.dividendPercent', valueKey: 'dividend_yield', format: 'percent' },
+    { id: 'dividendPerShare', labelKey: 'financialMetrics.dividendPerShare', valueKey: 'dividend_per_share_annual', format: 'currency' },
+    { id: 'divGrowth5y', labelKey: 'financialMetrics.divGrowth5y', valueKey: 'dividend_growth_5y', format: 'percent' },
+    { id: 'divYieldTtm', labelKey: 'financialMetrics.divYieldTtm', valueKey: 'dividend_yield_ttm', format: 'percent' },
+    { id: 'revenueGrowthTtm', labelKey: 'financialMetrics.revenueGrowthTtm', valueKey: 'revenue_growth_ttm', format: 'percent' },
+    { id: 'revenueGrowth3y', labelKey: 'financialMetrics.revenueGrowth3y', valueKey: 'revenue_growth_3y', format: 'percent' },
+    { id: 'epsGrowthTtm', labelKey: 'financialMetrics.epsGrowthTtm', valueKey: 'eps_growth_ttm', format: 'percent' },
+    { id: 'epsGrowth3y', labelKey: 'financialMetrics.epsGrowth3y', valueKey: 'eps_growth_3y', format: 'percent' },
+    { id: 'beta', labelKey: 'financialMetrics.beta', valueKey: 'beta' },
+    { id: 'high52w', labelKey: 'financialMetrics.high52w', valueKey: '52_week_high', format: 'currency' },
+    { id: 'low52w', labelKey: 'financialMetrics.low52w', valueKey: '52_week_low', format: 'currency' },
+    { id: 'high52wDate', labelKey: 'financialMetrics.high52wDate', valueKey: '52_week_high_date', format: 'date' },
+    { id: 'low52wDate', labelKey: 'financialMetrics.low52wDate', valueKey: '52_week_low_date', format: 'date' },
+    { id: 'avgVol10d', labelKey: 'financialMetrics.avgVol10d', valueKey: 'avg_volume_10d', format: 'volume' },
+    { id: 'avgVol3m', labelKey: 'financialMetrics.avgVol3m', valueKey: 'avg_volume_3m', format: 'volume' },
+  ]
+
   if (loading) {
     return (
       <div className="card">
-        <h3 style={{ marginBottom: '16px' }}>Nyckeltal</h3>
+        <h3 style={{ marginBottom: '16px' }}>{t(language, 'financialMetrics.title')}</h3>
         <p style={{ color: 'var(--text-secondary)', textAlign: 'center', padding: '20px' }}>
-          Laddar...
+          {t(language, 'common.loading')}
         </p>
       </div>
     )
@@ -62,42 +139,18 @@ export default function FinancialMetrics({ metrics, loading }: Props) {
 
   return (
     <div className="card">
-      <h3 style={{ marginBottom: '16px' }}>Nyckeltal</h3>
+      <h3 style={{ marginBottom: '16px' }}>{t(language, 'financialMetrics.title')}</h3>
       
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '12px' }}>
-        <MetricCard label="P/E (TTM)" value={metrics.pe_ttm} />
-        <MetricCard label="P/S (TTM)" value={metrics.ps_ttm} />
-        <MetricCard label="P/B" value={metrics.pb_annual} />
-        <MetricCard label="P/E (Årlig)" value={metrics.pe_annual} />
-        
-        <MetricCard label="ROE" value={metrics.roe_ttm} format="percent" />
-        <MetricCard label="ROA" value={metrics.roa_ttm} format="percent" />
-        <MetricCard label="Nettomarginal" value={metrics.net_margin_ttm} format="percent" />
-        <MetricCard label="Bruttomarginal" value={metrics.gross_margin_ttm} format="percent" />
-        
-        <MetricCard label="Rörelsemarginal" value={metrics.operating_margin_ttm} format="percent" />
-        <MetricCard label="EPS (TTM)" value={metrics.eps_ttm} format="currency" />
-        <MetricCard label="Bokvärde/aktie" value={metrics.book_value_per_share} format="currency" />
-        <MetricCard label="Kassaflöde/aktie" value={metrics.cash_flow_per_share} format="currency" />
-        
-        <MetricCard label="Utdelning %" value={metrics.dividend_yield} format="percent" />
-        <MetricCard label="Utdelning/aktie" value={metrics.dividend_per_share_annual} format="currency" />
-        <MetricCard label="Utd. tillväxt 5Å" value={metrics.dividend_growth_5y} format="percent" />
-        <MetricCard label="Utd. avk. TTM" value={metrics.dividend_yield_ttm} format="percent" />
-        
-        <MetricCard label="Oms. tillväxt TTM" value={metrics.revenue_growth_ttm} format="percent" />
-        <MetricCard label="Oms. tillväxt 3Å" value={metrics.revenue_growth_3y} format="percent" />
-        <MetricCard label="EPS tillväxt TTM" value={metrics.eps_growth_ttm} format="percent" />
-        <MetricCard label="EPS tillväxt 3Å" value={metrics.eps_growth_3y} format="percent" />
-        
-        <MetricCard label="Beta" value={metrics.beta} />
-        <MetricCard label="52V Hög" value={metrics['52_week_high']} format="currency" />
-        <MetricCard label="52V Låg" value={metrics['52_week_low']} format="currency" />
-        <MetricCard label="52V Hög datum" value={metrics['52_week_high_date']} format="date" />
-        
-        <MetricCard label="52V Låg datum" value={metrics['52_week_low_date']} format="date" />
-        <MetricCard label="Volym 10d gen." value={metrics.avg_volume_10d} format="volume" />
-        <MetricCard label="Volym 3m gen." value={metrics.avg_volume_3m} format="volume" />
+        {tiles.map((tile) => (
+          <MetricCard
+            key={tile.id}
+            label={t(language, tile.labelKey)}
+            value={(metrics as Record<string, string | number | null>)[tile.valueKey]}
+            format={tile.format}
+            locale={locale}
+          />
+        ))}
         <div />
       </div>
     </div>

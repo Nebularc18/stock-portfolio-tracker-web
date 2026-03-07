@@ -1,14 +1,15 @@
 import { useState, useEffect } from 'react'
 import { api, TickerMapping, Stock } from '../services/api'
+import { useSettings } from '../SettingsContext'
+import { t } from '../i18n'
 
 /**
- * Render a UI for managing mappings between Avanza stock names and Yahoo tickers for Swedish (.ST) stocks.
+ * Renders the Avanza-to-Yahoo ticker mappings management UI.
  *
- * Shows existing mappings, computes unmapped Swedish stocks, provides a form to add mappings (auto-filling Avanza name from the selected stock), handles creation and deletion via the API, and surfaces loading and error states.
- *
- * @returns The rendered React element for the Avanza mappings management UI.
+ * @returns The React element for managing Avanza stock name to Yahoo ticker mappings, including listing, adding, and deleting mappings and showing loading/error states.
  */
 export default function AvanzaMappings() {
+  const { language } = useSettings()
   const [mappings, setMappings] = useState<TickerMapping[]>([])
   const [stocks, setStocks] = useState<Stock[]>([])
   const [loading, setLoading] = useState(true)
@@ -24,8 +25,7 @@ export default function AvanzaMappings() {
   })
   const [saving, setSaving] = useState(false)
 
-  const unmappedSwedishStocks = stocks
-    .filter(s => s.ticker.toUpperCase().endsWith('.ST'))
+  const unmappedStocks = stocks
     .filter(s => !mappings.some(m => m.yahoo_ticker.toUpperCase() === s.ticker.toUpperCase()))
     .sort((a, b) => a.ticker.localeCompare(b.ticker))
 
@@ -45,7 +45,7 @@ export default function AvanzaMappings() {
       setError(null)
     } catch (err) {
       console.error('Failed to fetch data:', err)
-      setError('Failed to load data')
+      setError(t(language, 'avanzaMappings.failedLoad'))
     } finally {
       setLoading(false)
     }
@@ -79,21 +79,21 @@ export default function AvanzaMappings() {
       fetchData()
     } catch (err) {
       console.error('Failed to add mapping:', err)
-      setError('Failed to add mapping')
+      setError(t(language, 'avanzaMappings.failedAdd'))
     } finally {
       setSaving(false)
     }
   }
 
   const handleDeleteMapping = async (avanzaName: string) => {
-    if (!confirm(`Delete mapping for "${avanzaName}"?`)) return
+    if (!confirm(t(language, 'avanzaMappings.deleteConfirm', { name: avanzaName }))) return
     
     try {
       await api.avanza.deleteMapping(avanzaName)
       fetchData()
     } catch (err) {
       console.error('Failed to delete mapping:', err)
-      setError('Failed to delete mapping')
+      setError(t(language, 'avanzaMappings.failedDelete'))
     }
   }
 
@@ -101,25 +101,25 @@ export default function AvanzaMappings() {
     <div className="card" style={{ marginTop: '24px' }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
         <div>
-          <h3 style={{ marginBottom: '4px' }}>Swedish Stock Mappings</h3>
+          <h3 style={{ marginBottom: '4px' }}>{t(language, 'avanzaMappings.title')}</h3>
           <p style={{ color: 'var(--text-secondary)', fontSize: '13px' }}>
-            Connect Swedish stocks to get dividend data from aktieutdelningar.se
+            {t(language, 'avanzaMappings.subtitle')}
           </p>
         </div>
         <button
           onClick={() => setShowAddForm(!showAddForm)}
-          disabled={unmappedSwedishStocks.length === 0}
+          disabled={unmappedStocks.length === 0}
           style={{
             padding: '8px 16px',
-            background: showAddForm ? 'var(--bg-tertiary)' : unmappedSwedishStocks.length === 0 ? 'var(--bg-tertiary)' : 'var(--accent-blue)',
-            color: showAddForm ? 'var(--text-primary)' : unmappedSwedishStocks.length === 0 ? 'var(--text-secondary)' : 'white',
+            background: showAddForm ? 'var(--bg-tertiary)' : unmappedStocks.length === 0 ? 'var(--bg-tertiary)' : 'var(--accent-blue)',
+            color: showAddForm ? 'var(--text-primary)' : unmappedStocks.length === 0 ? 'var(--text-secondary)' : 'white',
             border: 'none',
             borderRadius: '6px',
-            cursor: unmappedSwedishStocks.length === 0 ? 'not-allowed' : 'pointer',
+            cursor: unmappedStocks.length === 0 ? 'not-allowed' : 'pointer',
             fontSize: '14px'
           }}
         >
-          {showAddForm ? 'Cancel' : '+ Add Mapping'}
+          {showAddForm ? t(language, 'stocks.cancel') : t(language, 'avanzaMappings.addMapping')}
         </button>
       </div>
 
@@ -129,12 +129,12 @@ export default function AvanzaMappings() {
         </div>
       )}
 
-      {unmappedSwedishStocks.length === 0 && !showAddForm && (
+      {unmappedStocks.length === 0 && !showAddForm && (
         <div style={{ padding: '16px', background: 'var(--bg-tertiary)', borderRadius: '6px', marginBottom: '16px' }}>
           <p style={{ color: 'var(--text-secondary)', fontSize: '13px', margin: 0 }}>
-            {stocks.filter(s => s.ticker.toUpperCase().endsWith('.ST')).length === 0 
-              ? 'No Swedish stocks (.ST) in your portfolio yet.'
-              : 'All your Swedish stocks are mapped!'}
+            {stocks.length === 0 
+              ? t(language, 'avanzaMappings.noStocksYet')
+              : t(language, 'avanzaMappings.allMapped')}
           </p>
         </div>
       )}
@@ -147,12 +147,12 @@ export default function AvanzaMappings() {
           marginBottom: '20px',
           border: '1px solid var(--border-color)'
         }}>
-          <h4 style={{ marginBottom: '16px', fontSize: '15px' }}>Add New Mapping</h4>
+          <h4 style={{ marginBottom: '16px', fontSize: '15px' }}>{t(language, 'avanzaMappings.addNew')}</h4>
           
           <form onSubmit={handleAddMapping}>
             <div style={{ marginBottom: '16px' }}>
               <label style={{ display: 'block', marginBottom: '6px', fontSize: '13px', color: 'var(--text-secondary)' }}>
-                Select Stock to Map *
+                {t(language, 'avanzaMappings.selectStock')}
               </label>
               <select
                 value={selectedTicker}
@@ -169,8 +169,8 @@ export default function AvanzaMappings() {
                   boxSizing: 'border-box'
                 }}
               >
-                <option value="">-- Select a Swedish stock --</option>
-                {unmappedSwedishStocks.map((stock) => (
+                <option value="">{t(language, 'avanzaMappings.selectStockOption')}</option>
+                {unmappedStocks.map((stock) => (
                   <option key={stock.ticker} value={stock.ticker}>
                     {stock.ticker} {stock.name ? `- ${stock.name}` : ''}
                   </option>
@@ -181,13 +181,13 @@ export default function AvanzaMappings() {
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px', marginBottom: '16px' }}>
               <div>
                 <label style={{ display: 'block', marginBottom: '6px', fontSize: '13px', color: 'var(--text-secondary)' }}>
-                  Avanza Name *
+                  {t(language, 'avanzaMappings.avanzaName')}
                 </label>
                 <input
                   type="text"
                   value={newMapping.avanza_name}
                   onChange={(e) => setNewMapping({ ...newMapping, avanza_name: e.target.value })}
-                  placeholder="e.g., Volvo B"
+                  placeholder={t(language, 'avanzaMappings.avanzaNamePlaceholder')}
                   required
                   style={{
                     width: '100%',
@@ -203,7 +203,7 @@ export default function AvanzaMappings() {
               </div>
               <div>
                 <label style={{ display: 'block', marginBottom: '6px', fontSize: '13px', color: 'var(--text-secondary)' }}>
-                  Yahoo Ticker
+                  {t(language, 'avanzaMappings.yahooTicker')}
                 </label>
                 <input
                   type="text"
@@ -225,13 +225,13 @@ export default function AvanzaMappings() {
             
             <div style={{ marginBottom: '16px' }}>
               <label style={{ display: 'block', marginBottom: '6px', fontSize: '13px', color: 'var(--text-secondary)' }}>
-                Instrument ID *
+                {t(language, 'avanzaMappings.instrumentId')}
               </label>
               <input
                 type="text"
                 value={newMapping.instrument_id}
                 onChange={(e) => setNewMapping({ ...newMapping, instrument_id: e.target.value })}
-                placeholder="e.g., 5269"
+                placeholder={t(language, 'avanzaMappings.instrumentIdPlaceholder')}
                 required
                 style={{
                   width: '100%',
@@ -246,7 +246,7 @@ export default function AvanzaMappings() {
                 }}
               />
               <p style={{ fontSize: '11px', color: 'var(--text-secondary)', marginTop: '4px' }}>
-                Find at avanza.se/aktier/om-aktien.html/[ID]/stock-name
+                {t(language, 'avanzaMappings.instrumentIdHint')}
               </p>
             </div>
             
@@ -264,7 +264,7 @@ export default function AvanzaMappings() {
                 opacity: saving ? 0.7 : 1
               }}
             >
-              {saving ? 'Saving...' : 'Save Mapping'}
+              {saving ? t(language, 'avanzaMappings.saving') : t(language, 'avanzaMappings.saveMapping')}
             </button>
           </form>
         </div>
@@ -272,21 +272,21 @@ export default function AvanzaMappings() {
 
       {loading ? (
         <p style={{ color: 'var(--text-secondary)', textAlign: 'center', padding: '20px' }}>
-          Loading mappings...
+          {t(language, 'avanzaMappings.loading')}
         </p>
       ) : mappings.length === 0 ? (
         <div style={{ textAlign: 'center', padding: '30px', color: 'var(--text-secondary)' }}>
-          <p style={{ marginBottom: '8px' }}>No mappings configured</p>
-          <p style={{ fontSize: '13px' }}>Add mappings to get dividend data for Swedish stocks</p>
+          <p style={{ marginBottom: '8px' }}>{t(language, 'avanzaMappings.noneConfigured')}</p>
+          <p style={{ fontSize: '13px' }}>{t(language, 'avanzaMappings.noneConfiguredHelp')}</p>
         </div>
       ) : (
         <table style={{ width: '100%' }}>
           <thead>
             <tr>
-              <th>Avanza Name</th>
-              <th>Yahoo Ticker</th>
-              <th>Instrument ID</th>
-              <th style={{ textAlign: 'right' }}>Actions</th>
+              <th>{t(language, 'avanzaMappings.colAvanzaName')}</th>
+              <th>{t(language, 'avanzaMappings.colYahooTicker')}</th>
+              <th>{t(language, 'avanzaMappings.colInstrumentId')}</th>
+              <th style={{ textAlign: 'right' }}>{t(language, 'common.actions')}</th>
             </tr>
           </thead>
           <tbody>
@@ -319,7 +319,7 @@ export default function AvanzaMappings() {
                       fontSize: '12px'
                     }}
                   >
-                    Delete
+                    {t(language, 'common.delete')}
                   </button>
                 </td>
               </tr>
@@ -336,10 +336,10 @@ export default function AvanzaMappings() {
         fontSize: '13px',
         color: 'var(--text-secondary)'
       }}>
-        <strong style={{ color: 'var(--text-primary)' }}>How to find Instrument ID:</strong> Visit a stock on Avanza.se. 
-        The URL looks like: <code style={{ background: 'var(--bg-secondary)', padding: '2px 4px', borderRadius: '3px' }}>
+        <strong style={{ color: 'var(--text-primary)' }}>{t(language, 'avanzaMappings.howToFind')}</strong> {t(language, 'avanzaMappings.visitStock')}{' '}
+        {t(language, 'avanzaMappings.urlLooksLike')} <code style={{ background: 'var(--bg-secondary)', padding: '2px 4px', borderRadius: '3px' }}>
           avanza.se/aktier/om-aktien.html/5269/volvo-b
-        </code> where <code style={{ background: 'var(--bg-secondary)', padding: '2px 4px', borderRadius: '3px' }}>5269</code> is the ID.
+        </code> {t(language, 'avanzaMappings.where')} <code style={{ background: 'var(--bg-secondary)', padding: '2px 4px', borderRadius: '3px' }}>5269</code> {t(language, 'avanzaMappings.idSuffix')}
       </div>
     </div>
   )

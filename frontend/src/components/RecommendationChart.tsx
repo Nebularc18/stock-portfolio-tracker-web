@@ -1,9 +1,16 @@
-import { useState } from 'react'
-import { RecommendationTrend } from '../services/api'
+import { useId, useState } from 'react'
+import { AnalystRecommendation, RecommendationTrend } from '../services/api'
+import { useSettings } from '../SettingsContext'
+import { getLocaleForLanguage, t } from '../i18n'
 
 interface Props {
-  recommendations: RecommendationTrend[] | null
+  recommendations: Array<RecommendationTrend | AnalystRecommendation> | null
   loading?: boolean
+  labels?: Record<'strong_buy' | 'buy' | 'hold' | 'sell' | 'strong_sell', string>
+  totalLabel?: string
+  locale?: string
+  title?: string
+  withCard?: boolean
 }
 
 const COLORS = {
@@ -14,32 +21,159 @@ const COLORS = {
   strong_sell: '#ef4444',
 }
 
-const LABELS = {
-  strong_buy: 'Stark Köp',
-  buy: 'Köp',
-  hold: 'Behåll',
-  sell: 'Sälj',
-  strong_sell: 'Stark Sälj',
-}
 
-function formatPeriod(period: string): string {
-  try {
-    const date = new Date(period)
-    return date.toLocaleDateString('sv-SE', { month: 'short' })
-  } catch {
-    return period
+/**
+ * Resolves a relative month period string (for example, "-3m") to the Date representing the first day of that month.
+ *
+ * @param period - A relative-month string in the form `[-]Nm` (e.g. `-3m` or `3m`); falsy or non-matching values are not interpreted.
+ * @returns The Date set to the first day of the month N months before the current month, or `null` if `period` is falsy or not in the expected format.
+ */
+function getStartOfRelativeMonth(period: string): Date | null {
+  if (!period) return null;
+  const match = /^-?\d+m$/.exec(period);
+  if (match) {
+    const monthsAgo = Math.abs(parseInt(period.replace('m', ''), 10));
+    const date = new Date();
+    date.setDate(1);
+    date.setMonth(date.getMonth() - monthsAgo);
+    return date;
   }
+  return null;
 }
 
-export default function RecommendationChart({ recommendations, loading }: Props) {
+function parseDateOnlyPeriod(period: string): Date | null {
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(period)
+  if (!match) return null
+
+  const year = Number(match[1])
+  const month = Number(match[2])
+  const day = Number(match[3])
+  if (!year || month < 1 || month > 12 || day < 1 || day > 31) return null
+
+  const constructedDate = new Date(year, month - 1, day)
+  if (
+    constructedDate.getFullYear() !== year ||
+    constructedDate.getMonth() !== month - 1 ||
+    constructedDate.getDate() !== day
+  ) {
+    return null
+  }
+
+  return constructedDate
+}
+
+/**
+ * Formats a period string as a locale-aware short month name.
+ *
+ * Accepts either an absolute date string or a relative month token like `-3m`. For relative tokens, the function computes the first day of the referenced month before formatting.
+ *
+ * @param period - The period to format; can be an ISO/parsable date string or a relative month token (e.g., `-1m`, `-3m`)
+ * @param locale - BCP 47 locale identifier used for month name localization (e.g., `en-US`)
+ * @returns The short month name for the resolved date in the given locale (e.g., `Jan`, `Feb`), or the original `period` string if it cannot be parsed into a date
+ */
+function formatPeriod(period: string, locale: string): string {
+  const relDate = getStartOfRelativeMonth(period);
+  if (relDate) {
+    return relDate.toLocaleDateString(locale, { month: 'short' });
+  }
+  const date = parseDateOnlyPeriod(period) ?? new Date(period);
+  if (Number.isNaN(date.getTime())) {
+    return period;
+  }
+  return date.toLocaleDateString(locale, { month: 'short' });
+}
+
+/**
+ * Converts a period identifier into a Date representing that period.
+ *
+ * Accepts relative month strings (e.g., "-3m") which resolve to the first day of the target month, or absolute date strings parseable by Date. Returns `null` when the input is falsy or cannot be converted to a valid Date.
+ *
+ * @param period - A period identifier: a relative month (like "-3m") or a date string.
+ * @returns A Date for the period, or `null` if the period is invalid or unspecified.
+ */
+function parsePeriodToDate(period: string): Date | null {
+  if (!period) return null;
+  const relDate = getStartOfRelativeMonth(period);
+  if (relDate) return relDate;
+  const dateOnly = parseDateOnlyPeriod(period)
+  if (dateOnly) return dateOnly
+  const parsed = new Date(period);
+  if (!Number.isNaN(parsed.getTime())) return parsed;
+  return null;
+}
+
+/**
+ * Compute the total number of analyst recommendations for a record.
+ *
+ * Uses `rec.total_analysts` when available; otherwise sums `strong_buy`, `buy`, `hold`, `sell`, and `strong_sell`. Returns 0 if no values are present.
+ *
+ * @param rec - The recommendation record to total
+ * @returns The total number of recommendations (0 if none)
+ */
+function getRecTotal(rec: RecommendationTrend | AnalystRecommendation): number {
+  const total = rec.total_analysts ?? ((rec.strong_buy ?? 0) + (rec.buy ?? 0) + (rec.hold ?? 0) + (rec.sell ?? 0) + (rec.strong_sell ?? 0))
+  return total ?? 0
+}
+
+/**
+ * Provide a positive scale total for a recommendation record.
+ *
+ * @param rec - A recommendation record (RecommendationTrend or AnalystRecommendation) to evaluate
+ * @returns The record's total recommendations if that value is greater than or equal to 1, otherwise 1
+ */
+function getRecScaleTotal(rec: RecommendationTrend | AnalystRecommendation): number {
+  return Math.max(getRecTotal(rec), 1)
+}
+
+/**
+ * Render a stacked recommendation bar chart showing up to the four most recent periods, optionally wrapped in a card.
+ *
+ * @param recommendations - Array of recommendation records (each a `RecommendationTrend` or `AnalystRecommendation`) or `null`. Each record's `period` is parsed to determine ordering; records with unparseable periods are ignored.
+ * @param loading - When true, show a localized loading state instead of the chart.
+ * @param labels - Optional overrides for the recommendation labels. Expected keys: `strong_buy`, `buy`, `hold`, `sell`, `strong_sell`.
+ * @param totalLabel - Optional override for the translated "total" label shown in tooltips and totals.
+ * @param locale - Optional locale string used for period formatting; when omitted the locale is derived from app settings.
+ * @param title - Optional override for the chart title displayed when the component is rendered inside a card.
+ * @param withCard - When true (default), wrap the chart and legend in a card with a title; when false, render only the chart content.
+ * @returns A React element containing the chart and legend, or `null` when there is no displayable data.
+ */
+export default function RecommendationChart({
+  recommendations,
+  loading,
+  labels: labelsOverride,
+  totalLabel,
+  locale: localeOverride,
+  title,
+  withCard = true,
+}: Props) {
   const [hoveredBar, setHoveredBar] = useState<number | null>(null)
+  const tooltipIdPrefix = `recommendation-tooltip-${useId().replace(/:/g, '')}`
+  const { language } = useSettings()
+  const locale = localeOverride ?? getLocaleForLanguage(language)
+  const labels = labelsOverride ?? {
+    strong_buy: t(language, 'recommendation.strongBuy'),
+    buy: t(language, 'recommendation.buy'),
+    hold: t(language, 'recommendation.hold'),
+    sell: t(language, 'recommendation.sell'),
+    strong_sell: t(language, 'recommendation.strongSell'),
+  }
+  const totalLabelText = totalLabel ?? t(language, 'recommendation.total')
+  const titleText = title ?? t(language, 'recommendation.title')
 
   if (loading) {
+    if (!withCard) {
+      return (
+        <p style={{ color: 'var(--text-secondary)', textAlign: 'center', padding: '20px' }}>
+          {t(language, 'common.loading')}
+        </p>
+      )
+    }
+
     return (
       <div className="card">
-        <h3 style={{ marginBottom: '16px' }}>Analytikerrekommendationer</h3>
+        <h3 style={{ marginBottom: '16px' }}>{titleText}</h3>
         <p style={{ color: 'var(--text-secondary)', textAlign: 'center', padding: '20px' }}>
-          Laddar...
+          {t(language, 'common.loading')}
         </p>
       </div>
     )
@@ -49,29 +183,40 @@ export default function RecommendationChart({ recommendations, loading }: Props)
     return null
   }
 
-  const displayData = recommendations.slice(0, 4)
-  const maxTotal = Math.max(...displayData.map(d => d.total_analysts || 1))
+  const displayData = [...recommendations]
+    .map(rec => ({ rec, _date: parsePeriodToDate(rec.period) }))
+    .filter(({ _date }) => _date !== null)
+    .sort((a, b) => a._date!.getTime() - b._date!.getTime())
+    .slice(-4)
 
-  return (
-    <div className="card">
-      <h3 style={{ marginBottom: '16px' }}>Analytikerrekommendationer</h3>
-      
+  if (displayData.length === 0) {
+    return null
+  }
+
+  const maxScaleTotal = Math.max(
+    ...displayData.map(({ rec }) => getRecScaleTotal(rec))
+  );
+
+  const content = (
+    <>
       <div style={{ display: 'flex', gap: '16px', marginBottom: '24px' }}>
-        {displayData.map((rec, index) => {
-          const total = rec.total_analysts || 0
-          const barHeight = Math.max(4, (total / maxTotal) * 150)
+        {displayData.map(({ rec }, index) => {
+          const total = getRecTotal(rec)
+          const scaleTotal = getRecScaleTotal(rec)
+          const barHeight = Math.max(4, (scaleTotal / maxScaleTotal) * 150)
+          const tooltipId = `${tooltipIdPrefix}-${index}`
           
           const segments = [
-            { key: 'strong_buy', value: rec.strong_buy || 0, color: COLORS.strong_buy },
-            { key: 'buy', value: rec.buy || 0, color: COLORS.buy },
-            { key: 'hold', value: rec.hold || 0, color: COLORS.hold },
-            { key: 'sell', value: rec.sell || 0, color: COLORS.sell },
-            { key: 'strong_sell', value: rec.strong_sell || 0, color: COLORS.strong_sell },
+            { key: 'strong_buy', value: rec.strong_buy ?? 0, color: COLORS.strong_buy },
+            { key: 'buy', value: rec.buy ?? 0, color: COLORS.buy },
+            { key: 'hold', value: rec.hold ?? 0, color: COLORS.hold },
+            { key: 'sell', value: rec.sell ?? 0, color: COLORS.sell },
+            { key: 'strong_sell', value: rec.strong_sell ?? 0, color: COLORS.strong_sell },
           ].filter(s => s.value > 0)
           
           return (
             <div 
-              key={rec.period}
+              key={`${rec.period}-${index}`}
               style={{ 
                 flex: 1, 
                 display: 'flex', 
@@ -81,6 +226,10 @@ export default function RecommendationChart({ recommendations, loading }: Props)
               }}
               onMouseEnter={() => setHoveredBar(index)}
               onMouseLeave={() => setHoveredBar(null)}
+              onFocus={() => setHoveredBar(index)}
+              onBlur={() => setHoveredBar(null)}
+              tabIndex={0}
+              aria-describedby={hoveredBar === index ? tooltipId : undefined}
             >
               <div style={{ 
                 display: 'flex', 
@@ -92,7 +241,7 @@ export default function RecommendationChart({ recommendations, loading }: Props)
                 background: 'var(--bg-tertiary)'
               }}>
                 {segments.map((seg, segIndex) => {
-                  const height = total > 0 ? (seg.value / total) * barHeight : 0
+                  const height = (seg.value / scaleTotal) * barHeight
                   return (
                     <div
                       key={seg.key}
@@ -116,16 +265,16 @@ export default function RecommendationChart({ recommendations, loading }: Props)
               
               {total > 0 && (
                 <p style={{ fontSize: '11px', color: 'var(--text-secondary)', marginTop: '8px', marginBottom: '4px' }}>
-                  Tot: {total}
+                  {t(language, 'recommendation.totalShort')} {total}
                 </p>
               )}
               
               <p style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>
-                {formatPeriod(rec.period)}
+                {formatPeriod(rec.period, locale)}
               </p>
               
               {hoveredBar === index && (
-                <div style={{
+                <div id={tooltipId} style={{
                   position: 'absolute',
                   bottom: '100%',
                   left: '50%',
@@ -138,13 +287,13 @@ export default function RecommendationChart({ recommendations, loading }: Props)
                   whiteSpace: 'nowrap',
                   zIndex: 10
                 }}>
-                  <p style={{ fontWeight: 600, marginBottom: 4 }}>{formatPeriod(rec.period)}</p>
-                  <p style={{ color: COLORS.strong_buy, fontSize: '12px' }}>■ {LABELS.strong_buy}: {rec.strong_buy}</p>
-                  <p style={{ color: COLORS.buy, fontSize: '12px' }}>■ {LABELS.buy}: {rec.buy}</p>
-                  <p style={{ color: COLORS.hold, fontSize: '12px' }}>■ {LABELS.hold}: {rec.hold}</p>
-                  <p style={{ color: COLORS.sell, fontSize: '12px' }}>■ {LABELS.sell}: {rec.sell}</p>
-                  <p style={{ color: COLORS.strong_sell, fontSize: '12px' }}>■ {LABELS.strong_sell}: {rec.strong_sell}</p>
-                  <p style={{ fontWeight: 600, marginTop: 4 }}>Total: {total}</p>
+                  <p style={{ fontWeight: 600, marginBottom: 4 }}>{formatPeriod(rec.period, locale)}</p>
+                  <p style={{ color: COLORS.strong_buy, fontSize: '12px' }}>■ {labels.strong_buy}: {rec.strong_buy ?? 0}</p>
+                  <p style={{ color: COLORS.buy, fontSize: '12px' }}>■ {labels.buy}: {rec.buy ?? 0}</p>
+                  <p style={{ color: COLORS.hold, fontSize: '12px' }}>■ {labels.hold}: {rec.hold ?? 0}</p>
+                  <p style={{ color: COLORS.sell, fontSize: '12px' }}>■ {labels.sell}: {rec.sell ?? 0}</p>
+                  <p style={{ color: COLORS.strong_sell, fontSize: '12px' }}>■ {labels.strong_sell}: {rec.strong_sell ?? 0}</p>
+                  <p style={{ fontWeight: 600, marginTop: 4 }}>{totalLabelText}: {total}</p>
                 </div>
               )}
             </div>
@@ -156,10 +305,19 @@ export default function RecommendationChart({ recommendations, loading }: Props)
         {Object.entries(COLORS).map(([key, color]) => (
           <div key={key} style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
             <div style={{ width: 12, height: 12, background: color, borderRadius: 2 }} />
-            <span style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>{LABELS[key as keyof typeof LABELS]}</span>
+            <span style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>{labels[key as keyof typeof labels]}</span>
           </div>
         ))}
       </div>
+    </>
+  )
+
+  if (!withCard) return content
+
+  return (
+    <div className="card">
+      <h3 style={{ marginBottom: '16px' }}>{titleText}</h3>
+      {content}
     </div>
   )
 }
