@@ -112,7 +112,29 @@ def get_yahoo_normalized_events(stock_service, ticker: str) -> list:
     upcoming = stock_service.get_upcoming_dividends(ticker) or []
 
     normalized = [normalize_dividend_event(div, 'historical') for div in historical]
-    normalized.extend(normalize_dividend_event(div, 'upcoming') for div in upcoming)
+
+    historical_by_ex_date = {
+        event.get('ex_date'): event
+        for event in normalized
+        if event.get('ex_date')
+    }
+
+    for div in upcoming:
+        normalized_upcoming = normalize_dividend_event(div, 'upcoming')
+        upcoming_ex_date = normalized_upcoming.get('ex_date')
+        historical_event = historical_by_ex_date.get(upcoming_ex_date) if upcoming_ex_date else None
+        if historical_event is not None:
+            if not historical_event.get('payment_date') and normalized_upcoming.get('payment_date'):
+                historical_event['payment_date'] = normalized_upcoming.get('payment_date')
+            if not historical_event.get('currency') and normalized_upcoming.get('currency'):
+                historical_event['currency'] = normalized_upcoming.get('currency')
+            if not historical_event.get('dividend_type') and normalized_upcoming.get('dividend_type'):
+                historical_event['dividend_type'] = normalized_upcoming.get('dividend_type')
+            continue
+        normalized.append(normalized_upcoming)
+        if upcoming_ex_date:
+            historical_by_ex_date[upcoming_ex_date] = normalized_upcoming
+
     return normalized
 
 def get_display_currency(db: Session, user_id: int) -> str:

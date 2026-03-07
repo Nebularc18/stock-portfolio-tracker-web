@@ -209,7 +209,7 @@ export default function InfographicLayout() {
                     {indexLabel(idx.symbol, idx.name)}
                   </div>
                   <div style={{ fontSize: 28, fontWeight: 300 }}>
-                    {idx.price == null || idx.price === ''
+                    {idx.price == null
                       ? '-'
                       : (Number.isFinite(Number(idx.price))
                         ? Number(idx.price).toLocaleString(locale, { maximumFractionDigits: 0 })

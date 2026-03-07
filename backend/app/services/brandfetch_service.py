@@ -22,6 +22,9 @@ os.makedirs(CACHE_DIR, exist_ok=True)
 
 _LOGO_CACHE_TTL = 86400
 _LOGO_CACHE: dict[str, tuple[Optional[str], float]] = {}
+_CURATED_LOGO_QUERIES: dict[str, list[str]] = {
+    "VOLV-B.ST": ["volvogroup.com", "Volvo Group"],
+}
 
 _session: Optional[requests.Session] = None
 
@@ -139,6 +142,20 @@ def _save_file_cache(filename: str, value: Optional[str], ttl: int = _LOGO_CACHE
 
 
 class BrandfetchService:
+    def _root_domain_token(self, domain: str) -> str:
+        normalized = domain.lower().strip()
+        if not normalized:
+            return ""
+
+        normalized = normalized.split("/", 1)[0]
+        normalized = normalized.split(":", 1)[0]
+        parts = [part for part in normalized.split(".") if part]
+        if not parts:
+            return ""
+        if len(parts) >= 2 and parts[-1] in {"com", "net", "org", "io", "co", "de", "se", "uk", "eu", "ca", "fr", "br", "in"}:
+            return parts[-2]
+        return parts[0]
+
     def _normalize_text(self, value: str) -> str:
         """
         Normalize company or query text for tokenization and matching.
@@ -151,7 +168,7 @@ class BrandfetchService:
         """
         normalized = value.lower()
         normalized = re.sub(r"[^a-z0-9\s]", " ", normalized)
-        normalized = re.sub(r"\b(corporation|corp|inc|ltd|plc|holding|holdings|group|ab|ag|nv|the|company)\b", " ", normalized)
+        normalized = re.sub(r"\b(corporation|corp|inc|ltd|plc|holding|holdings|group|ab|ag|nv|se|the|company)\b", " ", normalized)
         normalized = re.sub(r"\s+", " ", normalized).strip()
         return normalized
 
@@ -191,14 +208,18 @@ class BrandfetchService:
         candidate_domain = str(candidate.get('domain') or '')
         verified = bool(candidate.get('verified'))
         quality_score = float(candidate.get('qualityScore') or 0)
+        candidate_name_normalized = self._normalize_text(candidate_name)
+        candidate_domain_root = self._normalize_text(self._root_domain_token(candidate_domain))
 
         expected_tokens: set[str] = set()
+        expected_name_normalized = self._normalize_text(company_name or '')
         if company_name and company_name.strip():
             expected_tokens |= self._token_set(company_name)
 
         ticker_base = ticker.upper().split('.', 1)[0].split('-', 1)[0]
+        ticker_token = ticker_base.lower() if ticker_base and ticker_base.isalpha() and len(ticker_base) >= 3 else ''
         if ticker_base and ticker_base.isalpha() and len(ticker_base) >= 3:
-            expected_tokens.add(ticker_base.lower())
+            expected_tokens.add(ticker_token)
 
         if not expected_tokens:
             expected_tokens |= self._token_set(query)
@@ -207,6 +228,23 @@ class BrandfetchService:
         domain_tokens = self._token_set(candidate_domain.replace('.', ' '))
         matched = expected_tokens.intersection(candidate_tokens.union(domain_tokens))
         match_ratio = (len(matched) / len(expected_tokens)) if expected_tokens else 0
+        exact_identity_match = any(
+            token
+            for token in {
+                expected_name_normalized,
+                self._normalize_text(query),
+                ticker_token,
+            }
+            if token and token in {candidate_name_normalized, candidate_domain_root}
+        )
+
+        if exact_identity_match and quality_score >= 0.5:
+            return True
+
+        if len(expected_tokens) <= 1:
+            if verified and quality_score >= 0.99 and exact_identity_match:
+                return True
+            return False
 
         if match_ratio >= 0.6:
             return True
@@ -229,7 +267,7 @@ class BrandfetchService:
         Returns:
             list[str]: Ordered, unique list of candidate query strings (highest-priority first).
         """
-        candidates: list[str] = []
+        candidates: list[str] = list(_CURATED_LOGO_QUERIES.get(ticker.upper().strip(), []))
 
         if company_name and company_name.strip():
             clean_name = company_name.strip()
@@ -238,7 +276,7 @@ class BrandfetchService:
             normalized = re.sub(r"\(.*?\)", "", clean_name)
             normalized = re.sub(r"\bser\.?\s+[A-Za-z]\b", "", normalized, flags=re.IGNORECASE)
             normalized = re.sub(r"\bclass\s+[A-Za-z]\b", "", normalized, flags=re.IGNORECASE)
-            normalized = re.sub(r"\b(corporation|corp\.?|inc\.?|ltd\.?|plc|ag|nv)\b", "", normalized, flags=re.IGNORECASE)
+            normalized = re.sub(r"\b(corporation|corp\.?|inc\.?|ltd\.?|plc|ag|nv|se)\b", "", normalized, flags=re.IGNORECASE)
             normalized = re.sub(r"\s+", " ", normalized.replace(',', ' ')).strip()
             if normalized and normalized != clean_name:
                 candidates.append(normalized)
@@ -251,11 +289,11 @@ class BrandfetchService:
 
         ticker_upper = ticker.upper().strip()
         if ticker_upper:
-            candidates.append(ticker_upper)
-
             ticker_base = ticker_upper.split('.', 1)[0]
             if ticker_base and ticker_base != ticker_upper:
                 candidates.append(ticker_base)
+
+            candidates.append(ticker_upper)
 
             if (not company_name or not company_name.strip()) and '-' in ticker_base:
                 ticker_root = ticker_base.split('-', 1)[0]

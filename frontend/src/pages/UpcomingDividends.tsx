@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import { Link } from 'react-router-dom'
 import { api, UpcomingDividend } from '../services/api'
 import { useSettings } from '../SettingsContext'
@@ -87,15 +87,16 @@ export default function UpcomingDividends() {
   const [exchangeRates, setExchangeRates] = useState<Record<string, number | null>>({})
   const [unmappedStocks, setUnmappedStocks] = useState<Array<{ ticker: string; name: string | null; reason: string }>>([])
   const [loading, setLoading] = useState(true)
+  const [refreshing, setRefreshing] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
-  useEffect(() => {
-    fetchData()
-  }, [])
-
-  const fetchData = async () => {
+  const fetchData = useCallback(async (showLoadingState: boolean = true) => {
     try {
-      setLoading(true)
+      if (showLoadingState) {
+        setLoading(true)
+      } else {
+        setRefreshing(true)
+      }
       setError(null)
       const data = await api.portfolio.upcomingDividends()
       setDividends(data.dividends)
@@ -108,9 +109,17 @@ export default function UpcomingDividends() {
       console.error('Failed to fetch upcoming dividends:', err)
       setError(t(language, 'upcoming.failedLoad'))
     } finally {
-      setLoading(false)
+      if (showLoadingState) {
+        setLoading(false)
+      } else {
+        setRefreshing(false)
+      }
     }
-  }
+  }, [language])
+
+  useEffect(() => {
+    fetchData(true)
+  }, [fetchData])
 
   if (loading) {
     return <div style={{ textAlign: 'center', padding: '40px' }}>{t(language, 'upcoming.loading')}</div>
@@ -174,7 +183,9 @@ export default function UpcomingDividends() {
           <Link to="/dividends/history" style={{ color: 'var(--accent-blue)', textDecoration: 'none', fontSize: '14px' }}>
             {t(language, 'upcoming.viewHistory')} →
           </Link>
-          <button onClick={fetchData} style={{ padding: '8px 16px' }}>{t(language, 'common.refresh')}</button>
+          <button className="btn btn-primary" onClick={() => fetchData(false)} disabled={refreshing}>
+            {refreshing ? t(language, 'common.refreshing') : t(language, 'common.refresh')}
+          </button>
         </div>
       </div>
 

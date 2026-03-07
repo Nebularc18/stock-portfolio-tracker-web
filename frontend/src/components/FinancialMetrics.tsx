@@ -92,7 +92,7 @@ export default function FinancialMetrics({ metrics, loading }: Props) {
   const { language } = useSettings()
   const locale = getLocaleForLanguage(language)
 
-  const tiles: Array<{ id: string; labelKey: Parameters<typeof t>[1]; valueKey: string; format?: 'number' | 'percent' | 'currency' | 'date' | 'volume' }> = [
+  const tiles: Array<{ id: string; labelKey: Parameters<typeof t>[1]; valueKey: keyof FinancialMetricsType; format?: 'number' | 'percent' | 'currency' | 'date' | 'volume' }> = [
     { id: 'peTtm', labelKey: 'financialMetrics.peTtm', valueKey: 'pe_ttm' },
     { id: 'psTtm', labelKey: 'financialMetrics.psTtm', valueKey: 'ps_ttm' },
     { id: 'pb', labelKey: 'financialMetrics.pb', valueKey: 'pb_annual' },
@@ -146,7 +146,7 @@ export default function FinancialMetrics({ metrics, loading }: Props) {
           <MetricCard
             key={tile.id}
             label={t(language, tile.labelKey)}
-            value={(metrics as Record<string, string | number | null>)[tile.valueKey]}
+            value={metrics[tile.valueKey]}
             format={tile.format}
             locale={locale}
           />

@@ -65,6 +65,7 @@ const EXCHANGES = [
   const [editPurchasePrice, setEditPurchasePrice] = useState('')
   const [saving, setSaving] = useState(false)
   const [lastUpdate, setLastUpdate] = useState<string | null>(null)
+  const [failedLogos, setFailedLogos] = useState<Record<string, boolean>>({})
   const { timezone, language } = useSettings()
   const locale = getLocaleForLanguage(language)
 
@@ -73,6 +74,7 @@ const EXCHANGES = [
       setLoading(true)
       const data = await api.stocks.list()
       setStocks(data)
+      setFailedLogos({})
       setLastUpdate(getLatestTimestamp(data))
       setError(null)
     } catch (err) {
@@ -318,8 +320,40 @@ const EXCHANGES = [
                     <td>
                       <Link 
                         to={`/stocks/${stock.ticker}`} 
-                        style={{ color: 'var(--accent-blue)', textDecoration: 'none', fontWeight: '600' }}
+                        style={{ color: 'var(--accent-blue)', textDecoration: 'none', fontWeight: '600', display: 'flex', alignItems: 'center', gap: '8px' }}
                       >
+                        {stock.logo && !failedLogos[stock.ticker] ? (
+                          <img
+                            src={stock.logo}
+                            alt={stock.name || stock.ticker}
+                            style={{
+                              width: 24,
+                              height: 24,
+                              borderRadius: 4,
+                              objectFit: 'contain',
+                              background: 'var(--bg-secondary)',
+                              padding: 2,
+                            }}
+                            onError={() => setFailedLogos((prev) => ({ ...prev, [stock.ticker]: true }))}
+                          />
+                        ) : (
+                          <span
+                            style={{
+                              width: 24,
+                              height: 24,
+                              borderRadius: 4,
+                              display: 'inline-flex',
+                              alignItems: 'center',
+                              justifyContent: 'center',
+                              fontSize: '12px',
+                              fontWeight: '700',
+                              color: 'var(--text-secondary)',
+                              background: 'var(--bg-secondary)',
+                            }}
+                          >
+                            {(stock.name || stock.ticker || '?').charAt(0).toUpperCase()}
+                          </span>
+                        )}
                         {stock.ticker}
                       </Link>
                     </td>
