@@ -464,17 +464,21 @@ def get_portfolio_history(
 @router.get("/distribution")
 def get_portfolio_distribution(db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
     """
-    Compute portfolio value breakdowns aggregated by sector, currency, and ticker.
+    Compute portfolio value breakdowns aggregated by sector, country, currency, and ticker.
     
     Returns:
         dict: Mapping with keys:
             - by_sector (dict): sector name -> total market value for that sector.
+            - by_country (dict): country name -> total market value for that country.
             - by_currency (dict): currency code -> total market value in that currency.
             - by_stock (dict): ticker -> total market value for that stock.
     """
+    from app.services.finnhub_service import finnhub_service
+
     stocks = db.query(Stock).filter(Stock.user_id == current_user.id).all()
     
     by_sector = {}
+    by_country = {}
     by_currency = {}
     by_stock = {}
     
@@ -484,6 +488,10 @@ def get_portfolio_distribution(db: Session = Depends(get_db), current_user: User
             
             sector = stock.sector or "Unknown"
             by_sector[sector] = by_sector.get(sector, 0) + value
+
+            profile = finnhub_service.get_company_profile(stock.ticker) or {}
+            country = profile.get('country') or "Unknown"
+            by_country[country] = by_country.get(country, 0) + value
             
             by_currency[stock.currency] = by_currency.get(stock.currency, 0) + value
             
@@ -491,6 +499,7 @@ def get_portfolio_distribution(db: Session = Depends(get_db), current_user: User
     
     return {
         "by_sector": by_sector,
+        "by_country": by_country,
         "by_currency": by_currency,
         "by_stock": by_stock,
     }

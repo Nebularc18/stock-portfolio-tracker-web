@@ -24,6 +24,7 @@ function formatCurrency(value: number, locale: string, currency: string = 'USD')
 
 interface Distribution {
   by_sector: Record<string, number>
+  by_country: Record<string, number>
   by_currency: Record<string, number>
   by_stock: Record<string, number>
 }
@@ -63,6 +64,10 @@ export default function Analytics() {
   const sectorData = distribution?.by_sector 
     ? Object.entries(distribution.by_sector).map(([name, value]) => ({ name, value }))
     : []
+
+  const countryData = distribution?.by_country
+    ? Object.entries(distribution.by_country).map(([name, value]) => ({ name, value }))
+    : []
   
   const stockData = distribution?.by_stock
     ? Object.entries(distribution.by_stock).map(([name, value]) => ({ name, value }))
@@ -95,7 +100,7 @@ export default function Analytics() {
         </p>
       </div>
 
-      {(sectorData.length > 0 || stockData.length > 0) ? (
+      {(sectorData.length > 0 || stockData.length > 0 || countryData.length > 0) ? (
         <div className="grid grid-2">
           {stockData.length > 0 && (
             <div className="card">
@@ -151,6 +156,42 @@ export default function Analytics() {
                     >
                       {sectorData.map((_, index) => (
                         <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
+                      ))}
+                    </Pie>
+                    <Tooltip 
+                      formatter={(value: number) => formatCurrency(value, locale, displayCurrency)}
+                      contentStyle={{ 
+                        background: '#2a2a2a', 
+                        border: '1px solid #444', 
+                        borderRadius: '8px',
+                        color: '#fff'
+                      }}
+                      itemStyle={{ color: '#fff' }}
+                    />
+                  </PieChart>
+                </ResponsiveContainer>
+              </div>
+            </div>
+          )}
+
+          {countryData.length > 0 && (
+            <div className="card">
+              <h3 style={{ marginBottom: '16px' }}>{t(language, 'analytics.countryDistribution')}</h3>
+              <div style={{ height: 280 }}>
+                <ResponsiveContainer width="100%" height="100%">
+                  <PieChart>
+                    <Pie
+                      data={countryData}
+                      cx="50%"
+                      cy="50%"
+                      labelLine={false}
+                      label={renderPieLabel}
+                      outerRadius={100}
+                      fill="#8884d8"
+                      dataKey="value"
+                    >
+                      {countryData.map((_, index) => (
+                        <Cell key={`country-cell-${index}`} fill={COLORS[index % COLORS.length]} />
                       ))}
                     </Pie>
                     <Tooltip 

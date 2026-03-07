@@ -245,8 +245,6 @@ export default function Dashboard() {
   const navigate = useNavigate()
   const [summary, setSummary] = useState<PortfolioSummary | null>(null)
   const [upcomingDividends, setUpcomingDividends] = useState<UpcomingDividend[]>([])
-  const [totalExpectedDividends, setTotalExpectedDividends] = useState(0)
-  const [totalReceivedDividends, setTotalReceivedDividends] = useState(0)
   const [totalRemainingDividends, setTotalRemainingDividends] = useState(0)
   const [stocks, setStocks] = useState<Stock[]>([])
   const [exchangeRates, setExchangeRates] = useState<Record<string, number | null>>({})
@@ -310,8 +308,6 @@ export default function Dashboard() {
       setStocks(stocksData)
       setExchangeRates(ratesData)
       setUpcomingDividends(upcomingDivsData.dividends)
-      setTotalExpectedDividends(upcomingDivsData.total_expected)
-      setTotalReceivedDividends(upcomingDivsData.total_received)
       setTotalRemainingDividends(upcomingDivsData.total_remaining)
       setFailedLogos({})
       setError(null)
@@ -388,6 +384,27 @@ export default function Dashboard() {
     return acc
   }, { total: 0, partial: false })
 
+  const portfolioDividendYield = stocks.reduce((acc, stock) => {
+    if (stock.current_price === null || stock.quantity <= 0 || stock.dividend_yield === null) {
+      return acc
+    }
+
+    const positionValue = stock.current_price * stock.quantity
+    const convertedValue = convertToCurrency(positionValue, stock.currency)
+    if (convertedValue === null || convertedValue <= 0) {
+      acc.partial = true
+      return acc
+    }
+
+    acc.weightedYield += convertedValue * stock.dividend_yield
+    acc.totalValue += convertedValue
+    return acc
+  }, { weightedYield: 0, totalValue: 0, partial: false })
+
+  const dividendYieldPercent = portfolioDividendYield.totalValue > 0
+    ? portfolioDividendYield.weightedYield / portfolioDividendYield.totalValue
+    : 0
+
   const lastUpdate = stocks.reduce((max: string | null, stock) => {
     if (!stock.last_updated) return max
     if (!max) return stock.last_updated
@@ -445,7 +462,9 @@ export default function Dashboard() {
   const yMax = maxValue + valueRange * 0.1
   const baselineValue = displayedChartData.length > 0 ? displayedChartData[0].value : 0
 
-  const groupedDividends = upcomingDividends.reduce((acc, div) => {
+  const groupedDividends = upcomingDividends
+    .filter((div) => div.status !== 'paid')
+    .reduce((acc, div) => {
     const payoutDate = div.payout_date || div.payment_date || div.ex_date
     const key = getMonthKey(payoutDate)
     if (!acc[key]) {
@@ -504,7 +523,7 @@ export default function Dashboard() {
         </p>
       </div>
 
-      <div className="grid grid-4" style={{ marginBottom: '24px' }}>
+      <div className="grid" style={{ marginBottom: '24px', display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '24px' }}>
         <div className="card">
           <p style={{ color: 'var(--text-secondary)', fontSize: '12px', marginBottom: '8px' }}>{t(language, 'dashboard.totalValue')} ({currency})</p>
           <p style={{ fontSize: '28px', fontWeight: '600' }}>
@@ -527,6 +546,12 @@ export default function Dashboard() {
           <p style={{ color: 'var(--text-secondary)', fontSize: '12px', marginBottom: '8px' }}>{t(language, 'dashboard.returnPercent')}</p>
           <p style={{ fontSize: '28px', fontWeight: '600' }} className={gainLossClass}>
             {formatPercent(summary?.total_gain_loss_percent ?? 0, locale)}
+          </p>
+        </div>
+        <div className="card">
+          <p style={{ color: 'var(--text-secondary)', fontSize: '12px', marginBottom: '8px' }}>{t(language, 'dashboard.dividendYield')}</p>
+          <p style={{ fontSize: '28px', fontWeight: '600', color: 'var(--accent-green)' }}>
+            {formatPercent(dividendYieldPercent, locale)}{portfolioDividendYield.partial ? ` (${t(language, 'dashboard.partial')})` : ''}
           </p>
         </div>
       </div>
@@ -746,20 +771,12 @@ export default function Dashboard() {
          )}
        </div>
 
-      {upcomingDividends.length > 0 && (
+      {monthlyUpcoming.length > 0 && (
         <div className="card">
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
-            <h3>{t(language, 'dashboard.dividendsThisYear')}</h3>
+            <h3>{t(language, 'dashboard.upcomingDividends')}</h3>
             <span style={{ color: 'var(--accent-green)', fontWeight: '600', fontSize: '18px' }}>
-              {formatCurrency(totalExpectedDividends, locale, currency)}
-            </span>
-          </div>
-          <div style={{ display: 'flex', gap: '20px', marginBottom: '14px' }}>
-            <span style={{ color: 'var(--text-secondary)', fontSize: '13px' }}>
-              {t(language, 'dashboard.received')}: <strong style={{ color: 'var(--accent-green)' }}>{formatCurrency(totalReceivedDividends, locale, currency)}</strong>
-            </span>
-            <span style={{ color: 'var(--text-secondary)', fontSize: '13px' }}>
-              {t(language, 'dashboard.remaining')}: <strong style={{ color: 'var(--accent-blue)' }}>{formatCurrency(totalRemainingDividends, locale, currency)}</strong>
+              {formatCurrency(totalRemainingDividends, locale, currency)}
             </span>
           </div>
           {monthlyUpcoming.map((group) => (

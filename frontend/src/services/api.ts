@@ -168,6 +168,13 @@ export interface UpcomingDividendsResponse {
   }>
 }
 
+export interface DistributionResponse {
+  by_sector: Record<string, number>
+  by_country: Record<string, number>
+  by_currency: Record<string, number>
+  by_stock: Record<string, number>
+}
+
 export interface TickerMapping {
   avanza_name: string
   yahoo_ticker: string
@@ -374,7 +381,7 @@ export const api = {
   portfolio: {
     summary: () => fetchAPI('/portfolio/summary') as Promise<PortfolioSummary>,
     refreshAll: () => fetchAPI('/portfolio/refresh-all', { method: 'POST' }),
-    distribution: () => fetchAPI('/portfolio/distribution'),
+    distribution: () => fetchAPI('/portfolio/distribution') as Promise<DistributionResponse>,
     history: (options: number | { days?: number; range?: string } = 30) => {
       const params = new URLSearchParams()
       if (typeof options === 'number') {

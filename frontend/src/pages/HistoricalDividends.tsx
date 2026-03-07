@@ -60,7 +60,7 @@ export default function HistoricalDividends() {
   const [stocks, setStocks] = useState<Stock[]>([])
   const [exchangeRates, setExchangeRates] = useState<Record<string, number | null>>({})
   const [loading, setLoading] = useState(true)
-  const [selectedYear, setSelectedYear] = useState<number>(new Date().getFullYear())
+  const [selectedYear, setSelectedYear] = useState<number>(new Date().getFullYear() - 1)
   const [dividendsByYear, setDividendsByYear] = useState<Record<number, YearlyData>>({})
   const [availableYears, setAvailableYears] = useState<number[]>([])
 
@@ -90,7 +90,7 @@ export default function HistoricalDividends() {
       setLoading(true)
       try {
         const currentYear = new Date().getFullYear()
-        const years = Array.from({ length: currentYear - 1999 }, (_, i) => currentYear - i)
+        const years = Array.from({ length: Math.max(currentYear - 2000, 0) }, (_, i) => currentYear - 1 - i)
         setAvailableYears(years)
         const todayIso = new Date().toISOString().slice(0, 10)
 
@@ -169,7 +169,7 @@ export default function HistoricalDividends() {
   return (
     <div>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '24px' }}>
-        <h2 style={{ fontSize: '24px', fontWeight: '600' }}>{t(language, 'history.title')}</h2>
+          <h2 style={{ fontSize: '24px', fontWeight: '600' }}>{t(language, 'history.title')}</h2>
         <div style={{ display: 'flex', gap: '12px', alignItems: 'center' }}>
           <label htmlFor="year-select" style={{ color: 'var(--text-secondary)', fontSize: '14px' }}>{t(language, 'common.year')}:</label>
           <select

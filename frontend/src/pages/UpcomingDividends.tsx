@@ -33,21 +33,6 @@ function formatDate(dateStr: string, locale: string): string {
 }
 
 /**
- * Calculates the number of days from today until the given date.
- *
- * @param dateStr - Date in `YYYY-MM-DD` format.
- * @returns The number of days from today to `dateStr`; `0` if the date is today, positive if in the future, negative if in the past.
- */
-function getDaysUntil(dateStr: string): number {
-  const [year, month, day] = dateStr.split('-').map(Number)
-  const target = new Date(year, month - 1, day)
-  const today = new Date()
-  today.setHours(0, 0, 0, 0)
-  target.setHours(0, 0, 0, 0)
-  return Math.ceil((target.getTime() - today.getTime()) / (1000 * 60 * 60 * 24))
-}
-
-/**
  * Extracts a year-month key from an ISO-like date string.
  *
  * @param dateStr - A date string in the format `YYYY-MM-DD` (or `YYYY-M-D`)
@@ -72,17 +57,20 @@ function formatMonthLabel(monthKey: string, locale: string): string {
 }
 
 /**
- * Displays a list of upcoming dividend payments for the user's portfolio, including a summary, per-stock details, unmapped-stock warnings, and controls to refresh or retry loading.
+ * Displays the current year's dividend payments for the user's portfolio.
  *
- * Renders loading and error states, fetches data on mount and when the user triggers a refresh, and shows converted totals when available.
+ * Renders loading and error states, fetches data on mount and refresh, and groups dividend rows by month using the dashboard-style table layout.
  *
- * @returns The component's rendered JSX containing the upcoming dividends UI
+ * @returns The component's rendered JSX containing the current-year dividends UI
  */
 export default function UpcomingDividends() {
   const { language } = useSettings()
   const locale = getLocaleForLanguage(language)
+  const currentYear = new Date().getUTCFullYear()
   const [dividends, setDividends] = useState<UpcomingDividend[]>([])
   const [totalExpected, setTotalExpected] = useState(0)
+  const [totalReceived, setTotalReceived] = useState(0)
+  const [totalRemaining, setTotalRemaining] = useState(0)
   const [displayCurrency, setDisplayCurrency] = useState('SEK')
   const [exchangeRates, setExchangeRates] = useState<Record<string, number | null>>({})
   const [unmappedStocks, setUnmappedStocks] = useState<Array<{ ticker: string; name: string | null; reason: string }>>([])
@@ -101,6 +89,8 @@ export default function UpcomingDividends() {
       const data = await api.portfolio.upcomingDividends()
       setDividends(data.dividends)
       setTotalExpected(data.total_expected)
+      setTotalReceived(data.total_received)
+      setTotalRemaining(data.total_remaining)
       setDisplayCurrency(data.display_currency)
       setUnmappedStocks(data.unmapped_stocks)
       const rates = await api.market.exchangeRates().catch(() => ({}))
@@ -127,11 +117,11 @@ export default function UpcomingDividends() {
 
   if (error) {
     return (
-      <div className="card" style={{ textAlign: 'center', padding: '40px' }}>
-        <p style={{ color: 'var(--text-secondary)' }}>{error}</p>
-        <button onClick={fetchData} style={{ marginTop: '16px' }}>{t(language, 'common.retry')}</button>
-      </div>
-    )
+        <div className="card" style={{ textAlign: 'center', padding: '40px' }}>
+          <p style={{ color: 'var(--text-secondary)' }}>{error}</p>
+          <button className="btn btn-primary" onClick={() => fetchData(true)} style={{ marginTop: '16px' }}>{t(language, 'common.retry')}</button>
+        </div>
+      )
   }
 
   const groupedByMonth = dividends.reduce((acc, div) => {
@@ -169,20 +159,24 @@ export default function UpcomingDividends() {
     .map(([monthKey, items]) => ({
       monthKey,
       items,
-      subtotal: items.reduce((sum, item) => {
+      subtotalsByCurrency: items.reduce((acc, item) => {
         const displayedTotal = getDisplayedDividendTotal(item)
-        return displayedTotal === null ? sum : sum + displayedTotal
-      }, 0),
+        if (displayedTotal === null) {
+          return acc
+        }
+        acc[displayCurrency] = (acc[displayCurrency] ?? 0) + displayedTotal
+        return acc
+      }, {} as Record<string, number>),
     }))
 
   return (
     <div>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '24px' }}>
-        <h2 style={{ fontSize: '24px', fontWeight: '600' }}>{t(language, 'upcoming.title')}</h2>
+         <h2 style={{ fontSize: '24px', fontWeight: '600' }}>{t(language, 'upcoming.titleWithYear', { year: currentYear })}</h2>
         <div style={{ display: 'flex', gap: '12px', alignItems: 'center' }}>
-          <Link to="/dividends/history" style={{ color: 'var(--accent-blue)', textDecoration: 'none', fontSize: '14px' }}>
-            {t(language, 'upcoming.viewHistory')} →
-          </Link>
+           <Link to="/dividends/history" style={{ color: 'var(--accent-blue)', textDecoration: 'none', fontSize: '14px' }}>
+             {t(language, 'upcoming.viewHistory')} →
+           </Link>
           <button className="btn btn-primary" onClick={() => fetchData(false)} disabled={refreshing}>
             {refreshing ? t(language, 'common.refreshing') : t(language, 'common.refresh')}
           </button>
@@ -238,47 +232,49 @@ export default function UpcomingDividends() {
         </div>
       ) : (
         <>
-          <div className="card" style={{ marginBottom: '24px' }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-              <div>
-                <h3 style={{ fontSize: '16px', color: 'var(--text-secondary)' }}>{t(language, 'upcoming.totalExpected')}</h3>
-                <span style={{ fontSize: '28px', fontWeight: '600', color: 'var(--accent-green)' }}>
-                  {formatCurrency(totalExpected, locale, displayCurrency)}
-                </span>
-              </div>
-              <div style={{ textAlign: 'right' }}>
-                <h3 style={{ fontSize: '16px', color: 'var(--text-secondary)' }}>{t(language, 'upcoming.upcomingPayments')}</h3>
-                <span style={{ fontSize: '28px', fontWeight: '600' }}>{dividends.length}</span>
-              </div>
-            </div>
-          </div>
-
           <div className="card">
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '16px' }}>
+              <div>
+                <h3 style={{ margin: 0 }}>{t(language, 'upcoming.titleWithYear', { year: currentYear })}</h3>
+                <div style={{ display: 'flex', gap: '20px', marginTop: '12px', fontSize: '13px', flexWrap: 'wrap' }}>
+                  <span style={{ color: 'var(--text-secondary)' }}>
+                    {t(language, 'dashboard.received')}: <strong style={{ color: 'var(--accent-green)' }}>{formatCurrency(totalReceived, locale, displayCurrency)}</strong>
+                  </span>
+                  <span style={{ color: 'var(--text-secondary)' }}>
+                    {t(language, 'dashboard.remaining')}: <strong style={{ color: 'var(--accent-blue)' }}>{formatCurrency(totalRemaining, locale, displayCurrency)}</strong>
+                  </span>
+                </div>
+              </div>
+              <span style={{ color: 'var(--accent-green)', fontWeight: '600', fontSize: '18px' }}>
+                {formatCurrency(totalExpected, locale, displayCurrency)}
+              </span>
+            </div>
+
             {monthlyGroups.map((group) => (
               <div key={group.monthKey} style={{ marginBottom: '24px' }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px' }}>
-                  <h3 style={{ fontSize: '18px', margin: 0 }}>{formatMonthLabel(group.monthKey, locale)}</h3>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
+                  <h4 style={{ margin: 0, color: 'var(--text-secondary)', fontSize: '14px' }}>{formatMonthLabel(group.monthKey, locale)}</h4>
                   <span style={{ color: 'var(--accent-green)', fontWeight: '600' }}>
-                    {formatCurrency(group.subtotal, locale, displayCurrency)}
+                    {Object.entries(group.subtotalsByCurrency)
+                      .sort(([a], [b]) => a.localeCompare(b))
+                      .map(([subtotalCurrency, subtotalAmount]) => formatCurrency(subtotalAmount, locale, subtotalCurrency))
+                      .join(' + ')}
                   </span>
                 </div>
 
-                <table>
+                <table style={{ width: '100%', tableLayout: 'fixed' }}>
                   <thead>
                     <tr>
-                      <th>{t(language, 'upcoming.stock')}</th>
-                      <th>{t(language, 'upcoming.exDate')}</th>
-                      <th>{t(language, 'upcoming.dividendDate')}</th>
-                      <th>{t(language, 'upcoming.perShare')}</th>
-                      <th>{t(language, 'upcoming.quantity')}</th>
-                      <th>{t(language, 'upcoming.total')}</th>
-                      <th>{t(language, 'upcoming.source')}</th>
+                      <th style={{ width: '24%' }}>{t(language, 'performance.ticker')}</th>
+                      <th style={{ width: '16%' }}>{t(language, 'dashboard.exDate')}</th>
+                      <th style={{ width: '18%' }}>{t(language, 'dashboard.dividendDate')}</th>
+                      <th style={{ width: '16%', textAlign: 'right' }}>{t(language, 'dashboard.perShare')}</th>
+                      <th style={{ width: '14%', textAlign: 'right' }}>{t(language, 'dashboard.total')}</th>
+                      <th style={{ width: '12%' }}>{t(language, 'dashboard.source')}</th>
                     </tr>
                   </thead>
                   <tbody>
                     {group.items.map((div, i) => {
-                      const daysUntil = getDaysUntil(div.ex_date)
-                      const isSoon = daysUntil <= 7 && daysUntil >= 0
                       const displayedTotal = getDisplayedDividendTotal(div)
 
                       return (
@@ -296,32 +292,10 @@ export default function UpcomingDividends() {
                               </span>
                             )}
                           </td>
-                          <td>
-                            <span style={{
-                              color: isSoon ? 'var(--accent-orange)' : 'inherit',
-                              fontWeight: isSoon ? '600' : 'normal'
-                            }}>
-                              {formatDate(div.ex_date, locale)}
-                            </span>
-                            {daysUntil >= 0 && daysUntil <= 30 && (
-                              <span style={{
-                                display: 'block',
-                                fontSize: '11px',
-                                color: 'var(--text-secondary)'
-                              }}>
-                                {daysUntil === 0
-                                  ? t(language, 'upcoming.today')
-                                  : t(language, 'upcoming.inDays', {
-                                      count: daysUntil,
-                                      dayLabel: t(language, daysUntil > 1 ? 'upcoming.days' : 'upcoming.day'),
-                                    })}
-                              </span>
-                            )}
-                          </td>
-                          <td>{div.payment_date ? formatDate(div.payment_date, locale) : '-'}</td>
-                          <td>{formatCurrency(div.amount_per_share, locale, div.currency)}</td>
-                          <td>{div.quantity}</td>
-                          <td>
+                          <td>{formatDate(div.ex_date, locale).replace(/,\s*\d{4}/, '')}</td>
+                          <td>{div.payment_date ? formatDate(div.payment_date, locale).replace(/,\s*\d{4}/, '') : '-'}</td>
+                          <td style={{ textAlign: 'right' }}>{formatCurrency(div.amount_per_share, locale, div.currency)}</td>
+                          <td style={{ textAlign: 'right' }}>
                             <span style={{ color: 'var(--accent-green)', fontWeight: '600' }}>
                               {displayedTotal !== null
                                 ? formatCurrency(displayedTotal, locale, displayCurrency)
