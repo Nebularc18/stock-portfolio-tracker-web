@@ -320,11 +320,8 @@ export default function Performance() {
                 <div key={stock.ticker} style={{ display: 'flex', justifyContent: 'space-between', padding: '8px 0', borderBottom: '1px solid var(--border-color)' }}>
                   <div>
                     <Link to={`/stocks/${stock.ticker}`} style={{ color: 'var(--accent-blue)', textDecoration: 'none', fontWeight: '600' }}>
-                      {stock.ticker}
+                      {stock.name || stock.ticker}
                     </Link>
-                    <span style={{ color: 'var(--text-secondary)', marginLeft: '8px', fontSize: '12px' }}>
-                      {stock.name}
-                    </span>
                   </div>
                   <span className="positive">{formatPercent(stock.gainPercent, locale)}</span>
                 </div>
@@ -338,11 +335,8 @@ export default function Performance() {
                 <div key={stock.ticker} style={{ display: 'flex', justifyContent: 'space-between', padding: '8px 0', borderBottom: '1px solid var(--border-color)' }}>
                   <div>
                     <Link to={`/stocks/${stock.ticker}`} style={{ color: 'var(--accent-blue)', textDecoration: 'none', fontWeight: '600' }}>
-                      {stock.ticker}
+                      {stock.name || stock.ticker}
                     </Link>
-                    <span style={{ color: 'var(--text-secondary)', marginLeft: '8px', fontSize: '12px' }}>
-                      {stock.name}
-                    </span>
                   </div>
                   <span className="negative">{formatPercent(stock.gainPercent, locale)}</span>
                 </div>
@@ -357,8 +351,8 @@ export default function Performance() {
         <table>
           <thead>
             <tr>
-              <SortHeader field="ticker" label={t(language, 'performance.ticker')} />
               <SortHeader field="name" label={t(language, 'performance.name')} />
+              <SortHeader field="ticker" label={t(language, 'performance.ticker')} />
               <th>{t(language, 'performance.qty')}</th>
               <th>{t(language, 'performance.currency')}</th>
               <SortHeader field="cost" label={t(language, 'performance.costSek')} />
@@ -374,10 +368,10 @@ export default function Performance() {
               <tr key={stock.ticker}>
                 <td>
                   <Link to={`/stocks/${stock.ticker}`} style={{ color: 'var(--accent-blue)', textDecoration: 'none', fontWeight: '600' }}>
-                    {stock.ticker}
+                    {stock.name || stock.ticker}
                   </Link>
                 </td>
-                <td>{stock.name || '-'}</td>
+                <td>{stock.ticker}</td>
                 <td>{stock.quantity}</td>
                 <td>{stock.currency}</td>
                 <td>{formatCurrency(stock.costSEK, locale, 'SEK')}</td>

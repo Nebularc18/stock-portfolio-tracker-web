@@ -5,7 +5,7 @@ import { useSettings } from '../SettingsContext'
 import { getLocaleForLanguage, t } from '../i18n'
 
 const COLORS = ['#6366f1', '#ec4899', '#ef4444', '#f97316', '#22c55e', '#3b82f6', '#a855f7', '#f43f5e']
-const COMPARISON_COLORS = ['#7c3aed', '#a855f7', '#c084fc']
+const COMPARISON_COLORS = ['#22c55e', '#f59e0b', '#ec4899']
 
 type DividendComparisonRow = {
   month: string

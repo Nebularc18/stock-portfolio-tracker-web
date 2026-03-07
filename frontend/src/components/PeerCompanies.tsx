@@ -1,6 +1,8 @@
+import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useSettings } from '../SettingsContext'
 import { t } from '../i18n'
+import { api } from '../services/api'
 
 interface Props {
   peers: string[] | null
@@ -17,6 +19,30 @@ interface Props {
 export default function PeerCompanies({ peers, loading }: Props) {
   const navigate = useNavigate()
   const { language } = useSettings()
+  const [peerNames, setPeerNames] = useState<Record<string, string>>({})
+
+  useEffect(() => {
+    let isCurrent = true
+
+    if (!peers || peers.length === 0) {
+      setPeerNames({})
+      return
+    }
+
+    Promise.all(
+      peers.map(async (ticker) => {
+        const profile = await api.finnhub.profile(ticker).catch(() => null)
+        return [ticker, profile?.name || ticker] as const
+      })
+    ).then((entries) => {
+      if (!isCurrent) return
+      setPeerNames(Object.fromEntries(entries))
+    })
+
+    return () => {
+      isCurrent = false
+    }
+  }, [peers])
 
   if (loading) {
     return (
@@ -74,7 +100,7 @@ export default function PeerCompanies({ peers, loading }: Props) {
               e.currentTarget.style.background = 'var(--bg-tertiary)'
             }}
           >
-            {ticker}
+            {peerNames[ticker] || ticker}
           </button>
         ))}
       </div>

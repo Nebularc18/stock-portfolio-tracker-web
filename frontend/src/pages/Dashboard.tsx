@@ -795,7 +795,7 @@ export default function Dashboard() {
               <table style={{ width: '100%', tableLayout: 'fixed' }}>
                 <thead>
                   <tr>
-                    <th style={{ width: '18%' }}>{t(language, 'performance.ticker')}</th>
+                    <th style={{ width: '18%' }}>{t(language, 'performance.name')}</th>
                     <th style={{ width: '14%' }}>{t(language, 'dashboard.exDate')}</th>
                     <th style={{ width: '16%' }}>{t(language, 'dashboard.dividendDate')}</th>
                     <th style={{ width: '18%', textAlign: 'right' }}>{t(language, 'dashboard.perShare')}</th>
@@ -811,7 +811,7 @@ export default function Dashboard() {
                     <tr key={`${div.ticker}-${div.ex_date}-${payoutDisplayDate ?? 'na'}-${div.dividend_type ?? 'na'}-${i}`}>
                       <td>
                         <Link to={`/stocks/${div.ticker}`} style={{ color: 'var(--accent-blue)', textDecoration: 'none', fontWeight: '600' }}>
-                          {div.ticker}
+                          {div.name || div.ticker}
                         </Link>
                       </td>
                       <td>{formatDate(div.ex_date, locale)}</td>

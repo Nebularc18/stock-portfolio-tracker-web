@@ -172,7 +172,7 @@ export default function AvanzaMappings() {
                 <option value="">{t(language, 'avanzaMappings.selectStockOption')}</option>
                 {unmappedStocks.map((stock) => (
                   <option key={stock.ticker} value={stock.ticker}>
-                    {stock.ticker} {stock.name ? `- ${stock.name}` : ''}
+                    {stock.name || stock.ticker}
                   </option>
                 ))}
               </select>

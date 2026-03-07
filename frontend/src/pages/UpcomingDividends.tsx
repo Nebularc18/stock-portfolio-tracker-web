@@ -207,7 +207,7 @@ export default function UpcomingDividends() {
                   borderRadius: '4px',
                 }}
               >
-                {stock.ticker}
+                {stock.name || stock.ticker}
               </span>
             ))}
             {unmappedStocks.length > 5 && (
@@ -278,7 +278,7 @@ export default function UpcomingDividends() {
                 <table style={{ width: '100%', tableLayout: 'fixed' }}>
                   <thead>
                     <tr>
-                      <th style={{ width: '24%' }}>{t(language, 'performance.ticker')}</th>
+                      <th style={{ width: '24%' }}>{t(language, 'performance.name')}</th>
                       <th style={{ width: '16%' }}>{t(language, 'dashboard.exDate')}</th>
                       <th style={{ width: '18%' }}>{t(language, 'dashboard.dividendDate')}</th>
                       <th style={{ width: '16%', textAlign: 'right' }}>{t(language, 'dashboard.perShare')}</th>
@@ -294,11 +294,8 @@ export default function UpcomingDividends() {
                         <tr key={`${div.ticker}-${div.ex_date}-${div.payment_date ?? 'na'}-${div.dividend_type ?? 'na'}-${i}`}>
                           <td>
                             <Link to={`/stocks/${div.ticker}`} style={{ color: 'var(--accent-blue)', textDecoration: 'none', fontWeight: '600' }}>
-                              {div.ticker}
+                              {div.name || div.ticker}
                             </Link>
-                            <span style={{ color: 'var(--text-secondary)', marginLeft: '8px', fontSize: '12px' }}>
-                              {div.name}
-                            </span>
                             {div.dividend_type && (
                               <span style={{ display: 'block', color: 'var(--text-secondary)', fontSize: '11px' }}>
                                 {div.dividend_type}

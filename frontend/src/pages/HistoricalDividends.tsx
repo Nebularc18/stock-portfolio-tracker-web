@@ -236,7 +236,7 @@ export default function HistoricalDividends() {
                 <table>
                   <thead>
                     <tr>
-                      <th>{t(language, 'history.stock')}</th>
+                      <th>{t(language, 'performance.name')}</th>
                       <th>{t(language, 'history.date')}</th>
                       <th>{t(language, 'history.perShare')}</th>
                       <th>{t(language, 'history.totalSek')}</th>
@@ -251,11 +251,8 @@ export default function HistoricalDividends() {
                           <tr key={`${div.ticker}-${i}`}>
                             <td>
                               <Link to={`/stocks/${div.ticker}`} style={{ color: 'var(--accent-blue)', textDecoration: 'none', fontWeight: '600' }}>
-                                {div.ticker}
+                                {div.name || div.ticker}
                               </Link>
-                              <span style={{ color: 'var(--text-secondary)', marginLeft: '8px', fontSize: '12px' }}>
-                                {div.name}
-                              </span>
                             </td>
                             <td>{div.date}</td>
                             <td>{formatCurrency(div.amount, locale, div.dividendCurrency)}</td>

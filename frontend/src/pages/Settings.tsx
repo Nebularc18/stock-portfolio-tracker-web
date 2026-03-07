@@ -21,6 +21,49 @@ export default function Settings() {
   const [loadingIndices, setLoadingIndices] = useState(true)
   const [indicesLoadFailed, setIndicesLoadFailed] = useState(false)
 
+  const preferenceGridStyle = {
+    display: 'grid',
+    gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))',
+    gap: '16px',
+    alignItems: 'stretch',
+  } as const
+
+  const preferencePanelStyle = {
+    display: 'flex',
+    flexDirection: 'column',
+    gap: '10px',
+    minHeight: '100%',
+    padding: '18px',
+    background: 'linear-gradient(180deg, color-mix(in srgb, var(--bg-tertiary) 88%, transparent) 0%, color-mix(in srgb, var(--bg-secondary) 82%, transparent) 100%)',
+    border: '1px solid var(--border-color)',
+    borderRadius: '16px',
+  } as const
+
+  const preferenceLabelStyle = {
+    display: 'block',
+    marginBottom: '8px',
+    color: 'var(--text-secondary)',
+    fontSize: '13px',
+    letterSpacing: '0.02em',
+  } as const
+
+  const preferenceSelectStyle = {
+    width: '100%',
+    padding: '12px 16px',
+    border: '1px solid var(--border-color)',
+    borderRadius: 'var(--card-radius)',
+    background: 'var(--bg-tertiary)',
+    color: 'var(--text-primary)',
+    fontSize: '14px',
+  } as const
+
+  const preferenceDescriptionStyle = {
+    color: 'var(--text-secondary)',
+    fontSize: '12px',
+    lineHeight: 1.5,
+    margin: 0,
+  } as const
+
   useEffect(() => {
     let cancelled = false
     setLoadingIndices(true)
@@ -261,98 +304,81 @@ export default function Settings() {
       
       <div className="card">
         <h3 style={{ marginBottom: '16px' }}>{t(language, 'settings.displayPreferences')}</h3>
+        <div style={preferenceGridStyle}>
+          <div style={preferencePanelStyle}>
+            <div>
+              <label
+                htmlFor="language-select"
+                style={preferenceLabelStyle}
+              >
+                {t(language, 'settings.language')}
+              </label>
+              <select
+                id="language-select"
+                value={language}
+                onChange={(e) => setLanguage(e.target.value as 'en' | 'sv')}
+                style={preferenceSelectStyle}
+              >
+                <option value="en">{t(language, 'language.english')}</option>
+                <option value="sv">{t(language, 'language.swedish')}</option>
+              </select>
+            </div>
+            <p style={preferenceDescriptionStyle}>
+              Interface text, labels, and local formatting follow this selection.
+            </p>
+          </div>
 
-        <div style={{ marginBottom: '24px' }}>
-          <label
-            htmlFor="language-select"
-            style={{ display: 'block', marginBottom: '8px', color: 'var(--text-secondary)', fontSize: '14px' }}
-          >
-            {t(language, 'settings.language')}
-          </label>
-          <select
-            id="language-select"
-            value={language}
-            onChange={(e) => setLanguage(e.target.value as 'en' | 'sv')}
-            style={{
-              width: '100%',
-              maxWidth: '400px',
-              padding: '12px 16px',
-              border: '1px solid var(--border-color)',
-              borderRadius: 'var(--card-radius)',
-              background: 'var(--bg-tertiary)',
-              color: 'var(--text-primary)',
-              fontSize: '14px',
-            }}
-          >
-            <option value="en">{t(language, 'language.english')}</option>
-            <option value="sv">{t(language, 'language.swedish')}</option>
-          </select>
-        </div>
-        
-        <div style={{ marginBottom: '24px' }}>
-          <label
-            htmlFor="display-currency-select"
-            style={{ display: 'block', marginBottom: '8px', color: 'var(--text-secondary)', fontSize: '14px' }}
-          >
-            {t(language, 'settings.displayCurrency')}
-          </label>
-          <select
-            id="display-currency-select"
-            value={displayCurrency}
-            onChange={(e) => setDisplayCurrency(e.target.value)}
-            style={{
-              width: '100%',
-              maxWidth: '400px',
-              padding: '12px 16px',
-              border: '1px solid var(--border-color)',
-              borderRadius: 'var(--card-radius)',
-              background: 'var(--bg-tertiary)',
-              color: 'var(--text-primary)',
-              fontSize: '14px',
-            }}
-          >
-            {SUPPORTED_CURRENCIES.map((c) => (
-              <option key={c.code} value={c.code}>
-                {c.code} - {c.label}
-              </option>
-            ))}
-          </select>
-          <p style={{ color: 'var(--text-secondary)', fontSize: '12px', marginTop: '8px' }}>
-            {t(language, 'settings.displayCurrencyDescription')}
-          </p>
-        </div>
-        
-        <div style={{ marginBottom: '24px' }}>
-          <label
-            htmlFor="timezone-select"
-            style={{ display: 'block', marginBottom: '8px', color: 'var(--text-secondary)', fontSize: '14px' }}
-          >
-            {t(language, 'settings.timezone')}
-          </label>
-          <select
-            id="timezone-select"
-            value={timezone}
-            onChange={(e) => setTimezone(e.target.value)}
-            style={{
-              width: '100%',
-              maxWidth: '400px',
-              padding: '12px 16px',
-              border: '1px solid var(--border-color)',
-              borderRadius: 'var(--card-radius)',
-              background: 'var(--bg-tertiary)',
-              color: 'var(--text-primary)',
-              fontSize: '14px',
-            }}
-          >
-            {TIMEZONES.map((tz) => (
-              <option key={tz.id} value={tz.id}>
-                {tz.label}
-              </option>
-            ))}
-          </select>
-          <p style={{ color: 'var(--text-secondary)', fontSize: '12px', marginTop: '8px' }}>
-            {t(language, 'settings.timezoneDescription')}
-          </p>
+          <div style={preferencePanelStyle}>
+            <div>
+              <label
+                htmlFor="display-currency-select"
+                style={preferenceLabelStyle}
+              >
+                {t(language, 'settings.displayCurrency')}
+              </label>
+              <select
+                id="display-currency-select"
+                value={displayCurrency}
+                onChange={(e) => setDisplayCurrency(e.target.value)}
+                style={preferenceSelectStyle}
+              >
+                {SUPPORTED_CURRENCIES.map((c) => (
+                  <option key={c.code} value={c.code}>
+                    {c.code} - {c.label}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <p style={preferenceDescriptionStyle}>
+              {t(language, 'settings.displayCurrencyDescription')}
+            </p>
+          </div>
+
+          <div style={preferencePanelStyle}>
+            <div>
+              <label
+                htmlFor="timezone-select"
+                style={preferenceLabelStyle}
+              >
+                {t(language, 'settings.timezone')}
+              </label>
+              <select
+                id="timezone-select"
+                value={timezone}
+                onChange={(e) => setTimezone(e.target.value)}
+                style={preferenceSelectStyle}
+              >
+                {TIMEZONES.map((tz) => (
+                  <option key={tz.id} value={tz.id}>
+                    {tz.label}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <p style={preferenceDescriptionStyle}>
+              {t(language, 'settings.timezoneDescription')}
+            </p>
+          </div>
         </div>
       </div>
       
