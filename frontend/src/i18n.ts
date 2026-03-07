@@ -416,7 +416,7 @@ const translations = {
     'layout.localTime': 'Lokal tid',
     'layout.marketIndices': 'Marknadsindex',
     'layout.signedInAs': 'Inloggad som {{username}}',
-    'layout.guestDemo': '(gastdemo)',
+    'layout.guestDemo': '(gästdemo)',
     'layout.logout': 'Logga ut',
     'layout.logoutError': 'Det gick inte att logga ut. Försök igen.',
 
