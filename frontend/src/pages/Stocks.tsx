@@ -157,8 +157,13 @@ const EXCHANGES = [
     if (!editStock) return
     try {
       setSaving(true)
+      const parsedQuantity = parseFloat(editQuantity)
+      const quantity = editQuantity.trim() === '' || Number.isNaN(parsedQuantity)
+        ? undefined
+        : parsedQuantity
+
       await api.stocks.update(editStock.ticker, {
-        quantity: parseFloat(editQuantity) || undefined,
+        quantity,
         purchase_price: editPurchasePrice ? parseFloat(editPurchasePrice) : undefined,
         purchase_date: editPurchaseDate || undefined,
       })

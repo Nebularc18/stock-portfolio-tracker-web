@@ -120,7 +120,7 @@ export default function Analytics() {
     } finally {
       setLoading(false)
     }
-  }, [language])
+  }, [language, locale])
 
   useEffect(() => {
     fetchData()

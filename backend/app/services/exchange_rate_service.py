@@ -126,14 +126,27 @@ class ExchangeRateService:
             dict: Mapping of currency pairs to exchange rates.
         """
         needed_pairs = set()
+
+        def add_pair(from_currency: str, to_currency: str) -> None:
+            if from_currency == to_currency:
+                return
+
+            key = f"{from_currency}_{to_currency}"
+            inverse_key = f"{to_currency}_{from_currency}"
+            if key in EXCHANGE_PAIRS:
+                needed_pairs.add(key)
+            elif inverse_key in EXCHANGE_PAIRS:
+                needed_pairs.add(inverse_key)
+
         for currency in currencies:
-            if currency != display_currency:
-                key = f"{currency}_{display_currency}"
-                inverse_key = f"{display_currency}_{currency}"
-                if key in EXCHANGE_PAIRS:
-                    needed_pairs.add(key)
-                elif inverse_key in EXCHANGE_PAIRS:
-                    needed_pairs.add(inverse_key)
+            if currency == display_currency:
+                continue
+
+            add_pair(currency, display_currency)
+
+            if currency != "SEK" and display_currency != "SEK":
+                add_pair(currency, "SEK")
+                add_pair("SEK", display_currency)
         
         rates = {}
         now = datetime.now().timestamp()

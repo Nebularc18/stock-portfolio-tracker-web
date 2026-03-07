@@ -6,6 +6,49 @@ import { api, AvailableIndex } from '../services/api'
 import AvanzaMappings from '../components/AvanzaMappings'
 import { t, TranslationKey } from '../i18n'
 
+const preferenceGridStyle = {
+  display: 'grid',
+  gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))',
+  gap: '16px',
+  alignItems: 'stretch',
+} as const
+
+const preferencePanelStyle = {
+  display: 'flex',
+  flexDirection: 'column',
+  gap: '10px',
+  minHeight: '100%',
+  padding: '18px',
+  background: 'linear-gradient(180deg, color-mix(in srgb, var(--bg-tertiary) 88%, transparent) 0%, color-mix(in srgb, var(--bg-secondary) 82%, transparent) 100%)',
+  border: '1px solid var(--border-color)',
+  borderRadius: '16px',
+} as const
+
+const preferenceLabelStyle = {
+  display: 'block',
+  marginBottom: '8px',
+  color: 'var(--text-secondary)',
+  fontSize: '13px',
+  letterSpacing: '0.02em',
+} as const
+
+const preferenceSelectStyle = {
+  width: '100%',
+  padding: '12px 16px',
+  border: '1px solid var(--border-color)',
+  borderRadius: 'var(--card-radius)',
+  background: 'var(--bg-tertiary)',
+  color: 'var(--text-primary)',
+  fontSize: '14px',
+} as const
+
+const preferenceDescriptionStyle = {
+  color: 'var(--text-secondary)',
+  fontSize: '12px',
+  lineHeight: 1.5,
+  margin: 0,
+} as const
+
 /**
  * Render the Settings page where users can select theme, choose header indices, and update display preferences.
  *
@@ -20,49 +63,6 @@ export default function Settings() {
   const [availableIndices, setAvailableIndices] = useState<AvailableIndex[]>([])
   const [loadingIndices, setLoadingIndices] = useState(true)
   const [indicesLoadFailed, setIndicesLoadFailed] = useState(false)
-
-  const preferenceGridStyle = {
-    display: 'grid',
-    gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))',
-    gap: '16px',
-    alignItems: 'stretch',
-  } as const
-
-  const preferencePanelStyle = {
-    display: 'flex',
-    flexDirection: 'column',
-    gap: '10px',
-    minHeight: '100%',
-    padding: '18px',
-    background: 'linear-gradient(180deg, color-mix(in srgb, var(--bg-tertiary) 88%, transparent) 0%, color-mix(in srgb, var(--bg-secondary) 82%, transparent) 100%)',
-    border: '1px solid var(--border-color)',
-    borderRadius: '16px',
-  } as const
-
-  const preferenceLabelStyle = {
-    display: 'block',
-    marginBottom: '8px',
-    color: 'var(--text-secondary)',
-    fontSize: '13px',
-    letterSpacing: '0.02em',
-  } as const
-
-  const preferenceSelectStyle = {
-    width: '100%',
-    padding: '12px 16px',
-    border: '1px solid var(--border-color)',
-    borderRadius: 'var(--card-radius)',
-    background: 'var(--bg-tertiary)',
-    color: 'var(--text-primary)',
-    fontSize: '14px',
-  } as const
-
-  const preferenceDescriptionStyle = {
-    color: 'var(--text-secondary)',
-    fontSize: '12px',
-    lineHeight: 1.5,
-    margin: 0,
-  } as const
 
   useEffect(() => {
     let cancelled = false
@@ -324,7 +324,7 @@ export default function Settings() {
               </select>
             </div>
             <p style={preferenceDescriptionStyle}>
-              Interface text, labels, and local formatting follow this selection.
+              {t(language, 'settings.languageDescription')}
             </p>
           </div>
 

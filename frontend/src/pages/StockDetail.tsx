@@ -511,7 +511,7 @@ export default function StockDetail() {
         purchase_price: Number.isNaN(parsedPurchasePrice) ? undefined : parsedPurchasePrice,
         purchase_date: editPurchaseDate || undefined,
       })
-        const yearlyState = recalculateYearlyDividendState(yearDividends, updated.quantity, exchangeRates)
+      const yearlyState = recalculateYearlyDividendState(yearDividends, updated.quantity, exchangeRates)
       setStock(updated)
       setYearDividends(yearlyState.yearDividends)
       setYearReceived(yearlyState.yearReceived)

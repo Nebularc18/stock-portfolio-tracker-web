@@ -9,6 +9,8 @@ interface Props {
   loading?: boolean
 }
 
+const PROFILE_BATCH_SIZE = 4
+
 /**
  * Renders a localized card of peer company tickers as clickable buttons that navigate to each stock page.
  *
@@ -29,15 +31,27 @@ export default function PeerCompanies({ peers, loading }: Props) {
       return
     }
 
-    Promise.all(
-      peers.map(async (ticker) => {
-        const profile = await api.finnhub.profile(ticker).catch(() => null)
-        return [ticker, profile?.name || ticker] as const
-      })
-    ).then((entries) => {
+    const loadPeerNames = async () => {
+      const entries: Array<readonly [string, string]> = []
+
+      for (let index = 0; index < peers.length; index += PROFILE_BATCH_SIZE) {
+        const batch = peers.slice(index, index + PROFILE_BATCH_SIZE)
+        const batchEntries = await Promise.all(
+          batch.map(async (ticker) => {
+            const profile = await api.finnhub.profile(ticker).catch(() => null)
+            return [ticker, profile?.name || ticker] as const
+          })
+        )
+
+        if (!isCurrent) return
+        entries.push(...batchEntries)
+      }
+
       if (!isCurrent) return
       setPeerNames(Object.fromEntries(entries))
-    })
+    }
+
+    void loadPeerNames()
 
     return () => {
       isCurrent = false

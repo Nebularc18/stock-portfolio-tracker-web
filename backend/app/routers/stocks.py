@@ -198,7 +198,8 @@ def update_stock(ticker: str, stock_data: StockUpdate, db: Session = Depends(get
         stock.quantity = stock_data.quantity
     if stock_data.purchase_price is not None:
         stock.purchase_price = stock_data.purchase_price
-    if stock_data.purchase_date is not None:
+    provided_fields = getattr(stock_data, "model_fields_set", getattr(stock_data, "__fields_set__", set()))
+    if "purchase_date" in provided_fields:
         stock.purchase_date = stock_data.purchase_date
     
     db.commit()
@@ -401,6 +402,7 @@ def get_upcoming_dividends(ticker: str, db: Session = Depends(get_db), current_u
         for div in historical_dividends
     }
 
+    today = utc_now().date().isoformat()
     current_year = utc_now().year
     avanza_mapping = avanza_service.get_mapping_by_ticker(ticker)
     if avanza_mapping and avanza_mapping.instrument_id:
@@ -418,6 +420,10 @@ def get_upcoming_dividends(ticker: str, db: Session = Depends(get_db), current_u
                 if event_key in historical_event_keys:
                     continue
                 if not _is_on_or_after_purchase_date(div.ex_date, stock.purchase_date):
+                    continue
+                if div.payment_date and div.payment_date <= today:
+                    continue
+                if div.ex_date and div.ex_date <= today:
                     continue
                 upcoming_or_remaining.append({
                     'ex_date': div.ex_date,

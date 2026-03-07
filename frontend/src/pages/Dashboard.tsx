@@ -386,6 +386,7 @@ export default function Dashboard() {
 
   const portfolioDividendYield = stocks.reduce((acc, stock) => {
     if (stock.current_price === null || stock.quantity <= 0 || stock.dividend_yield === null) {
+      acc.partial = true
       return acc
     }
 

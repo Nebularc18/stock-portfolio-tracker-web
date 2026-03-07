@@ -26,10 +26,10 @@ function formatCurrency(value: number, locale: string, currency: string = 'SEK')
  * @param locale - BCP 47 locale string used for formatting (for example `sv-SE` or `en-US`).
  * @returns A localized date string with numeric year, short month name, and day (for example `1 Jan 2025` or `1 jan. 2025` depending on `locale`)
  */
-function formatDate(dateStr: string, locale: string): string {
+function formatDate(dateStr: string, locale: string, options: Intl.DateTimeFormatOptions = { year: 'numeric', month: 'short', day: 'numeric' }): string {
   const [year, month, day] = dateStr.split('-').map(Number)
   const date = new Date(Date.UTC(year, month - 1, day))
-  return date.toLocaleDateString(locale, { year: 'numeric', month: 'short', day: 'numeric', timeZone: 'UTC' })
+  return date.toLocaleDateString(locale, { timeZone: 'UTC', ...options })
 }
 
 /**
@@ -159,19 +159,18 @@ export default function UpcomingDividends() {
     .map(([monthKey, items]) => ({
       monthKey,
       items,
-      subtotalsByCurrency: items.reduce((acc, item) => {
+      subtotal: items.reduce((acc, item) => {
         const displayedTotal = getDisplayedDividendTotal(item)
         if (displayedTotal === null) {
           return acc
         }
-        acc[displayCurrency] = (acc[displayCurrency] ?? 0) + displayedTotal
-        return acc
-      }, {} as Record<string, number>),
+        return acc + displayedTotal
+      }, 0),
     }))
 
-  const averagePerQuarter = totalExpected / 4
-  const averagePerMonth = totalExpected / 12
-  const averagePerDay = totalExpected / 365
+  const projectedAveragePerQuarter = totalExpected / 4
+  const projectedAveragePerMonth = totalExpected / 12
+  const projectedAveragePerDay = totalExpected / 365
 
   return (
     <div>
@@ -248,13 +247,13 @@ export default function UpcomingDividends() {
                     {t(language, 'dashboard.remaining')}: <strong style={{ color: 'var(--accent-blue)' }}>{formatCurrency(totalRemaining, locale, displayCurrency)}</strong>
                   </span>
                   <span style={{ color: 'var(--text-secondary)' }}>
-                    {t(language, 'upcoming.perQuarter')}: <strong style={{ color: 'var(--text-primary)' }}>{formatCurrency(averagePerQuarter, locale, displayCurrency)}</strong>
+                    {t(language, 'upcoming.perQuarter')} ({t(language, 'upcoming.projected')}): <strong style={{ color: 'var(--text-primary)' }}>{formatCurrency(projectedAveragePerQuarter, locale, displayCurrency)}</strong>
                   </span>
                   <span style={{ color: 'var(--text-secondary)' }}>
-                    {t(language, 'upcoming.perMonth')}: <strong style={{ color: 'var(--text-primary)' }}>{formatCurrency(averagePerMonth, locale, displayCurrency)}</strong>
+                    {t(language, 'upcoming.perMonth')} ({t(language, 'upcoming.projected')}): <strong style={{ color: 'var(--text-primary)' }}>{formatCurrency(projectedAveragePerMonth, locale, displayCurrency)}</strong>
                   </span>
                   <span style={{ color: 'var(--text-secondary)' }}>
-                    {t(language, 'upcoming.perDay')}: <strong style={{ color: 'var(--text-primary)' }}>{formatCurrency(averagePerDay, locale, displayCurrency)}</strong>
+                    {t(language, 'upcoming.perDay')} ({t(language, 'upcoming.projected')}): <strong style={{ color: 'var(--text-primary)' }}>{formatCurrency(projectedAveragePerDay, locale, displayCurrency)}</strong>
                   </span>
                 </div>
               </div>
@@ -268,10 +267,7 @@ export default function UpcomingDividends() {
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
                   <h4 style={{ margin: 0, color: 'var(--text-secondary)', fontSize: '14px' }}>{formatMonthLabel(group.monthKey, locale)}</h4>
                   <span style={{ color: 'var(--accent-green)', fontWeight: '600' }}>
-                    {Object.entries(group.subtotalsByCurrency)
-                      .sort(([a], [b]) => a.localeCompare(b))
-                      .map(([subtotalCurrency, subtotalAmount]) => formatCurrency(subtotalAmount, locale, subtotalCurrency))
-                      .join(' + ')}
+                    {formatCurrency(group.subtotal, locale, displayCurrency)}
                   </span>
                 </div>
 
@@ -302,8 +298,8 @@ export default function UpcomingDividends() {
                               </span>
                             )}
                           </td>
-                          <td>{formatDate(div.ex_date, locale).replace(/,\s*\d{4}/, '')}</td>
-                          <td>{div.payment_date ? formatDate(div.payment_date, locale).replace(/,\s*\d{4}/, '') : '-'}</td>
+                          <td>{formatDate(div.ex_date, locale, { month: 'short', day: 'numeric' })}</td>
+                          <td>{div.payment_date ? formatDate(div.payment_date, locale, { month: 'short', day: 'numeric' }) : '-'}</td>
                           <td style={{ textAlign: 'right' }}>{formatCurrency(div.amount_per_share, locale, div.currency)}</td>
                           <td style={{ textAlign: 'right' }}>
                             <span style={{ color: 'var(--accent-green)', fontWeight: '600' }}>

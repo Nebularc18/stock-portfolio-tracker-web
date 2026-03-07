@@ -97,6 +97,15 @@ def normalize_dividend_event(raw_div: dict, event_type: str) -> dict:
     }
 
 
+def dividend_event_merge_key(event: dict) -> Optional[tuple[str, str]]:
+    ex_date = event.get('ex_date')
+    if not ex_date:
+        return None
+
+    dividend_type = event.get('dividend_type') or 'unknown'
+    return ex_date, dividend_type
+
+
 def get_yahoo_normalized_events(stock_service, ticker: str) -> list:
     """
     Fetch and return a unified list of normalized historical and upcoming dividend events.
@@ -114,15 +123,15 @@ def get_yahoo_normalized_events(stock_service, ticker: str) -> list:
     normalized = [normalize_dividend_event(div, 'historical') for div in historical]
 
     historical_by_ex_date = {
-        event.get('ex_date'): event
+        dividend_event_merge_key(event): event
         for event in normalized
-        if event.get('ex_date')
+        if dividend_event_merge_key(event) is not None
     }
 
     for div in upcoming:
         normalized_upcoming = normalize_dividend_event(div, 'upcoming')
-        upcoming_ex_date = normalized_upcoming.get('ex_date')
-        historical_event = historical_by_ex_date.get(upcoming_ex_date) if upcoming_ex_date else None
+        upcoming_key = dividend_event_merge_key(normalized_upcoming)
+        historical_event = historical_by_ex_date.get(upcoming_key) if upcoming_key else None
         if historical_event is not None:
             if not historical_event.get('payment_date') and normalized_upcoming.get('payment_date'):
                 historical_event['payment_date'] = normalized_upcoming.get('payment_date')
@@ -132,8 +141,8 @@ def get_yahoo_normalized_events(stock_service, ticker: str) -> list:
                 historical_event['dividend_type'] = normalized_upcoming.get('dividend_type')
             continue
         normalized.append(normalized_upcoming)
-        if upcoming_ex_date:
-            historical_by_ex_date[upcoming_ex_date] = normalized_upcoming
+        if upcoming_key:
+            historical_by_ex_date[upcoming_key] = normalized_upcoming
 
     return normalized
 
@@ -528,6 +537,7 @@ def get_portfolio_distribution(db: Session = Depends(get_db), current_user: User
     for stock in stocks:
         if stock.current_price is not None and stock.quantity is not None:
             value_native = stock.current_price * stock.quantity
+            by_currency[stock.currency] = by_currency.get(stock.currency, 0) + value_native
             value = convert_value(value_native, stock.currency, display_currency, rates)
             if value is None:
                 continue
@@ -537,9 +547,7 @@ def get_portfolio_distribution(db: Session = Depends(get_db), current_user: User
 
             country = infer_country_from_ticker(stock.ticker) or "Unknown"
             by_country[country] = by_country.get(country, 0) + value
-            
-            by_currency[stock.currency] = by_currency.get(stock.currency, 0) + value_native
-            
+
             by_stock[stock.ticker] = by_stock.get(stock.ticker, 0) + value
     
     return {
