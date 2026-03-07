@@ -20,6 +20,7 @@ export default function InfographicLayout() {
   const { timezone, headerIndices, language } = useSettings()
   const { user, logout } = useAuth()
   const locale = getLocaleForLanguage(language)
+  const currentYear = new Date().getUTCFullYear()
   const [logoutError, setLogoutError] = useState<string | null>(null)
   const [isLoggingOut, setIsLoggingOut] = useState(false)
   
@@ -57,7 +58,7 @@ export default function InfographicLayout() {
     { to: '/performance', label: t(language, 'nav.performance'), icon: '📈' },
     { to: '/analytics', label: t(language, 'nav.analytics'), icon: '📉' },
     { to: '/dividends/history', label: t(language, 'nav.dividendsHistory'), icon: '💰' },
-    { to: '/dividends/upcoming', label: t(language, 'nav.upcomingDividends'), icon: '📅' },
+    { to: '/dividends/upcoming', label: t(language, 'nav.upcomingDividendsYear', { year: currentYear }), icon: '📅' },
     { to: '/stocks', label: t(language, 'nav.stocks'), icon: '🏢' },
     { to: '/markets', label: t(language, 'nav.markets'), icon: '🌍' },
     { to: '/settings', label: t(language, 'nav.settings'), icon: '⚙️' },

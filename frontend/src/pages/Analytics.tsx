@@ -1,10 +1,15 @@
 import { useState, useEffect, useCallback } from 'react'
 import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip, BarChart, Bar, XAxis, YAxis, CartesianGrid, Legend } from 'recharts'
-import { api, Stock } from '../services/api'
+import { api } from '../services/api'
 import { useSettings } from '../SettingsContext'
 import { getLocaleForLanguage, t } from '../i18n'
 
 const COLORS = ['#6366f1', '#ec4899', '#ef4444', '#f97316', '#22c55e', '#3b82f6', '#a855f7', '#f43f5e']
+const COMPARISON_COLORS = ['#7c3aed', '#a855f7', '#c084fc']
+
+type DividendComparisonRow = {
+  month: string
+} & Record<string, number | string>
 
 /**
  * Format a number as a currency string using the specified locale and currency.
@@ -39,8 +44,9 @@ interface Distribution {
  */
 export default function Analytics() {
   const [distribution, setDistribution] = useState<Distribution | null>(null)
-  const [stocks, setStocks] = useState<Stock[]>([])
-  const [dividendComparisonData, setDividendComparisonData] = useState<Array<Record<string, number | string>>>([])
+  const [dividendComparisonData, setDividendComparisonData] = useState<DividendComparisonRow[]>([])
+  const [availableComparisonYears, setAvailableComparisonYears] = useState<number[]>([])
+  const [selectedComparisonYears, setSelectedComparisonYears] = useState<number[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const { displayCurrency, language } = useSettings()
@@ -55,21 +61,16 @@ export default function Analytics() {
         api.stocks.list(),
       ])
       setDistribution(distributionData)
-      setStocks(stocksData)
 
       const now = new Date()
       const currentYear = now.getUTCFullYear()
-      const previousYear = currentYear - 1
-      const monthTotals = Array.from({ length: 12 }, (_, monthIndex) => ({
-        month: new Date(Date.UTC(2000, monthIndex, 1)).toLocaleDateString(locale, { month: 'long', timeZone: 'UTC' }),
-        [String(previousYear)]: 0,
-        [String(currentYear)]: 0,
-      }))
+      const fallbackYears = [currentYear - 2, currentYear - 1, currentYear]
+      const dividendEvents: Array<{ year: number; monthIndex: number; value: number }> = []
 
       const dividendResults = await Promise.all(
         stocksData.map(async (stock) => ({
           stock,
-          dividends: await api.stocks.dividends(stock.ticker, 2).catch(() => []),
+          dividends: await api.stocks.dividends(stock.ticker, 5).catch(() => []),
         }))
       )
 
@@ -79,12 +80,39 @@ export default function Analytics() {
           const year = Number(div.date.slice(0, 4))
           const monthIndex = Number(div.date.slice(5, 7)) - 1
           if (!Number.isFinite(year) || monthIndex < 0 || monthIndex > 11) continue
-          if (year !== previousYear && year !== currentYear) continue
-          monthTotals[monthIndex][String(year)] = Number(monthTotals[monthIndex][String(year)] || 0) + ((div.amount || 0) * stock.quantity)
+          dividendEvents.push({
+            year,
+            monthIndex,
+            value: (div.amount || 0) * stock.quantity,
+          })
         }
       }
 
+      const sortedYears = Array.from(new Set([...fallbackYears, ...dividendEvents.map((event) => event.year)])).sort((a, b) => a - b)
+      const monthTotals = Array.from({ length: 12 }, (_, monthIndex) => {
+        const row: DividendComparisonRow = {
+          month: new Date(Date.UTC(2000, monthIndex, 1)).toLocaleDateString(locale, { month: 'long', timeZone: 'UTC' }),
+        }
+        for (const year of sortedYears) {
+          row[String(year)] = 0
+        }
+        return row
+      })
+
+      for (const event of dividendEvents) {
+        const key = String(event.year)
+        monthTotals[event.monthIndex][key] = Number(monthTotals[event.monthIndex][key] || 0) + event.value
+      }
+
       setDividendComparisonData(monthTotals)
+      setAvailableComparisonYears([...sortedYears].sort((a, b) => b - a))
+      setSelectedComparisonYears((previousYears) => {
+        const validPreviousYears = previousYears.filter((year) => sortedYears.includes(year))
+        if (validPreviousYears.length > 0) {
+          return validPreviousYears.slice(-3)
+        }
+        return sortedYears.slice(-3)
+      })
       setError(null)
     } catch (err) {
       console.error('Failed to load analytics data:', err)
@@ -113,6 +141,20 @@ export default function Analytics() {
   const renderPieLabel = ({ name, percent }: { name: string; percent: number }) => {
     if (percent < 0.05) return null
     return `${name} (${(percent * 100).toFixed(0)}%)`
+  }
+
+  const handleToggleComparisonYear = (year: number) => {
+    setSelectedComparisonYears((currentYears) => {
+      if (currentYears.includes(year)) {
+        return currentYears.length === 1 ? currentYears : currentYears.filter((entry) => entry !== year)
+      }
+
+      const nextYears = [...currentYears, year]
+      if (nextYears.length > 3) {
+        nextYears.shift()
+      }
+      return nextYears.sort((a, b) => a - b)
+    })
   }
 
   if (loading) {
@@ -249,7 +291,29 @@ export default function Analytics() {
 
           {dividendComparisonData.length > 0 && (
             <div className="card" style={{ gridColumn: '1 / -1' }}>
-              <h3 style={{ marginBottom: '16px' }}>{t(language, 'analytics.dividendComparison')}</h3>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: '16px', marginBottom: '16px', flexWrap: 'wrap' }}>
+                <div>
+                  <h3 style={{ marginBottom: '8px' }}>{t(language, 'analytics.dividendComparison')}</h3>
+                  <p style={{ color: 'var(--text-secondary)', fontSize: '12px', margin: 0 }}>{t(language, 'analytics.dividendComparisonHint')}</p>
+                </div>
+                <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', justifyContent: 'flex-end' }}>
+                  {availableComparisonYears.map((year) => {
+                    const selected = selectedComparisonYears.includes(year)
+                    return (
+                      <button
+                        key={year}
+                        type="button"
+                        className={selected ? 'btn btn-primary' : 'btn btn-secondary'}
+                        style={{ padding: '6px 12px', fontSize: '12px' }}
+                        onClick={() => handleToggleComparisonYear(year)}
+                        aria-pressed={selected}
+                      >
+                        {year}
+                      </button>
+                    )
+                  })}
+                </div>
+              </div>
               <div style={{ height: 320 }}>
                 <ResponsiveContainer width="100%" height="100%">
                   <BarChart data={dividendComparisonData}>
@@ -267,8 +331,9 @@ export default function Analytics() {
                       itemStyle={{ color: '#fff' }}
                     />
                     <Legend />
-                    <Bar dataKey={String(new Date().getUTCFullYear() - 1)} fill="#8b5cf6" radius={[6, 6, 0, 0]} />
-                    <Bar dataKey={String(new Date().getUTCFullYear())} fill="#c084fc" radius={[6, 6, 0, 0]} />
+                    {selectedComparisonYears.map((year, index) => (
+                      <Bar key={year} dataKey={String(year)} fill={COMPARISON_COLORS[index % COMPARISON_COLORS.length]} radius={[6, 6, 0, 0]} />
+                    ))}
                   </BarChart>
                 </ResponsiveContainer>
               </div>
