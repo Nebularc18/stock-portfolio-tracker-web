@@ -76,6 +76,19 @@ def _get_required_env(var_name: str) -> str:
     raise RuntimeError(f"Missing required environment variable: {var_name}")
 
 
+def _get_auth_token_ttl_seconds() -> int:
+    raw_ttl = os.getenv("AUTH_TOKEN_TTL_SECONDS", "43200")
+    try:
+        ttl_seconds = int(raw_ttl)
+    except (TypeError, ValueError) as exc:
+        raise RuntimeError("AUTH_TOKEN_TTL_SECONDS must be a positive integer number of seconds") from exc
+
+    if ttl_seconds <= 0:
+        raise RuntimeError("AUTH_TOKEN_TTL_SECONDS must be a positive integer number of seconds")
+
+    return ttl_seconds
+
+
 def validate_startup_env() -> None:
     """Validate required security-sensitive environment variables."""
     required = ["DEFAULT_USERNAME", "DEFAULT_PASSWORD", "GUEST_USERNAME", "AUTH_TOKEN_SECRET"]
@@ -86,14 +99,15 @@ def validate_startup_env() -> None:
 
 
 def validate_auth_token_secret() -> None:
-    """Validate the auth token secret required for token operations."""
+    """Validate auth token settings required for token operations."""
     _get_required_env("AUTH_TOKEN_SECRET")
+    _get_auth_token_ttl_seconds()
 
 
 def create_access_token(user_id: int) -> str:
     """Create a signed bearer token for a specific user id."""
     secret = _get_required_env("AUTH_TOKEN_SECRET")
-    ttl_seconds = int(os.getenv("AUTH_TOKEN_TTL_SECONDS", "43200"))
+    ttl_seconds = _get_auth_token_ttl_seconds()
     issued_at = int(time.time())
     payload = {
         "sub": user_id,
@@ -374,10 +388,18 @@ def ensure_account_schema_and_seed() -> None:
             text("SELECT id FROM users WHERE username = :username"),
             {"username": default_username},
         ).scalar_one()
-        guest_user_id = conn.execute(
-            text("SELECT id FROM users WHERE username = :username"),
+        guest_user = conn.execute(
+            text("SELECT id, is_guest FROM users WHERE username = :username"),
             {"username": guest_username},
-        ).scalar_one()
+        ).mappings().one_or_none()
+        if guest_user is None:
+            raise RuntimeError(f"Configured guest user '{guest_username}' was not found after startup seeding")
+        if not guest_user["is_guest"]:
+            raise RuntimeError(
+                f"Configured guest username '{guest_username}' belongs to a non-guest account. "
+                "Use a dedicated guest username or remediate the existing user before startup seeding can continue."
+            )
+        guest_user_id = guest_user["id"]
 
         conn.execute(text("UPDATE stocks SET user_id = :uid WHERE user_id IS NULL"), {"uid": default_user_id})
         conn.execute(text("UPDATE user_settings SET user_id = :uid WHERE user_id IS NULL"), {"uid": default_user_id})
@@ -406,6 +428,20 @@ def ensure_account_schema_and_seed() -> None:
         ensure_user_foreign_key("user_settings", "fk_user_settings_user_id_users")
         ensure_user_foreign_key("portfolio_history", "fk_portfolio_history_user_id_users")
         ensure_user_foreign_key("stock_price_history", "fk_stock_price_history_user_id_users")
+
+        duplicate_user_settings = conn.execute(text("""
+            SELECT user_id, COUNT(*) AS row_count
+            FROM user_settings
+            GROUP BY user_id
+            HAVING COUNT(*) > 1
+            LIMIT 1
+        """)).mappings().one_or_none()
+        if duplicate_user_settings is not None:
+            raise RuntimeError(
+                "Cannot create ux_user_settings_user_id on user_settings: "
+                f"found duplicate rows for user_id {duplicate_user_settings['user_id']} "
+                f"(count={duplicate_user_settings['row_count']})."
+            )
 
         conn.execute(text("ALTER TABLE stocks DROP CONSTRAINT IF EXISTS stocks_ticker_key"))
         conn.execute(text("ALTER TABLE portfolio_history DROP CONSTRAINT IF EXISTS portfolio_history_date_key"))

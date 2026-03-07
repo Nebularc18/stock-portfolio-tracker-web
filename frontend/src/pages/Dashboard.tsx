@@ -37,16 +37,35 @@ function formatCurrency(value: number, locale: string, currency: string = 'USD')
   }).format(value)
 }
 
-/**
- * Formats a numeric percentage using the given locale with two decimal places and an explicit '+' for non-negative values.
- *
- * @param value - The percentage value (e.g., 12.34 represents 12.34%).
- * @param locale - BCP 47 locale identifier used for number formatting (e.g., "en-US").
- * @returns A localized percentage string with two decimal places; includes a leading `+` for values >= 0 and `-` for negative values.
- */
 function formatPercent(value: number, locale: string): string {
-  const sign = value >= 0 ? '+' : ''
-  return `${sign}${value.toLocaleString(locale, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}%`
+  return new Intl.NumberFormat(locale, {
+    style: 'percent',
+    signDisplay: 'always',
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  }).format(value / 100)
+}
+
+function parseDisplayDate(value: string): Date {
+  const trimmedDate = value.trim()
+
+  if (/^\d{4}-\d{2}-\d{2}$/.test(trimmedDate)) {
+    const [year, month, day] = trimmedDate.split('-').map(Number)
+    return new Date(Date.UTC(year, month - 1, day))
+  }
+
+  if (/^-?\d+$/.test(trimmedDate)) {
+    const epoch = Number(trimmedDate)
+    const epochMilliseconds = Math.abs(epoch) < 1e12 ? epoch * 1000 : epoch
+    return new Date(epochMilliseconds)
+  }
+
+  if (trimmedDate.includes('T')) {
+    const hasTimezone = /([zZ]|[+-]\d{2}:\d{2})$/.test(trimmedDate)
+    return new Date(hasTimezone ? trimmedDate : `${trimmedDate}Z`)
+  }
+
+  return new Date(trimmedDate)
 }
 
 /**
@@ -58,20 +77,7 @@ function formatPercent(value: number, locale: string): string {
  */
 function formatDate(dateStr: string, locale: string): string {
   const trimmedDate = dateStr.trim()
-  let date: Date
-
-  if (/^\d{4}-\d{2}-\d{2}$/.test(trimmedDate)) {
-    const [year, month, day] = trimmedDate.split('-').map(Number)
-    date = new Date(Date.UTC(year, month - 1, day))
-  } else if (/^-?\d+$/.test(trimmedDate)) {
-    const epoch = Number(trimmedDate)
-    const epochMilliseconds = Math.abs(epoch) < 1e12 ? epoch * 1000 : epoch
-    date = new Date(epochMilliseconds)
-  } else if (trimmedDate.includes('T') || /([zZ]|[+-]\d{2}:\d{2})$/.test(trimmedDate)) {
-    date = new Date(trimmedDate)
-  } else {
-    date = new Date(trimmedDate)
-  }
+  const date = parseDisplayDate(trimmedDate)
 
   if (Number.isNaN(date.getTime())) {
     return trimmedDate
@@ -89,8 +95,13 @@ function formatDate(dateStr: string, locale: string): string {
  * @returns The normalized year-month string in `YYYY-MM` format (e.g., `2026-03`)
  */
 function getMonthKey(dateStr: string): string {
-  const [year, month] = dateStr.split('-').map(Number)
-  return `${year}-${String(month).padStart(2, '0')}`
+  const trimmedDate = dateStr.trim()
+  const date = parseDisplayDate(trimmedDate)
+  if (Number.isNaN(date.getTime())) {
+    return trimmedDate
+  }
+
+  return `${date.getUTCFullYear()}-${String(date.getUTCMonth() + 1).padStart(2, '0')}`
 }
 
 /**
@@ -243,6 +254,7 @@ export default function Dashboard() {
   const [historyRange, setHistoryRange] = useState<HistoryRangeKey>('1M')
   const [failedLogos, setFailedLogos] = useState<Record<string, boolean>>({})
   const [loading, setLoading] = useState(true)
+  const [historyLoading, setHistoryLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const historyRequestIdRef = useRef(0)
   const dataRequestIdRef = useRef(0)
@@ -263,12 +275,20 @@ export default function Dashboard() {
   const fetchHistory = useCallback(async (range: HistoryRangeKey) => {
     const requestId = historyRequestIdRef.current + 1
     historyRequestIdRef.current = requestId
+    setHistoryLoading(true)
+    setPortfolioHistory([])
     const rangeQuery = HISTORY_RANGE_OPTIONS.find((option) => option.key === range)?.query || '1m'
-    const historyData = await api.portfolio.history({ range: rangeQuery }).catch(() => [])
-    if (requestId !== historyRequestIdRef.current) {
-      return
+    try {
+      const historyData = await api.portfolio.history({ range: rangeQuery }).catch(() => [])
+      if (requestId !== historyRequestIdRef.current) {
+        return
+      }
+      setPortfolioHistory(historyData)
+    } finally {
+      if (requestId === historyRequestIdRef.current) {
+        setHistoryLoading(false)
+      }
     }
-    setPortfolioHistory(historyData)
   }, [])
 
   const fetchData = useCallback(async () => {
@@ -511,7 +531,7 @@ export default function Dashboard() {
         </div>
       </div>
 
-      {hasChartData && (
+      {(historyLoading || hasChartData) && (
         <div className="card" style={{ marginBottom: '24px' }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
             <div style={{ display: 'flex', gap: '12px', alignItems: 'center', flexWrap: 'wrap' }}>
@@ -542,87 +562,95 @@ export default function Dashboard() {
                 })}
               </div>
             </div>
-            <div style={{ display: 'flex', gap: '16px', fontSize: '12px', color: 'var(--text-secondary)' }}>
-              <span>{t(language, 'dashboard.low')}: {formatCurrency(minValue, locale, currency)}</span>
-              <span>{t(language, 'dashboard.high')}: {formatCurrency(maxValue, locale, currency)}</span>
+            {!historyLoading && hasChartData && (
+              <div style={{ display: 'flex', gap: '16px', fontSize: '12px', color: 'var(--text-secondary)' }}>
+                <span>{t(language, 'dashboard.low')}: {formatCurrency(minValue, locale, currency)}</span>
+                <span>{t(language, 'dashboard.high')}: {formatCurrency(maxValue, locale, currency)}</span>
+              </div>
+            )}
+          </div>
+          {historyLoading ? (
+            <div style={{ height: 300, display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--text-secondary)' }}>
+              {t(language, 'common.loading')}
             </div>
-          </div>
-          <div style={{ height: 300 }}>
-            <ResponsiveContainer width="100%" height="100%">
-              <AreaChart data={displayedChartData} margin={{ top: 10, right: 30, left: 0, bottom: 0 }}>
-                <defs>
-                  <linearGradient id="colorValue" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="5%" stopColor="#6366f1" stopOpacity={0.3}/>
-                    <stop offset="95%" stopColor="#6366f1" stopOpacity={0}/>
-                  </linearGradient>
-                </defs>
-                <CartesianGrid strokeDasharray="3 3" stroke="#333" />
-                <XAxis 
-                  dataKey="date" 
-                  stroke="#888" 
-                  fontSize={11}
-                  interval="preserveStartEnd"
-                  minTickGap={24}
-                  tickFormatter={(value) => formatXAxisTick(String(value), historyRange, locale)}
-                />
-                <YAxis 
-                  stroke="#888" 
-                  fontSize={11}
-                  domain={[yMin, yMax]}
-                  tickFormatter={(v) => Math.abs(v) >= 1000 ? `${(v/1000).toFixed(0)}k` : v.toFixed(0)}
-                />
-                <Tooltip 
-                  formatter={(value: number) => [formatCurrency(value, locale, currency), t(language, 'dashboard.portfolioValue')]}
-                  labelFormatter={(label) => formatTooltipDate(String(label), historyRange, locale)}
-                  contentStyle={{ 
-                    background: '#2a2a2a', 
-                    border: '1px solid #444', 
-                    borderRadius: '8px', 
-                    color: '#fff',
-                    boxShadow: '0 4px 12px rgba(0,0,0,0.3)'
-                  }}
-                  itemStyle={{ color: '#fff' }}
-                  content={({ active, payload, label }) => {
-                    if (!active || !payload || !payload.length) return null
-                    const currentValue = Number(payload[0].value ?? 0)
-                    const absoluteChange = currentValue - baselineValue
-                    const percentChange = baselineValue !== 0 ? (absoluteChange / baselineValue) * 100 : 0
-                    const percentChangeText = percentChange.toLocaleString(locale, {
-                      minimumFractionDigits: 2,
-                      maximumFractionDigits: 2,
-                    })
-                    const changeColor = absoluteChange >= 0 ? 'var(--accent-green)' : 'var(--accent-red)'
-                    const sign = percentChange >= 0 ? '+' : ''
+          ) : (
+            <div style={{ height: 300 }}>
+              <ResponsiveContainer width="100%" height="100%">
+                <AreaChart data={displayedChartData} margin={{ top: 10, right: 30, left: 0, bottom: 0 }}>
+                  <defs>
+                    <linearGradient id="colorValue" x1="0" y1="0" x2="0" y2="1">
+                      <stop offset="5%" stopColor="#6366f1" stopOpacity={0.3}/>
+                      <stop offset="95%" stopColor="#6366f1" stopOpacity={0}/>
+                    </linearGradient>
+                  </defs>
+                  <CartesianGrid strokeDasharray="3 3" stroke="#333" />
+                  <XAxis 
+                    dataKey="date" 
+                    stroke="#888" 
+                    fontSize={11}
+                    interval="preserveStartEnd"
+                    minTickGap={24}
+                    tickFormatter={(value) => formatXAxisTick(String(value), historyRange, locale)}
+                  />
+                  <YAxis 
+                    stroke="#888" 
+                    fontSize={11}
+                    domain={[yMin, yMax]}
+                    tickFormatter={(v) => Math.abs(v) >= 1000 ? `${(v/1000).toFixed(0)}k` : v.toFixed(0)}
+                  />
+                  <Tooltip 
+                    formatter={(value: number) => [formatCurrency(value, locale, currency), t(language, 'dashboard.portfolioValue')]}
+                    labelFormatter={(label) => formatTooltipDate(String(label), historyRange, locale)}
+                    contentStyle={{ 
+                      background: '#2a2a2a', 
+                      border: '1px solid #444', 
+                      borderRadius: '8px', 
+                      color: '#fff',
+                      boxShadow: '0 4px 12px rgba(0,0,0,0.3)'
+                    }}
+                    itemStyle={{ color: '#fff' }}
+                    content={({ active, payload, label }) => {
+                      if (!active || !payload || !payload.length) return null
+                      const currentValue = Number(payload[0].value ?? 0)
+                      const absoluteChange = currentValue - baselineValue
+                      const percentChange = baselineValue !== 0 ? (absoluteChange / baselineValue) * 100 : 0
+                      const percentChangeText = percentChange.toLocaleString(locale, {
+                        minimumFractionDigits: 2,
+                        maximumFractionDigits: 2,
+                      })
+                      const changeColor = absoluteChange >= 0 ? 'var(--accent-green)' : 'var(--accent-red)'
+                      const sign = percentChange >= 0 ? '+' : ''
 
-                    return (
-                      <div style={{
-                        background: '#2a2a2a',
-                        border: '1px solid #444',
-                        borderRadius: '8px',
-                        color: '#fff',
-                        boxShadow: '0 4px 12px rgba(0,0,0,0.3)',
-                        padding: '10px 12px'
-                      }}>
-                        <div style={{ marginBottom: '8px', fontWeight: 600 }}>{formatTooltipDate(String(label), historyRange, locale)}</div>
-                        <div style={{ marginBottom: '6px' }}>{t(language, 'dashboard.portfolioValue')}: {formatCurrency(currentValue, locale, currency)}</div>
-                        <div style={{ color: changeColor, fontWeight: 600 }}>
-                          {t(language, 'dashboard.change')}: {sign}{formatCurrency(absoluteChange, locale, currency)} ({sign}{percentChangeText}%)
+                      return (
+                        <div style={{
+                          background: '#2a2a2a',
+                          border: '1px solid #444',
+                          borderRadius: '8px',
+                          color: '#fff',
+                          boxShadow: '0 4px 12px rgba(0,0,0,0.3)',
+                          padding: '10px 12px'
+                        }}>
+                          <div style={{ marginBottom: '8px', fontWeight: 600 }}>{formatTooltipDate(String(label), historyRange, locale)}</div>
+                          <div style={{ marginBottom: '6px' }}>{t(language, 'dashboard.portfolioValue')}: {formatCurrency(currentValue, locale, currency)}</div>
+                          <div style={{ color: changeColor, fontWeight: 600 }}>
+                            {t(language, 'dashboard.change')}: {sign}{formatCurrency(absoluteChange, locale, currency)} ({sign}{percentChangeText}%)
+                          </div>
                         </div>
-                      </div>
-                    )
-                  }}
-                />
-                <Area 
-                  type="monotone" 
-                  dataKey="value" 
-                  stroke="#6366f1" 
-                  strokeWidth={2}
-                  fillOpacity={1} 
-                  fill="url(#colorValue)" 
-                />
-              </AreaChart>
-            </ResponsiveContainer>
-          </div>
+                      )
+                    }}
+                  />
+                  <Area 
+                    type="monotone" 
+                    dataKey="value" 
+                    stroke="#6366f1" 
+                    strokeWidth={2}
+                    fillOpacity={1} 
+                    fill="url(#colorValue)" 
+                  />
+                </AreaChart>
+              </ResponsiveContainer>
+            </div>
+          )}
         </div>
       )}
 

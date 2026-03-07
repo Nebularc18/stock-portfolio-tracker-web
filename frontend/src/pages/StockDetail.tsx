@@ -877,9 +877,9 @@ export default function StockDetail() {
               <tbody>
                 <tr>
                   <td style={{ color: 'var(--text-secondary)' }}>{t(language, 'stockDetail.dividendYield')}</td>
-                  <td style={{ textAlign: 'right' }}>
-                      {displayDividendYield !== null
-                        ? new Intl.NumberFormat(language, {
+                      <td style={{ textAlign: 'right' }}>
+                        {displayDividendYield !== null
+                        ? new Intl.NumberFormat(locale, {
                             style: 'percent',
                             minimumFractionDigits: 2,
                             maximumFractionDigits: 2,
@@ -1122,7 +1122,7 @@ export default function StockDetail() {
                 
                 {verificationResult.cached && (
                   <p style={{ fontSize: '12px', color: 'var(--text-secondary)', marginBottom: '12px' }}>
-                    {t(language, 'stockDetail.cachedPrefix')}{new Date(verificationResult.verified_at).toLocaleString(locale)}{')'}
+                    {t(language, 'stockDetail.cachedAt', { date: new Date(verificationResult.verified_at).toLocaleString(locale) })}
                   </p>
                 )}
                 

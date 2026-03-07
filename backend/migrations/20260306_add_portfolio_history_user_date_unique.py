@@ -27,6 +27,8 @@ def get_database_url() -> str:
 
 
 def upgrade(conn) -> None:
+    conn.execute(text("LOCK TABLE portfolio_history IN SHARE ROW EXCLUSIVE MODE"))
+
     has_null_user_id = conn.execute(
         text("SELECT EXISTS (SELECT 1 FROM portfolio_history WHERE user_id IS NULL)")
     ).scalar_one()
@@ -61,11 +63,13 @@ def upgrade(conn) -> None:
 
 
 def downgrade(conn) -> None:
+    conn.execute(text("LOCK TABLE portfolio_history IN SHARE ROW EXCLUSIVE MODE"))
+
     has_duplicate_dates = conn.execute(
         text(
             "SELECT EXISTS ("
             "  SELECT 1 FROM ("
-            "    SELECT date FROM portfolio_history GROUP BY date HAVING COUNT(*) > 1"
+            "    SELECT date FROM portfolio_history WHERE date IS NOT NULL GROUP BY date HAVING COUNT(*) > 1"
             "  ) d"
             ")"
         )
