@@ -180,6 +180,16 @@ function recalculateYearlyDividendState(
   }
 }
 
+function filterDividends(items: Dividend[], purchaseDateValue: string | null | undefined): Dividend[] {
+  const purchaseDate = normalizeToDay(purchaseDateValue)
+  return items.filter((div) => {
+    if (!purchaseDate) return true
+    const exDate = normalizeToDay(div.date)
+    if (!exDate) return true
+    return exDate.getTime() >= purchaseDate.getTime()
+  })
+}
+
 /**
  * Renders a detailed view for a single stock and manages its related data and user actions.
  *
@@ -195,7 +205,9 @@ export default function StockDetail() {
   const { ticker } = useParams<{ ticker: string }>()
   const navigate = useNavigate()
   const [stock, setStock] = useState<Stock | null>(null)
+  const [allDividends, setAllDividends] = useState<Dividend[]>([])
   const [dividends, setDividends] = useState<Dividend[]>([])
+  const [allYearDividends, setAllYearDividends] = useState<UpcomingDividend[]>([])
   const [yearDividends, setYearDividends] = useState<UpcomingDividend[]>([])
   const [yearReceived, setYearReceived] = useState<number | null>(0)
   const [yearRemaining, setYearRemaining] = useState<number | null>(0)
@@ -376,15 +388,12 @@ export default function StockDetail() {
 
         const yearlyState = recalculateYearlyDividendState(effectiveYearDividends, stockData.quantity, safeRates)
 
-        const filteredHistoryDividends = divData.filter((div: Dividend) => {
-          if (!purchaseDate) return true
-          const exDate = normalizeToDay(div.date)
-          if (!exDate) return true
-          return exDate.getTime() >= purchaseDate.getTime()
-        })
+        const filteredHistoryDividends = filterDividends(divData, stockData.purchase_date)
 
         setStock(stockData)
+        setAllDividends(divData)
         setDividends(filteredHistoryDividends)
+        setAllYearDividends(effectiveYearDividends)
         setYearDividends(yearlyState.yearDividends)
         setYearReceived(yearlyState.yearReceived)
         setYearRemaining(yearlyState.yearRemaining)
@@ -509,10 +518,19 @@ export default function StockDetail() {
       const updated = await api.stocks.update(ticker, {
         quantity: Number.isNaN(parsedQuantity) ? undefined : parsedQuantity,
         purchase_price: Number.isNaN(parsedPurchasePrice) ? undefined : parsedPurchasePrice,
-        purchase_date: editPurchaseDate || undefined,
+        purchase_date: editPurchaseDate || null,
       })
-      const yearlyState = recalculateYearlyDividendState(yearDividends, updated.quantity, exchangeRates)
       setStock(updated)
+      const updatedFilteredDividends = filterDividends(allDividends, updated.purchase_date)
+      const updatedFilteredYearDividends = allYearDividends.filter((div) => {
+        const purchaseDate = normalizeToDay(updated.purchase_date)
+        if (!purchaseDate) return true
+        const exDate = normalizeToDay(div.ex_date)
+        if (!exDate) return true
+        return exDate.getTime() >= purchaseDate.getTime()
+      })
+      const yearlyState = recalculateYearlyDividendState(updatedFilteredYearDividends, updated.quantity, exchangeRates)
+      setDividends(updatedFilteredDividends)
       setYearDividends(yearlyState.yearDividends)
       setYearReceived(yearlyState.yearReceived)
       setYearRemaining(yearlyState.yearRemaining)

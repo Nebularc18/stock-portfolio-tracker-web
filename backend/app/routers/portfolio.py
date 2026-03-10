@@ -97,12 +97,15 @@ def normalize_dividend_event(raw_div: dict, event_type: str) -> dict:
     }
 
 
-def dividend_event_merge_key(event: dict) -> Optional[tuple[str, str]]:
+def dividend_event_merge_key(event: dict) -> Optional[tuple[str, ...]]:
     ex_date = event.get('ex_date')
     if not ex_date:
         return None
 
-    dividend_type = event.get('dividend_type') or 'unknown'
+    dividend_type = event.get('dividend_type')
+    if not dividend_type:
+        return (ex_date,)
+
     return ex_date, dividend_type
 
 

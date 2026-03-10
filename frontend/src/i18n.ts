@@ -1,7 +1,6 @@
 export type Language = 'en' | 'sv'
 
-const translations = {
-  en: {
+const en = {
     'nav.dashboard': 'Dashboard',
     'nav.performance': 'Performance',
     'nav.analytics': 'Analytics',
@@ -393,8 +392,12 @@ const translations = {
     'financialMetrics.low52wDate': '52W Low Date',
     'financialMetrics.avgVol10d': 'Avg Volume 10d',
     'financialMetrics.avgVol3m': 'Avg Volume 3m',
-  },
-  sv: {
+  } as const
+
+type TranslationKey = keyof typeof en
+type LocaleTranslations = Record<TranslationKey, string>
+
+const sv: LocaleTranslations = {
     'nav.dashboard': 'Översikt',
     'nav.performance': 'Prestanda',
     'nav.analytics': 'Analys',
@@ -786,10 +789,14 @@ const translations = {
     'financialMetrics.low52wDate': '52V Låg datum',
     'financialMetrics.avgVol10d': 'Volym 10d gen.',
     'financialMetrics.avgVol3m': 'Volym 3m gen.',
-  },
-} as const satisfies Record<Language, Record<string, string>>
+  }
 
-export type TranslationKey = keyof typeof translations.en
+const translations = {
+  en,
+  sv,
+} as const satisfies Record<Language, LocaleTranslations>
+
+export type { TranslationKey }
 
 /**
  * Resolves a localized string for the given key and language and interpolates any {{placeholders}} with the provided params.

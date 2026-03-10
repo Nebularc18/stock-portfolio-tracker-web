@@ -41,19 +41,14 @@ def run(direction: str) -> None:
         with engine.begin() as conn:
             conn.execute(text("SET LOCAL lock_timeout = '5s'"))
             conn.execute(text("SET LOCAL statement_timeout = '30s'"))
+            logger.info(
+                "Running migration 20260307_add_stocks_purchase_date direction=%s url=%s",
+                direction,
+                engine.url.render_as_string(hide_password=True),
+            )
             if direction == "upgrade":
-                logger.info(
-                    "Running migration 20260307_add_stocks_purchase_date direction=%s url=%s",
-                    direction,
-                    engine.url.render_as_string(hide_password=True),
-                )
                 upgrade(conn)
             else:
-                logger.info(
-                    "Running migration 20260307_add_stocks_purchase_date direction=%s url=%s",
-                    direction,
-                    engine.url.render_as_string(hide_password=True),
-                )
                 downgrade(conn)
     finally:
         engine.dispose()

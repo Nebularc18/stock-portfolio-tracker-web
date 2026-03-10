@@ -130,6 +130,8 @@ export interface Dividend {
   payment_date: string | null
 }
 
+export type DividendsByTicker = Record<string, Dividend[]>
+
 export interface UpcomingDividend {
   ticker: string
   name: string | null
@@ -358,11 +360,19 @@ export const api = {
     get: (ticker: string) => fetchAPI(`/stocks/${ticker}`) as Promise<Stock>,
     create: (data: { ticker: string; quantity: number; purchase_price?: number; purchase_date?: string }) => 
       fetchAPI('/stocks', { method: 'POST', body: JSON.stringify(data) }) as Promise<Stock>,
-    update: (ticker: string, data: { quantity?: number; purchase_price?: number; purchase_date?: string }) =>
+    update: (ticker: string, data: { quantity?: number; purchase_price?: number; purchase_date?: string | null }) =>
       fetchAPI(`/stocks/${ticker}`, { method: 'PATCH', body: JSON.stringify(data) }) as Promise<Stock>,
     delete: (ticker: string) => fetchAPI(`/stocks/${ticker}`, { method: 'DELETE' }),
     refresh: (ticker: string) => fetchAPI(`/stocks/${ticker}/refresh`, { method: 'POST' }) as Promise<Stock>,
     dividends: (ticker: string, years: number = 5) => fetchAPI(`/stocks/${ticker}/dividends?years=${years}`) as Promise<Dividend[]>,
+    dividendsForTickers: (tickers: string[], years: number = 5) => {
+      const params = new URLSearchParams()
+      for (const ticker of tickers) {
+        params.append('tickers', ticker)
+      }
+      params.set('years', String(years))
+      return fetchAPI(`/stocks/dividends/batch?${params.toString()}`) as Promise<DividendsByTicker>
+    },
     upcomingDividends: (ticker: string) => fetchAPI(`/stocks/${ticker}/upcoming-dividends`) as Promise<StockUpcomingDividend[]>,
     analyst: (ticker: string) => fetchAPI(`/stocks/${ticker}/analyst`) as Promise<AnalystData>,
     validate: (ticker: string) => fetchAPI(`/stocks/validate/${ticker}`),

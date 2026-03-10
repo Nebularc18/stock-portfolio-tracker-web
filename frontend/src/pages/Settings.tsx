@@ -19,6 +19,7 @@ const preferencePanelStyle = {
   gap: '10px',
   minHeight: '100%',
   padding: '18px',
+  backgroundColor: 'var(--bg-tertiary)',
   background: 'linear-gradient(180deg, color-mix(in srgb, var(--bg-tertiary) 88%, transparent) 0%, color-mix(in srgb, var(--bg-secondary) 82%, transparent) 100%)',
   border: '1px solid var(--border-color)',
   borderRadius: '16px',

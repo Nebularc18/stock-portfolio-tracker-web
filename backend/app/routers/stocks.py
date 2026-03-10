@@ -4,7 +4,7 @@ This module provides API endpoints for managing stocks in a portfolio,
 including CRUD operations, dividend tracking, and analyst data.
 """
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 from pydantic import BaseModel
 from typing import Optional
@@ -23,6 +23,60 @@ def _is_on_or_after_purchase_date(event_date: Optional[str], purchase_date: Opti
     if purchase_date is None or not event_date:
         return True
     return event_date >= purchase_date.isoformat()
+
+
+def _get_merged_stock_dividends(stock: Stock, ticker: str, years: int, stock_service, avanza_service) -> list[dict]:
+    dividends_raw = stock_service.get_dividends(ticker, years)
+    dividends = [
+        div for div in (dividends_raw or [])
+        if _is_on_or_after_purchase_date(div.get('date'), stock.purchase_date)
+    ]
+    mapped_year_dividends = []
+
+    avanza_mapping = avanza_service.get_mapping_by_ticker(ticker)
+    if avanza_mapping and avanza_mapping.instrument_id:
+        current_year = utc_now().year
+        for year in range(current_year - years + 1, current_year + 1):
+            year_dividends = avanza_service.get_stock_dividends_for_year(ticker, year)
+            for div in year_dividends:
+                mapped_year_dividends.append({
+                    'date': div.ex_date,
+                    'amount': div.amount,
+                    'currency': div.currency,
+                    'source': 'avanza',
+                    'payment_date': div.payment_date,
+                    'dividend_type': div.dividend_type,
+                })
+
+    mapped_year_dividends = [
+        div for div in mapped_year_dividends
+        if _is_on_or_after_purchase_date(div.get('date'), stock.purchase_date)
+    ]
+
+    deduped = {}
+    for div in [*dividends, *mapped_year_dividends]:
+        normalized_currency = div.get('currency') or stock.currency or ''
+        key = (
+            div.get('date') or '',
+            div.get('amount'),
+            normalized_currency,
+        )
+        existing = deduped.get(key)
+        if existing is None:
+            if not div.get('currency'):
+                div = {**div, 'currency': stock.currency}
+            deduped[key] = div
+            continue
+
+        existing_score = int(bool(existing.get('payment_date'))) + int(bool(existing.get('dividend_type'))) + (2 if existing.get('source') == 'avanza' else 0)
+        candidate = div if div.get('currency') else {**div, 'currency': stock.currency}
+        candidate_score = int(bool(candidate.get('payment_date'))) + int(bool(candidate.get('dividend_type'))) + (2 if candidate.get('source') == 'avanza' else 0)
+        if candidate_score >= existing_score:
+            deduped[key] = candidate
+
+    merged_dividends = list(deduped.values())
+    merged_dividends.sort(key=lambda item: item.get('date') or '', reverse=True)
+    return merged_dividends
 
 class ManualDividendCreate(BaseModel):
     date: str
@@ -78,6 +132,43 @@ def validate_ticker(ticker: str):
         "valid": True,
         "name": info.get("name") if info else None,
         "currency": info.get("currency") if info else None,
+    }
+
+
+@router.get("/dividends/batch")
+def get_stock_dividends_batch(
+    tickers: list[str] = Query(...),
+    years: int = 5,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    from app.services.stock_service import StockService
+    from app.services.avanza_service import avanza_service
+
+    stock_service = StockService()
+
+    normalized_tickers = []
+    seen_tickers = set()
+    for ticker in tickers:
+        normalized_ticker = ticker.upper()
+        if normalized_ticker in seen_tickers:
+            continue
+        seen_tickers.add(normalized_ticker)
+        normalized_tickers.append(normalized_ticker)
+
+    stocks = db.query(Stock).filter(
+        Stock.user_id == current_user.id,
+        Stock.ticker.in_(normalized_tickers),
+    ).all()
+    stocks_by_ticker = {stock.ticker: stock for stock in stocks}
+
+    missing_tickers = [ticker for ticker in normalized_tickers if ticker not in stocks_by_ticker]
+    if missing_tickers:
+        raise HTTPException(status_code=404, detail=f"Stocks not found: {', '.join(missing_tickers)}")
+
+    return {
+        ticker: _get_merged_stock_dividends(stocks_by_ticker[ticker], ticker, years, stock_service, avanza_service)
+        for ticker in normalized_tickers
     }
 
 
@@ -309,57 +400,8 @@ def get_stock_dividends(ticker: str, years: int = 5, db: Session = Depends(get_d
     ).first()
     if not stock:
         raise HTTPException(status_code=404, detail="Stock not found")
-    
-    dividends = [
-        div for div in stock_service.get_dividends(ticker, years)
-        if _is_on_or_after_purchase_date(div.get('date'), stock.purchase_date)
-    ]
-    mapped_year_dividends = []
 
-    avanza_mapping = avanza_service.get_mapping_by_ticker(ticker)
-    if avanza_mapping and avanza_mapping.instrument_id:
-        current_year = utc_now().year
-        for year in range(current_year - years + 1, current_year + 1):
-            year_dividends = avanza_service.get_stock_dividends_for_year(ticker, year)
-            for div in year_dividends:
-                mapped_year_dividends.append({
-                    'date': div.ex_date,
-                    'amount': div.amount,
-                    'currency': div.currency,
-                    'source': 'avanza',
-                    'payment_date': div.payment_date,
-                    'dividend_type': div.dividend_type,
-                })
-
-    mapped_year_dividends = [
-        div for div in mapped_year_dividends
-        if _is_on_or_after_purchase_date(div.get('date'), stock.purchase_date)
-    ]
-
-    deduped = {}
-    for div in [*dividends, *mapped_year_dividends]:
-        normalized_currency = div.get('currency') or stock.currency or ''
-        key = (
-            div.get('date') or '',
-            div.get('amount'),
-            normalized_currency,
-        )
-        existing = deduped.get(key)
-        if existing is None:
-            if not div.get('currency'):
-                div = {**div, 'currency': stock.currency}
-            deduped[key] = div
-            continue
-
-        existing_score = int(bool(existing.get('payment_date'))) + int(bool(existing.get('dividend_type'))) + (2 if existing.get('source') == 'avanza' else 0)
-        candidate = div if div.get('currency') else {**div, 'currency': stock.currency}
-        candidate_score = int(bool(candidate.get('payment_date'))) + int(bool(candidate.get('dividend_type'))) + (2 if candidate.get('source') == 'avanza' else 0)
-        if candidate_score >= existing_score:
-            deduped[key] = candidate
-
-    merged_dividends = list(deduped.values())
-    merged_dividends.sort(key=lambda item: item.get('date') or '', reverse=True)
-    return merged_dividends
+    return _get_merged_stock_dividends(stock, ticker, years, stock_service, avanza_service)
 
 
 @router.get("/{ticker}/upcoming-dividends")
