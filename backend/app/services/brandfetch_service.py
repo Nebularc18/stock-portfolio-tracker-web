@@ -186,7 +186,7 @@ class BrandfetchService:
         if len(parts) >= 2 and parts[-1] in {"com", "net", "org", "io", "co", "de", "se", "uk", "eu", "ca", "fr", "br", "in", "au", "nz", "jp", "sg", "mx"}:
             return parts[-2]
         if len(parts) >= 2:
-            return ".".join(parts[-2:])
+            return parts[-2]
         return parts[0]
 
     def _normalize_text(self, value: str) -> str:

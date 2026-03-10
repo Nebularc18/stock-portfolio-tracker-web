@@ -10,7 +10,7 @@ from pydantic import BaseModel
 from typing import Optional
 import uuid
 import logging
-from datetime import date
+from datetime import date, datetime
 
 from app.main import get_db, get_current_user, User, Stock, StockCreate, StockUpdate, StockResponse, StockPriceHistory
 from app.utils.time import utc_now
@@ -37,7 +37,13 @@ def _is_after_purchase_date(event_date: Optional[str], purchase_date: Optional[d
     try:
         event_date_value = date.fromisoformat(event_date)
     except ValueError:
-        return event_date > purchase_date.isoformat()
+        try:
+            event_date_value = datetime.fromisoformat(event_date).date()
+        except ValueError:
+            try:
+                event_date_value = date.fromisoformat(event_date.split('T', 1)[0])
+            except ValueError:
+                return True
     return event_date_value > purchase_date
 
 
@@ -55,7 +61,8 @@ def _get_merged_stock_dividends(stock: Stock, ticker: str, years: int, stock_ser
     Returns:
         merged_dividends (list[dict]): List of dividend records where each dict includes at least `date`, `amount`, and `currency`, and may include `source`, `payment_date`, and `dividend_type`.
     """
-    dividends_raw = stock_service.get_dividends(ticker, years)
+    normalized_ticker = stock.ticker or ticker.upper()
+    dividends_raw = stock_service.get_dividends(normalized_ticker, years)
     dividends = [
         div for div in (dividends_raw or [])
         if _is_after_purchase_date(div.get('date'), stock.purchase_date)
@@ -63,11 +70,11 @@ def _get_merged_stock_dividends(stock: Stock, ticker: str, years: int, stock_ser
     mapped_year_dividends = []
     today_iso = utc_now().date().isoformat()
 
-    avanza_mapping = avanza_service.get_mapping_by_ticker(ticker)
+    avanza_mapping = avanza_service.get_mapping_by_ticker(normalized_ticker)
     if avanza_mapping and avanza_mapping.instrument_id:
         current_year = utc_now().year
         for year in range(current_year - years + 1, current_year + 1):
-            year_dividends = avanza_service.get_stock_dividends_for_year(ticker, year) or []
+            year_dividends = avanza_service.get_stock_dividends_for_year(normalized_ticker, year) or []
             for div in year_dividends:
                 payout = div.payment_date or div.ex_date
                 if payout and payout > today_iso:
@@ -234,7 +241,7 @@ def get_stock_dividends_batch(
         raise HTTPException(status_code=404, detail=f"Stocks not found: {', '.join(missing_tickers)}")
 
     return {
-        ticker: _get_merged_stock_dividends(stocks_by_ticker[ticker], ticker, years, stock_service, avanza_service)
+        ticker: _get_merged_stock_dividends(stocks_by_ticker[ticker], stocks_by_ticker[ticker].ticker or ticker, years, stock_service, avanza_service)
         for ticker in normalized_tickers
     }
 
@@ -416,7 +423,8 @@ def refresh_stock(ticker: str, db: Session = Depends(get_db), current_user: User
     if not stock:
         raise HTTPException(status_code=404, detail="Stock not found")
     
-    info = stock_service.get_stock_info(ticker)
+    normalized_ticker = stock.ticker or ticker.upper()
+    info = stock_service.get_stock_info(normalized_ticker)
     if info:
         stock.name = info.get("name") or stock.name
         stock.current_price = info.get("current_price")
@@ -474,7 +482,7 @@ def get_stock_dividends(ticker: str, years: int = 5, db: Session = Depends(get_d
             detail=f"years must be between 1 and {MAX_YEARS}",
         )
 
-    return _get_merged_stock_dividends(stock, ticker, years, stock_service, avanza_service)
+    return _get_merged_stock_dividends(stock, stock.ticker or ticker.upper(), years, stock_service, avanza_service)
 
 
 @router.get("/{ticker}/upcoming-dividends")
@@ -505,8 +513,9 @@ def get_upcoming_dividends(ticker: str, db: Session = Depends(get_db), current_u
     if not stock:
         raise HTTPException(status_code=404, detail="Stock not found")
     
+    normalized_ticker = stock.ticker or ticker.upper()
     historical_dividends = [
-        div for div in (stock_service.get_dividends(ticker, 2) or [])
+        div for div in (stock_service.get_dividends(normalized_ticker, 2) or [])
         if _is_after_purchase_date(div.get('date'), stock.purchase_date)
     ]
     historical_event_keys = {
@@ -514,7 +523,7 @@ def get_upcoming_dividends(ticker: str, db: Session = Depends(get_db), current_u
             div.get('date') or '',
             div.get('payment_date') or '',
             div.get('amount'),
-            div.get('currency') or '',
+            div.get('currency') or stock.currency or '',
             div.get('dividend_type') or '',
         )
         for div in historical_dividends
@@ -522,9 +531,9 @@ def get_upcoming_dividends(ticker: str, db: Session = Depends(get_db), current_u
 
     today = utc_now().date().isoformat()
     current_year = utc_now().year
-    avanza_mapping = avanza_service.get_mapping_by_ticker(ticker)
+    avanza_mapping = avanza_service.get_mapping_by_ticker(normalized_ticker)
     if avanza_mapping and avanza_mapping.instrument_id:
-        year_dividends = avanza_service.get_stock_dividends_for_year(ticker, current_year)
+        year_dividends = avanza_service.get_stock_dividends_for_year(normalized_ticker, current_year)
         if year_dividends:
             upcoming_or_remaining = []
             seen_event_keys = set(historical_event_keys)
@@ -533,7 +542,7 @@ def get_upcoming_dividends(ticker: str, db: Session = Depends(get_db), current_u
                     div.ex_date or '',
                     div.payment_date or '',
                     div.amount,
-                    div.currency or '',
+                    div.currency or stock.currency or '',
                     div.dividend_type or '',
                 )
                 if event_key in seen_event_keys:
@@ -553,13 +562,13 @@ def get_upcoming_dividends(ticker: str, db: Session = Depends(get_db), current_u
                 })
                 seen_event_keys.add(event_key)
 
-            upcoming = stock_service.get_upcoming_dividends(ticker) or []
+            upcoming = stock_service.get_upcoming_dividends(normalized_ticker) or []
             for div in upcoming:
                 event_key = (
                     div.get('ex_date') or '',
                     div.get('payment_date') or '',
                     div.get('amount'),
-                    div.get('currency') or '',
+                    div.get('currency') or stock.currency or '',
                     div.get('dividend_type') or '',
                 )
                 if event_key in seen_event_keys:
@@ -574,7 +583,7 @@ def get_upcoming_dividends(ticker: str, db: Session = Depends(get_db), current_u
 
             return upcoming_or_remaining
 
-    upcoming = stock_service.get_upcoming_dividends(ticker) or []
+    upcoming = stock_service.get_upcoming_dividends(normalized_ticker) or []
     return [
         div for div in upcoming
         if _is_after_purchase_date(div.get('ex_date'), stock.purchase_date)
@@ -606,9 +615,10 @@ def get_analyst_data(ticker: str, db: Session = Depends(get_db), current_user: U
     if not stock:
         raise HTTPException(status_code=404, detail="Stock not found")
     
-    all_recommendations = stock_service.get_all_analyst_recommendations(ticker)
-    price_targets = stock_service.get_price_targets(ticker)
-    latest_rating = stock_service.get_latest_rating(ticker)
+    normalized_ticker = stock.ticker or ticker.upper()
+    all_recommendations = stock_service.get_all_analyst_recommendations(normalized_ticker)
+    price_targets = stock_service.get_price_targets(normalized_ticker)
+    latest_rating = stock_service.get_latest_rating(normalized_ticker)
     
     return {
         "recommendations": all_recommendations.get('yfinance'),

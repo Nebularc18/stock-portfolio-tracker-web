@@ -26,7 +26,21 @@ _SUPPORTED_EXCHANGES_PATH = os.getenv(
     'SUPPORTED_EXCHANGES_PATH',
     os.path.join(os.path.dirname(__file__), '..', '..', 'data', 'config', 'supported_exchanges.json')
 )
-MAX_EXCHANGE_RATE_SPAN_DAYS = 365
+
+
+def _get_int_env(name: str, default: int) -> int:
+    raw_value = os.getenv(name)
+    if raw_value is None:
+        return default
+
+    try:
+        return int(raw_value)
+    except ValueError:
+        logger.warning("Invalid integer for %s=%r; using default %s", name, raw_value, default)
+        return default
+
+
+MAX_EXCHANGE_RATE_SPAN_DAYS = _get_int_env('MARKET_MAX_EXCHANGE_RATE_SPAN_DAYS', 3650)
 INDICES_CACHE_TTL = 900  # 15 minutes
 
 
@@ -35,16 +49,19 @@ def _get_supported_exchange_currencies() -> tuple[str, ...]:
     try:
         with open(_SUPPORTED_EXCHANGES_PATH, 'r', encoding='utf-8') as f:
             exchanges = json.load(f)
-    except Exception as exc:
+    except Exception:
         logger.exception("Failed to load supported exchanges from %s", _SUPPORTED_EXCHANGES_PATH)
-        raise RuntimeError(f"Failed to load supported exchanges from {_SUPPORTED_EXCHANGES_PATH}") from exc
+        exchanges = _DEFAULT_SUPPORTED_EXCHANGE_CURRENCIES
 
     currencies = []
     seen = set()
     for exchange in exchanges:
-        if not isinstance(exchange, dict):
+        if isinstance(exchange, dict):
+            currency = exchange.get('currency')
+        elif isinstance(exchange, str):
+            currency = exchange
+        else:
             continue
-        currency = exchange.get('currency')
         if isinstance(currency, str) and currency and currency not in seen:
             seen.add(currency)
             currencies.append(currency)
@@ -57,20 +74,35 @@ def _get_supported_exchange_currencies() -> tuple[str, ...]:
 
 
 def _build_exchange_rate_pairs() -> list[tuple[str, str]]:
-    currencies = _get_supported_exchange_currencies()
+    currencies = sorted(_get_supported_exchange_currencies())
     return [
         (f"{base}{quote}=X", f"{base}_{quote}")
-        for base in currencies
-        for quote in currencies
-        if base != quote
+        for index, base in enumerate(currencies)
+        for quote in currencies[index + 1:]
     ]
 
 
 pairs = _build_exchange_rate_pairs()
 
 
+def _all_rate_keys() -> list[str]:
+    keys: list[str] = []
+    for _, key in pairs:
+        base, quote = key.split('_', 1)
+        keys.append(key)
+        keys.append(f"{quote}_{base}")
+    return keys
+
+
 def _empty_rate_map() -> dict[str, float | None]:
-    return {key: None for _, key in pairs}
+    return {key: None for key in _all_rate_keys()}
+
+
+def _store_exchange_rate(rates: dict[str, float | None], key: str, rate: float):
+    rates[key] = rate
+    base, quote = key.split('_', 1)
+    reverse_key = f"{quote}_{base}"
+    rates[reverse_key] = None if rate == 0 else 1 / rate
 
 
 def _validate_exchange_rate_span(start_date: date, end_date: date):
@@ -114,7 +146,7 @@ def _fetch_latest_exchange_rates() -> dict[str, float | None]:
             closes = quote.get('close', [])
             prices = [price for price in closes if price is not None]
             if prices:
-                rates[key] = prices[-1]
+                _store_exchange_rate(rates, key, prices[-1])
         except Exception:
             logger.exception("Failed to fetch exchange rate for %s (%s)", key, symbol)
 
@@ -168,7 +200,7 @@ def _fetch_exchange_rates_for_range(start_date: date, end_date: date) -> dict[da
                     latest_price = series[series_index][1]
                     series_index += 1
                 if latest_price is not None:
-                    rates_by_date[current_date][key] = latest_price
+                    _store_exchange_rate(rates_by_date[current_date], key, latest_price)
         except Exception:
             logger.exception("Failed to fetch exchange rate series for %s (%s)", key, symbol)
 
