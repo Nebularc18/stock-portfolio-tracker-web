@@ -21,9 +21,12 @@ logger = logging.getLogger(__name__)
 
 _session = None
 _CACHE_DIR = os.path.join(os.path.dirname(__file__), '..', '..', 'data', 'cache')
-_SUPPORTED_EXCHANGES_PATH = os.path.join(
-    os.path.dirname(__file__), '..', '..', '..', 'frontend', 'src', 'config', 'supportedExchanges.json'
+_DEFAULT_SUPPORTED_EXCHANGE_CURRENCIES = ('SEK', 'USD', 'GBP', 'EUR')
+_SUPPORTED_EXCHANGES_PATH = os.getenv(
+    'SUPPORTED_EXCHANGES_PATH',
+    os.path.join(os.path.dirname(__file__), '..', '..', 'data', 'config', 'supported_exchanges.json')
 )
+MAX_EXCHANGE_RATE_SPAN_DAYS = 365
 INDICES_CACHE_TTL = 900  # 15 minutes
 
 
@@ -46,6 +49,10 @@ def _get_supported_exchange_currencies() -> tuple[str, ...]:
             seen.add(currency)
             currencies.append(currency)
 
+    if not currencies:
+        logger.warning("No supported exchange currencies found in %s; using fallback currencies", _SUPPORTED_EXCHANGES_PATH)
+        return _DEFAULT_SUPPORTED_EXCHANGE_CURRENCIES
+
     return tuple(currencies)
 
 
@@ -66,6 +73,25 @@ def _empty_rate_map() -> dict[str, float | None]:
     return {key: None for _, key in pairs}
 
 
+def _validate_exchange_rate_span(start_date: date, end_date: date):
+    span_days = (end_date - start_date).days
+    if span_days > MAX_EXCHANGE_RATE_SPAN_DAYS:
+        raise HTTPException(
+            status_code=400,
+            detail=f"date span must not exceed {MAX_EXCHANGE_RATE_SPAN_DAYS} days",
+        )
+
+
+def _log_non_200_yahoo_response(url: str, response: requests.Response, context: str):
+    logger.warning(
+        "Yahoo returned %s for %s (%s): %s",
+        response.status_code,
+        context,
+        url,
+        response.text[:200],
+    )
+
+
 def _fetch_latest_exchange_rates() -> dict[str, float | None]:
     session = get_session()
     rates: dict[str, float | None] = _empty_rate_map()
@@ -76,6 +102,7 @@ def _fetch_latest_exchange_rates() -> dict[str, float | None]:
             response = session.get(url, timeout=5)
 
             if response.status_code != 200:
+                _log_non_200_yahoo_response(url, response, f"exchange rate {key}")
                 continue
 
             data = response.json()
@@ -95,6 +122,7 @@ def _fetch_latest_exchange_rates() -> dict[str, float | None]:
 
 
 def _fetch_exchange_rates_for_range(start_date: date, end_date: date) -> dict[date, dict[str, float | None]]:
+    _validate_exchange_rate_span(start_date, end_date)
     session = get_session()
     rates_by_date: dict[date, dict[str, float | None]] = {
         start_date + timedelta(days=offset): _empty_rate_map()
@@ -113,6 +141,7 @@ def _fetch_exchange_rates_for_range(start_date: date, end_date: date) -> dict[da
             response = session.get(url, timeout=5)
 
             if response.status_code != 200:
+                _log_non_200_yahoo_response(url, response, f"exchange rate series {key}")
                 continue
 
             data = response.json()
@@ -405,12 +434,13 @@ def get_exchange_rates_batch(dates: List[str] = Query(...)):
 
         parsed_dates.append((value, target_date))
 
-    if not parsed_dates:
-        return {}
+    min_date = min(target_date for _, target_date in parsed_dates)
+    max_date = max(target_date for _, target_date in parsed_dates)
+    _validate_exchange_rate_span(min_date, max_date)
 
     range_rates = _fetch_exchange_rates_for_range(
-        min(target_date for _, target_date in parsed_dates),
-        max(target_date for _, target_date in parsed_dates),
+        min_date,
+        max_date,
     )
 
     rates_by_date: dict[str, dict[str, float | None]] = {}
@@ -445,10 +475,7 @@ def get_specific_market_hours(market: str, timezone: str | None = None):
     Returns:
         dict: On success, a mapping with keys such as `open`, `close`, and `is_open` (`true` if the market is currently open, `false` otherwise). If the market is not found or an error occurs, returns a dict containing an `error` key with diagnostic information.
     """
-    status = MarketHoursService.get_market_status(market.upper(), timezone or "")
-    if "error" in status:
-        return status
-    return status
+    return MarketHoursService.get_market_status(market.upper(), timezone or "")
 
 
 @router.get("/indices/sparklines")

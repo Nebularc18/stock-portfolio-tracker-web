@@ -132,11 +132,13 @@ export default function UpcomingDividends() {
 
   if (error) {
     return (
-        <div className="card" style={{ textAlign: 'center', padding: '40px' }}>
-          <p style={{ color: 'var(--text-secondary)' }}>{error}</p>
-          <button className="btn btn-primary" onClick={() => fetchData(true)} style={{ marginTop: '16px' }}>{t(language, 'common.retry')}</button>
-        </div>
-      )
+      <div className="card" style={{ textAlign: 'center', padding: '40px' }}>
+        <p style={{ color: 'var(--text-secondary)' }}>{error}</p>
+        <button className="btn btn-primary" onClick={() => fetchData(true)} style={{ marginTop: '16px' }}>
+          {t(language, 'common.retry')}
+        </button>
+      </div>
+    )
   }
 
   const groupedByMonth = dividends.reduce((acc, div) => {

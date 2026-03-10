@@ -184,6 +184,8 @@ class BrandfetchService:
             return parts[-3]
         if len(parts) >= 2 and parts[-1] in {"com", "net", "org", "io", "co", "de", "se", "uk", "eu", "ca", "fr", "br", "in", "au", "nz", "jp", "sg", "mx"}:
             return parts[-2]
+        if len(parts) >= 2:
+            return ".".join(parts[-2:])
         return parts[0]
 
     def _normalize_text(self, value: str) -> str:
@@ -299,16 +301,19 @@ class BrandfetchService:
             if token and token in {candidate_name_normalized, candidate_domain_root}
         )
 
+        if len(expected_tokens) <= 1:
+            if verified and quality_score >= 0.99 and (
+                exact_identity_match
+                or (curated_domain_root and candidate_domain_root == curated_domain_root)
+            ):
+                return True
+            return False
+
         if curated_domain_root and candidate_domain_root == curated_domain_root and quality_score >= 0.5:
             return True
 
         if exact_identity_match and quality_score >= 0.5:
             return True
-
-        if len(expected_tokens) <= 1:
-            if verified and quality_score >= 0.99 and exact_identity_match:
-                return True
-            return False
 
         if match_ratio >= 0.6:
             return True

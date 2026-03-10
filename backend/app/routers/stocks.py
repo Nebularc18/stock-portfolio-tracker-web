@@ -61,6 +61,7 @@ def _get_merged_stock_dividends(stock: Stock, ticker: str, years: int, stock_ser
         if _is_after_purchase_date(div.get('date'), stock.purchase_date)
     ]
     mapped_year_dividends = []
+    today_iso = utc_now().date().isoformat()
 
     avanza_mapping = avanza_service.get_mapping_by_ticker(ticker)
     if avanza_mapping and avanza_mapping.instrument_id:
@@ -68,6 +69,8 @@ def _get_merged_stock_dividends(stock: Stock, ticker: str, years: int, stock_ser
         for year in range(current_year - years + 1, current_year + 1):
             year_dividends = avanza_service.get_stock_dividends_for_year(ticker, year) or []
             for div in year_dividends:
+                if div.ex_date and div.ex_date > today_iso:
+                    continue
                 mapped_year_dividends.append({
                     'date': div.ex_date,
                     'amount': div.amount,
@@ -89,6 +92,8 @@ def _get_merged_stock_dividends(stock: Stock, ticker: str, years: int, stock_ser
             div.get('date') or '',
             div.get('amount'),
             normalized_currency,
+            div.get('payment_date') or '',
+            div.get('dividend_type') or '',
         )
         existing = deduped.get(key)
         if existing is None:
