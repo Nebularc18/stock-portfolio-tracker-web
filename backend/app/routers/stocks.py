@@ -21,7 +21,7 @@ MAX_BATCH_TICKERS = 25
 MAX_YEARS = 10
 
 
-def _is_on_or_after_purchase_date(event_date: Optional[str], purchase_date: Optional[date]) -> bool:
+def _is_after_purchase_date(event_date: Optional[str], purchase_date: Optional[date]) -> bool:
     """
     Determine whether an event date is strictly after the given purchase date; if either date is missing, treat it as valid.
     
@@ -58,7 +58,7 @@ def _get_merged_stock_dividends(stock: Stock, ticker: str, years: int, stock_ser
     dividends_raw = stock_service.get_dividends(ticker, years)
     dividends = [
         div for div in (dividends_raw or [])
-        if _is_on_or_after_purchase_date(div.get('date'), stock.purchase_date)
+        if _is_after_purchase_date(div.get('date'), stock.purchase_date)
     ]
     mapped_year_dividends = []
 
@@ -79,7 +79,7 @@ def _get_merged_stock_dividends(stock: Stock, ticker: str, years: int, stock_ser
 
     mapped_year_dividends = [
         div for div in mapped_year_dividends
-        if _is_on_or_after_purchase_date(div.get('date'), stock.purchase_date)
+        if _is_after_purchase_date(div.get('date'), stock.purchase_date)
     ]
 
     deduped = {}
@@ -501,7 +501,7 @@ def get_upcoming_dividends(ticker: str, db: Session = Depends(get_db), current_u
     
     historical_dividends = [
         div for div in (stock_service.get_dividends(ticker, 2) or [])
-        if _is_on_or_after_purchase_date(div.get('date'), stock.purchase_date)
+        if _is_after_purchase_date(div.get('date'), stock.purchase_date)
     ]
     historical_event_keys = {
         (
@@ -532,7 +532,7 @@ def get_upcoming_dividends(ticker: str, db: Session = Depends(get_db), current_u
                 )
                 if event_key in seen_event_keys:
                     continue
-                if not _is_on_or_after_purchase_date(div.ex_date, stock.purchase_date):
+                if not _is_after_purchase_date(div.ex_date, stock.purchase_date):
                     continue
                 if div.payment_date and div.payment_date <= today:
                     continue
@@ -559,7 +559,7 @@ def get_upcoming_dividends(ticker: str, db: Session = Depends(get_db), current_u
                 )
                 if event_key in seen_event_keys:
                     continue
-                if not _is_on_or_after_purchase_date(div.get('ex_date'), stock.purchase_date):
+                if not _is_after_purchase_date(div.get('ex_date'), stock.purchase_date):
                     continue
                 if div.get('payment_date') and div['payment_date'] <= today:
                     continue
@@ -573,7 +573,7 @@ def get_upcoming_dividends(ticker: str, db: Session = Depends(get_db), current_u
     upcoming = stock_service.get_upcoming_dividends(ticker) or []
     return [
         div for div in upcoming
-        if _is_on_or_after_purchase_date(div.get('ex_date'), stock.purchase_date)
+        if _is_after_purchase_date(div.get('ex_date'), stock.purchase_date)
     ]
 
 

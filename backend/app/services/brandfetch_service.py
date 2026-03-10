@@ -337,15 +337,15 @@ class BrandfetchService:
             clean_name = company_name.strip()
             candidates.append(clean_name)
 
-            normalized = self._normalize_company_query(clean_name)
-            if normalized and normalized != clean_name:
-                candidates.append(normalized)
+            normalized_clean = self._normalize_company_query(clean_name)
+            if normalized_clean and normalized_clean != clean_name:
+                candidates.append(normalized_clean)
 
             ab_split = re.split(r"\bAB\b", clean_name, maxsplit=1, flags=re.IGNORECASE)
             if len(ab_split) > 1:
                 for piece in ab_split:
                     normalized_piece = self._normalize_company_query(piece)
-                    if normalized_piece and normalized_piece not in {normalized, clean_name}:
+                    if normalized_piece and normalized_piece != normalized_clean:
                         candidates.append(normalized_piece)
 
         ticker_upper = ticker.upper().strip()

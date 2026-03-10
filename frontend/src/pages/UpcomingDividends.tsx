@@ -57,6 +57,12 @@ function formatMonthLabel(monthKey: string, locale: string): string {
   return date.toLocaleDateString(locale, { year: 'numeric', month: 'long', timeZone: 'UTC' })
 }
 
+function getDaysInYear(year: number): number {
+  const start = Date.UTC(year, 0, 1)
+  const end = Date.UTC(year + 1, 0, 1)
+  return Math.round((end - start) / (1000 * 60 * 60 * 24))
+}
+
 /**
  * Displays the current year's dividend payments for the user's portfolio.
  *
@@ -82,11 +88,11 @@ export default function UpcomingDividends() {
 
   const fetchData = useCallback(async (showLoadingState: boolean = true) => {
     try {
+      setRefreshError(null)
       if (showLoadingState) {
         setLoading(true)
       } else {
         setRefreshing(true)
-        setRefreshError(null)
       }
       if (showLoadingState) {
         setError(null)
@@ -168,18 +174,15 @@ export default function UpcomingDividends() {
     .map(([monthKey, items]) => ({
       monthKey,
       items,
-      subtotal: items.reduce((acc, item) => {
-        const displayedTotal = getDisplayedDividendTotal(item)
-        if (displayedTotal === null) {
-          return acc
-        }
-        return acc + displayedTotal
-      }, 0),
+      subtotal: items.some((item) => getDisplayedDividendTotal(item) === null)
+        ? null
+        : items.reduce((acc, item) => acc + (getDisplayedDividendTotal(item) ?? 0), 0),
     }))
 
+  const daysInYear = getDaysInYear(currentYear)
   const averagePerQuarterThisYear = totalExpected / 4
   const averagePerMonthThisYear = totalExpected / 12
-  const averagePerDayThisYear = totalExpected / 365
+  const averagePerDayThisYear = totalExpected / daysInYear
 
   return (
     <div>
@@ -282,7 +285,7 @@ export default function UpcomingDividends() {
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
                   <h4 style={{ margin: 0, color: 'var(--text-secondary)', fontSize: '14px' }}>{formatMonthLabel(group.monthKey, locale)}</h4>
                   <span style={{ color: 'var(--accent-green)', fontWeight: '600' }}>
-                    {formatCurrency(group.subtotal, locale, displayCurrency)}
+                    {group.subtotal !== null ? formatCurrency(group.subtotal, locale, displayCurrency) : '-'}
                   </span>
                 </div>
 

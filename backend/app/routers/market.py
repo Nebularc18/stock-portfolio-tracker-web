@@ -32,13 +32,15 @@ def _get_supported_exchange_currencies() -> tuple[str, ...]:
     try:
         with open(_SUPPORTED_EXCHANGES_PATH, 'r', encoding='utf-8') as f:
             exchanges = json.load(f)
-    except Exception:
+    except Exception as exc:
         logger.exception("Failed to load supported exchanges from %s", _SUPPORTED_EXCHANGES_PATH)
-        return ('SEK', 'USD', 'GBP', 'EUR')
+        raise RuntimeError(f"Failed to load supported exchanges from {_SUPPORTED_EXCHANGES_PATH}") from exc
 
     currencies = []
     seen = set()
     for exchange in exchanges:
+        if not isinstance(exchange, dict):
+            continue
         currency = exchange.get('currency')
         if isinstance(currency, str) and currency and currency not in seen:
             seen.add(currency)
@@ -378,13 +380,16 @@ def get_exchange_rates(date: str | None = Query(None)):
     Raises:
         HTTPException: If `date` is provided but not in `YYYY-MM-DD` format (HTTP 400).
     """
-    target_date = None
-    if date:
+    if date is not None:
+        if date == '':
+            raise HTTPException(status_code=400, detail="date must be in YYYY-MM-DD format")
         try:
             target_date = datetime.strptime(date, "%Y-%m-%d").date()
         except ValueError as exc:
             raise HTTPException(status_code=400, detail="date must be in YYYY-MM-DD format") from exc
-    return _fetch_exchange_rates_for_date(target_date)
+        return _fetch_exchange_rates_for_date(target_date)
+
+    return _fetch_exchange_rates_for_date(None)
 
 
 @router.get("/exchange-rates/batch")

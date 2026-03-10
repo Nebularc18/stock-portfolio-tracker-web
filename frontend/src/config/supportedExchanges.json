@@ -5,7 +5,7 @@
   { "code": "DE", "name": "Germany (Xetra)", "suffix": ".DE", "currency": "EUR" },
   { "code": "PA", "name": "France (Paris)", "suffix": ".PA", "currency": "EUR" },
   { "code": "MI", "name": "Italy (Milan)", "suffix": ".MI", "currency": "EUR" },
-  { "code": "AM", "name": "Netherlands (Amsterdam)", "suffix": ".AM", "currency": "EUR" },
+  { "code": "AM", "name": "Netherlands (Amsterdam)", "suffix": ".AS", "currency": "EUR" },
   { "code": "BR", "name": "Belgium (Brussels)", "suffix": ".BR", "currency": "EUR" },
   { "code": "TO", "name": "Canada (Toronto)", "suffix": ".TO", "currency": "CAD" },
   { "code": "AX", "name": "Australia", "suffix": ".AX", "currency": "AUD" },
