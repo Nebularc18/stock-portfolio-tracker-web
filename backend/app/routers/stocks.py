@@ -69,7 +69,8 @@ def _get_merged_stock_dividends(stock: Stock, ticker: str, years: int, stock_ser
         for year in range(current_year - years + 1, current_year + 1):
             year_dividends = avanza_service.get_stock_dividends_for_year(ticker, year) or []
             for div in year_dividends:
-                if div.ex_date and div.ex_date > today_iso:
+                payout = div.payment_date or div.ex_date
+                if payout and payout > today_iso:
                     continue
                 mapped_year_dividends.append({
                     'date': div.ex_date,
@@ -539,9 +540,8 @@ def get_upcoming_dividends(ticker: str, db: Session = Depends(get_db), current_u
                     continue
                 if not _is_after_purchase_date(div.ex_date, stock.purchase_date):
                     continue
-                if div.payment_date and div.payment_date <= today:
-                    continue
-                if div.ex_date and div.ex_date <= today:
+                cutoff = div.payment_date or div.ex_date
+                if cutoff and cutoff <= today:
                     continue
                 upcoming_or_remaining.append({
                     'ex_date': div.ex_date,
@@ -566,9 +566,8 @@ def get_upcoming_dividends(ticker: str, db: Session = Depends(get_db), current_u
                     continue
                 if not _is_after_purchase_date(div.get('ex_date'), stock.purchase_date):
                     continue
-                if div.get('payment_date') and div['payment_date'] <= today:
-                    continue
-                if div.get('ex_date') and div['ex_date'] <= today:
+                cutoff = div.get('payment_date') or div.get('ex_date')
+                if cutoff and cutoff <= today:
                     continue
                 upcoming_or_remaining.append(div)
                 seen_event_keys.add(event_key)

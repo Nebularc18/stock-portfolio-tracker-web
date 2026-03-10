@@ -434,6 +434,9 @@ def get_exchange_rates_batch(dates: List[str] = Query(...)):
 
         parsed_dates.append((value, target_date))
 
+    if not parsed_dates:
+        raise HTTPException(status_code=400, detail="dates must contain at least one YYYY-MM-DD value")
+
     min_date = min(target_date for _, target_date in parsed_dates)
     max_date = max(target_date for _, target_date in parsed_dates)
     _validate_exchange_rate_span(min_date, max_date)

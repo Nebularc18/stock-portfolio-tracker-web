@@ -11,7 +11,7 @@ import re
 import hashlib
 from datetime import datetime
 from typing import Optional
-from urllib.parse import quote
+from urllib.parse import quote, urlparse
 
 import requests
 
@@ -161,9 +161,10 @@ class BrandfetchService:
         if not normalized:
             return ""
 
-        normalized = normalized.split("/", 1)[0]
-        normalized = normalized.split(":", 1)[0]
-        parts = [part for part in normalized.split(".") if part]
+        parsed = urlparse(normalized if "://" in normalized else f"//{normalized}")
+        host = (parsed.netloc or parsed.path).split("/", 1)[0]
+        host = host.rsplit("@", 1)[-1].split(":", 1)[0]
+        parts = [part for part in host.split(".") if part]
         if not parts:
             return ""
         multi_label_suffixes = {
@@ -267,9 +268,10 @@ class BrandfetchService:
         query_normalized_text = query.strip().lower()
         ticker_normalized_text = ticker.strip().lower()
         looks_like_dotted_ticker = bool(re.fullmatch(r"[a-z]{1,5}\.[a-z]{1,3}", query_normalized_text))
+        looks_like_hostname = bool(re.fullmatch(r"[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)+", query.strip()))
         curated_domain_root = (
             self._normalize_text(self._root_domain_token(query))
-            if '.' in query and query_normalized_text != ticker_normalized_text and not looks_like_dotted_ticker
+            if looks_like_hostname and query_normalized_text != ticker_normalized_text and not looks_like_dotted_ticker
             else ''
         )
         query_normalized = curated_domain_root or self._normalize_text(query)
