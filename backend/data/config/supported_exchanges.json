@@ -1,0 +1,16 @@
+[
+  { "code": "ST", "name": "Sweden (Stockholm)", "suffix": ".ST", "currency": "SEK" },
+  { "code": "US", "name": "USA (NASDAQ/NYSE)", "suffix": "", "currency": "USD" },
+  { "code": "L", "name": "UK (London)", "suffix": ".L", "currency": "GBP" },
+  { "code": "DE", "name": "Germany (Xetra)", "suffix": ".DE", "currency": "EUR" },
+  { "code": "PA", "name": "France (Paris)", "suffix": ".PA", "currency": "EUR" },
+  { "code": "MI", "name": "Italy (Milan)", "suffix": ".MI", "currency": "EUR" },
+  { "code": "AM", "name": "Netherlands (Amsterdam)", "suffix": ".AS", "currency": "EUR" },
+  { "code": "BR", "name": "Belgium (Brussels)", "suffix": ".BR", "currency": "EUR" },
+  { "code": "TO", "name": "Canada (Toronto)", "suffix": ".TO", "currency": "CAD" },
+  { "code": "AX", "name": "Australia", "suffix": ".AX", "currency": "AUD" },
+  { "code": "HK", "name": "Hong Kong", "suffix": ".HK", "currency": "HKD" },
+  { "code": "T", "name": "Japan (Tokyo)", "suffix": ".T", "currency": "JPY" },
+  { "code": "KS", "name": "South Korea", "suffix": ".KS", "currency": "KRW" },
+  { "code": "SW", "name": "Switzerland", "suffix": ".SW", "currency": "CHF" }
+]

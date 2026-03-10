@@ -97,30 +97,85 @@ def normalize_dividend_event(raw_div: dict, event_type: str) -> dict:
     }
 
 
+def dividend_event_merge_key(event: dict) -> Optional[tuple[str, ...]]:
+    """
+    Compute a merge key for a dividend event to support deduplication.
+    
+    Parameters:
+        event (dict): Dividend event containing at least an 'ex_date' and optionally a 'dividend_type'.
+    
+    Returns:
+        tuple[str, ...] | None: A key tuple for merging:
+          - (ex_date,) if 'dividend_type' is missing,
+          - (ex_date, dividend_type) if present,
+          - `None` if 'ex_date' is missing.
+    """
+    ex_date = event.get('ex_date')
+    if not ex_date:
+        return None
+
+    dividend_type = event.get('dividend_type')
+    if not dividend_type:
+        return (ex_date,)
+
+    return ex_date, dividend_type
+
+
 def get_yahoo_normalized_events(stock_service, ticker: str) -> list:
     """
-    Fetch and return a unified list of normalized historical and upcoming dividend events.
-
-    Parameters:
-        stock_service: Stock service instance exposing dividend-fetch methods.
-        ticker (str): The stock ticker symbol to retrieve dividend events for.
-
+    Create a merged list of normalized dividend events for the given ticker by combining Yahoo historical (last 2 years) and upcoming data.
+    
+    Historical events are normalized and indexed by their merge key (ex_date and dividend_type); upcoming events are normalized and either used to enrich matching historical entries (filling missing payment_date, currency, or dividend_type) or appended when no match exists.
+    
     Returns:
-        list: A list of normalized dividend event dictionaries.
+        list: A list of normalized dividend event dictionaries, with historical events enriched by matching upcoming events when available.
     """
     historical = stock_service.get_dividends(ticker, years=2) or []
     upcoming = stock_service.get_upcoming_dividends(ticker) or []
 
     normalized = [normalize_dividend_event(div, 'historical') for div in historical]
-    normalized.extend(normalize_dividend_event(div, 'upcoming') for div in upcoming)
+
+    historical_by_ex_date = {
+        merge_key: event
+        for event in normalized
+        if (merge_key := dividend_event_merge_key(event)) is not None
+    }
+
+    for div in upcoming:
+        normalized_upcoming = normalize_dividend_event(div, 'upcoming')
+        upcoming_key = dividend_event_merge_key(normalized_upcoming)
+        historical_event = historical_by_ex_date.get(upcoming_key) if upcoming_key else None
+        got_from_wildcard = False
+        if historical_event is None and upcoming_key and len(upcoming_key) > 1:
+            historical_event = historical_by_ex_date.get((upcoming_key[0],))
+            got_from_wildcard = historical_event is not None
+        if historical_event is not None:
+            if not historical_event.get('payment_date') and normalized_upcoming.get('payment_date'):
+                historical_event['payment_date'] = normalized_upcoming.get('payment_date')
+            if not historical_event.get('currency') and normalized_upcoming.get('currency'):
+                historical_event['currency'] = normalized_upcoming.get('currency')
+            if not historical_event.get('dividend_type') and normalized_upcoming.get('dividend_type'):
+                historical_event['dividend_type'] = normalized_upcoming.get('dividend_type')
+            if upcoming_key:
+                historical_by_ex_date[upcoming_key] = historical_event
+            fallback_key = dividend_event_merge_key(historical_event)
+            if fallback_key:
+                historical_by_ex_date[fallback_key] = historical_event
+            if got_from_wildcard and upcoming_key:
+                historical_by_ex_date.pop((upcoming_key[0],), None)
+            continue
+        normalized.append(normalized_upcoming)
+        if upcoming_key:
+            historical_by_ex_date[upcoming_key] = normalized_upcoming
+
     return normalized
 
 def get_display_currency(db: Session, user_id: int) -> str:
     """
-    Get the user's preferred display currency.
+    Return the user's preferred display currency.
     
     Returns:
-        The currency code to use for display (for example, "USD" or "SEK"). Returns "SEK" if no user settings exist.
+        display_currency (str): The user's currency code (e.g., "USD", "SEK"). Defaults to "SEK" if the user has no settings.
     """
     settings = db.query(UserSettings).filter(UserSettings.user_id == user_id).first()
     if settings:
@@ -129,16 +184,19 @@ def get_display_currency(db: Session, user_id: int) -> str:
 
 
 def convert_value(value: float, from_currency: str, to_currency: str, rates: dict) -> Optional[float]:
-    """Convert a monetary value between currencies using exchange rates.
+    """
+    Convert a monetary value from one currency to another using the provided exchange rates.
     
-    Args:
-        value: The monetary value to convert.
-        from_currency: Source currency code.
-        to_currency: Target currency code.
-        rates: Dictionary of exchange rates (e.g., {'USD_SEK': 10.5}).
+    The `rates` mapping should use keys of the form "SRC_TGT" (e.g., "USD_SEK") with numeric rates. If a direct or inverse rate for the source/target pair exists the function applies it; if not, it may attempt conversion via SEK as an intermediary. If no viable conversion path is available, the function returns None.
+    
+    Parameters:
+        value (float): Amount in the source currency.
+        from_currency (str): Source currency ISO code.
+        to_currency (str): Target currency ISO code.
+        rates (dict): Mapping of exchange rate keys (e.g., {"USD_SEK": 10.5, "SEK_EUR": 0.09}) to numeric rates.
     
     Returns:
-        float: Converted value, or None if conversion rate not available.
+        float: Converted amount in the target currency, or `None` if no applicable rate is found.
     """
     if from_currency == to_currency:
         return value
@@ -150,7 +208,61 @@ def convert_value(value: float, from_currency: str, to_currency: str, rates: dic
     inverse_key = f"{to_currency}_{from_currency}"
     if inverse_key in rates and rates[inverse_key]:
         return value / rates[inverse_key]
+
+    if from_currency != 'SEK' and to_currency != 'SEK':
+        sek_key = f"{from_currency}_SEK"
+        target_key = f"SEK_{to_currency}"
+        inverse_sek_key = f"SEK_{from_currency}"
+        inverse_target_key = f"{to_currency}_SEK"
+
+        if rates.get(sek_key) and rates.get(target_key):
+            return value * rates[sek_key] * rates[target_key]
+        if rates.get(sek_key) and rates.get(inverse_target_key):
+            return value * rates[sek_key] / rates[inverse_target_key]
+        if rates.get(inverse_sek_key) and rates.get(target_key):
+            return (value / rates[inverse_sek_key]) * rates[target_key]
+        if rates.get(inverse_sek_key) and rates.get(inverse_target_key):
+            return (value / rates[inverse_sek_key]) / rates[inverse_target_key]
+
+    return None
+
+
+COUNTRY_BY_TICKER_SUFFIX = {
+    '.ST': 'Sweden',
+    '.DE': 'Germany',
+    '.PA': 'France',
+    '.MI': 'Italy',
+    '.AS': 'Netherlands',
+    '.BR': 'Belgium',
+    '.TO': 'Canada',
+    '.HK': 'Hong Kong',
+    '.AX': 'Australia',
+    '.T': 'Japan',
+    '.SI': 'Singapore',
+    '.L': 'United Kingdom',
+    '.SW': 'Switzerland',
+    '.HE': 'Finland',
+    '.CO': 'Denmark',
+    '.OL': 'Norway',
+}
+
+
+def infer_country_from_ticker(ticker: str) -> Optional[str]:
+    """
+    Infer the country associated with a stock ticker using known suffix mappings and simple heuristics.
     
+    Parameters:
+        ticker (str): Stock ticker or symbol; may include an exchange suffix (e.g., ".ST", ".DE").
+    
+    Returns:
+        country (Optional[str]): Country name matched from suffix mappings, "United States" when the ticker has no suffix and is non-empty, or `None` if no inference can be made.
+    """
+    ticker_upper = (ticker or '').upper()
+    for suffix, country in COUNTRY_BY_TICKER_SUFFIX.items():
+        if ticker_upper.endswith(suffix):
+            return country
+    if '.' not in ticker_upper and ticker_upper:
+        return 'United States'
     return None
 
 
@@ -177,6 +289,7 @@ def get_portfolio_summary(db: Session = Depends(get_db), current_user: User = De
     display_currency = get_display_currency(db, current_user.id)
     
     currencies = {s.currency for s in stocks if s.currency}
+    currencies.add('SEK')
     rates = ExchangeRateService.get_rates_for_currencies(currencies, display_currency)
     
     total_value = 0
@@ -442,33 +555,47 @@ def get_portfolio_history(
 @router.get("/distribution")
 def get_portfolio_distribution(db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
     """
-    Compute portfolio value breakdowns aggregated by sector, currency, and ticker.
+    Compute the portfolio's value distribution aggregated by sector, country, currency, and ticker, expressed using the user's display currency.
     
     Returns:
-        dict: Mapping with keys:
-            - by_sector (dict): sector name -> total market value for that sector.
-            - by_currency (dict): currency code -> total market value in that currency.
-            - by_stock (dict): ticker -> total market value for that stock.
+        dict: A mapping with keys:
+            - display_currency (str): The user's display currency code.
+            - by_sector (dict): sector name -> total market value for that sector (converted to display currency).
+            - by_country (dict): country name -> total market value for that country (converted to display currency).
+            - by_currency (dict): currency code -> total market value in that native currency (not converted).
+            - by_stock (dict): ticker -> total market value for that stock (converted to display currency).
     """
     stocks = db.query(Stock).filter(Stock.user_id == current_user.id).all()
+    display_currency = get_display_currency(db, current_user.id)
+    currencies = {stock.currency for stock in stocks if stock.currency}
+    currencies.add('SEK')
+    rates = ExchangeRateService.get_rates_for_currencies(currencies, display_currency)
     
     by_sector = {}
+    by_country = {}
     by_currency = {}
     by_stock = {}
     
     for stock in stocks:
         if stock.current_price is not None and stock.quantity is not None:
-            value = stock.current_price * stock.quantity
+            value_native = stock.current_price * stock.quantity
+            by_currency[stock.currency] = by_currency.get(stock.currency, 0) + value_native
+            value = convert_value(value_native, stock.currency, display_currency, rates)
+            if value is None:
+                continue
             
             sector = stock.sector or "Unknown"
             by_sector[sector] = by_sector.get(sector, 0) + value
-            
-            by_currency[stock.currency] = by_currency.get(stock.currency, 0) + value
-            
+
+            country = infer_country_from_ticker(stock.ticker) or "Unknown"
+            by_country[country] = by_country.get(country, 0) + value
+
             by_stock[stock.ticker] = by_stock.get(stock.ticker, 0) + value
     
     return {
+        "display_currency": display_currency,
         "by_sector": by_sector,
+        "by_country": by_country,
         "by_currency": by_currency,
         "by_stock": by_stock,
     }
@@ -477,7 +604,9 @@ def get_portfolio_distribution(db: Session = Depends(get_db), current_user: User
 @router.get("/upcoming-dividends")
 def get_upcoming_portfolio_dividends(db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
     """
-    Collect current-year dividend events for all stocks in the portfolio and convert per-stock totals into the user's display currency.
+    Collect current-year dividend events for all portfolio stocks and convert per-stock totals into the user's display currency.
+    
+    Normalizes dividend sources (Avanza or Yahoo), skips events the user is not entitled to (entitlement before purchase_date), deduplicates identical events, and marks each event as 'paid' or 'upcoming' based on payout date.
     
     Returns:
         dict: {
@@ -522,6 +651,7 @@ def get_upcoming_portfolio_dividends(db: Session = Depends(get_db), current_user
     current_year = now.year
 
     for stock in stocks:
+        purchase_date = stock.purchase_date
         avanza_mapping = avanza_service.get_mapping_by_ticker(stock.ticker)
         no_avanza_mapping = avanza_mapping is None or not avanza_mapping.instrument_id
 
@@ -550,10 +680,16 @@ def get_upcoming_portfolio_dividends(db: Session = Depends(get_db), current_user
             ex_date = div.get('ex_date', '')
             payment_date = div.get('payment_date')
             payout_date = payment_date or ex_date
+            ex_date_parsed = parse_event_date(ex_date)
 
             payout_date_parsed = parse_event_date(payout_date)
             if not payout_date_parsed:
                 continue
+
+            if purchase_date is not None:
+                entitlement_date = ex_date_parsed or payout_date_parsed
+                if entitlement_date and entitlement_date <= purchase_date:
+                    continue
 
             if payout_date_parsed.year != current_year:
                 continue

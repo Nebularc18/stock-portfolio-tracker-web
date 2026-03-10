@@ -73,6 +73,7 @@ export interface Stock {
   sector: string | null
   logo: string | null
   purchase_price: number | null
+  purchase_date: string | null
   current_price: number | null
   previous_close: number | null
   dividend_yield: number | null
@@ -129,6 +130,8 @@ export interface Dividend {
   payment_date: string | null
 }
 
+export type DividendsByTicker = Record<string, Dividend[]>
+
 export interface UpcomingDividend {
   ticker: string
   name: string | null
@@ -166,6 +169,14 @@ export interface UpcomingDividendsResponse {
     name: string | null
     reason: string
   }>
+}
+
+export interface DistributionResponse {
+  display_currency: string
+  by_sector: Record<string, number>
+  by_country: Record<string, number>
+  by_currency: Record<string, number>
+  by_stock: Record<string, number>
 }
 
 export interface TickerMapping {
@@ -347,13 +358,21 @@ export const api = {
   stocks: {
     list: () => fetchAPI('/stocks') as Promise<Stock[]>,
     get: (ticker: string) => fetchAPI(`/stocks/${ticker}`) as Promise<Stock>,
-    create: (data: { ticker: string; quantity: number; purchase_price?: number }) => 
+    create: (data: { ticker: string; quantity: number; purchase_price?: number; purchase_date?: string }) => 
       fetchAPI('/stocks', { method: 'POST', body: JSON.stringify(data) }) as Promise<Stock>,
-    update: (ticker: string, data: { quantity?: number; purchase_price?: number }) =>
+    update: (ticker: string, data: { quantity?: number; purchase_price?: number; purchase_date?: string | null }) =>
       fetchAPI(`/stocks/${ticker}`, { method: 'PATCH', body: JSON.stringify(data) }) as Promise<Stock>,
     delete: (ticker: string) => fetchAPI(`/stocks/${ticker}`, { method: 'DELETE' }),
     refresh: (ticker: string) => fetchAPI(`/stocks/${ticker}/refresh`, { method: 'POST' }) as Promise<Stock>,
     dividends: (ticker: string, years: number = 5) => fetchAPI(`/stocks/${ticker}/dividends?years=${years}`) as Promise<Dividend[]>,
+    dividendsForTickers: (tickers: string[], years: number = 5) => {
+      const params = new URLSearchParams()
+      for (const ticker of tickers) {
+        params.append('tickers', ticker)
+      }
+      params.set('years', String(years))
+      return fetchAPI(`/stocks/dividends/batch?${params.toString()}`) as Promise<DividendsByTicker>
+    },
     upcomingDividends: (ticker: string) => fetchAPI(`/stocks/${ticker}/upcoming-dividends`) as Promise<StockUpcomingDividend[]>,
     analyst: (ticker: string) => fetchAPI(`/stocks/${ticker}/analyst`) as Promise<AnalystData>,
     validate: (ticker: string) => fetchAPI(`/stocks/validate/${ticker}`),
@@ -374,7 +393,7 @@ export const api = {
   portfolio: {
     summary: () => fetchAPI('/portfolio/summary') as Promise<PortfolioSummary>,
     refreshAll: () => fetchAPI('/portfolio/refresh-all', { method: 'POST' }),
-    distribution: () => fetchAPI('/portfolio/distribution'),
+    distribution: () => fetchAPI('/portfolio/distribution') as Promise<DistributionResponse>,
     history: (options: number | { days?: number; range?: string } = 30) => {
       const params = new URLSearchParams()
       if (typeof options === 'number') {
@@ -396,7 +415,11 @@ export const api = {
   market: {
     header: (force: boolean = false) => fetchAPI(`/market/header${force ? '?force=true' : ''}`) as Promise<HeaderMarketData>,
     indices: () => fetchAPI('/market/indices') as Promise<{ indices: MarketIndex[]; updated_at: string; next_refresh_at: string }>,
-    exchangeRates: () => fetchAPI('/market/exchange-rates') as Promise<Record<string, number | null>>,
+    exchangeRates: (date?: string) => fetchAPI(`/market/exchange-rates${date ? `?date=${encodeURIComponent(date)}` : ''}`) as Promise<Record<string, number | null>>,
+    exchangeRatesBatch: (dates: string[]) => fetchAPI('/market/exchange-rates/batch', {
+      method: 'POST',
+      body: JSON.stringify({ dates }),
+    }) as Promise<Record<string, Record<string, number | null>>>,
     convert: (amount: number, from: string, to: string) => 
       fetchAPI(`/market/convert?amount=${amount}&from_currency=${from}&to_currency=${to}`),
     hours: (timezone?: string) => fetchAPI(`/market/hours${timezone ? `?timezone=${encodeURIComponent(timezone)}` : ''}`) as Promise<MarketStatus[]>,

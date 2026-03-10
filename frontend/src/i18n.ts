@@ -1,12 +1,12 @@
 export type Language = 'en' | 'sv'
 
-const translations = {
-  en: {
+const en = {
     'nav.dashboard': 'Dashboard',
     'nav.performance': 'Performance',
     'nav.analytics': 'Analytics',
     'nav.dividendsHistory': 'Dividends History',
-    'nav.upcomingDividends': 'Upcoming Dividends',
+    'nav.upcomingDividends': 'Dividends This Year',
+    'nav.upcomingDividendsYear': 'Dividends {{year}}',
     'nav.stocks': 'Stocks',
     'nav.markets': 'Markets',
     'nav.settings': 'Settings',
@@ -56,6 +56,7 @@ const translations = {
     'settings.timezone': 'Timezone for Market Hours',
     'settings.timezoneDescription': 'Market opening and closing times will be displayed in your selected timezone.',
     'settings.language': 'Language',
+    'settings.languageDescription': 'Interface text, labels, and local formatting follow this selection.',
     'settings.theme.midnight.title': 'Midnight Terminal',
     'settings.theme.midnight.description': 'Dark Bloomberg-inspired professional trading look',
     'settings.theme.light.title': 'Light Corporate',
@@ -97,6 +98,7 @@ const translations = {
     'stocks.tickerSymbol': 'Ticker Symbol',
     'stocks.quantity': 'Quantity',
     'stocks.purchasePrice': 'Purchase Price',
+    'stocks.purchaseDate': 'Purchase Date',
     'stocks.placeholderQuantity': '10',
     'stocks.placeholderPrice': '150.00',
     'stocks.adding': 'Adding...',
@@ -127,6 +129,9 @@ const translations = {
     'analytics.overview': 'Portfolio distribution overview',
     'analytics.portfolioDistribution': 'Portfolio Distribution',
     'analytics.sectorDistribution': 'Sector Distribution',
+    'analytics.countryDistribution': 'Country Distribution',
+    'analytics.dividendComparison': 'Dividend Comparison',
+    'analytics.dividendComparisonHint': 'Compare up to three years and switch the years you want to view.',
     'analytics.noData': 'No portfolio data available. Add stocks to see analytics.',
     'analytics.failedLoad': 'Failed to load analytics data',
 
@@ -142,15 +147,16 @@ const translations = {
 
     'upcoming.failedLoad': 'Failed to load upcoming dividends',
     'upcoming.loading': 'Loading upcoming dividends...',
-    'upcoming.title': 'Upcoming Dividends',
+    'upcoming.title': 'Dividends (This Year)',
+    'upcoming.titleWithYear': 'Dividends ({{year}})',
     'upcoming.viewHistory': 'View History',
     'upcoming.unmappedTitle': 'Unmapped Swedish Stocks ({{count}})',
     'upcoming.unmappedDescription': 'These Swedish stocks are using Yahoo Finance instead of aktieutdelningar.se. Map them to get better dividend data.',
     'upcoming.more': 'more',
     'upcoming.mapInSettings': 'Map in Settings',
     'upcoming.noneFound': 'No upcoming dividends found for your portfolio.',
-    'upcoming.totalExpected': 'Total Expected',
-    'upcoming.upcomingPayments': 'Upcoming Payments',
+    'upcoming.totalExpected': 'Total This Year',
+    'upcoming.upcomingPayments': 'Payments This Year',
     'upcoming.stock': 'Stock',
     'upcoming.exDate': 'Ex-Date',
     'upcoming.dividendDate': 'Dividend Date',
@@ -158,6 +164,11 @@ const translations = {
     'upcoming.quantity': 'Quantity',
     'upcoming.total': 'Total',
     'upcoming.source': 'Source',
+    'upcoming.perQuarter': 'Per quarter',
+    'upcoming.perMonth': 'Per month',
+    'upcoming.perDay': 'Per day',
+    'upcoming.averageThisYear': 'average this year',
+    'upcoming.projected': 'projected',
     'upcoming.today': 'Today!',
     'upcoming.inDays': 'In {{count}} {{dayLabel}}',
     'upcoming.day': 'day',
@@ -207,6 +218,7 @@ const translations = {
     'stockDetail.position': 'Position',
     'stockDetail.quantity': 'Quantity',
     'stockDetail.purchasePrice': 'Purchase Price',
+    'stockDetail.purchaseDate': 'Purchase Date',
     'stockDetail.currentValue': 'Current Value',
     'stockDetail.totalCost': 'Total Cost',
     'stockDetail.dividendInfo': 'Dividend Info',
@@ -267,8 +279,10 @@ const translations = {
     'dashboard.dailyChange': 'DAILY CHANGE',
     'dashboard.gainLoss': 'GAIN/LOSS',
     'dashboard.returnPercent': 'RETURN %',
+    'dashboard.dividendYield': 'DIVIDEND YIELD %',
     'dashboard.partial': 'partial',
     'dashboard.performanceTitle': 'Portfolio Performance',
+    'dashboard.noHistoryData': 'No portfolio history available yet.',
     'dashboard.low': 'Low',
     'dashboard.high': 'High',
     'dashboard.portfolioValue': 'Portfolio Value',
@@ -282,6 +296,7 @@ const translations = {
     'dashboard.received': 'Received',
     'dashboard.remaining': 'Remaining',
     'dashboard.dividendsThisYear': 'Dividends (This Year)',
+    'dashboard.upcomingDividends': 'Upcoming Dividends',
     'dashboard.exDate': 'Ex-Date',
     'dashboard.dividendDate': 'Dividend Date',
     'dashboard.perShare': 'Per Share',
@@ -378,13 +393,18 @@ const translations = {
     'financialMetrics.low52wDate': '52W Low Date',
     'financialMetrics.avgVol10d': 'Avg Volume 10d',
     'financialMetrics.avgVol3m': 'Avg Volume 3m',
-  },
-  sv: {
+  } as const
+
+type TranslationKey = keyof typeof en
+type LocaleTranslations = Record<TranslationKey, string>
+
+const sv: LocaleTranslations = {
     'nav.dashboard': 'Översikt',
     'nav.performance': 'Prestanda',
     'nav.analytics': 'Analys',
     'nav.dividendsHistory': 'Utdelningshistorik',
-    'nav.upcomingDividends': 'Kommande utdelningar',
+    'nav.upcomingDividends': 'Utdelningar i år',
+    'nav.upcomingDividendsYear': 'Utdelningar {{year}}',
     'nav.stocks': 'Aktier',
     'nav.markets': 'Marknader',
     'nav.settings': 'Inställningar',
@@ -434,6 +454,7 @@ const translations = {
     'settings.timezone': 'Tidszon för marknadstider',
     'settings.timezoneDescription': 'Marknadens öppnings- och stängningstider visas i vald tidszon.',
     'settings.language': 'Språk',
+    'settings.languageDescription': 'Gränssnittstext, etiketter och lokal formatering följer detta val.',
     'settings.theme.midnight.title': 'Midnattsterminal',
     'settings.theme.midnight.description': 'Mörk, Bloomberg-inspirerad professionell tradingstil',
     'settings.theme.light.title': 'Ljus Företagsstil',
@@ -475,6 +496,7 @@ const translations = {
     'stocks.tickerSymbol': 'Tickersymbol',
     'stocks.quantity': 'Antal',
     'stocks.purchasePrice': 'Inköpspris',
+    'stocks.purchaseDate': 'Inköpsdatum',
     'stocks.placeholderQuantity': '10',
     'stocks.placeholderPrice': '150,00',
     'stocks.adding': 'Lägger till...',
@@ -505,6 +527,9 @@ const translations = {
     'analytics.overview': 'Översikt av portföljfördelning',
     'analytics.portfolioDistribution': 'Portföljfördelning',
     'analytics.sectorDistribution': 'Sektorfördelning',
+    'analytics.countryDistribution': 'Landfördelning',
+    'analytics.dividendComparison': 'Jämförelse utdelningar',
+    'analytics.dividendComparisonHint': 'Jämför upp till tre år och byt vilka år du vill visa.',
     'analytics.noData': 'Ingen portföljdata tillgänglig. Lägg till aktier för att se analys.',
     'analytics.failedLoad': 'Kunde inte ladda analysdata',
 
@@ -520,15 +545,16 @@ const translations = {
 
     'upcoming.failedLoad': 'Kunde inte ladda kommande utdelningar',
     'upcoming.loading': 'Laddar kommande utdelningar...',
-    'upcoming.title': 'Kommande utdelningar',
+    'upcoming.title': 'Utdelningar (i år)',
+    'upcoming.titleWithYear': 'Utdelningar ({{year}})',
     'upcoming.viewHistory': 'Visa historik',
     'upcoming.unmappedTitle': 'Okopplade svenska aktier ({{count}})',
     'upcoming.unmappedDescription': 'Dessa svenska aktier använder Yahoo Finance istället för aktieutdelningar.se. Koppla dem för bättre utdelningsdata.',
     'upcoming.more': 'till',
     'upcoming.mapInSettings': 'Koppla i Inställningar',
     'upcoming.noneFound': 'Inga kommande utdelningar hittades för din portfölj.',
-    'upcoming.totalExpected': 'Total förväntad',
-    'upcoming.upcomingPayments': 'Kommande utbetalningar',
+    'upcoming.totalExpected': 'Totalt i år',
+    'upcoming.upcomingPayments': 'Utbetalningar i år',
     'upcoming.stock': 'Aktie',
     'upcoming.exDate': 'Ex-datum',
     'upcoming.dividendDate': 'Utdelningsdatum',
@@ -536,6 +562,11 @@ const translations = {
     'upcoming.quantity': 'Antal',
     'upcoming.total': 'Totalt',
     'upcoming.source': 'Källa',
+    'upcoming.perQuarter': 'Per kvartal',
+    'upcoming.perMonth': 'Per månad',
+    'upcoming.perDay': 'Per dag',
+    'upcoming.averageThisYear': 'snitt i år',
+    'upcoming.projected': 'prognos',
     'upcoming.today': 'Idag!',
     'upcoming.inDays': 'Om {{count}} {{dayLabel}}',
     'upcoming.day': 'dag',
@@ -585,6 +616,7 @@ const translations = {
     'stockDetail.position': 'Position',
     'stockDetail.quantity': 'Antal',
     'stockDetail.purchasePrice': 'Inköpspris',
+    'stockDetail.purchaseDate': 'Inköpsdatum',
     'stockDetail.currentValue': 'Nuvarande värde',
     'stockDetail.totalCost': 'Totalt inköp',
     'stockDetail.dividendInfo': 'Utdelningsinfo',
@@ -645,8 +677,10 @@ const translations = {
     'dashboard.dailyChange': 'DAGLIG FÖRÄNDRING',
     'dashboard.gainLoss': 'VINST/FÖRLUST',
     'dashboard.returnPercent': 'AVKASTNING %',
+    'dashboard.dividendYield': 'DIREKTAVKASTNING %',
     'dashboard.partial': 'delvis',
     'dashboard.performanceTitle': 'Portföljutveckling',
+    'dashboard.noHistoryData': 'Ingen portföljhistorik tillgänglig ännu.',
     'dashboard.low': 'Låg',
     'dashboard.high': 'Hög',
     'dashboard.portfolioValue': 'Portföljvärde',
@@ -660,6 +694,7 @@ const translations = {
     'dashboard.received': 'Mottaget',
     'dashboard.remaining': 'Återstående',
     'dashboard.dividendsThisYear': 'Utdelningar (i år)',
+    'dashboard.upcomingDividends': 'Kommande utdelningar',
     'dashboard.exDate': 'Ex-datum',
     'dashboard.dividendDate': 'Utdelningsdatum',
     'dashboard.perShare': 'Per aktie',
@@ -756,10 +791,14 @@ const translations = {
     'financialMetrics.low52wDate': '52V Låg datum',
     'financialMetrics.avgVol10d': 'Volym 10d gen.',
     'financialMetrics.avgVol3m': 'Volym 3m gen.',
-  },
-} as const satisfies Record<Language, Record<string, string>>
+  }
 
-export type TranslationKey = keyof typeof translations.en
+const translations = {
+  en,
+  sv,
+} as const satisfies Record<Language, LocaleTranslations>
+
+export type { TranslationKey }
 
 /**
  * Resolves a localized string for the given key and language and interpolates any {{placeholders}} with the provided params.

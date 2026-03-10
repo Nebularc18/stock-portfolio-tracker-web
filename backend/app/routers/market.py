@@ -4,13 +4,14 @@ This module provides API endpoints for market index data, exchange rates,
 market hours status, and sparkline charts for the header component.
 """
 
-from fastapi import APIRouter, Query
+from fastapi import APIRouter, Body, HTTPException, Query
 from typing import List
-from datetime import datetime, timezone, timedelta
+from datetime import date, datetime, timezone, timedelta
 import requests
 import logging
 import json
 import os
+from functools import lru_cache
 
 from app.services.market_hours_service import MarketHoursService
 from app.services.market_data_service import get_header_market_data, HEADER_INDICES
@@ -20,7 +21,205 @@ logger = logging.getLogger(__name__)
 
 _session = None
 _CACHE_DIR = os.path.join(os.path.dirname(__file__), '..', '..', 'data', 'cache')
+_DEFAULT_SUPPORTED_EXCHANGE_CURRENCIES = ('SEK', 'USD', 'GBP', 'EUR')
+_SUPPORTED_EXCHANGES_PATH = os.getenv(
+    'SUPPORTED_EXCHANGES_PATH',
+    os.path.join(os.path.dirname(__file__), '..', '..', 'data', 'config', 'supported_exchanges.json')
+)
+
+
+def _get_int_env(name: str, default: int) -> int:
+    raw_value = os.getenv(name)
+    if raw_value is None:
+        return default
+
+    try:
+        return int(raw_value)
+    except ValueError:
+        logger.warning("Invalid integer for %s=%r; using default %s", name, raw_value, default)
+        return default
+
+
+MAX_EXCHANGE_RATE_SPAN_DAYS = _get_int_env('MARKET_MAX_EXCHANGE_RATE_SPAN_DAYS', 3650)
 INDICES_CACHE_TTL = 900  # 15 minutes
+
+
+@lru_cache(maxsize=1)
+def _get_supported_exchange_currencies() -> tuple[str, ...]:
+    try:
+        with open(_SUPPORTED_EXCHANGES_PATH, 'r', encoding='utf-8') as f:
+            exchanges = json.load(f)
+    except Exception:
+        logger.exception("Failed to load supported exchanges from %s", _SUPPORTED_EXCHANGES_PATH)
+        exchanges = _DEFAULT_SUPPORTED_EXCHANGE_CURRENCIES
+
+    currencies = []
+    seen = set()
+    for exchange in exchanges:
+        if isinstance(exchange, dict):
+            currency = exchange.get('currency')
+        elif isinstance(exchange, str):
+            currency = exchange
+        else:
+            continue
+        if isinstance(currency, str) and currency and currency not in seen:
+            seen.add(currency)
+            currencies.append(currency)
+
+    if not currencies:
+        logger.warning("No supported exchange currencies found in %s; using fallback currencies", _SUPPORTED_EXCHANGES_PATH)
+        return _DEFAULT_SUPPORTED_EXCHANGE_CURRENCIES
+
+    return tuple(currencies)
+
+
+def _build_exchange_rate_pairs() -> list[tuple[str, str]]:
+    currencies = sorted(_get_supported_exchange_currencies())
+    return [
+        (f"{base}{quote}=X", f"{base}_{quote}")
+        for index, base in enumerate(currencies)
+        for quote in currencies[index + 1:]
+    ]
+
+
+pairs = _build_exchange_rate_pairs()
+
+
+def _all_rate_keys() -> list[str]:
+    keys: list[str] = []
+    for _, key in pairs:
+        base, quote = key.split('_', 1)
+        keys.append(key)
+        keys.append(f"{quote}_{base}")
+    return keys
+
+
+def _empty_rate_map() -> dict[str, float | None]:
+    return {key: None for key in _all_rate_keys()}
+
+
+def _store_exchange_rate(rates: dict[str, float | None], key: str, rate: float):
+    base, quote = key.split('_', 1)
+    reverse_key = f"{quote}_{base}"
+    if rate > 0:
+        rates[key] = rate
+        rates[reverse_key] = 1 / rate
+        return
+
+    rates[key] = None
+    rates[reverse_key] = None
+
+
+def _validate_exchange_rate_span(start_date: date, end_date: date):
+    span_days = (end_date - start_date).days
+    if span_days > MAX_EXCHANGE_RATE_SPAN_DAYS:
+        raise HTTPException(
+            status_code=400,
+            detail=f"date span must not exceed {MAX_EXCHANGE_RATE_SPAN_DAYS} days",
+        )
+
+
+def _log_non_200_yahoo_response(url: str, response: requests.Response, context: str):
+    logger.warning(
+        "Yahoo returned %s for %s (%s): %s",
+        response.status_code,
+        context,
+        url,
+        response.text[:200],
+    )
+
+
+def _fetch_latest_exchange_rates() -> dict[str, float | None]:
+    session = get_session()
+    rates: dict[str, float | None] = _empty_rate_map()
+
+    for symbol, key in pairs:
+        try:
+            url = f"https://query1.finance.yahoo.com/v8/finance/chart/{symbol}?interval=1d&range=1d"
+            response = session.get(url, timeout=5)
+
+            if response.status_code != 200:
+                _log_non_200_yahoo_response(url, response, f"exchange rate {key}")
+                continue
+
+            data = response.json()
+            if not data.get('chart', {}).get('result'):
+                continue
+
+            result = data['chart']['result'][0]
+            quote = result.get('indicators', {}).get('quote', [{}])[0]
+            closes = quote.get('close', [])
+            prices = [price for price in closes if price is not None]
+            if prices:
+                _store_exchange_rate(rates, key, prices[-1])
+        except Exception:
+            logger.exception("Failed to fetch exchange rate for %s (%s)", key, symbol)
+
+    return rates
+
+
+def _fetch_exchange_rates_for_range(start_date: date, end_date: date) -> dict[date, dict[str, float | None]]:
+    _validate_exchange_rate_span(start_date, end_date)
+    session = get_session()
+    rates_by_date: dict[date, dict[str, float | None]] = {
+        start_date + timedelta(days=offset): _empty_rate_map()
+        for offset in range((end_date - start_date).days + 1)
+    }
+
+    period_start = datetime.combine(start_date - timedelta(days=7), datetime.min.time(), tzinfo=timezone.utc)
+    period_end = datetime.combine(end_date + timedelta(days=1), datetime.min.time(), tzinfo=timezone.utc)
+
+    for symbol, key in pairs:
+        try:
+            url = (
+                f"https://query1.finance.yahoo.com/v8/finance/chart/{symbol}"
+                f"?period1={int(period_start.timestamp())}&period2={int(period_end.timestamp())}&interval=1d"
+            )
+            response = session.get(url, timeout=5)
+
+            if response.status_code != 200:
+                _log_non_200_yahoo_response(url, response, f"exchange rate series {key}")
+                continue
+
+            data = response.json()
+            if not data.get('chart', {}).get('result'):
+                continue
+
+            result = data['chart']['result'][0]
+            quote = result.get('indicators', {}).get('quote', [{}])[0]
+            closes = quote.get('close', [])
+            timestamps = result.get('timestamp', [])
+            series = [
+                (datetime.fromtimestamp(ts, tz=timezone.utc).date(), price)
+                for ts, price in zip(timestamps, closes, strict=False)
+                if price is not None
+            ]
+
+            if not series:
+                continue
+
+            series_index = 0
+            latest_price = None
+            for current_date in sorted(rates_by_date):
+                while series_index < len(series) and series[series_index][0] <= current_date:
+                    latest_price = series[series_index][1]
+                    series_index += 1
+                if latest_price is not None:
+                    _store_exchange_rate(rates_by_date[current_date], key, latest_price)
+        except Exception:
+            logger.exception("Failed to fetch exchange rate series for %s (%s)", key, symbol)
+
+    return rates_by_date
+
+
+def _fetch_exchange_rates_for_date(target_date: date | None) -> dict[str, float | None]:
+    if target_date is None:
+        return _fetch_latest_exchange_rates()
+
+    return _fetch_exchange_rates_for_range(target_date, target_date).get(
+        target_date,
+        _empty_rate_map(),
+    )
 
 def get_session():
     """Get or create a shared requests session with default headers.
@@ -232,47 +431,64 @@ def get_market_indices():
 
 
 @router.get("/exchange-rates")
-def get_exchange_rates():
-    """Retrieve current exchange rates for major currency pairs.
+def get_exchange_rates(date: str | None = Query(None)):
+    """
+    Retrieve exchange rates for major currency pairs, optionally for a specific ISO date.
+    
+    When no date is provided, returns the most recent available rate for each pair. When a date (YYYY-MM-DD) is provided, returns the latest available rate on or before that date within the fetched window.
+    
+    Parameters:
+        date (str | None): Optional target date in `YYYY-MM-DD` format to fetch historical rates.
     
     Returns:
-        dict: Mapping of currency pair names to exchange rates
-            (e.g., {'USD_SEK': 10.5, 'EUR_SEK': 11.2}).
+        dict: Mapping of currency pair keys (e.g., `USD_SEK`, `EUR_USD`) to numeric exchange rates.
+    
+    Raises:
+        HTTPException: If `date` is provided but not in `YYYY-MM-DD` format (HTTP 400).
     """
-    session = get_session()
-    rates = {}
-    
-    pairs = [
-        ("USDSEK=X", "USD_SEK"),
-        ("EURSEK=X", "EUR_SEK"),
-        ("SEKUSD=X", "SEK_USD"),
-        ("USDEUR=X", "USD_EUR"),
-        ("EURUSD=X", "EUR_USD"),
-        ("USDGBP=X", "USD_GBP"),
-        ("GBPUSD=X", "GBP_USD"),
-    ]
-    
-    for symbol, key in pairs:
+    if date is not None:
+        if date == '':
+            raise HTTPException(status_code=400, detail="date must be in YYYY-MM-DD format")
         try:
-            url = f"https://query1.finance.yahoo.com/v8/finance/chart/{symbol}?interval=1d&range=1d"
-            response = session.get(url, timeout=5)
-            
-            if response.status_code == 200:
-                data = response.json()
-                if data.get('chart', {}).get('result'):
-                    quote = data['chart']['result'][0].get('indicators', {}).get('quote', [{}])[0]
-                    closes = quote.get('close', [])
-                    prices = [p for p in closes if p is not None]
-                    if prices:
-                        rates[key] = prices[-1]
-        except Exception:
-            continue
-    
-    return rates
+            target_date = datetime.strptime(date, "%Y-%m-%d").date()
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail="date must be in YYYY-MM-DD format") from exc
+        return _fetch_exchange_rates_for_date(target_date)
+
+    return _fetch_exchange_rates_for_date(None)
+
+
+@router.post("/exchange-rates/batch")
+def get_exchange_rates_batch(dates: List[str] = Body(..., embed=True)):
+    """Retrieve exchange rates for multiple ISO dates provided in the request body."""
+    parsed_dates: list[tuple[str, date]] = []
+
+    for value in dates:
+        try:
+            target_date = datetime.strptime(value, "%Y-%m-%d").date()
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail="dates must contain YYYY-MM-DD values") from exc
+
+        parsed_dates.append((value, target_date))
+
+    min_date = min(target_date for _, target_date in parsed_dates)
+    max_date = max(target_date for _, target_date in parsed_dates)
+    _validate_exchange_rate_span(min_date, max_date)
+
+    range_rates = _fetch_exchange_rates_for_range(
+        min_date,
+        max_date,
+    )
+
+    rates_by_date: dict[str, dict[str, float | None]] = {}
+    for original_value, target_date in parsed_dates:
+        rates_by_date[original_value] = range_rates.get(target_date, _empty_rate_map())
+
+    return rates_by_date
 
 
 @router.get("/hours")
-def get_market_hours(timezone: str = None):
+def get_market_hours(timezone: str | None = None):
     """Retrieve status for all tracked markets.
     
     Args:
@@ -285,21 +501,18 @@ def get_market_hours(timezone: str = None):
 
 
 @router.get("/hours/{market}")
-def get_specific_market_hours(market: str, timezone: str = None):
-    """Retrieve status for a specific market.
+def get_specific_market_hours(market: str, timezone: str | None = None):
+    """
+    Retrieve the trading hours status for a single market.
     
-    Args:
-        market: Market identifier (e.g., 'SE' for Sweden, 'US' for USA).
-        timezone: Optional timezone for status times.
+    Parameters:
+        market (str): Market identifier (e.g., "SE" for Sweden, "US" for United States).
+        timezone (str | None): Optional IANA timezone name to localize reported times.
     
     Returns:
-        dict: Market status with open, close, and is_open fields,
-            or error message if market not found.
+        dict: On success, a mapping with keys such as `open`, `close`, and `is_open` (`true` if the market is currently open, `false` otherwise). If the market is not found or an error occurs, returns a dict containing an `error` key with diagnostic information.
     """
-    status = MarketHoursService.get_market_status(market.upper(), timezone)
-    if "error" in status:
-        return status
-    return status
+    return MarketHoursService.get_market_status(market.upper(), timezone)
 
 
 @router.get("/indices/sparklines")

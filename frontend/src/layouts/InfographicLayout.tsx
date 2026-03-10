@@ -20,6 +20,7 @@ export default function InfographicLayout() {
   const { timezone, headerIndices, language } = useSettings()
   const { user, logout } = useAuth()
   const locale = getLocaleForLanguage(language)
+  const currentYear = new Date().getUTCFullYear()
   const [logoutError, setLogoutError] = useState<string | null>(null)
   const [isLoggingOut, setIsLoggingOut] = useState(false)
   
@@ -57,7 +58,7 @@ export default function InfographicLayout() {
     { to: '/performance', label: t(language, 'nav.performance'), icon: '📈' },
     { to: '/analytics', label: t(language, 'nav.analytics'), icon: '📉' },
     { to: '/dividends/history', label: t(language, 'nav.dividendsHistory'), icon: '💰' },
-    { to: '/dividends/upcoming', label: t(language, 'nav.upcomingDividends'), icon: '📅' },
+    { to: '/dividends/upcoming', label: t(language, 'nav.upcomingDividendsYear', { year: currentYear }), icon: '📅' },
     { to: '/stocks', label: t(language, 'nav.stocks'), icon: '🏢' },
     { to: '/markets', label: t(language, 'nav.markets'), icon: '🌍' },
     { to: '/settings', label: t(language, 'nav.settings'), icon: '⚙️' },
@@ -81,6 +82,8 @@ export default function InfographicLayout() {
       setIsLoggingOut(false)
     }
   }, [language, logout])
+
+  const avatarLetter = (user?.username?.trim().charAt(0) || 'P').toUpperCase()
   
   return (
     <div style={{
@@ -93,55 +96,72 @@ export default function InfographicLayout() {
         minHeight: '100vh',
       }}>
         <aside style={{
-          width: 80,
+          width: 88,
           background: 'rgba(255,255,255,0.03)',
           borderRight: '1px solid rgba(255,255,255,0.08)',
           display: 'flex',
           flexDirection: 'column',
           alignItems: 'center',
           padding: '24px 0',
-          gap: 8,
+          gap: 18,
         }}>
-          <div style={{
-            width: 48,
-            height: 48,
-            borderRadius: '50%',
-            background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            marginBottom: 24,
-            fontSize: 20,
-          }}>
-            P
-          </div>
-          
-          {links.map(link => (
-            <Link
-              key={link.to}
-              to={link.to}
-              style={{
-                width: 56,
-                height: 56,
-                borderRadius: 16,
-                display: 'flex',
-                flexDirection: 'column',
-                alignItems: 'center',
-                justifyContent: 'center',
-                gap: 4,
-                color: isActive(link.to) ? '#fff' : 'rgba(255,255,255,0.5)',
-                textDecoration: 'none',
-                background: isActive(link.to) ? 'rgba(102, 126, 234, 0.3)' : 'transparent',
-                border: isActive(link.to) ? '1px solid rgba(102, 126, 234, 0.5)' : '1px solid transparent',
-                fontSize: 10,
-                transition: 'all 0.2s',
-              }}
-              title={link.label}
+          <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 12 }}>
+            <div style={{
+              width: 48,
+              height: 48,
+              borderRadius: '50%',
+              background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              fontSize: 20,
+            }}>
+              {avatarLetter}
+            </div>
+            <button
+              className="btn btn-secondary"
+              style={{ width: 56, padding: '8px 6px', fontSize: 11 }}
+              onClick={() => void handleLogout()}
+              disabled={isLoggingOut}
+              title={t(language, 'layout.logout')}
             >
-              <span style={{ fontSize: 18 }}>{link.icon}</span>
-              <span>{link.label}</span>
-            </Link>
-          ))}
+              {isLoggingOut ? '...' : t(language, 'layout.logout')}
+            </button>
+            {logoutError && (
+              <p style={{ color: '#ffb4b4', fontSize: 10, margin: 0, textAlign: 'center', padding: '0 8px' }}>{logoutError}</p>
+            )}
+          </div>
+
+          <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 10, marginTop: '12px' }}>
+            {links.map(link => (
+              <Link
+                key={link.to}
+                to={link.to}
+                style={{
+                  width: 64,
+                  minHeight: 58,
+                  borderRadius: 16,
+                  display: 'flex',
+                  flexDirection: 'column',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  gap: 5,
+                  color: isActive(link.to) ? '#fff' : 'rgba(255,255,255,0.5)',
+                  textDecoration: 'none',
+                  background: isActive(link.to) ? 'rgba(102, 126, 234, 0.3)' : 'transparent',
+                  border: isActive(link.to) ? '1px solid rgba(102, 126, 234, 0.5)' : '1px solid transparent',
+                  fontSize: 10,
+                  textAlign: 'center',
+                  padding: '6px 4px',
+                  transition: 'all 0.2s',
+                }}
+                title={link.label}
+              >
+                <span style={{ fontSize: 18 }}>{link.icon}</span>
+                <span style={{ display: 'block', lineHeight: 1.15, width: '100%' }}>{link.label}</span>
+              </Link>
+            ))}
+          </div>
         </aside>
         
         <main style={{ flex: 1, overflow: 'auto' }}>
@@ -169,16 +189,6 @@ export default function InfographicLayout() {
             
             <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'stretch', gap: 8 }}>
               <div style={{ display: 'flex', gap: 24, flexWrap: 'wrap', alignItems: 'flex-start', justifyContent: 'flex-end' }}>
-                <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start' }}>
-                  <button
-                    className="btn btn-secondary"
-                    style={{ height: 'fit-content' }}
-                    onClick={() => void handleLogout()}
-                    disabled={isLoggingOut}
-                  >
-                    {isLoggingOut ? `${t(language, 'layout.logout')}...` : t(language, 'layout.logout')}
-                  </button>
-                </div>
                 {indices.map(idx => {
                 const safeChange = idx.change != null && Number.isFinite(Number(idx.change))
                   ? Number(idx.change)
@@ -209,7 +219,7 @@ export default function InfographicLayout() {
                     {indexLabel(idx.symbol, idx.name)}
                   </div>
                   <div style={{ fontSize: 28, fontWeight: 300 }}>
-                    {idx.price == null || idx.price === ''
+                    {idx.price == null
                       ? '-'
                       : (Number.isFinite(Number(idx.price))
                         ? Number(idx.price).toLocaleString(locale, { maximumFractionDigits: 0 })
@@ -252,11 +262,6 @@ export default function InfographicLayout() {
                   </div>
                 </div>
               </div>
-              {logoutError && (
-                <div style={{ marginTop: 4 }}>
-                  <p style={{ color: '#ffb4b4', fontSize: 12, margin: 0 }}>{logoutError}</p>
-                </div>
-              )}
             </div>
           </header>
           

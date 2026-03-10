@@ -5,7 +5,7 @@ determine if markets are currently open, and check if data refresh
 should occur based on market hours.
 """
 
-from datetime import datetime, time
+from datetime import date, datetime, time
 from typing import Dict, List
 import logging
 
@@ -51,7 +51,7 @@ MARKET_CONFIG = {
 }
 
 
-def convert_time_to_timezone(time_str: str, from_tz: str, to_tz: str, base_date: datetime = None) -> str:
+def convert_time_to_timezone(time_str: str, from_tz: str, to_tz: str, base_date: date | None = None) -> str:
     """Convert a time string from one timezone to another.
     
     Args:
@@ -124,7 +124,7 @@ class MarketHoursService:
             return False
 
     @staticmethod
-    def get_market_status(market: str, user_timezone: str = None) -> Dict:
+    def get_market_status(market: str, user_timezone: str | None = None) -> Dict:
         """Get detailed status for a specific market.
         
         Args:
@@ -188,7 +188,7 @@ class MarketHoursService:
         }
 
     @staticmethod
-    def get_all_markets_status(user_timezone: str = None) -> List[Dict]:
+    def get_all_markets_status(user_timezone: str | None = None) -> List[Dict]:
         """Get status for all tracked markets.
         
         Args:

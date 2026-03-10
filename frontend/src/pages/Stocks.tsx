@@ -4,6 +4,7 @@ import { api, Stock } from '../services/api'
 import { useSettings } from '../SettingsContext'
 import { formatTimeInTimezone, getLatestTimestamp } from '../utils/time'
 import { getLocaleForLanguage, t } from '../i18n'
+import supportedExchanges from '../config/supportedExchanges.json'
 
 /**
  * Formats a numeric value as a localized currency string or returns "-" when the value is null.
@@ -22,32 +23,31 @@ function formatCurrency(value: number | null, locale: string, currency: string =
   }).format(value)
 }
 
+function formatPurchaseDate(value: string | null, locale: string): string {
+  if (!value) return '-'
+  const [year, month, day] = value.split('-').map(Number)
+  if (!year || !month || !day) return value
+  const date = new Date(Date.UTC(year, month - 1, day))
+  return date.toLocaleDateString(locale, { year: 'numeric', month: 'short', day: 'numeric', timeZone: 'UTC' })
+}
+
 const EXCHANGES = [
-  { code: 'ST', name: 'Sweden (Stockholm)', suffix: '.ST', currency: 'SEK' },
-  { code: 'US', name: 'USA (NASDAQ/NYSE)', suffix: '', currency: 'USD' },
-  { code: 'L', name: 'UK (London)', suffix: '.L', currency: 'GBP' },
-  { code: 'DE', name: 'Germany (Xetra)', suffix: '.DE', currency: 'EUR' },
-  { code: 'PA', name: 'France (Paris)', suffix: '.PA', currency: 'EUR' },
-  { code: 'MI', name: 'Italy (Milan)', suffix: '.MI', currency: 'EUR' },
-  { code: 'AM', name: 'Netherlands (Amsterdam)', suffix: '.AM', currency: 'EUR' },
-  { code: 'BR', name: 'Belgium (Brussels)', suffix: '.BR', currency: 'EUR' },
-  { code: 'TO', name: 'Canada (Toronto)', suffix: '.TO', currency: 'CAD' },
-  { code: 'AX', name: 'Australia', suffix: '.AX', currency: 'AUD' },
-  { code: 'HK', name: 'Hong Kong', suffix: '.HK', currency: 'HKD' },
-  { code: 'T', name: 'Japan (Tokyo)', suffix: '.T', currency: 'JPY' },
-  { code: 'KS', name: 'South Korea', suffix: '.KS', currency: 'KRW' },
-  { code: 'SW', name: 'Switzerland', suffix: '.SW', currency: 'CHF' },
+  ...supportedExchanges,
 ]
 
+function getLocalDateInputValue(value: Date = new Date()): string {
+  const year = value.getFullYear()
+  const month = `${value.getMonth() + 1}`.padStart(2, '0')
+  const day = `${value.getDate()}`.padStart(2, '0')
+  return `${year}-${month}-${day}`
+}
+
 /**
-  * Render the Stocks management user interface for viewing, adding, editing, and removing stock positions.
+  * Display and manage the user's stock positions with controls to view, add, edit, and remove entries, localized to the current language and timezone.
   *
-  * The component fetches the user's stock list on mount, displays current prices and daily changes, and provides
-  * controls to add a new stock (with exchange, ticker, quantity, and optional purchase price), edit an existing
-  * stock's quantity and purchase price, and delete a stock. UI strings, time formatting, and currency formatting
-  * are localized using the current language and timezone from settings.
+  * The component loads the user's stocks on mount, shows current prices and daily changes, and supports recording a purchase price and purchase date for each position.
   *
-  * @returns The rendered Stocks UI as a React element.
+  * @returns A React element containing the Stocks management user interface.
   */
  export default function Stocks() {
   const [stocks, setStocks] = useState<Stock[]>([])
@@ -56,6 +56,7 @@ const EXCHANGES = [
   const [newTicker, setNewTicker] = useState('')
   const [newQuantity, setNewQuantity] = useState('')
   const [newPurchasePrice, setNewPurchasePrice] = useState('')
+  const [newPurchaseDate, setNewPurchaseDate] = useState('')
   const [selectedExchange, setSelectedExchange] = useState('ST')
   const [adding, setAdding] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -63,16 +64,20 @@ const EXCHANGES = [
   const [editStock, setEditStock] = useState<Stock | null>(null)
   const [editQuantity, setEditQuantity] = useState('')
   const [editPurchasePrice, setEditPurchasePrice] = useState('')
+  const [editPurchaseDate, setEditPurchaseDate] = useState('')
   const [saving, setSaving] = useState(false)
   const [lastUpdate, setLastUpdate] = useState<string | null>(null)
+  const [failedLogos, setFailedLogos] = useState<Record<string, boolean>>({})
   const { timezone, language } = useSettings()
   const locale = getLocaleForLanguage(language)
+  const maxPurchaseDate = getLocalDateInputValue()
 
   const fetchStocks = useCallback(async () => {
     try {
       setLoading(true)
       const data = await api.stocks.list()
       setStocks(data)
+      setFailedLogos({})
       setLastUpdate(getLatestTimestamp(data))
       setError(null)
     } catch (err) {
@@ -115,10 +120,12 @@ const EXCHANGES = [
         ticker: fullTicker,
         quantity: parseFloat(newQuantity),
         purchase_price: newPurchasePrice ? parseFloat(newPurchasePrice) : undefined,
+        purchase_date: newPurchaseDate || undefined,
       })
       setNewTicker('')
       setNewQuantity('')
       setNewPurchasePrice('')
+      setNewPurchaseDate('')
       setValidationStatus('idle')
       setShowAddForm(false)
       await fetchStocks()
@@ -144,15 +151,22 @@ const EXCHANGES = [
     setEditStock(stock)
     setEditQuantity(stock.quantity.toString())
     setEditPurchasePrice(stock.purchase_price?.toString() || '')
+    setEditPurchaseDate(stock.purchase_date || '')
   }
 
   const handleSaveEdit = async () => {
     if (!editStock) return
     try {
       setSaving(true)
+      const parsedQuantity = parseFloat(editQuantity)
+      const quantity = editQuantity.trim() === '' || Number.isNaN(parsedQuantity)
+        ? undefined
+        : parsedQuantity
+
       await api.stocks.update(editStock.ticker, {
-        quantity: parseFloat(editQuantity) || undefined,
+        quantity,
         purchase_price: editPurchasePrice ? parseFloat(editPurchasePrice) : undefined,
+        purchase_date: editPurchaseDate === '' ? null : editPurchaseDate,
       })
       setEditStock(null)
       await fetchStocks()
@@ -193,7 +207,7 @@ const EXCHANGES = [
         <div className="card" style={{ marginBottom: '20px' }}>
           <h3 style={{ marginBottom: '16px' }}>{t(language, 'stocks.addNewStock')}</h3>
           <form onSubmit={handleAddStock}>
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: '16px' }}>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(6, 1fr)', gap: '16px' }}>
               <div>
                 <label style={{ display: 'block', marginBottom: '8px', color: 'var(--text-secondary)', fontSize: '12px' }}>
                   {t(language, 'stocks.exchange')}
@@ -269,6 +283,18 @@ const EXCHANGES = [
                   style={{ width: '100%' }}
                 />
               </div>
+              <div>
+                <label style={{ display: 'block', marginBottom: '8px', color: 'var(--text-secondary)', fontSize: '12px' }}>
+                  {t(language, 'stocks.purchaseDate')}
+                </label>
+                <input
+                  type="date"
+                  value={newPurchaseDate}
+                  onChange={(e) => setNewPurchaseDate(e.target.value)}
+                  max={maxPurchaseDate}
+                  style={{ width: '100%' }}
+                />
+              </div>
               <div style={{ display: 'flex', alignItems: 'flex-end' }}>
                 <button 
                   type="submit" 
@@ -298,6 +324,7 @@ const EXCHANGES = [
                 <th>{t(language, 'stocks.tableQty')}</th>
                 <th>{t(language, 'stocks.tableCurr')}</th>
                 <th>{t(language, 'stocks.tablePurchase')}</th>
+                <th>{t(language, 'stocks.purchaseDate')}</th>
                 <th>{t(language, 'stocks.tablePrice')}</th>
                 <th>{t(language, 'stocks.tableChange')}</th>
                 <th>{t(language, 'stocks.tableDivYield')}</th>
@@ -318,8 +345,40 @@ const EXCHANGES = [
                     <td>
                       <Link 
                         to={`/stocks/${stock.ticker}`} 
-                        style={{ color: 'var(--accent-blue)', textDecoration: 'none', fontWeight: '600' }}
+                        style={{ color: 'var(--accent-blue)', textDecoration: 'none', fontWeight: '600', display: 'flex', alignItems: 'center', gap: '8px' }}
                       >
+                        {stock.logo && !failedLogos[stock.ticker] ? (
+                          <img
+                            src={stock.logo}
+                            alt={stock.name || stock.ticker}
+                            style={{
+                              width: 24,
+                              height: 24,
+                              borderRadius: 4,
+                              objectFit: 'contain',
+                              background: 'var(--bg-secondary)',
+                              padding: 2,
+                            }}
+                            onError={() => setFailedLogos((prev) => ({ ...prev, [stock.ticker]: true }))}
+                          />
+                        ) : (
+                          <span
+                            style={{
+                              width: 24,
+                              height: 24,
+                              borderRadius: 4,
+                              display: 'inline-flex',
+                              alignItems: 'center',
+                              justifyContent: 'center',
+                              fontSize: '12px',
+                              fontWeight: '700',
+                              color: 'var(--text-secondary)',
+                              background: 'var(--bg-secondary)',
+                            }}
+                          >
+                            {(stock.name || stock.ticker || '?').charAt(0).toUpperCase()}
+                          </span>
+                        )}
                         {stock.ticker}
                       </Link>
                     </td>
@@ -327,6 +386,7 @@ const EXCHANGES = [
                     <td>{stock.quantity}</td>
                     <td>{stock.currency}</td>
                     <td>{formatCurrency(stock.purchase_price, locale, stock.currency)}</td>
+                    <td>{formatPurchaseDate(stock.purchase_date, locale)}</td>
                     <td>{formatCurrency(stock.current_price, locale, stock.currency)}</td>
                     <td className={dailyChange && dailyChange >= 0 ? 'positive' : 'negative'}>
                       {dailyChangePercent !== null ? `${dailyChangePercent >= 0 ? '+' : ''}${dailyChangePercent.toFixed(2)}%` : '-'}
@@ -392,9 +452,9 @@ const EXCHANGES = [
                  style={{ width: '100%' }}
                />
              </div>
-             <div style={{ marginBottom: '24px' }}>
-               <label style={{ display: 'block', marginBottom: '8px', color: 'var(--text-secondary)', fontSize: '14px' }}>
-                 {t(language, 'stocks.purchasePrice')} ({editStock.currency})
+              <div style={{ marginBottom: '24px' }}>
+                <label style={{ display: 'block', marginBottom: '8px', color: 'var(--text-secondary)', fontSize: '14px' }}>
+                  {t(language, 'stocks.purchasePrice')} ({editStock.currency})
                </label>
                <input
                  type="number"
@@ -402,9 +462,21 @@ const EXCHANGES = [
                  value={editPurchasePrice}
                  onChange={(e) => setEditPurchasePrice(e.target.value)}
                  style={{ width: '100%' }}
-                 placeholder={t(language, 'stocks.placeholderPrice')}
-               />
-             </div>
+                  placeholder={t(language, 'stocks.placeholderPrice')}
+                />
+              </div>
+              <div style={{ marginBottom: '24px' }}>
+                <label style={{ display: 'block', marginBottom: '8px', color: 'var(--text-secondary)', fontSize: '14px' }}>
+                  {t(language, 'stocks.purchaseDate')}
+                </label>
+                <input
+                  type="date"
+                  value={editPurchaseDate}
+                  onChange={(e) => setEditPurchaseDate(e.target.value)}
+                  max={maxPurchaseDate}
+                  style={{ width: '100%' }}
+                />
+              </div>
              <div style={{ display: 'flex', gap: '12px', justifyContent: 'flex-end' }}>
                <button className="btn btn-secondary" onClick={() => setEditStock(null)}>
                  {t(language, 'stocks.cancel')}

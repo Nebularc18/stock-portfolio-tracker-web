@@ -235,18 +235,14 @@ function getRangeTargetPoints(range: HistoryRangeKey): number | null {
 }
 
 /**
-  * Render the portfolio dashboard UI with summary cards, a performance chart, holdings table, and upcoming dividends.
+  * Renders the portfolio dashboard containing summary cards, a performance chart, a holdings table, and upcoming dividends.
   *
-  * The component fetches portfolio and market data, supports history range selection, performs currency conversion using available exchange rates, and formats numbers and dates according to the current language and timezone settings. It handles loading and error states and provides interactive navigation to individual stock pages.
-  *
-  * @returns A JSX element that renders the portfolio dashboard.
+  * @returns A JSX element that renders the portfolio dashboard UI
   */
 export default function Dashboard() {
   const navigate = useNavigate()
   const [summary, setSummary] = useState<PortfolioSummary | null>(null)
   const [upcomingDividends, setUpcomingDividends] = useState<UpcomingDividend[]>([])
-  const [totalExpectedDividends, setTotalExpectedDividends] = useState(0)
-  const [totalReceivedDividends, setTotalReceivedDividends] = useState(0)
   const [totalRemainingDividends, setTotalRemainingDividends] = useState(0)
   const [stocks, setStocks] = useState<Stock[]>([])
   const [exchangeRates, setExchangeRates] = useState<Record<string, number | null>>({})
@@ -310,8 +306,6 @@ export default function Dashboard() {
       setStocks(stocksData)
       setExchangeRates(ratesData)
       setUpcomingDividends(upcomingDivsData.dividends)
-      setTotalExpectedDividends(upcomingDivsData.total_expected)
-      setTotalReceivedDividends(upcomingDivsData.total_received)
       setTotalRemainingDividends(upcomingDivsData.total_remaining)
       setFailedLogos({})
       setError(null)
@@ -388,6 +382,28 @@ export default function Dashboard() {
     return acc
   }, { total: 0, partial: false })
 
+  const portfolioDividendYield = stocks.reduce((acc, stock) => {
+    if (stock.current_price === null || stock.quantity <= 0 || stock.dividend_yield === null) {
+      acc.partial = true
+      return acc
+    }
+
+    const positionValue = stock.current_price * stock.quantity
+    const convertedValue = convertToCurrency(positionValue, stock.currency)
+    if (convertedValue === null || convertedValue <= 0) {
+      acc.partial = true
+      return acc
+    }
+
+    acc.weightedYield += convertedValue * stock.dividend_yield
+    acc.totalValue += convertedValue
+    return acc
+  }, { weightedYield: 0, totalValue: 0, partial: false })
+
+  const dividendYieldPercent = portfolioDividendYield.totalValue > 0
+    ? portfolioDividendYield.weightedYield / portfolioDividendYield.totalValue
+    : 0
+
   const lastUpdate = stocks.reduce((max: string | null, stock) => {
     if (!stock.last_updated) return max
     if (!max) return stock.last_updated
@@ -445,7 +461,9 @@ export default function Dashboard() {
   const yMax = maxValue + valueRange * 0.1
   const baselineValue = displayedChartData.length > 0 ? displayedChartData[0].value : 0
 
-  const groupedDividends = upcomingDividends.reduce((acc, div) => {
+  const groupedDividends = upcomingDividends
+    .filter((div) => div.status !== 'paid')
+    .reduce((acc, div) => {
     const payoutDate = div.payout_date || div.payment_date || div.ex_date
     const key = getMonthKey(payoutDate)
     if (!acc[key]) {
@@ -504,7 +522,7 @@ export default function Dashboard() {
         </p>
       </div>
 
-      <div className="grid grid-4" style={{ marginBottom: '24px' }}>
+      <div className="grid" style={{ marginBottom: '24px', display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '24px' }}>
         <div className="card">
           <p style={{ color: 'var(--text-secondary)', fontSize: '12px', marginBottom: '8px' }}>{t(language, 'dashboard.totalValue')} ({currency})</p>
           <p style={{ fontSize: '28px', fontWeight: '600' }}>
@@ -529,130 +547,138 @@ export default function Dashboard() {
             {formatPercent(summary?.total_gain_loss_percent ?? 0, locale)}
           </p>
         </div>
+        <div className="card">
+          <p style={{ color: 'var(--text-secondary)', fontSize: '12px', marginBottom: '8px' }}>{t(language, 'dashboard.dividendYield')}</p>
+          <p style={{ fontSize: '28px', fontWeight: '600', color: 'var(--accent-green)' }}>
+            {formatPercent(dividendYieldPercent, locale)}{portfolioDividendYield.partial ? ` (${t(language, 'dashboard.partial')})` : ''}
+          </p>
+        </div>
       </div>
 
-      {(historyLoading || hasChartData) && (
-        <div className="card" style={{ marginBottom: '24px' }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
-            <div style={{ display: 'flex', gap: '12px', alignItems: 'center', flexWrap: 'wrap' }}>
-              <h3 style={{ margin: 0 }}>{t(language, 'dashboard.performanceTitle')} ({historyRangeTitle(selectedHistoryRange.key)})</h3>
-              <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
-                {HISTORY_RANGE_OPTIONS.map((option) => {
-                  const selected = option.key === historyRange
-                  return (
-                     <button
-                       key={option.key}
-                       type="button"
-                       onClick={() => setHistoryRange(option.key)}
-                       aria-pressed={selected}
-                       style={{
-                         border: '1px solid var(--border-color)',
-                        borderRadius: 6,
-                        padding: '4px 10px',
-                        fontSize: '12px',
-                        fontWeight: 600,
-                        color: selected ? 'white' : 'var(--text-secondary)',
-                        background: selected ? 'var(--accent-blue)' : 'transparent',
-                        cursor: 'pointer'
-                      }}
-                    >
-                      {t(language, option.labelKey)}
-                    </button>
-                  )
-                })}
-              </div>
+      <div className="card" style={{ marginBottom: '24px' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
+          <div style={{ display: 'flex', gap: '12px', alignItems: 'center', flexWrap: 'wrap' }}>
+            <h3 style={{ margin: 0 }}>{t(language, 'dashboard.performanceTitle')} ({historyRangeTitle(selectedHistoryRange.key)})</h3>
+            <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+              {HISTORY_RANGE_OPTIONS.map((option) => {
+                const selected = option.key === historyRange
+                return (
+                  <button
+                    key={option.key}
+                    type="button"
+                    onClick={() => setHistoryRange(option.key)}
+                    aria-pressed={selected}
+                    style={{
+                      border: '1px solid var(--border-color)',
+                      borderRadius: 6,
+                      padding: '4px 10px',
+                      fontSize: '12px',
+                      fontWeight: 600,
+                      color: selected ? 'white' : 'var(--text-secondary)',
+                      background: selected ? 'var(--accent-blue)' : 'transparent',
+                      cursor: 'pointer'
+                    }}
+                  >
+                    {t(language, option.labelKey)}
+                  </button>
+                )
+              })}
             </div>
-            {!historyLoading && hasChartData && (
-              <div style={{ display: 'flex', gap: '16px', fontSize: '12px', color: 'var(--text-secondary)' }}>
-                <span>{t(language, 'dashboard.low')}: {formatCurrency(minValue, locale, currency)}</span>
-                <span>{t(language, 'dashboard.high')}: {formatCurrency(maxValue, locale, currency)}</span>
-              </div>
-            )}
           </div>
-          {historyLoading ? (
-            <div style={{ height: 300, display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--text-secondary)' }}>
-              {t(language, 'common.loading')}
-            </div>
-          ) : (
-            <div style={{ height: 300 }}>
-              <ResponsiveContainer width="100%" height="100%">
-                <AreaChart data={displayedChartData} margin={{ top: 10, right: 30, left: 0, bottom: 0 }}>
-                  <defs>
-                    <linearGradient id="colorValue" x1="0" y1="0" x2="0" y2="1">
-                      <stop offset="5%" stopColor="#6366f1" stopOpacity={0.3}/>
-                      <stop offset="95%" stopColor="#6366f1" stopOpacity={0}/>
-                    </linearGradient>
-                  </defs>
-                  <CartesianGrid strokeDasharray="3 3" stroke="#333" />
-                  <XAxis 
-                    dataKey="date" 
-                    stroke="#888" 
-                    fontSize={11}
-                    interval="preserveStartEnd"
-                    minTickGap={24}
-                    tickFormatter={(value) => formatXAxisTick(String(value), historyRange, locale)}
-                  />
-                  <YAxis 
-                    stroke="#888" 
-                    fontSize={11}
-                    domain={[yMin, yMax]}
-                    tickFormatter={(v) => Math.abs(v) >= 1000 ? `${(v/1000).toFixed(0)}k` : v.toFixed(0)}
-                  />
-                  <Tooltip 
-                    formatter={(value: number) => [formatCurrency(value, locale, currency), t(language, 'dashboard.portfolioValue')]}
-                    labelFormatter={(label) => formatTooltipDate(String(label), historyRange, locale)}
-                    contentStyle={{ 
-                      background: '#2a2a2a', 
-                      border: '1px solid #444', 
-                      borderRadius: '8px', 
-                      color: '#fff',
-                      boxShadow: '0 4px 12px rgba(0,0,0,0.3)'
-                    }}
-                    itemStyle={{ color: '#fff' }}
-                    content={({ active, payload, label }) => {
-                      if (!active || !payload || !payload.length) return null
-                      const currentValue = Number(payload[0].value ?? 0)
-                      const absoluteChange = currentValue - baselineValue
-                      const percentChange = baselineValue !== 0 ? (absoluteChange / baselineValue) * 100 : 0
-                      const percentChangeText = percentChange.toLocaleString(locale, {
-                        minimumFractionDigits: 2,
-                        maximumFractionDigits: 2,
-                      })
-                      const changeColor = absoluteChange >= 0 ? 'var(--accent-green)' : 'var(--accent-red)'
-                      const sign = percentChange >= 0 ? '+' : ''
-
-                      return (
-                        <div style={{
-                          background: '#2a2a2a',
-                          border: '1px solid #444',
-                          borderRadius: '8px',
-                          color: '#fff',
-                          boxShadow: '0 4px 12px rgba(0,0,0,0.3)',
-                          padding: '10px 12px'
-                        }}>
-                          <div style={{ marginBottom: '8px', fontWeight: 600 }}>{formatTooltipDate(String(label), historyRange, locale)}</div>
-                          <div style={{ marginBottom: '6px' }}>{t(language, 'dashboard.portfolioValue')}: {formatCurrency(currentValue, locale, currency)}</div>
-                          <div style={{ color: changeColor, fontWeight: 600 }}>
-                            {t(language, 'dashboard.change')}: {sign}{formatCurrency(absoluteChange, locale, currency)} ({sign}{percentChangeText}%)
-                          </div>
-                        </div>
-                      )
-                    }}
-                  />
-                  <Area 
-                    type="monotone" 
-                    dataKey="value" 
-                    stroke="#6366f1" 
-                    strokeWidth={2}
-                    fillOpacity={1} 
-                    fill="url(#colorValue)" 
-                  />
-                </AreaChart>
-              </ResponsiveContainer>
+          {!historyLoading && hasChartData && (
+            <div style={{ display: 'flex', gap: '16px', fontSize: '12px', color: 'var(--text-secondary)' }}>
+              <span>{t(language, 'dashboard.low')}: {formatCurrency(minValue, locale, currency)}</span>
+              <span>{t(language, 'dashboard.high')}: {formatCurrency(maxValue, locale, currency)}</span>
             </div>
           )}
         </div>
-      )}
+        {historyLoading ? (
+          <div style={{ height: 300, display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--text-secondary)' }}>
+            {t(language, 'common.loading')}
+          </div>
+        ) : hasChartData ? (
+          <div style={{ height: 300 }}>
+            <ResponsiveContainer width="100%" height="100%">
+              <AreaChart data={displayedChartData} margin={{ top: 10, right: 30, left: 0, bottom: 0 }}>
+                <defs>
+                  <linearGradient id="colorValue" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="5%" stopColor="#6366f1" stopOpacity={0.3}/>
+                    <stop offset="95%" stopColor="#6366f1" stopOpacity={0}/>
+                  </linearGradient>
+                </defs>
+                <CartesianGrid strokeDasharray="3 3" stroke="#333" />
+                <XAxis
+                  dataKey="date"
+                  stroke="#888"
+                  fontSize={11}
+                  interval="preserveStartEnd"
+                  minTickGap={24}
+                  tickFormatter={(value) => formatXAxisTick(String(value), historyRange, locale)}
+                />
+                <YAxis
+                  stroke="#888"
+                  fontSize={11}
+                  domain={[yMin, yMax]}
+                  tickFormatter={(v) => Math.abs(v) >= 1000 ? `${(v/1000).toFixed(0)}k` : v.toFixed(0)}
+                />
+                <Tooltip
+                  formatter={(value: number) => [formatCurrency(value, locale, currency), t(language, 'dashboard.portfolioValue')]}
+                  labelFormatter={(label) => formatTooltipDate(String(label), historyRange, locale)}
+                  contentStyle={{
+                    background: '#2a2a2a',
+                    border: '1px solid #444',
+                    borderRadius: '8px',
+                    color: '#fff',
+                    boxShadow: '0 4px 12px rgba(0,0,0,0.3)'
+                  }}
+                  itemStyle={{ color: '#fff' }}
+                  content={({ active, payload, label }) => {
+                    if (!active || !payload || !payload.length) return null
+                    const currentValue = Number(payload[0].value ?? 0)
+                    const absoluteChange = currentValue - baselineValue
+                    const percentChange = baselineValue !== 0 ? (absoluteChange / baselineValue) * 100 : 0
+                    const percentChangeText = percentChange.toLocaleString(locale, {
+                      minimumFractionDigits: 2,
+                      maximumFractionDigits: 2,
+                    })
+                    const changeColor = absoluteChange >= 0 ? 'var(--accent-green)' : 'var(--accent-red)'
+                    const sign = percentChange >= 0 ? '+' : ''
+
+                    return (
+                      <div style={{
+                        background: '#2a2a2a',
+                        border: '1px solid #444',
+                        borderRadius: '8px',
+                        color: '#fff',
+                        boxShadow: '0 4px 12px rgba(0,0,0,0.3)',
+                        padding: '10px 12px'
+                      }}>
+                        <div style={{ marginBottom: '8px', fontWeight: 600 }}>{formatTooltipDate(String(label), historyRange, locale)}</div>
+                        <div style={{ marginBottom: '6px' }}>{t(language, 'dashboard.portfolioValue')}: {formatCurrency(currentValue, locale, currency)}</div>
+                        <div style={{ color: changeColor, fontWeight: 600 }}>
+                          {t(language, 'dashboard.change')}: {sign}{formatCurrency(absoluteChange, locale, currency)} ({sign}{percentChangeText}%)
+                        </div>
+                      </div>
+                    )
+                  }}
+                />
+                <Area
+                  type="monotone"
+                  dataKey="value"
+                  stroke="#6366f1"
+                  strokeWidth={2}
+                  fillOpacity={1}
+                  fill="url(#colorValue)"
+                />
+              </AreaChart>
+            </ResponsiveContainer>
+          </div>
+        ) : (
+          <div style={{ height: 300, display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--text-secondary)' }}>
+            {t(language, 'dashboard.noHistoryData')}
+          </div>
+        )}
+      </div>
 
       <div className="card" style={{ marginBottom: '24px' }}>
         <h3 style={{ marginBottom: '16px' }}>{t(language, 'dashboard.holdings')} ({summary?.stock_count ?? 0})</h3>
@@ -746,20 +772,12 @@ export default function Dashboard() {
          )}
        </div>
 
-      {upcomingDividends.length > 0 && (
+      {monthlyUpcoming.length > 0 && (
         <div className="card">
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
-            <h3>{t(language, 'dashboard.dividendsThisYear')}</h3>
+            <h3>{t(language, 'dashboard.upcomingDividends')}</h3>
             <span style={{ color: 'var(--accent-green)', fontWeight: '600', fontSize: '18px' }}>
-              {formatCurrency(totalExpectedDividends, locale, currency)}
-            </span>
-          </div>
-          <div style={{ display: 'flex', gap: '20px', marginBottom: '14px' }}>
-            <span style={{ color: 'var(--text-secondary)', fontSize: '13px' }}>
-              {t(language, 'dashboard.received')}: <strong style={{ color: 'var(--accent-green)' }}>{formatCurrency(totalReceivedDividends, locale, currency)}</strong>
-            </span>
-            <span style={{ color: 'var(--text-secondary)', fontSize: '13px' }}>
-              {t(language, 'dashboard.remaining')}: <strong style={{ color: 'var(--accent-blue)' }}>{formatCurrency(totalRemainingDividends, locale, currency)}</strong>
+              {formatCurrency(totalRemainingDividends, locale, currency)}
             </span>
           </div>
           {monthlyUpcoming.map((group) => (
@@ -776,7 +794,7 @@ export default function Dashboard() {
               <table style={{ width: '100%', tableLayout: 'fixed' }}>
                 <thead>
                   <tr>
-                    <th style={{ width: '18%' }}>{t(language, 'performance.ticker')}</th>
+                    <th style={{ width: '18%' }}>{t(language, 'performance.name')}</th>
                     <th style={{ width: '14%' }}>{t(language, 'dashboard.exDate')}</th>
                     <th style={{ width: '16%' }}>{t(language, 'dashboard.dividendDate')}</th>
                     <th style={{ width: '18%', textAlign: 'right' }}>{t(language, 'dashboard.perShare')}</th>
@@ -792,7 +810,7 @@ export default function Dashboard() {
                     <tr key={`${div.ticker}-${div.ex_date}-${payoutDisplayDate ?? 'na'}-${div.dividend_type ?? 'na'}-${i}`}>
                       <td>
                         <Link to={`/stocks/${div.ticker}`} style={{ color: 'var(--accent-blue)', textDecoration: 'none', fontWeight: '600' }}>
-                          {div.ticker}
+                          {div.name || div.ticker}
                         </Link>
                       </td>
                       <td>{formatDate(div.ex_date, locale)}</td>

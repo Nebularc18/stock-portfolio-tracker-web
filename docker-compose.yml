@@ -27,6 +27,12 @@ services:
       DATABASE_URL: postgresql://portfolio:portfolio@postgres:5432/portfolio
       FINNHUB_API_KEY: ${FINNHUB_API_KEY:-}
       MARKETSTACK_API_KEY: ${MARKETSTACK_API_KEY:-}
+      DEFAULT_USERNAME: ${DEFAULT_USERNAME:-admin}
+      DEFAULT_PASSWORD: ${DEFAULT_PASSWORD:-admin123}
+      GUEST_USERNAME: ${GUEST_USERNAME:-guest}
+      GUEST_PASSWORD: ${GUEST_PASSWORD:-guest-demo-password}
+      AUTH_TOKEN_SECRET: ${AUTH_TOKEN_SECRET:-dev-local-auth-token-secret}
+      AUTH_TOKEN_TTL_SECONDS: ${AUTH_TOKEN_TTL_SECONDS:-43200}
     depends_on:
       postgres:
         condition: service_healthy

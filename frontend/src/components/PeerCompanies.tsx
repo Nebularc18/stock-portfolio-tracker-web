@@ -1,11 +1,15 @@
+import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useSettings } from '../SettingsContext'
 import { t } from '../i18n'
+import { api } from '../services/api'
 
 interface Props {
   peers: string[] | null
   loading?: boolean
 }
+
+const PROFILE_BATCH_SIZE = 4
 
 /**
  * Renders a localized card of peer company tickers as clickable buttons that navigate to each stock page.
@@ -17,6 +21,42 @@ interface Props {
 export default function PeerCompanies({ peers, loading }: Props) {
   const navigate = useNavigate()
   const { language } = useSettings()
+  const [peerNames, setPeerNames] = useState<Record<string, string>>({})
+
+  useEffect(() => {
+    let isCurrent = true
+
+    if (!peers || peers.length === 0) {
+      setPeerNames({})
+      return
+    }
+
+    const loadPeerNames = async () => {
+      const entries: Array<readonly [string, string]> = []
+
+      for (let index = 0; index < peers.length; index += PROFILE_BATCH_SIZE) {
+        const batch = peers.slice(index, index + PROFILE_BATCH_SIZE)
+        const batchEntries = await Promise.all(
+          batch.map(async (ticker) => {
+            const profile = await api.finnhub.profile(ticker).catch(() => null)
+            return [ticker, profile?.name || ticker] as const
+          })
+        )
+
+        if (!isCurrent) return
+        entries.push(...batchEntries)
+      }
+
+      if (!isCurrent) return
+      setPeerNames(Object.fromEntries(entries))
+    }
+
+    void loadPeerNames()
+
+    return () => {
+      isCurrent = false
+    }
+  }, [peers])
 
   if (loading) {
     return (
@@ -74,7 +114,7 @@ export default function PeerCompanies({ peers, loading }: Props) {
               e.currentTarget.style.background = 'var(--bg-tertiary)'
             }}
           >
-            {ticker}
+            {peerNames[ticker] || ticker}
           </button>
         ))}
       </div>

@@ -27,6 +27,20 @@
       "instrument_id": "3873",
       "manually_added": true,
       "added_at": "2026-03-03T19:37:52.274288Z"
+    },
+    {
+      "avanza_name": "SAP SE",
+      "yahoo_ticker": "SAP.DE",
+      "instrument_id": "732371",
+      "manually_added": true,
+      "added_at": "2026-03-07T06:22:38.390744+00:00"
+    },
+    {
+      "avanza_name": "Apple Inc.",
+      "yahoo_ticker": "AAPL",
+      "instrument_id": "3323",
+      "manually_added": true,
+      "added_at": "2026-03-07T06:22:55.842814+00:00"
     }
   ]
 }

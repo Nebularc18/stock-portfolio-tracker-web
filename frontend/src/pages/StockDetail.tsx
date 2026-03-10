@@ -138,6 +138,17 @@ function convertToSEKValue(
   return null
 }
 
+/**
+ * Compute per-dividend totals (quantity applied and SEK conversion) and aggregate yearly totals for paid and upcoming dividends.
+ *
+ * @param items - Upcoming dividend entries to process
+ * @param quantity - Number of shares used to compute total amounts per dividend
+ * @param safeRates - Mapping from currency code to SEK conversion rate; use `null` when a rate is unavailable
+ * @returns An object containing:
+ *  - `yearDividends`: the input dividends augmented with `quantity`, `total_amount`, and `total_converted` (SEK or `null`),
+ *  - `yearReceived`: the summed `total_converted` for dividends with status `"paid"`, or `null` if any paid dividend lacks a conversion,
+ *  - `yearRemaining`: the summed `total_converted` for dividends with status `"upcoming"`, or `null` if any upcoming dividend lacks a conversion
+ */
 function recalculateYearlyDividendState(
   items: UpcomingDividend[],
   quantity: number,
@@ -181,13 +192,49 @@ function recalculateYearlyDividendState(
 }
 
 /**
- * Renders a detailed view for a single stock and manages its related data and user actions.
+ * Filter a list of dividends to only those occurring on or after the given purchase date.
  *
- * Shows overview, profile, dividends, and analyst tabs; loads stock, dividend, upcoming dividend,
- * suppressed dividend, Finnhub profile/metrics/peers, analyst data, and exchange rates; displays
- * locale- and timezone-aware currency and date values (including SEK conversions when rates are available);
- * and exposes UI actions to edit or delete the position, add/edit/delete manual dividends, suppress/restore
- * dividends, and verify dividend data with Marketstack.
+ * If `purchaseDateValue` is null/undefined or a dividend's date cannot be parsed, that dividend is retained.
+ *
+ * @param items - Array of dividends to filter
+ * @param purchaseDateValue - Purchase date string (ISO or date-only) used as the cutoff
+ * @returns The input array with dividends whose ex-date is before `purchaseDateValue` removed
+ */
+function filterDividends(items: Dividend[], purchaseDateValue: string | null | undefined): Dividend[] {
+  const purchaseDate = normalizeToDay(purchaseDateValue)
+  return items.filter((div) => {
+    if (!purchaseDate) return true
+    const exDate = normalizeToDay(div.date)
+    if (!exDate) return true
+    return exDate.getTime() >= purchaseDate.getTime()
+  })
+}
+
+/**
+ * Determine whether an event date occurs on or after the purchase date.
+ *
+ * If the purchase date or event date is missing or cannot be parsed, the check is treated as passing.
+ *
+ * @param eventDateValue - Event date (e.g., dividend ex-date) as an ISO date string or null/undefined.
+ * @param purchaseDateValue - Purchase date as an ISO date string or null/undefined.
+ * @returns `true` if the event date is on or after the purchase date, `false` otherwise.
+ */
+function isOnOrAfterPurchaseDate(eventDateValue: string | null | undefined, purchaseDateValue: string | null | undefined): boolean {
+  const purchaseDate = normalizeToDay(purchaseDateValue)
+  if (!purchaseDate) return true
+  const eventDate = normalizeToDay(eventDateValue)
+  if (!eventDate) return true
+  return eventDate.getTime() >= purchaseDate.getTime()
+}
+
+/**
+ * Render the detailed stock page and manage its data and user interactions.
+ *
+ * Loads stock, dividend (historical and upcoming), suppressed dividend, exchange rate,
+ * company profile, financial metrics, peers, and analyst data; provides UI actions to
+ * edit or delete the position, add/edit/delete manual dividends, suppress/restore dividends,
+ * and verify dividends via Marketstack. Dates and currency values are formatted for the
+ * current locale/timezone and SEK conversions are shown when exchange rates are available.
  *
  * @returns The React element for the stock detail page.
  */
@@ -195,7 +242,9 @@ export default function StockDetail() {
   const { ticker } = useParams<{ ticker: string }>()
   const navigate = useNavigate()
   const [stock, setStock] = useState<Stock | null>(null)
+  const [allDividends, setAllDividends] = useState<Dividend[]>([])
   const [dividends, setDividends] = useState<Dividend[]>([])
+  const [allYearDividends, setAllYearDividends] = useState<UpcomingDividend[]>([])
   const [yearDividends, setYearDividends] = useState<UpcomingDividend[]>([])
   const [yearReceived, setYearReceived] = useState<number | null>(0)
   const [yearRemaining, setYearRemaining] = useState<number | null>(0)
@@ -207,6 +256,7 @@ export default function StockDetail() {
   const [showEditModal, setShowEditModal] = useState(false)
   const [editQuantity, setEditQuantity] = useState('')
   const [editPurchasePrice, setEditPurchasePrice] = useState('')
+  const [editPurchaseDate, setEditPurchaseDate] = useState('')
   const [saving, setSaving] = useState(false)
   const [showDividendModal, setShowDividendModal] = useState(false)
   const [editingDividend, setEditingDividend] = useState<ManualDividend | null>(null)
@@ -281,10 +331,11 @@ export default function StockDetail() {
         todayDate.setUTCHours(0, 0, 0, 0)
         const currentYear = todayDate.getUTCFullYear()
 
-        const historicalYearDividends: UpcomingDividend[] = divData
+        const allHistoricalYearDividends: UpcomingDividend[] = divData
           .filter((div: Dividend) => {
             const payoutDate = div.payment_date || div.date
-            return payoutDate?.startsWith(`${currentYear}-`)
+            if (!payoutDate?.startsWith(`${currentYear}-`)) return false
+            return true
           })
           .map((div: Dividend) => {
             const amountPerShare = div.amount ?? 0
@@ -313,10 +364,11 @@ export default function StockDetail() {
             }
           })
 
-        const upcomingYearDividends: UpcomingDividend[] = stockUpcomingData
+        const allUpcomingYearDividends: UpcomingDividend[] = stockUpcomingData
           .filter((div: StockUpcomingDividend) => {
             const payoutDate = div.payment_date || div.ex_date
-            return payoutDate?.startsWith(`${currentYear}-`)
+            if (!payoutDate?.startsWith(`${currentYear}-`)) return false
+            return true
           })
           .map((div: StockUpcomingDividend) => {
             const amountPerShare = div.amount ?? 0
@@ -345,7 +397,11 @@ export default function StockDetail() {
             }
           })
 
+        const historicalYearDividends = allHistoricalYearDividends.filter((div) => isOnOrAfterPurchaseDate(div.ex_date, stockData.purchase_date))
+        const upcomingYearDividends = allUpcomingYearDividends.filter((div) => isOnOrAfterPurchaseDate(div.ex_date, stockData.purchase_date))
+
         const mergedYearDividends = [...historicalYearDividends, ...upcomingYearDividends]
+        const allMergedYearDividends = [...allHistoricalYearDividends, ...allUpcomingYearDividends]
         const dedupedMap = new Map<string, UpcomingDividend>()
         for (const div of mergedYearDividends) {
           const key = [
@@ -365,16 +421,40 @@ export default function StockDetail() {
           return aDate.localeCompare(bDate)
         })
 
+        const allDedupedMap = new Map<string, UpcomingDividend>()
+        for (const div of allMergedYearDividends) {
+          const key = [
+            div.ex_date,
+            div.payment_date || '',
+            div.amount_per_share,
+            div.currency,
+            div.dividend_type || '',
+            div.source || ''
+          ].join('|')
+          allDedupedMap.set(key, div)
+        }
+
+        const effectiveAllYearDividends = Array.from(allDedupedMap.values()).sort((a, b) => {
+          const aDate = a.payout_date || a.payment_date || a.ex_date
+          const bDate = b.payout_date || b.payment_date || b.ex_date
+          return aDate.localeCompare(bDate)
+        })
+
         const yearlyState = recalculateYearlyDividendState(effectiveYearDividends, stockData.quantity, safeRates)
 
+        const filteredHistoryDividends = filterDividends(divData, stockData.purchase_date)
+
         setStock(stockData)
-        setDividends(divData)
+        setAllDividends(divData)
+        setDividends(filteredHistoryDividends)
+        setAllYearDividends(effectiveAllYearDividends)
         setYearDividends(yearlyState.yearDividends)
         setYearReceived(yearlyState.yearReceived)
         setYearRemaining(yearlyState.yearRemaining)
         setSuppressedDividends(suppressedData)
         setExchangeRates(ratesData)
         setError(null)
+        setEditPurchaseDate(stockData.purchase_date || '')
       } catch (err: any) {
         if (active) {
           setError(err.message || t(language, 'stockDetail.failedLoad'))
@@ -478,6 +558,7 @@ export default function StockDetail() {
     if (stock) {
       setEditQuantity(stock.quantity.toString())
       setEditPurchasePrice(stock.purchase_price?.toString() || '')
+      setEditPurchaseDate(stock.purchase_date || '')
       setShowEditModal(true)
     }
   }
@@ -491,9 +572,13 @@ export default function StockDetail() {
       const updated = await api.stocks.update(ticker, {
         quantity: Number.isNaN(parsedQuantity) ? undefined : parsedQuantity,
         purchase_price: Number.isNaN(parsedPurchasePrice) ? undefined : parsedPurchasePrice,
+        purchase_date: editPurchaseDate || null,
       })
-      const yearlyState = recalculateYearlyDividendState(yearDividends, updated.quantity, exchangeRates)
       setStock(updated)
+      const updatedFilteredDividends = filterDividends(allDividends, updated.purchase_date)
+      const updatedFilteredYearDividends = allYearDividends.filter((div) => isOnOrAfterPurchaseDate(div.ex_date, updated.purchase_date))
+      const yearlyState = recalculateYearlyDividendState(updatedFilteredYearDividends, updated.quantity, exchangeRates)
+      setDividends(updatedFilteredDividends)
       setYearDividends(yearlyState.yearDividends)
       setYearReceived(yearlyState.yearReceived)
       setYearRemaining(yearlyState.yearRemaining)
@@ -858,6 +943,10 @@ export default function StockDetail() {
                 <tr>
                   <td style={{ color: 'var(--text-secondary)' }}>{t(language, 'stockDetail.purchasePrice')}</td>
                   <td>{renderValueWithSEK(stock.purchase_price, stock.currency)}</td>
+                </tr>
+                <tr>
+                  <td style={{ color: 'var(--text-secondary)' }}>{t(language, 'stockDetail.purchaseDate')}</td>
+                  <td style={{ textAlign: 'right' }}>{stock.purchase_date ? formatDate(stock.purchase_date, locale) : '-'}</td>
                 </tr>
                 <tr>
                   <td style={{ color: 'var(--text-secondary)' }}>{t(language, 'stockDetail.currentValue')}</td>
@@ -1307,6 +1396,17 @@ export default function StockDetail() {
                 onChange={(e) => setEditPurchasePrice(e.target.value)}
                 style={{ width: '100%' }}
                 placeholder="e.g. 150.00"
+              />
+            </div>
+            <div style={{ marginBottom: '24px' }}>
+              <label style={{ display: 'block', marginBottom: '8px', color: 'var(--text-secondary)', fontSize: '14px' }}>
+                {t(language, 'stockDetail.purchaseDate')}
+              </label>
+              <input
+                type="date"
+                value={editPurchaseDate}
+                onChange={(e) => setEditPurchaseDate(e.target.value)}
+                style={{ width: '100%' }}
               />
             </div>
             <div style={{ display: 'flex', gap: '12px', justifyContent: 'flex-end' }}>
