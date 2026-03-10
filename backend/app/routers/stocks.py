@@ -17,6 +17,8 @@ from app.utils.time import utc_now
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
+MAX_BATCH_TICKERS = 25
+MAX_YEARS = 10
 
 
 def _is_on_or_after_purchase_date(event_date: Optional[str], purchase_date: Optional[date]) -> bool:
@@ -150,11 +152,26 @@ def get_stock_dividends_batch(
     normalized_tickers = []
     seen_tickers = set()
     for ticker in tickers:
-        normalized_ticker = ticker.upper()
+        normalized_ticker = ticker.strip().upper()
+        if not normalized_ticker:
+            continue
         if normalized_ticker in seen_tickers:
             continue
         seen_tickers.add(normalized_ticker)
         normalized_tickers.append(normalized_ticker)
+
+    if not normalized_tickers:
+        raise HTTPException(status_code=400, detail="At least one ticker is required")
+    if len(normalized_tickers) > MAX_BATCH_TICKERS:
+        raise HTTPException(
+            status_code=400,
+            detail=f"A maximum of {MAX_BATCH_TICKERS} unique tickers is allowed per batch request",
+        )
+    if years < 1 or years > MAX_YEARS:
+        raise HTTPException(
+            status_code=400,
+            detail=f"years must be between 1 and {MAX_YEARS}",
+        )
 
     stocks = db.query(Stock).filter(
         Stock.user_id == current_user.id,
@@ -475,7 +492,8 @@ def get_upcoming_dividends(ticker: str, db: Session = Depends(get_db), current_u
                     'dividend_type': div.dividend_type,
                     'source': 'avanza',
                 })
-            return upcoming_or_remaining
+            if upcoming_or_remaining:
+                return upcoming_or_remaining
 
     upcoming = stock_service.get_upcoming_dividends(ticker) or []
     return [

@@ -4,7 +4,7 @@ This module provides API endpoints for market index data, exchange rates,
 market hours status, and sparkline charts for the header component.
 """
 
-from fastapi import APIRouter, Query
+from fastapi import APIRouter, HTTPException, Query
 from typing import List
 from datetime import datetime, timezone, timedelta
 import requests
@@ -232,15 +232,25 @@ def get_market_indices():
 
 
 @router.get("/exchange-rates")
-def get_exchange_rates():
+def get_exchange_rates(date: str | None = Query(None)):
     """Retrieve current exchange rates for major currency pairs.
     
+    Args:
+        date: Optional ISO date (`YYYY-MM-DD`) used to fetch historical rates near that day.
+
     Returns:
         dict: Mapping of currency pair names to exchange rates
             (e.g., {'USD_SEK': 10.5, 'EUR_SEK': 11.2}).
     """
     session = get_session()
     rates = {}
+
+    target_date = None
+    if date:
+        try:
+            target_date = datetime.strptime(date, "%Y-%m-%d").date()
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail="date must be in YYYY-MM-DD format") from exc
     
     pairs = [
         ("USDSEK=X", "USD_SEK"),
@@ -254,17 +264,39 @@ def get_exchange_rates():
     
     for symbol, key in pairs:
         try:
-            url = f"https://query1.finance.yahoo.com/v8/finance/chart/{symbol}?interval=1d&range=1d"
+            if target_date is None:
+                url = f"https://query1.finance.yahoo.com/v8/finance/chart/{symbol}?interval=1d&range=1d"
+            else:
+                period_start = datetime.combine(target_date - timedelta(days=7), datetime.min.time(), tzinfo=timezone.utc)
+                period_end = datetime.combine(target_date + timedelta(days=1), datetime.min.time(), tzinfo=timezone.utc)
+                url = (
+                    f"https://query1.finance.yahoo.com/v8/finance/chart/{symbol}"
+                    f"?period1={int(period_start.timestamp())}&period2={int(period_end.timestamp())}&interval=1d"
+                )
             response = session.get(url, timeout=5)
             
             if response.status_code == 200:
                 data = response.json()
                 if data.get('chart', {}).get('result'):
-                    quote = data['chart']['result'][0].get('indicators', {}).get('quote', [{}])[0]
+                    result = data['chart']['result'][0]
+                    quote = result.get('indicators', {}).get('quote', [{}])[0]
                     closes = quote.get('close', [])
-                    prices = [p for p in closes if p is not None]
-                    if prices:
-                        rates[key] = prices[-1]
+                    if target_date is None:
+                        prices = [p for p in closes if p is not None]
+                        if prices:
+                            rates[key] = prices[-1]
+                        continue
+
+                    timestamps = result.get('timestamp', [])
+                    price_for_date = None
+                    for ts, price in zip(timestamps, closes):
+                        if price is None:
+                            continue
+                        quote_date = datetime.fromtimestamp(ts, tz=timezone.utc).date()
+                        if quote_date <= target_date:
+                            price_for_date = price
+                    if price_for_date is not None:
+                        rates[key] = price_for_date
         except Exception:
             continue
     
@@ -272,7 +304,7 @@ def get_exchange_rates():
 
 
 @router.get("/hours")
-def get_market_hours(timezone: str = None):
+def get_market_hours(timezone: str | None = None):
     """Retrieve status for all tracked markets.
     
     Args:
@@ -285,7 +317,7 @@ def get_market_hours(timezone: str = None):
 
 
 @router.get("/hours/{market}")
-def get_specific_market_hours(market: str, timezone: str = None):
+def get_specific_market_hours(market: str, timezone: str | None = None):
     """Retrieve status for a specific market.
     
     Args:

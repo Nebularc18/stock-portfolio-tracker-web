@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from 'react'
 import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip, BarChart, Bar, XAxis, YAxis, CartesianGrid, Legend } from 'recharts'
-import { api, Dividend, DividendsByTicker } from '../services/api'
+import { api, Dividend, DistributionResponse, DividendsByTicker } from '../services/api'
 import { useSettings } from '../SettingsContext'
 import { getLocaleForLanguage, t } from '../i18n'
 
@@ -42,14 +42,6 @@ function convertDividendValue(
   return null
 }
 
-interface Distribution {
-  display_currency: string
-  by_sector: Record<string, number>
-  by_country: Record<string, number>
-  by_currency: Record<string, number>
-  by_stock: Record<string, number>
-}
-
 /**
  * Render the Analytics page showing portfolio and sector distributions using pie charts.
  *
@@ -58,7 +50,7 @@ interface Distribution {
  * @returns A React element that renders distribution charts, a centered loading indicator, an error card with a retry action, or an empty-data message.
  */
 export default function Analytics() {
-  const [distribution, setDistribution] = useState<Distribution | null>(null)
+  const [distribution, setDistribution] = useState<DistributionResponse | null>(null)
   const [dividendComparisonData, setDividendComparisonData] = useState<DividendComparisonRow[]>([])
   const [availableComparisonYears, setAvailableComparisonYears] = useState<number[]>([])
   const [selectedComparisonYears, setSelectedComparisonYears] = useState<number[]>([])
@@ -71,10 +63,9 @@ export default function Analytics() {
   const fetchData = useCallback(async () => {
     try {
       setLoading(true)
-      const [distributionData, stocksData, fxRates] = await Promise.all([
+      const [distributionData, stocksData] = await Promise.all([
         api.portfolio.distribution(),
         api.stocks.list(),
-        api.market.exchangeRates().catch(() => ({})),
       ])
       setDistribution(distributionData)
       const targetCurrency = distributionData.display_currency || displayCurrency
@@ -85,7 +76,7 @@ export default function Analytics() {
       const dividendEvents: Array<{ year: number; monthIndex: number; value: number }> = []
 
       const dividendsByTicker: DividendsByTicker = stocksData.length > 0
-        ? await api.stocks.dividendsForTickers(stocksData.map((stock) => stock.ticker), 5).catch(() => ({}))
+        ? await api.stocks.dividendsForTickers(stocksData.map((stock) => stock.ticker), 5)
         : {}
 
       const dividendResults = stocksData.map((stock) => ({
@@ -93,12 +84,23 @@ export default function Analytics() {
         dividends: (dividendsByTicker[stock.ticker] || []) as Dividend[],
       }))
 
+      const payoutDates = Array.from(new Set(
+        dividendResults.flatMap(({ dividends }) => dividends.map((div) => div.payment_date || div.date).filter(Boolean))
+      ))
+      const fxRatesByDateEntries = await Promise.all(
+        payoutDates.map(async (date) => [date, await api.market.exchangeRates(date)] as const)
+      )
+      const fxRatesByDate = Object.fromEntries(fxRatesByDateEntries) as Record<string, Record<string, number | null>>
+
       for (const { stock, dividends } of dividendResults) {
         for (const div of dividends) {
           if (stock.purchase_date && div.date < stock.purchase_date) continue
           const year = Number(div.date.slice(0, 4))
           const monthIndex = Number(div.date.slice(5, 7)) - 1
           if (!Number.isFinite(year) || monthIndex < 0 || monthIndex > 11) continue
+          const fxDate = div.payment_date || div.date
+          const fxRates = fxRatesByDate[fxDate]
+          if (!fxRates) continue
           const convertedAmount = convertDividendValue(div.amount || 0, div.currency || stock.currency, targetCurrency, fxRates)
           if (convertedAmount === null) continue
           dividendEvents.push({

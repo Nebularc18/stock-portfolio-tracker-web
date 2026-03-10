@@ -66,5 +66,13 @@ if __name__ == "__main__":
         logger.error("Invalid action. Use 'upgrade' or 'downgrade'.")
         sys.exit(1)
 
-    run(action)
+    try:
+        run(action)
+    except MigrationError as exc:
+        logger.error("Migration error: %s", exc)
+        sys.exit(1)
+    except Exception:
+        logger.exception("Unexpected error during migration")
+        sys.exit(1)
+
     logger.info("Migration completed: %s", action)

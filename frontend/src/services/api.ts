@@ -415,7 +415,7 @@ export const api = {
   market: {
     header: (force: boolean = false) => fetchAPI(`/market/header${force ? '?force=true' : ''}`) as Promise<HeaderMarketData>,
     indices: () => fetchAPI('/market/indices') as Promise<{ indices: MarketIndex[]; updated_at: string; next_refresh_at: string }>,
-    exchangeRates: () => fetchAPI('/market/exchange-rates') as Promise<Record<string, number | null>>,
+    exchangeRates: (date?: string) => fetchAPI(`/market/exchange-rates${date ? `?date=${encodeURIComponent(date)}` : ''}`) as Promise<Record<string, number | null>>,
     convert: (amount: number, from: string, to: string) => 
       fetchAPI(`/market/convert?amount=${amount}&from_currency=${from}&to_currency=${to}`),
     hours: (timezone?: string) => fetchAPI(`/market/hours${timezone ? `?timezone=${encodeURIComponent(timezone)}` : ''}`) as Promise<MarketStatus[]>,

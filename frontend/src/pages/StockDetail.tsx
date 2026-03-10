@@ -190,6 +190,14 @@ function filterDividends(items: Dividend[], purchaseDateValue: string | null | u
   })
 }
 
+function isOnOrAfterPurchaseDate(eventDateValue: string | null | undefined, purchaseDateValue: string | null | undefined): boolean {
+  const purchaseDate = normalizeToDay(purchaseDateValue)
+  if (!purchaseDate) return true
+  const eventDate = normalizeToDay(eventDateValue)
+  if (!eventDate) return true
+  return eventDate.getTime() >= purchaseDate.getTime()
+}
+
 /**
  * Renders a detailed view for a single stock and manages its related data and user actions.
  *
@@ -294,15 +302,11 @@ export default function StockDetail() {
         todayDate.setUTCHours(0, 0, 0, 0)
         const currentYear = todayDate.getUTCFullYear()
 
-        const purchaseDate = normalizeToDay(stockData.purchase_date)
-
-        const historicalYearDividends: UpcomingDividend[] = divData
+        const allHistoricalYearDividends: UpcomingDividend[] = divData
           .filter((div: Dividend) => {
             const payoutDate = div.payment_date || div.date
             if (!payoutDate?.startsWith(`${currentYear}-`)) return false
-            const exDate = normalizeToDay(div.date)
-            if (!purchaseDate || !exDate) return true
-            return exDate.getTime() >= purchaseDate.getTime()
+            return true
           })
           .map((div: Dividend) => {
             const amountPerShare = div.amount ?? 0
@@ -331,13 +335,11 @@ export default function StockDetail() {
             }
           })
 
-        const upcomingYearDividends: UpcomingDividend[] = stockUpcomingData
+        const allUpcomingYearDividends: UpcomingDividend[] = stockUpcomingData
           .filter((div: StockUpcomingDividend) => {
             const payoutDate = div.payment_date || div.ex_date
             if (!payoutDate?.startsWith(`${currentYear}-`)) return false
-            const exDate = normalizeToDay(div.ex_date)
-            if (!purchaseDate || !exDate) return true
-            return exDate.getTime() >= purchaseDate.getTime()
+            return true
           })
           .map((div: StockUpcomingDividend) => {
             const amountPerShare = div.amount ?? 0
@@ -366,7 +368,11 @@ export default function StockDetail() {
             }
           })
 
+        const historicalYearDividends = allHistoricalYearDividends.filter((div) => isOnOrAfterPurchaseDate(div.ex_date, stockData.purchase_date))
+        const upcomingYearDividends = allUpcomingYearDividends.filter((div) => isOnOrAfterPurchaseDate(div.ex_date, stockData.purchase_date))
+
         const mergedYearDividends = [...historicalYearDividends, ...upcomingYearDividends]
+        const allMergedYearDividends = [...allHistoricalYearDividends, ...allUpcomingYearDividends]
         const dedupedMap = new Map<string, UpcomingDividend>()
         for (const div of mergedYearDividends) {
           const key = [
@@ -386,6 +392,25 @@ export default function StockDetail() {
           return aDate.localeCompare(bDate)
         })
 
+        const allDedupedMap = new Map<string, UpcomingDividend>()
+        for (const div of allMergedYearDividends) {
+          const key = [
+            div.ex_date,
+            div.payment_date || '',
+            div.amount_per_share,
+            div.currency,
+            div.dividend_type || '',
+            div.source || ''
+          ].join('|')
+          allDedupedMap.set(key, div)
+        }
+
+        const effectiveAllYearDividends = Array.from(allDedupedMap.values()).sort((a, b) => {
+          const aDate = a.payout_date || a.payment_date || a.ex_date
+          const bDate = b.payout_date || b.payment_date || b.ex_date
+          return aDate.localeCompare(bDate)
+        })
+
         const yearlyState = recalculateYearlyDividendState(effectiveYearDividends, stockData.quantity, safeRates)
 
         const filteredHistoryDividends = filterDividends(divData, stockData.purchase_date)
@@ -393,7 +418,7 @@ export default function StockDetail() {
         setStock(stockData)
         setAllDividends(divData)
         setDividends(filteredHistoryDividends)
-        setAllYearDividends(effectiveYearDividends)
+        setAllYearDividends(effectiveAllYearDividends)
         setYearDividends(yearlyState.yearDividends)
         setYearReceived(yearlyState.yearReceived)
         setYearRemaining(yearlyState.yearRemaining)
@@ -522,13 +547,7 @@ export default function StockDetail() {
       })
       setStock(updated)
       const updatedFilteredDividends = filterDividends(allDividends, updated.purchase_date)
-      const updatedFilteredYearDividends = allYearDividends.filter((div) => {
-        const purchaseDate = normalizeToDay(updated.purchase_date)
-        if (!purchaseDate) return true
-        const exDate = normalizeToDay(div.ex_date)
-        if (!exDate) return true
-        return exDate.getTime() >= purchaseDate.getTime()
-      })
+      const updatedFilteredYearDividends = allYearDividends.filter((div) => isOnOrAfterPurchaseDate(div.ex_date, updated.purchase_date))
       const yearlyState = recalculateYearlyDividendState(updatedFilteredYearDividends, updated.quantity, exchangeRates)
       setDividends(updatedFilteredDividends)
       setYearDividends(yearlyState.yearDividends)
