@@ -4,7 +4,7 @@ This module provides API endpoints for market index data, exchange rates,
 market hours status, and sparkline charts for the header component.
 """
 
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, Body, HTTPException, Query
 from typing import List
 from datetime import date, datetime, timezone, timedelta
 import requests
@@ -99,10 +99,15 @@ def _empty_rate_map() -> dict[str, float | None]:
 
 
 def _store_exchange_rate(rates: dict[str, float | None], key: str, rate: float):
-    rates[key] = rate
     base, quote = key.split('_', 1)
     reverse_key = f"{quote}_{base}"
-    rates[reverse_key] = None if rate == 0 else 1 / rate
+    if rate > 0:
+        rates[key] = rate
+        rates[reverse_key] = 1 / rate
+        return
+
+    rates[key] = None
+    rates[reverse_key] = None
 
 
 def _validate_exchange_rate_span(start_date: date, end_date: date):
@@ -453,9 +458,9 @@ def get_exchange_rates(date: str | None = Query(None)):
     return _fetch_exchange_rates_for_date(None)
 
 
-@router.get("/exchange-rates/batch")
-def get_exchange_rates_batch(dates: List[str] = Query(...)):
-    """Retrieve exchange rates for multiple ISO dates in one response."""
+@router.post("/exchange-rates/batch")
+def get_exchange_rates_batch(dates: List[str] = Body(..., embed=True)):
+    """Retrieve exchange rates for multiple ISO dates provided in the request body."""
     parsed_dates: list[tuple[str, date]] = []
 
     for value in dates:
