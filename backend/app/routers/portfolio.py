@@ -259,6 +259,7 @@ def get_portfolio_summary(db: Session = Depends(get_db), current_user: User = De
     display_currency = get_display_currency(db, current_user.id)
     
     currencies = {s.currency for s in stocks if s.currency}
+    currencies.add('SEK')
     rates = ExchangeRateService.get_rates_for_currencies(currencies, display_currency)
     
     total_value = 0
@@ -654,7 +655,7 @@ def get_upcoming_portfolio_dividends(db: Session = Depends(get_db), current_user
 
             if purchase_date is not None:
                 entitlement_date = ex_date_parsed or payout_date_parsed
-                if entitlement_date and entitlement_date < purchase_date:
+                if entitlement_date and entitlement_date <= purchase_date:
                     continue
 
             if payout_date_parsed.year != current_year:

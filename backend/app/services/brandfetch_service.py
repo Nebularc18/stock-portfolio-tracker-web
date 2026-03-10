@@ -152,7 +152,23 @@ class BrandfetchService:
         parts = [part for part in normalized.split(".") if part]
         if not parts:
             return ""
-        if len(parts) >= 2 and parts[-1] in {"com", "net", "org", "io", "co", "de", "se", "uk", "eu", "ca", "fr", "br", "in"}:
+        multi_label_suffixes = {
+            "co.uk",
+            "gov.uk",
+            "ac.uk",
+            "org.uk",
+            "com.au",
+            "net.au",
+            "org.au",
+            "co.nz",
+            "com.br",
+            "com.mx",
+            "co.jp",
+            "com.sg",
+        }
+        if len(parts) >= 3 and ".".join(parts[-2:]) in multi_label_suffixes:
+            return parts[-3]
+        if len(parts) >= 2 and parts[-1] in {"com", "net", "org", "io", "co", "de", "se", "uk", "eu", "ca", "fr", "br", "in", "au", "nz", "jp", "sg", "mx"}:
             return parts[-2]
         return parts[0]
 
@@ -185,6 +201,13 @@ class BrandfetchService:
         normalized = self._normalize_text(value)
         return {token for token in normalized.split(" ") if len(token) >= 3}
 
+    def _normalize_company_query(self, value: str) -> str:
+        cleaned = re.sub(r"\(.*?\)", "", value)
+        cleaned = re.sub(r"\bser\.?\s+[A-Za-z]\b", "", cleaned, flags=re.IGNORECASE)
+        cleaned = re.sub(r"\bclass\s+[A-Za-z]\b", "", cleaned, flags=re.IGNORECASE)
+        cleaned = cleaned.replace(',', ' ')
+        return self._normalize_text(cleaned)
+
     def _is_confident_match(
         self,
         candidate: dict,
@@ -210,6 +233,8 @@ class BrandfetchService:
         quality_score = float(candidate.get('qualityScore') or 0)
         candidate_name_normalized = self._normalize_text(candidate_name)
         candidate_domain_root = self._normalize_text(self._root_domain_token(candidate_domain))
+        curated_domain_root = self._normalize_text(self._root_domain_token(query)) if '.' in query else ''
+        query_normalized = curated_domain_root or self._normalize_text(query)
 
         expected_tokens: set[str] = set()
         expected_name_normalized = self._normalize_text(company_name or '')
@@ -232,11 +257,14 @@ class BrandfetchService:
             token
             for token in {
                 expected_name_normalized,
-                self._normalize_text(query),
+                query_normalized,
                 ticker_token,
             }
             if token and token in {candidate_name_normalized, candidate_domain_root}
         )
+
+        if curated_domain_root and candidate_domain_root == curated_domain_root and quality_score >= 0.5:
+            return True
 
         if exact_identity_match and quality_score >= 0.5:
             return True
@@ -273,11 +301,7 @@ class BrandfetchService:
             clean_name = company_name.strip()
             candidates.append(clean_name)
 
-            normalized = re.sub(r"\(.*?\)", "", clean_name)
-            normalized = re.sub(r"\bser\.?\s+[A-Za-z]\b", "", normalized, flags=re.IGNORECASE)
-            normalized = re.sub(r"\bclass\s+[A-Za-z]\b", "", normalized, flags=re.IGNORECASE)
-            normalized = re.sub(r"\b(corporation|corp\.?|inc\.?|ltd\.?|plc|ag|nv|se)\b", "", normalized, flags=re.IGNORECASE)
-            normalized = re.sub(r"\s+", " ", normalized.replace(',', ' ')).strip()
+            normalized = self._normalize_company_query(clean_name)
             if normalized and normalized != clean_name:
                 candidates.append(normalized)
 

@@ -263,6 +263,7 @@ def get_exchange_rates(date: str | None = Query(None)):
     ]
     
     for symbol, key in pairs:
+        rates[key] = None
         try:
             if target_date is None:
                 url = f"https://query1.finance.yahoo.com/v8/finance/chart/{symbol}?interval=1d&range=1d"
@@ -297,7 +298,8 @@ def get_exchange_rates(date: str | None = Query(None)):
                             price_for_date = price
                     if price_for_date is not None:
                         rates[key] = price_for_date
-        except Exception:
+        except Exception as exc:
+            logger.exception("Failed to fetch exchange rate for %s (%s): %s", key, symbol, exc)
             continue
     
     return rates
@@ -313,7 +315,7 @@ def get_market_hours(timezone: str | None = None):
     Returns:
         dict: Market status for all tracked markets with open/close times.
     """
-    return MarketHoursService.get_all_markets_status(timezone)
+    return MarketHoursService.get_all_markets_status(timezone or "")
 
 
 @router.get("/hours/{market}")
@@ -328,7 +330,7 @@ def get_specific_market_hours(market: str, timezone: str | None = None):
         dict: Market status with open, close, and is_open fields,
             or error message if market not found.
     """
-    status = MarketHoursService.get_market_status(market.upper(), timezone)
+    status = MarketHoursService.get_market_status(market.upper(), timezone or "")
     if "error" in status:
         return status
     return status

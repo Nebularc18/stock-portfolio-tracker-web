@@ -77,6 +77,7 @@ export default function UpcomingDividends() {
   const [loading, setLoading] = useState(true)
   const [refreshing, setRefreshing] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [refreshError, setRefreshError] = useState<string | null>(null)
 
   const fetchData = useCallback(async (showLoadingState: boolean = true) => {
     try {
@@ -84,8 +85,11 @@ export default function UpcomingDividends() {
         setLoading(true)
       } else {
         setRefreshing(true)
+        setRefreshError(null)
       }
-      setError(null)
+      if (showLoadingState) {
+        setError(null)
+      }
       const data = await api.portfolio.upcomingDividends()
       setDividends(data.dividends)
       setTotalExpected(data.total_expected)
@@ -97,7 +101,11 @@ export default function UpcomingDividends() {
       setExchangeRates(rates)
     } catch (err) {
       console.error('Failed to fetch upcoming dividends:', err)
-      setError(t(language, 'upcoming.failedLoad'))
+      if (showLoadingState) {
+        setError(t(language, 'upcoming.failedLoad'))
+      } else {
+        setRefreshError(t(language, 'upcoming.failedLoad'))
+      }
     } finally {
       if (showLoadingState) {
         setLoading(false)
@@ -185,6 +193,12 @@ export default function UpcomingDividends() {
           </button>
         </div>
       </div>
+
+      {refreshError && (
+        <div className="card" style={{ marginBottom: '16px', borderLeft: '4px solid var(--accent-orange)' }}>
+          <p style={{ margin: 0, color: 'var(--text-secondary)' }}>{refreshError}</p>
+        </div>
+      )}
 
       {unmappedStocks.length > 0 && (
         <div className="card" style={{ marginBottom: '24px', borderLeft: '4px solid var(--accent-orange)' }}>

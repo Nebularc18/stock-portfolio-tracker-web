@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip, BarChart, Bar, XAxis, YAxis, CartesianGrid, Legend } from 'recharts'
 import { api, Dividend, DistributionResponse, DividendsByTicker } from '../services/api'
 import { useSettings } from '../SettingsContext'
@@ -31,10 +31,11 @@ function convertDividendValue(
   amount: number,
   fromCurrency: string | undefined,
   toCurrency: string,
-  fxRates: Record<string, number | null>
+  fxRates?: Record<string, number | null>
 ): number | null {
   const sourceCurrency = fromCurrency || toCurrency
   if (sourceCurrency === toCurrency) return amount
+  if (!fxRates) return null
   const direct = fxRates[`${sourceCurrency}_${toCurrency}`]
   if (direct != null) return amount * direct
   const inverse = fxRates[`${toCurrency}_${sourceCurrency}`]
@@ -56,17 +57,25 @@ export default function Analytics() {
   const [selectedComparisonYears, setSelectedComparisonYears] = useState<number[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
+  const latestFetchId = useRef(0)
   const { displayCurrency, language } = useSettings()
   const locale = getLocaleForLanguage(language)
   const chartCurrency = distribution?.display_currency || displayCurrency
 
   const fetchData = useCallback(async () => {
+    const fetchId = latestFetchId.current + 1
+    latestFetchId.current = fetchId
+    const isCurrentFetch = () => latestFetchId.current === fetchId
+
     try {
-      setLoading(true)
+      if (isCurrentFetch()) {
+        setLoading(true)
+      }
       const [distributionData, stocksData] = await Promise.all([
         api.portfolio.distribution(),
         api.stocks.list(),
       ])
+      if (!isCurrentFetch()) return
       setDistribution(distributionData)
       const targetCurrency = distributionData.display_currency || displayCurrency
 
@@ -95,12 +104,13 @@ export default function Analytics() {
       for (const { stock, dividends } of dividendResults) {
         for (const div of dividends) {
           if (stock.purchase_date && div.date < stock.purchase_date) continue
-          const year = Number(div.date.slice(0, 4))
-          const monthIndex = Number(div.date.slice(5, 7)) - 1
+          const payoutDate = div.payment_date || div.date
+          const year = Number(payoutDate.slice(0, 4))
+          const monthIndex = Number(payoutDate.slice(5, 7)) - 1
           if (!Number.isFinite(year) || monthIndex < 0 || monthIndex > 11) continue
-          const fxDate = div.payment_date || div.date
-          const fxRates = fxRatesByDate[fxDate]
-          if (!fxRates) continue
+          const sourceCurrency = div.currency || stock.currency
+          const fxRates = fxRatesByDate[payoutDate]
+          if (!fxRates && sourceCurrency !== targetCurrency) continue
           const convertedAmount = convertDividendValue(div.amount || 0, div.currency || stock.currency, targetCurrency, fxRates)
           if (convertedAmount === null) continue
           dividendEvents.push({
@@ -127,6 +137,7 @@ export default function Analytics() {
         monthTotals[event.monthIndex][key] = Number(monthTotals[event.monthIndex][key] || 0) + event.value
       }
 
+      if (!isCurrentFetch()) return
       setDividendComparisonData(monthTotals)
       setAvailableComparisonYears([...sortedYears].sort((a, b) => b - a))
       setSelectedComparisonYears((previousYears) => {
@@ -139,9 +150,13 @@ export default function Analytics() {
       setError(null)
     } catch (err) {
       console.error('Failed to load analytics data:', err)
-      setError(t(language, 'analytics.failedLoad'))
+      if (isCurrentFetch()) {
+        setError(t(language, 'analytics.failedLoad'))
+      }
     } finally {
-      setLoading(false)
+      if (isCurrentFetch()) {
+        setLoading(false)
+      }
     }
   }, [displayCurrency, language, locale])
 

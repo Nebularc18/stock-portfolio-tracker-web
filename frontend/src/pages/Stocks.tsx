@@ -165,7 +165,7 @@ const EXCHANGES = [
       await api.stocks.update(editStock.ticker, {
         quantity,
         purchase_price: editPurchasePrice ? parseFloat(editPurchasePrice) : undefined,
-        purchase_date: editPurchaseDate || undefined,
+        purchase_date: editPurchaseDate === '' ? null : editPurchaseDate,
       })
       setEditStock(null)
       await fetchStocks()

@@ -24,7 +24,11 @@ MAX_YEARS = 10
 def _is_on_or_after_purchase_date(event_date: Optional[str], purchase_date: Optional[date]) -> bool:
     if purchase_date is None or not event_date:
         return True
-    return event_date >= purchase_date.isoformat()
+    try:
+        event_date_value = date.fromisoformat(event_date)
+    except ValueError:
+        return event_date > purchase_date.isoformat()
+    return event_date_value > purchase_date
 
 
 def _get_merged_stock_dividends(stock: Stock, ticker: str, years: int, stock_service, avanza_service) -> list[dict]:
@@ -39,7 +43,7 @@ def _get_merged_stock_dividends(stock: Stock, ticker: str, years: int, stock_ser
     if avanza_mapping and avanza_mapping.instrument_id:
         current_year = utc_now().year
         for year in range(current_year - years + 1, current_year + 1):
-            year_dividends = avanza_service.get_stock_dividends_for_year(ticker, year)
+            year_dividends = avanza_service.get_stock_dividends_for_year(ticker, year) or []
             for div in year_dividends:
                 mapped_year_dividends.append({
                     'date': div.ex_date,
@@ -417,6 +421,12 @@ def get_stock_dividends(ticker: str, years: int = 5, db: Session = Depends(get_d
     ).first()
     if not stock:
         raise HTTPException(status_code=404, detail="Stock not found")
+
+    if years < 1 or years > MAX_YEARS:
+        raise HTTPException(
+            status_code=400,
+            detail=f"years must be between 1 and {MAX_YEARS}",
+        )
 
     return _get_merged_stock_dividends(stock, ticker, years, stock_service, avanza_service)
 

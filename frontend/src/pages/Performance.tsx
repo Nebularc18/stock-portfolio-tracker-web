@@ -170,8 +170,8 @@ export default function Performance() {
         bVal = b.ticker
         break
       case 'name':
-        aVal = a.name || ''
-        bVal = b.name || ''
+        aVal = a.name || a.ticker || ''
+        bVal = b.name || b.ticker || ''
         break
       case 'value':
         aVal = a.valueSEK

@@ -127,24 +127,28 @@ class ExchangeRateService:
         """
         needed_pairs = set()
 
-        def add_pair(from_currency: str, to_currency: str) -> None:
+        def add_pair(from_currency: str, to_currency: str) -> bool:
             if from_currency == to_currency:
-                return
+                return True
 
             key = f"{from_currency}_{to_currency}"
             inverse_key = f"{to_currency}_{from_currency}"
             if key in EXCHANGE_PAIRS:
                 needed_pairs.add(key)
+                return True
             elif inverse_key in EXCHANGE_PAIRS:
                 needed_pairs.add(inverse_key)
+                return True
+
+            return False
 
         for currency in currencies:
             if currency == display_currency:
                 continue
 
-            add_pair(currency, display_currency)
+            found = add_pair(currency, display_currency)
 
-            if currency != "SEK" and display_currency != "SEK":
+            if not found and currency != "SEK" and display_currency != "SEK":
                 add_pair(currency, "SEK")
                 add_pair("SEK", display_currency)
         
