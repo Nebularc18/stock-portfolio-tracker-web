@@ -124,6 +124,38 @@ def _get_merged_stock_dividends(stock: Stock, ticker: str, years: int, stock_ser
         if candidate_score >= existing_score:
             deduped[key] = candidate
 
+    relaxed_groups: dict[tuple[str, object, str], list[tuple[tuple[str, object, str, str, str], dict]]] = {}
+    for full_key, div in deduped.items():
+        normalized_currency = div.get('currency') or stock.currency or ''
+        relaxed_key = (
+            div.get('date') or '',
+            div.get('amount'),
+            normalized_currency,
+        )
+        relaxed_groups.setdefault(relaxed_key, []).append((full_key, div))
+
+    for entries in relaxed_groups.values():
+        if len(entries) <= 1:
+            continue
+
+        scored_entries = [
+            (
+                full_key,
+                div,
+                int(bool(div.get('payment_date'))) + int(bool(div.get('dividend_type'))) + (2 if div.get('source') == 'avanza' else 0),
+            )
+            for full_key, div in entries
+        ]
+        best_score = max(score for _, _, score in scored_entries)
+        best_entries = [entry for entry in scored_entries if entry[2] == best_score]
+        if len(best_entries) != 1:
+            continue
+
+        best_full_key = best_entries[0][0]
+        for full_key, _, score in scored_entries:
+            if full_key != best_full_key and score < best_score:
+                deduped.pop(full_key, None)
+
     merged_dividends = list(deduped.values())
     merged_dividends.sort(key=lambda item: item.get('date') or '', reverse=True)
     return merged_dividends
@@ -595,6 +627,10 @@ def get_upcoming_dividends(ticker: str, db: Session = Depends(get_db), current_u
     return [
         div for div in upcoming
         if _is_after_purchase_date(div.get('ex_date'), stock.purchase_date)
+        and not (
+            (cutoff_date := _parse_event_date(div.get('payment_date') or div.get('ex_date')))
+            and cutoff_date <= today
+        )
     ]
 
 
