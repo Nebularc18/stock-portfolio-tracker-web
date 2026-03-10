@@ -27,6 +27,15 @@ function formatCurrency(value: number, locale: string, currency: string = 'USD')
   }).format(value)
 }
 
+/**
+ * Convert a dividend amount from one currency to another using provided FX rates.
+ *
+ * @param amount - The monetary amount to convert
+ * @param fromCurrency - The source currency code; if undefined, `toCurrency` is assumed (no conversion)
+ * @param toCurrency - The target currency code for the conversion
+ * @param fxRates - A map of FX rates where keys are `"SRC_TGT"` (e.g., `"USD_EUR"`) and values are the rate or `null`
+ * @returns The converted amount in `toCurrency`, or `null` if no applicable rate is available
+ */
 function convertDividendValue(
   amount: number,
   fromCurrency: string | undefined,

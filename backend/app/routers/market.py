@@ -233,14 +233,19 @@ def get_market_indices():
 
 @router.get("/exchange-rates")
 def get_exchange_rates(date: str | None = Query(None)):
-    """Retrieve current exchange rates for major currency pairs.
+    """
+    Retrieve exchange rates for major currency pairs, optionally for a specific ISO date.
     
-    Args:
-        date: Optional ISO date (`YYYY-MM-DD`) used to fetch historical rates near that day.
-
+    When no date is provided, returns the most recent available rate for each pair. When a date (YYYY-MM-DD) is provided, returns the latest available rate on or before that date within the fetched window.
+    
+    Parameters:
+        date (str | None): Optional target date in `YYYY-MM-DD` format to fetch historical rates.
+    
     Returns:
-        dict: Mapping of currency pair names to exchange rates
-            (e.g., {'USD_SEK': 10.5, 'EUR_SEK': 11.2}).
+        dict: Mapping of currency pair keys (e.g., `USD_SEK`, `EUR_USD`) to numeric exchange rates.
+    
+    Raises:
+        HTTPException: If `date` is provided but not in `YYYY-MM-DD` format (HTTP 400).
     """
     session = get_session()
     rates = {}
@@ -318,15 +323,15 @@ def get_market_hours(timezone: str | None = None):
 
 @router.get("/hours/{market}")
 def get_specific_market_hours(market: str, timezone: str | None = None):
-    """Retrieve status for a specific market.
+    """
+    Retrieve the trading hours status for a single market.
     
-    Args:
-        market: Market identifier (e.g., 'SE' for Sweden, 'US' for USA).
-        timezone: Optional timezone for status times.
+    Parameters:
+        market (str): Market identifier (e.g., "SE" for Sweden, "US" for United States).
+        timezone (str | None): Optional IANA timezone name to localize reported times.
     
     Returns:
-        dict: Market status with open, close, and is_open fields,
-            or error message if market not found.
+        dict: On success, a mapping with keys such as `open`, `close`, and `is_open` (`true` if the market is currently open, `false` otherwise). If the market is not found or an error occurs, returns a dict containing an `error` key with diagnostic information.
     """
     status = MarketHoursService.get_market_status(market.upper(), timezone)
     if "error" in status:

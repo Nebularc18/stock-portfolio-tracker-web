@@ -40,14 +40,11 @@ const EXCHANGES = [
 ]
 
 /**
-  * Render the Stocks management user interface for viewing, adding, editing, and removing stock positions.
+  * Display and manage the user's stock positions with controls to view, add, edit, and remove entries, localized to the current language and timezone.
   *
-  * The component fetches the user's stock list on mount, displays current prices and daily changes, and provides
-  * controls to add a new stock (with exchange, ticker, quantity, and optional purchase price), edit an existing
-  * stock's quantity and purchase price, and delete a stock. UI strings, time formatting, and currency formatting
-  * are localized using the current language and timezone from settings.
+  * The component loads the user's stocks on mount, shows current prices and daily changes, and supports recording a purchase price and purchase date for each position.
   *
-  * @returns The rendered Stocks UI as a React element.
+  * @returns A React element containing the Stocks management user interface.
   */
  export default function Stocks() {
   const [stocks, setStocks] = useState<Stock[]>([])

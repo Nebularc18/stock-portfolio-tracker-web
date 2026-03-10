@@ -116,18 +116,30 @@ class ExchangeRateService:
 
     @staticmethod
     def get_rates_for_currencies(currencies: set, display_currency: str) -> Dict[str, Optional[float]]:
-        """Get exchange rates for multiple currencies to display currency.
+        """
+        Retrieve exchange rates for multiple source currencies relative to a display currency.
         
-        Args:
-            currencies: Set of currency codes to convert from.
-            display_currency: Target currency code.
+        For each currency in `currencies` (except when equal to `display_currency`) this collects the appropriate exchange pair keys (direct or inverse) to obtain rates; when neither currency nor `display_currency` is "SEK", pairs via "SEK" are also included as intermediaries. Returned keys use the "FROM_TO" format (e.g., "USD_EUR").
+        
+        Parameters:
+            currencies (set): Set of ISO currency codes to convert from.
+            display_currency (str): Target/display ISO currency code.
         
         Returns:
-            dict: Mapping of currency pairs to exchange rates.
+            Dict[str, Optional[float]]: Mapping from pair key ("FROM_TO") to the exchange rate as a float, or `None` if the rate could not be obtained.
         """
         needed_pairs = set()
 
         def add_pair(from_currency: str, to_currency: str) -> None:
+            """
+            Add an exchange pair key to the outer `needed_pairs` set when a mapping exists.
+            
+            If the two currency codes are identical the function does nothing. If a direct mapping for "FROM_TO" exists in EXCHANGE_PAIRS, that key is added to the global needed_pairs; otherwise, if the inverse "TO_FROM" mapping exists, the inverse key is added. This function mutates the surrounding needed_pairs set and returns nothing.
+            
+            Parameters:
+                from_currency (str): Source currency code (e.g., "USD").
+                to_currency (str): Target currency code (e.g., "EUR").
+            """
             if from_currency == to_currency:
                 return
 

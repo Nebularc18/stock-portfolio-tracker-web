@@ -143,6 +143,20 @@ def _save_file_cache(filename: str, value: Optional[str], ttl: int = _LOGO_CACHE
 
 class BrandfetchService:
     def _root_domain_token(self, domain: str) -> str:
+        """
+        Derives a root domain token from a domain-like string.
+        
+        Strips any path or port, lowercases the input, and returns a concise identifier for the domain:
+        - If the hostname ends with a recognized top-level domain (e.g., "com", "net", "io", "se"), returns the second-level label (e.g., "example" for "example.com").
+        - Otherwise returns the first hostname label.
+        Returns an empty string for empty or invalid input.
+        
+        Parameters:
+            domain (str): A domain, hostname, or domain-like string (may include path or port).
+        
+        Returns:
+            str: The root domain token, or an empty string if none can be determined.
+        """
         normalized = domain.lower().strip()
         if not normalized:
             return ""
@@ -158,13 +172,15 @@ class BrandfetchService:
 
     def _normalize_text(self, value: str) -> str:
         """
-        Normalize company or query text for tokenization and matching.
+        Normalize a company name or search query for tokenization and matching.
+        
+        Converts to lowercase, replaces non-alphanumeric characters with spaces, removes common corporate suffixes and filler words (e.g., "corporation", "inc", "ltd", "holding(s)", "group", "ab", "ag", "nv", "se", "the", "company"), collapses consecutive whitespace, and trims leading/trailing spaces.
         
         Parameters:
             value (str): Raw company name or search query.
         
         Returns:
-            str: Lowercased string with non-alphanumeric characters replaced by spaces, common corporate suffixes (e.g., "inc", "corp", "plc", "holding(s)", "group", country codes like "ag", "nv", "ab", and filler words like "the", "company") removed, consecutive whitespace collapsed, and leading/trailing whitespace trimmed.
+            str: The cleaned, normalized string suitable for token splitting.
         """
         normalized = value.lower()
         normalized = re.sub(r"[^a-z0-9\s]", " ", normalized)
@@ -193,16 +209,18 @@ class BrandfetchService:
         query: str,
     ) -> bool:
         """
-        Decides whether a Brandfetch candidate entry is a confident match for the provided ticker, company name, or query.
+        Determine whether a Brandfetch candidate confidently matches the provided ticker, company name, or query.
+        
+        Evaluates the candidate's name and domain against expected tokens derived from the ticker, company_name, or query and considers the candidate's verification flag and qualityScore when deciding confidence.
         
         Parameters:
-            candidate (dict): A Brandfetch result object (expected keys include 'name', 'domain', 'verified', 'qualityScore').
-            ticker (str): The ticker symbol being resolved (used to derive expected tokens).
-            company_name (Optional[str]): The known company name to strengthen matching; may be None or empty.
-            query (str): The search query that produced the candidate; used as a fallback source of expected tokens.
+            candidate (dict): Brandfetch result object (expected keys include 'name', 'domain', 'verified', 'qualityScore').
+            ticker (str): Ticker symbol being resolved (used to derive expected tokens).
+            company_name (Optional[str]): Known company name to strengthen matching; may be None.
+            query (str): The search query that produced the candidate; used as a fallback for expected tokens.
         
         Returns:
-            bool: `true` if the candidate is considered a confident match, `false` otherwise.
+            True if the candidate is considered a confident match, False otherwise.
         """
         candidate_name = str(candidate.get('name') or '')
         candidate_domain = str(candidate.get('domain') or '')

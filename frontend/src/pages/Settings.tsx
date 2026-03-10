@@ -51,11 +51,11 @@ const preferenceDescriptionStyle = {
 } as const
 
 /**
- * Render the Settings page where users can select theme, choose header indices, and update display preferences.
+ * Render the Settings page and allow users to change theme, header indices, language, display currency, and timezone.
  *
- * Loads available header indices on mount and exposes controls that update context-backed settings (theme, language, display currency, timezone, and selected header indices). Selection changes refresh header data as needed.
+ * Fetches available header indices on mount and refreshes header data when header index selections change.
  *
- * @returns The rendered Settings component as a JSX element
+ * @returns The Settings component rendered as a JSX element
  */
 export default function Settings() {
   const { timezone, setTimezone, displayCurrency, setDisplayCurrency, language, setLanguage, headerIndices, setHeaderIndices } = useSettings()

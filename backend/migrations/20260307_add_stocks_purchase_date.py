@@ -18,6 +18,15 @@ class MigrationError(Exception):
 
 
 def get_database_url() -> str:
+    """
+    Retrieve the database connection URL from the environment.
+    
+    Raises:
+        MigrationError: if the DATABASE_URL environment variable is not set.
+    
+    Returns:
+        str: The value of the DATABASE_URL environment variable.
+    """
     database_url = os.getenv("DATABASE_URL")
     if not database_url:
         raise MigrationError("DATABASE_URL environment variable must be set for this migration script.")
@@ -25,14 +34,36 @@ def get_database_url() -> str:
 
 
 def upgrade(conn) -> None:
+    """
+    Add a nullable `purchase_date` DATE column to the `stocks` table if it does not already exist.
+    
+    Parameters:
+        conn: A database connection (SQLAlchemy Connection) used to execute the ALTER TABLE statement.
+    """
     conn.execute(text("ALTER TABLE stocks ADD COLUMN IF NOT EXISTS purchase_date DATE NULL"))
 
 
 def downgrade(conn) -> None:
+    """
+    Remove the `purchase_date` column from the `stocks` table if it exists.
+    
+    Parameters:
+        conn: A DB connection or SQLAlchemy Connection used to execute the DDL statement.
+    """
     conn.execute(text("ALTER TABLE stocks DROP COLUMN IF EXISTS purchase_date"))
 
 
 def run(direction: str) -> None:
+    """
+    Execute the migration provided by this script in the specified direction.
+    
+    Parameters:
+        direction (str): Either "upgrade" to add the `purchase_date` column to `stocks` or
+            "downgrade" to remove that column.
+    
+    Raises:
+        MigrationError: If `direction` is not "upgrade" or "downgrade".
+    """
     if direction not in {"upgrade", "downgrade"}:
         raise MigrationError("direction must be 'upgrade' or 'downgrade'")
 

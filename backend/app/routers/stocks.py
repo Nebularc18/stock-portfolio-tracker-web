@@ -22,12 +22,35 @@ MAX_YEARS = 10
 
 
 def _is_on_or_after_purchase_date(event_date: Optional[str], purchase_date: Optional[date]) -> bool:
+    """
+    Determine whether an event date is on or after the given purchase date; if either date is missing, treat it as valid.
+    
+    Parameters:
+        event_date (Optional[str]): Event date as an ISO-formatted string (YYYY-MM-DD) or None/empty.
+        purchase_date (Optional[date]): Purchase date as a date object or None.
+    
+    Returns:
+        bool: `true` if `purchase_date` is None or `event_date` is missing, or if `event_date` is the same as or after `purchase_date`; `false` otherwise.
+    """
     if purchase_date is None or not event_date:
         return True
     return event_date >= purchase_date.isoformat()
 
 
 def _get_merged_stock_dividends(stock: Stock, ticker: str, years: int, stock_service, avanza_service) -> list[dict]:
+    """
+    Builds a merged, deduplicated list of dividend records for a stock by combining local service dividends and Avanza-derived dividends.
+    
+    The result excludes any dividend dated before the stock's purchase_date, prefers Avanza-provided records and entries that include `payment_date` or `dividend_type` when de-duplicating, and is sorted by `date` descending.
+    
+    Parameters:
+        stock (Stock): The stock model whose purchase_date and currency are used to filter and normalize dividends.
+        ticker (str): The stock ticker to fetch Avanza dividends for.
+        years (int): Number of years of historical dividends to include from both sources.
+    
+    Returns:
+        merged_dividends (list[dict]): List of dividend records where each dict includes at least `date`, `amount`, and `currency`, and may include `source`, `payment_date`, and `dividend_type`.
+    """
     dividends_raw = stock_service.get_dividends(ticker, years)
     dividends = [
         div for div in (dividends_raw or [])
@@ -110,16 +133,20 @@ def get_stocks(db: Session = Depends(get_db), current_user: User = Depends(get_c
 
 @router.get("/validate/{ticker}")
 def validate_ticker(ticker: str):
-    """Validate a stock ticker symbol.
+    """
+    Check whether a stock ticker symbol is valid and return basic stock information.
     
-    Args:
-        ticker: The stock ticker symbol to validate.
+    Parameters:
+        ticker (str): Stock ticker symbol (case-insensitive).
     
     Returns:
-        dict: Validation result with 'valid', 'name', and 'currency' fields.
+        dict: Mapping with keys:
+            - "valid": `True` if the ticker is valid.
+            - "name": Company name if available, otherwise `None`.
+            - "currency": Currency code if available, otherwise `None`.
     
     Raises:
-        HTTPException: 404 if ticker is invalid.
+        HTTPException: 404 if the ticker is invalid.
     """
     from app.services.stock_service import StockService
     stock_service = StockService()
@@ -144,6 +171,19 @@ def get_stock_dividends_batch(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
+    """
+    Return merged dividend histories for a batch of tickers owned by the current user.
+    
+    Parameters:
+        tickers (list[str]): Iterable of ticker symbols to fetch; values are normalized (trimmed, uppercased) and deduplicated.
+        years (int): Number of years of dividend history to include (must be between 1 and 10).
+    
+    Returns:
+        dict: Mapping from ticker (str) to a list of merged dividend records for that ticker.
+    
+    Raises:
+        HTTPException: 400 if no tickers provided, if more than the allowed unique tickers are supplied, or if `years` is out of allowed range; 404 if any requested ticker is not found for the current user.
+    """
     from app.services.stock_service import StockService
     from app.services.avanza_service import avanza_service
 
@@ -191,17 +231,17 @@ def get_stock_dividends_batch(
 
 @router.get("/{ticker}", response_model=StockResponse)
 def get_stock(ticker: str, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
-    """Retrieve a single stock by ticker symbol.
+    """
+    Retrieve the stock record for the current user matching the given ticker symbol.
     
-    Args:
-        ticker: The stock ticker symbol.
-        db: Database session dependency.
+    Parameters:
+        ticker (str): Stock ticker symbol (case-insensitive).
     
     Returns:
-        StockResponse: The stock data.
+        The Stock record matching the ticker for the current user.
     
     Raises:
-        HTTPException: 404 if stock not found.
+        HTTPException: 404 if no matching stock is found.
     """
     stock = db.query(Stock).filter(
         Stock.user_id == current_user.id,
@@ -282,18 +322,18 @@ def create_stock(stock_data: StockCreate, db: Session = Depends(get_db), current
 
 @router.patch("/{ticker}", response_model=StockResponse)
 def update_stock(ticker: str, stock_data: StockUpdate, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
-    """Update a stock's quantity or purchase price.
+    """
+    Update a stock's quantity, purchase price, and optionally its purchase date.
     
-    Args:
-        ticker: The stock ticker symbol.
-        stock_data: Stock update data (quantity, purchase_price).
-        db: Database session dependency.
+    Parameters:
+        ticker (str): Stock ticker symbol to update.
+        stock_data (StockUpdate): Fields to update; if `purchase_date` is present in the payload it will be applied.
     
     Returns:
-        StockResponse: The updated stock.
+        StockResponse: The updated stock record.
     
     Raises:
-        HTTPException: 404 if stock not found.
+        HTTPException: 404 if the stock for the current user and ticker is not found.
     """
     stock = db.query(Stock).filter(
         Stock.user_id == current_user.id,
@@ -394,18 +434,18 @@ def refresh_stock(ticker: str, db: Session = Depends(get_db), current_user: User
 
 @router.get("/{ticker}/dividends")
 def get_stock_dividends(ticker: str, years: int = 5, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
-    """Retrieve dividend history for a stock.
+    """
+    Retrieve merged dividend history for the given stock ticker over the specified number of years.
     
-    Args:
-        ticker: The stock ticker symbol.
-        years: Number of years of history to retrieve (default 5).
-        db: Database session dependency.
+    Parameters:
+        ticker (str): Stock ticker symbol (case-insensitive).
+        years (int): Number of years of history to include (default 5).
     
     Returns:
-        list: List of dividend records with dates and amounts.
+        list: Merged, deduplicated list of dividend records sorted by date descending. Each record includes date, amount, currency, and source metadata.
     
     Raises:
-        HTTPException: 404 if stock not found.
+        HTTPException: 404 if the stock is not found for the current user.
     """
     from app.services.stock_service import StockService
     from app.services.avanza_service import avanza_service
@@ -423,17 +463,20 @@ def get_stock_dividends(ticker: str, years: int = 5, db: Session = Depends(get_d
 
 @router.get("/{ticker}/upcoming-dividends")
 def get_upcoming_dividends(ticker: str, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
-    """Retrieve upcoming dividend dates for a stock.
-    
-    Args:
-        ticker: The stock ticker symbol.
-        db: Database session dependency.
+    """
+    Get upcoming dividend events for the given stock, preferring Avanza current-year data when available.
     
     Returns:
-        list: List of upcoming dividend events.
+        A list of upcoming dividend event dictionaries. Each dictionary may contain:
+          - `ex_date` (str|None): Ex-dividend date in ISO format, if available.
+          - `payment_date` (str|None): Payment date in ISO format, if available.
+          - `amount` (number|None): Dividend amount.
+          - `currency` (str|None): Currency code of the dividend.
+          - `dividend_type` (str|None): Type/category of the dividend.
+          - `source` (str|None): Origin of the event (e.g., `"avanza"` when from Avanza); may be absent for other sources.
     
     Raises:
-        HTTPException: 404 if stock not found.
+        HTTPException: 404 if the stock for the current user and ticker is not found.
     """
     from app.services.stock_service import StockService
     from app.services.avanza_service import avanza_service
