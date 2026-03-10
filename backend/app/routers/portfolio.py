@@ -136,9 +136,9 @@ def get_yahoo_normalized_events(stock_service, ticker: str) -> list:
     normalized = [normalize_dividend_event(div, 'historical') for div in historical]
 
     historical_by_ex_date = {
-        dividend_event_merge_key(event): event
+        merge_key: event
         for event in normalized
-        if dividend_event_merge_key(event) is not None
+        if (merge_key := dividend_event_merge_key(event)) is not None
     }
 
     for div in upcoming:
@@ -231,6 +231,10 @@ COUNTRY_BY_TICKER_SUFFIX = {
     '.AS': 'Netherlands',
     '.BR': 'Belgium',
     '.TO': 'Canada',
+    '.HK': 'Hong Kong',
+    '.AX': 'Australia',
+    '.T': 'Japan',
+    '.SI': 'Singapore',
     '.L': 'United Kingdom',
     '.SW': 'Switzerland',
     '.HE': 'Finland',

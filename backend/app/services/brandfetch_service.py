@@ -251,7 +251,14 @@ class BrandfetchService:
         quality_score = float(candidate.get('qualityScore') or 0)
         candidate_name_normalized = self._normalize_text(candidate_name)
         candidate_domain_root = self._normalize_text(self._root_domain_token(candidate_domain))
-        curated_domain_root = self._normalize_text(self._root_domain_token(query)) if '.' in query else ''
+        query_normalized_text = query.strip().lower()
+        ticker_normalized_text = ticker.strip().lower()
+        looks_like_dotted_ticker = bool(re.fullmatch(r"[a-z]{1,5}\.[a-z]{1,3}", query_normalized_text))
+        curated_domain_root = (
+            self._normalize_text(self._root_domain_token(query))
+            if '.' in query and query_normalized_text != ticker_normalized_text and not looks_like_dotted_ticker
+            else ''
+        )
         query_normalized = curated_domain_root or self._normalize_text(query)
 
         expected_tokens: set[str] = set()
@@ -323,11 +330,12 @@ class BrandfetchService:
             if normalized and normalized != clean_name:
                 candidates.append(normalized)
 
-            ab_split = re.split(r"\bAB\b", normalized, flags=re.IGNORECASE)
-            if ab_split:
-                name_before_ab = ab_split[0].strip()
-                if name_before_ab and name_before_ab != normalized:
-                    candidates.append(name_before_ab)
+            ab_split = re.split(r"\bAB\b", clean_name, maxsplit=1, flags=re.IGNORECASE)
+            if len(ab_split) > 1:
+                for piece in ab_split:
+                    normalized_piece = self._normalize_company_query(piece)
+                    if normalized_piece and normalized_piece not in {normalized, clean_name}:
+                        candidates.append(normalized_piece)
 
         ticker_upper = ticker.upper().strip()
         if ticker_upper:

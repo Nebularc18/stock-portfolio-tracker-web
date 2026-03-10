@@ -22,6 +22,14 @@ function formatCurrency(value: number | null, locale: string, currency: string =
   }).format(value)
 }
 
+function formatPurchaseDate(value: string | null, locale: string): string {
+  if (!value) return '-'
+  const [year, month, day] = value.split('-').map(Number)
+  if (!year || !month || !day) return value
+  const date = new Date(Date.UTC(year, month - 1, day))
+  return date.toLocaleDateString(locale, { year: 'numeric', month: 'short', day: 'numeric', timeZone: 'UTC' })
+}
+
 const EXCHANGES = [
   { code: 'ST', name: 'Sweden (Stockholm)', suffix: '.ST', currency: 'SEK' },
   { code: 'US', name: 'USA (NASDAQ/NYSE)', suffix: '', currency: 'USD' },
@@ -67,6 +75,7 @@ const EXCHANGES = [
   const [failedLogos, setFailedLogos] = useState<Record<string, boolean>>({})
   const { timezone, language } = useSettings()
   const locale = getLocaleForLanguage(language)
+  const maxPurchaseDate = new Date().toISOString().split('T')[0]
 
   const fetchStocks = useCallback(async () => {
     try {
@@ -287,6 +296,7 @@ const EXCHANGES = [
                   type="date"
                   value={newPurchaseDate}
                   onChange={(e) => setNewPurchaseDate(e.target.value)}
+                  max={maxPurchaseDate}
                   style={{ width: '100%' }}
                 />
               </div>
@@ -381,7 +391,7 @@ const EXCHANGES = [
                     <td>{stock.quantity}</td>
                     <td>{stock.currency}</td>
                     <td>{formatCurrency(stock.purchase_price, locale, stock.currency)}</td>
-                    <td>{stock.purchase_date || '-'}</td>
+                    <td>{formatPurchaseDate(stock.purchase_date, locale)}</td>
                     <td>{formatCurrency(stock.current_price, locale, stock.currency)}</td>
                     <td className={dailyChange && dailyChange >= 0 ? 'positive' : 'negative'}>
                       {dailyChangePercent !== null ? `${dailyChangePercent >= 0 ? '+' : ''}${dailyChangePercent.toFixed(2)}%` : '-'}
@@ -468,6 +478,7 @@ const EXCHANGES = [
                   type="date"
                   value={editPurchaseDate}
                   onChange={(e) => setEditPurchaseDate(e.target.value)}
+                  max={maxPurchaseDate}
                   style={{ width: '100%' }}
                 />
               </div>

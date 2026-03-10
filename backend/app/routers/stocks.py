@@ -23,14 +23,14 @@ MAX_YEARS = 10
 
 def _is_on_or_after_purchase_date(event_date: Optional[str], purchase_date: Optional[date]) -> bool:
     """
-    Determine whether an event date is on or after the given purchase date; if either date is missing, treat it as valid.
+    Determine whether an event date is strictly after the given purchase date; if either date is missing, treat it as valid.
     
     Parameters:
         event_date (Optional[str]): Event date as an ISO-formatted string (YYYY-MM-DD) or None/empty.
         purchase_date (Optional[date]): Purchase date as a date object or None.
     
     Returns:
-        bool: `true` if `purchase_date` is None or `event_date` is missing, or if `event_date` is the same as or after `purchase_date`; `false` otherwise.
+        bool: `True` if `purchase_date` is None or `event_date` is missing, or if `event_date` is strictly after `purchase_date`; `False` otherwise.
     """
     if purchase_date is None or not event_date:
         return True

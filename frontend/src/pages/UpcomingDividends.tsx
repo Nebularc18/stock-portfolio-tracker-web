@@ -177,9 +177,9 @@ export default function UpcomingDividends() {
       }, 0),
     }))
 
-  const projectedAveragePerQuarter = totalExpected / 4
-  const projectedAveragePerMonth = totalExpected / 12
-  const projectedAveragePerDay = totalExpected / 365
+  const averagePerQuarterThisYear = totalExpected / 4
+  const averagePerMonthThisYear = totalExpected / 12
+  const averagePerDayThisYear = totalExpected / 365
 
   return (
     <div>
@@ -253,7 +253,7 @@ export default function UpcomingDividends() {
           <div className="card">
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '16px' }}>
               <div>
-                <h3 style={{ margin: 0 }}>{t(language, 'upcoming.titleWithYear', { year: currentYear })}</h3>
+                <h3 style={{ margin: 0 }}>{t(language, 'upcoming.totalExpected')}</h3>
                 <div style={{ display: 'flex', gap: '20px', marginTop: '12px', fontSize: '13px', flexWrap: 'wrap' }}>
                   <span style={{ color: 'var(--text-secondary)' }}>
                     {t(language, 'dashboard.received')}: <strong style={{ color: 'var(--accent-green)' }}>{formatCurrency(totalReceived, locale, displayCurrency)}</strong>
@@ -262,13 +262,13 @@ export default function UpcomingDividends() {
                     {t(language, 'dashboard.remaining')}: <strong style={{ color: 'var(--accent-blue)' }}>{formatCurrency(totalRemaining, locale, displayCurrency)}</strong>
                   </span>
                   <span style={{ color: 'var(--text-secondary)' }}>
-                    {t(language, 'upcoming.perQuarter')} ({t(language, 'upcoming.projected')}): <strong style={{ color: 'var(--text-primary)' }}>{formatCurrency(projectedAveragePerQuarter, locale, displayCurrency)}</strong>
+                    {t(language, 'upcoming.perQuarter')} ({t(language, 'upcoming.averageThisYear')}): <strong style={{ color: 'var(--text-primary)' }}>{formatCurrency(averagePerQuarterThisYear, locale, displayCurrency)}</strong>
                   </span>
                   <span style={{ color: 'var(--text-secondary)' }}>
-                    {t(language, 'upcoming.perMonth')} ({t(language, 'upcoming.projected')}): <strong style={{ color: 'var(--text-primary)' }}>{formatCurrency(projectedAveragePerMonth, locale, displayCurrency)}</strong>
+                    {t(language, 'upcoming.perMonth')} ({t(language, 'upcoming.averageThisYear')}): <strong style={{ color: 'var(--text-primary)' }}>{formatCurrency(averagePerMonthThisYear, locale, displayCurrency)}</strong>
                   </span>
                   <span style={{ color: 'var(--text-secondary)' }}>
-                    {t(language, 'upcoming.perDay')} ({t(language, 'upcoming.projected')}): <strong style={{ color: 'var(--text-primary)' }}>{formatCurrency(projectedAveragePerDay, locale, displayCurrency)}</strong>
+                    {t(language, 'upcoming.perDay')} ({t(language, 'upcoming.averageThisYear')}): <strong style={{ color: 'var(--text-primary)' }}>{formatCurrency(averagePerDayThisYear, locale, displayCurrency)}</strong>
                   </span>
                 </div>
               </div>

@@ -79,7 +79,7 @@ if __name__ == "__main__":
     try:
         run(action)
     except MigrationError as exc:
-        logger.error("Migration error: %s", exc)
+        logger.exception("Migration error: %s", exc)
         sys.exit(1)
     except Exception:
         logger.exception("Unexpected error during migration")

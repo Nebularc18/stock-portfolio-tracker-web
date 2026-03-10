@@ -105,10 +105,9 @@ export default function Analytics() {
       const payoutDates = Array.from(new Set(
         dividendResults.flatMap(({ dividends }) => dividends.map((div) => div.payment_date || div.date).filter(Boolean))
       ))
-      const fxRatesByDateEntries = await Promise.all(
-        payoutDates.map(async (date) => [date, await api.market.exchangeRates(date)] as const)
-      )
-      const fxRatesByDate = Object.fromEntries(fxRatesByDateEntries) as Record<string, Record<string, number | null>>
+      const fxRatesByDate = payoutDates.length > 0
+        ? await api.market.exchangeRatesBatch(payoutDates)
+        : {}
 
       for (const { stock, dividends } of dividendResults) {
         for (const div of dividends) {

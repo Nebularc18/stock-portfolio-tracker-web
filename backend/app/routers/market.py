@@ -6,7 +6,7 @@ market hours status, and sparkline charts for the header component.
 
 from fastapi import APIRouter, HTTPException, Query
 from typing import List
-from datetime import datetime, timezone, timedelta
+from datetime import date, datetime, timezone, timedelta
 import requests
 import logging
 import json
@@ -21,6 +21,63 @@ logger = logging.getLogger(__name__)
 _session = None
 _CACHE_DIR = os.path.join(os.path.dirname(__file__), '..', '..', 'data', 'cache')
 INDICES_CACHE_TTL = 900  # 15 minutes
+
+
+def _fetch_exchange_rates_for_date(target_date: date | None) -> dict[str, float | None]:
+    session = get_session()
+    rates = {}
+
+    pairs = [
+        ("USDSEK=X", "USD_SEK"),
+        ("EURSEK=X", "EUR_SEK"),
+        ("SEKUSD=X", "SEK_USD"),
+        ("USDEUR=X", "USD_EUR"),
+        ("EURUSD=X", "EUR_USD"),
+        ("USDGBP=X", "USD_GBP"),
+        ("GBPUSD=X", "GBP_USD"),
+    ]
+
+    for symbol, key in pairs:
+        rates[key] = None
+        try:
+            if target_date is None:
+                url = f"https://query1.finance.yahoo.com/v8/finance/chart/{symbol}?interval=1d&range=1d"
+            else:
+                period_start = datetime.combine(target_date - timedelta(days=7), datetime.min.time(), tzinfo=timezone.utc)
+                period_end = datetime.combine(target_date + timedelta(days=1), datetime.min.time(), tzinfo=timezone.utc)
+                url = (
+                    f"https://query1.finance.yahoo.com/v8/finance/chart/{symbol}"
+                    f"?period1={int(period_start.timestamp())}&period2={int(period_end.timestamp())}&interval=1d"
+                )
+            response = session.get(url, timeout=5)
+
+            if response.status_code == 200:
+                data = response.json()
+                if data.get('chart', {}).get('result'):
+                    result = data['chart']['result'][0]
+                    quote = result.get('indicators', {}).get('quote', [{}])[0]
+                    closes = quote.get('close', [])
+                    if target_date is None:
+                        prices = [p for p in closes if p is not None]
+                        if prices:
+                            rates[key] = prices[-1]
+                        continue
+
+                    timestamps = result.get('timestamp', [])
+                    price_for_date = None
+                    for ts, price in zip(timestamps, closes, strict=False):
+                        if price is None:
+                            continue
+                        quote_date = datetime.fromtimestamp(ts, tz=timezone.utc).date()
+                        if quote_date <= target_date:
+                            price_for_date = price
+                    if price_for_date is not None:
+                        rates[key] = price_for_date
+        except Exception:
+            logger.exception("Failed to fetch exchange rate for %s (%s)", key, symbol)
+            continue
+
+    return rates
 
 def get_session():
     """Get or create a shared requests session with default headers.
@@ -247,67 +304,28 @@ def get_exchange_rates(date: str | None = Query(None)):
     Raises:
         HTTPException: If `date` is provided but not in `YYYY-MM-DD` format (HTTP 400).
     """
-    session = get_session()
-    rates = {}
-
     target_date = None
     if date:
         try:
             target_date = datetime.strptime(date, "%Y-%m-%d").date()
         except ValueError as exc:
             raise HTTPException(status_code=400, detail="date must be in YYYY-MM-DD format") from exc
-    
-    pairs = [
-        ("USDSEK=X", "USD_SEK"),
-        ("EURSEK=X", "EUR_SEK"),
-        ("SEKUSD=X", "SEK_USD"),
-        ("USDEUR=X", "USD_EUR"),
-        ("EURUSD=X", "EUR_USD"),
-        ("USDGBP=X", "USD_GBP"),
-        ("GBPUSD=X", "GBP_USD"),
-    ]
-    
-    for symbol, key in pairs:
-        rates[key] = None
-        try:
-            if target_date is None:
-                url = f"https://query1.finance.yahoo.com/v8/finance/chart/{symbol}?interval=1d&range=1d"
-            else:
-                period_start = datetime.combine(target_date - timedelta(days=7), datetime.min.time(), tzinfo=timezone.utc)
-                period_end = datetime.combine(target_date + timedelta(days=1), datetime.min.time(), tzinfo=timezone.utc)
-                url = (
-                    f"https://query1.finance.yahoo.com/v8/finance/chart/{symbol}"
-                    f"?period1={int(period_start.timestamp())}&period2={int(period_end.timestamp())}&interval=1d"
-                )
-            response = session.get(url, timeout=5)
-            
-            if response.status_code == 200:
-                data = response.json()
-                if data.get('chart', {}).get('result'):
-                    result = data['chart']['result'][0]
-                    quote = result.get('indicators', {}).get('quote', [{}])[0]
-                    closes = quote.get('close', [])
-                    if target_date is None:
-                        prices = [p for p in closes if p is not None]
-                        if prices:
-                            rates[key] = prices[-1]
-                        continue
+    return _fetch_exchange_rates_for_date(target_date)
 
-                    timestamps = result.get('timestamp', [])
-                    price_for_date = None
-                    for ts, price in zip(timestamps, closes):
-                        if price is None:
-                            continue
-                        quote_date = datetime.fromtimestamp(ts, tz=timezone.utc).date()
-                        if quote_date <= target_date:
-                            price_for_date = price
-                    if price_for_date is not None:
-                        rates[key] = price_for_date
-        except Exception as exc:
-            logger.exception("Failed to fetch exchange rate for %s (%s): %s", key, symbol, exc)
-            continue
-    
-    return rates
+
+@router.get("/exchange-rates/batch")
+def get_exchange_rates_batch(dates: List[str] = Query(...)):
+    """Retrieve exchange rates for multiple ISO dates in one response."""
+    rates_by_date: dict[str, dict[str, float | None]] = {}
+
+    for value in dates:
+        try:
+            target_date = datetime.strptime(value, "%Y-%m-%d").date()
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail="dates must contain YYYY-MM-DD values") from exc
+        rates_by_date[value] = _fetch_exchange_rates_for_date(target_date)
+
+    return rates_by_date
 
 
 @router.get("/hours")
