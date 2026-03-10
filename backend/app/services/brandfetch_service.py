@@ -218,6 +218,17 @@ class BrandfetchService:
         return {token for token in normalized.split(" ") if len(token) >= 3}
 
     def _normalize_company_query(self, value: str) -> str:
+        """
+        Normalize a company search query before candidate matching.
+        
+        Removes parenthetical content, strips abbreviations such as "ser." and "class" when followed by a single letter (case-insensitive), replaces commas with spaces, and delegates final cleanup to `_normalize_text`.
+        
+        Parameters:
+            value (str): Raw company query text to normalize.
+        
+        Returns:
+            str: Normalized query string suitable for matching.
+        """
         cleaned = re.sub(r"\(.*?\)", "", value)
         cleaned = re.sub(r"\bser\.?\s+[A-Za-z]\b", "", cleaned, flags=re.IGNORECASE)
         cleaned = re.sub(r"\bclass\s+[A-Za-z]\b", "", cleaned, flags=re.IGNORECASE)

@@ -521,6 +521,7 @@ def get_upcoming_dividends(ticker: str, db: Session = Depends(get_db), current_u
         year_dividends = avanza_service.get_stock_dividends_for_year(ticker, current_year)
         if year_dividends:
             upcoming_or_remaining = []
+            seen_event_keys = set(historical_event_keys)
             for div in year_dividends:
                 event_key = (
                     div.ex_date or '',
@@ -529,7 +530,7 @@ def get_upcoming_dividends(ticker: str, db: Session = Depends(get_db), current_u
                     div.currency or '',
                     div.dividend_type or '',
                 )
-                if event_key in historical_event_keys:
+                if event_key in seen_event_keys:
                     continue
                 if not _is_on_or_after_purchase_date(div.ex_date, stock.purchase_date):
                     continue
@@ -545,8 +546,29 @@ def get_upcoming_dividends(ticker: str, db: Session = Depends(get_db), current_u
                     'dividend_type': div.dividend_type,
                     'source': 'avanza',
                 })
-            if upcoming_or_remaining:
-                return upcoming_or_remaining
+                seen_event_keys.add(event_key)
+
+            upcoming = stock_service.get_upcoming_dividends(ticker) or []
+            for div in upcoming:
+                event_key = (
+                    div.get('ex_date') or '',
+                    div.get('payment_date') or '',
+                    div.get('amount'),
+                    div.get('currency') or '',
+                    div.get('dividend_type') or '',
+                )
+                if event_key in seen_event_keys:
+                    continue
+                if not _is_on_or_after_purchase_date(div.get('ex_date'), stock.purchase_date):
+                    continue
+                if div.get('payment_date') and div['payment_date'] <= today:
+                    continue
+                if div.get('ex_date') and div['ex_date'] <= today:
+                    continue
+                upcoming_or_remaining.append(div)
+                seen_event_keys.add(event_key)
+
+            return upcoming_or_remaining
 
     upcoming = stock_service.get_upcoming_dividends(ticker) or []
     return [

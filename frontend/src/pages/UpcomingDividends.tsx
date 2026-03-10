@@ -300,6 +300,7 @@ export default function UpcomingDividends() {
                   <tbody>
                     {group.items.map((div, i) => {
                       const displayedTotal = getDisplayedDividendTotal(div)
+                      const payoutDisplayDate = div.payout_date ?? div.payment_date ?? div.ex_date
 
                       return (
                         <tr key={`${div.ticker}-${div.ex_date}-${div.payment_date ?? 'na'}-${div.dividend_type ?? 'na'}-${i}`}>
@@ -314,7 +315,7 @@ export default function UpcomingDividends() {
                             )}
                           </td>
                           <td>{formatDate(div.ex_date, locale, { month: 'short', day: 'numeric' })}</td>
-                          <td>{div.payment_date ? formatDate(div.payment_date, locale, { month: 'short', day: 'numeric' }) : '-'}</td>
+                          <td>{formatDate(payoutDisplayDate, locale, { month: 'short', day: 'numeric' })}</td>
                           <td style={{ textAlign: 'right' }}>{formatCurrency(div.amount_per_share, locale, div.currency)}</td>
                           <td style={{ textAlign: 'right' }}>
                             <span style={{ color: 'var(--accent-green)', fontWeight: '600' }}>

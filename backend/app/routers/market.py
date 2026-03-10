@@ -11,6 +11,7 @@ import requests
 import logging
 import json
 import os
+from functools import lru_cache
 
 from app.services.market_hours_service import MarketHoursService
 from app.services.market_data_service import get_header_market_data, HEADER_INDICES
@@ -20,64 +21,137 @@ logger = logging.getLogger(__name__)
 
 _session = None
 _CACHE_DIR = os.path.join(os.path.dirname(__file__), '..', '..', 'data', 'cache')
+_SUPPORTED_EXCHANGES_PATH = os.path.join(
+    os.path.dirname(__file__), '..', '..', '..', 'frontend', 'src', 'config', 'supportedExchanges.json'
+)
 INDICES_CACHE_TTL = 900  # 15 minutes
 
 
-def _fetch_exchange_rates_for_date(target_date: date | None) -> dict[str, float | None]:
-    session = get_session()
-    rates = {}
+@lru_cache(maxsize=1)
+def _get_supported_exchange_currencies() -> tuple[str, ...]:
+    try:
+        with open(_SUPPORTED_EXCHANGES_PATH, 'r', encoding='utf-8') as f:
+            exchanges = json.load(f)
+    except Exception:
+        logger.exception("Failed to load supported exchanges from %s", _SUPPORTED_EXCHANGES_PATH)
+        return ('SEK', 'USD', 'GBP', 'EUR')
 
-    pairs = [
-        ("USDSEK=X", "USD_SEK"),
-        ("EURSEK=X", "EUR_SEK"),
-        ("SEKUSD=X", "SEK_USD"),
-        ("USDEUR=X", "USD_EUR"),
-        ("EURUSD=X", "EUR_USD"),
-        ("USDGBP=X", "USD_GBP"),
-        ("GBPUSD=X", "GBP_USD"),
+    currencies = []
+    seen = set()
+    for exchange in exchanges:
+        currency = exchange.get('currency')
+        if isinstance(currency, str) and currency and currency not in seen:
+            seen.add(currency)
+            currencies.append(currency)
+
+    return tuple(currencies)
+
+
+def _build_exchange_rate_pairs() -> list[tuple[str, str]]:
+    currencies = _get_supported_exchange_currencies()
+    return [
+        (f"{base}{quote}=X", f"{base}_{quote}")
+        for base in currencies
+        for quote in currencies
+        if base != quote
     ]
 
+
+pairs = _build_exchange_rate_pairs()
+
+
+def _empty_rate_map() -> dict[str, float | None]:
+    return {key: None for _, key in pairs}
+
+
+def _fetch_latest_exchange_rates() -> dict[str, float | None]:
+    session = get_session()
+    rates: dict[str, float | None] = _empty_rate_map()
+
     for symbol, key in pairs:
-        rates[key] = None
         try:
-            if target_date is None:
-                url = f"https://query1.finance.yahoo.com/v8/finance/chart/{symbol}?interval=1d&range=1d"
-            else:
-                period_start = datetime.combine(target_date - timedelta(days=7), datetime.min.time(), tzinfo=timezone.utc)
-                period_end = datetime.combine(target_date + timedelta(days=1), datetime.min.time(), tzinfo=timezone.utc)
-                url = (
-                    f"https://query1.finance.yahoo.com/v8/finance/chart/{symbol}"
-                    f"?period1={int(period_start.timestamp())}&period2={int(period_end.timestamp())}&interval=1d"
-                )
+            url = f"https://query1.finance.yahoo.com/v8/finance/chart/{symbol}?interval=1d&range=1d"
             response = session.get(url, timeout=5)
 
-            if response.status_code == 200:
-                data = response.json()
-                if data.get('chart', {}).get('result'):
-                    result = data['chart']['result'][0]
-                    quote = result.get('indicators', {}).get('quote', [{}])[0]
-                    closes = quote.get('close', [])
-                    if target_date is None:
-                        prices = [p for p in closes if p is not None]
-                        if prices:
-                            rates[key] = prices[-1]
-                        continue
+            if response.status_code != 200:
+                continue
 
-                    timestamps = result.get('timestamp', [])
-                    price_for_date = None
-                    for ts, price in zip(timestamps, closes, strict=False):
-                        if price is None:
-                            continue
-                        quote_date = datetime.fromtimestamp(ts, tz=timezone.utc).date()
-                        if quote_date <= target_date:
-                            price_for_date = price
-                    if price_for_date is not None:
-                        rates[key] = price_for_date
+            data = response.json()
+            if not data.get('chart', {}).get('result'):
+                continue
+
+            result = data['chart']['result'][0]
+            quote = result.get('indicators', {}).get('quote', [{}])[0]
+            closes = quote.get('close', [])
+            prices = [price for price in closes if price is not None]
+            if prices:
+                rates[key] = prices[-1]
         except Exception:
             logger.exception("Failed to fetch exchange rate for %s (%s)", key, symbol)
-            continue
 
     return rates
+
+
+def _fetch_exchange_rates_for_range(start_date: date, end_date: date) -> dict[date, dict[str, float | None]]:
+    session = get_session()
+    rates_by_date: dict[date, dict[str, float | None]] = {
+        start_date + timedelta(days=offset): _empty_rate_map()
+        for offset in range((end_date - start_date).days + 1)
+    }
+
+    period_start = datetime.combine(start_date - timedelta(days=7), datetime.min.time(), tzinfo=timezone.utc)
+    period_end = datetime.combine(end_date + timedelta(days=1), datetime.min.time(), tzinfo=timezone.utc)
+
+    for symbol, key in pairs:
+        try:
+            url = (
+                f"https://query1.finance.yahoo.com/v8/finance/chart/{symbol}"
+                f"?period1={int(period_start.timestamp())}&period2={int(period_end.timestamp())}&interval=1d"
+            )
+            response = session.get(url, timeout=5)
+
+            if response.status_code != 200:
+                continue
+
+            data = response.json()
+            if not data.get('chart', {}).get('result'):
+                continue
+
+            result = data['chart']['result'][0]
+            quote = result.get('indicators', {}).get('quote', [{}])[0]
+            closes = quote.get('close', [])
+            timestamps = result.get('timestamp', [])
+            series = [
+                (datetime.fromtimestamp(ts, tz=timezone.utc).date(), price)
+                for ts, price in zip(timestamps, closes, strict=False)
+                if price is not None
+            ]
+
+            if not series:
+                continue
+
+            series_index = 0
+            latest_price = None
+            for current_date in sorted(rates_by_date):
+                while series_index < len(series) and series[series_index][0] <= current_date:
+                    latest_price = series[series_index][1]
+                    series_index += 1
+                if latest_price is not None:
+                    rates_by_date[current_date][key] = latest_price
+        except Exception:
+            logger.exception("Failed to fetch exchange rate series for %s (%s)", key, symbol)
+
+    return rates_by_date
+
+
+def _fetch_exchange_rates_for_date(target_date: date | None) -> dict[str, float | None]:
+    if target_date is None:
+        return _fetch_latest_exchange_rates()
+
+    return _fetch_exchange_rates_for_range(target_date, target_date).get(
+        target_date,
+        _empty_rate_map(),
+    )
 
 def get_session():
     """Get or create a shared requests session with default headers.
@@ -316,14 +390,27 @@ def get_exchange_rates(date: str | None = Query(None)):
 @router.get("/exchange-rates/batch")
 def get_exchange_rates_batch(dates: List[str] = Query(...)):
     """Retrieve exchange rates for multiple ISO dates in one response."""
-    rates_by_date: dict[str, dict[str, float | None]] = {}
+    parsed_dates: list[tuple[str, date]] = []
 
     for value in dates:
         try:
             target_date = datetime.strptime(value, "%Y-%m-%d").date()
         except ValueError as exc:
             raise HTTPException(status_code=400, detail="dates must contain YYYY-MM-DD values") from exc
-        rates_by_date[value] = _fetch_exchange_rates_for_date(target_date)
+
+        parsed_dates.append((value, target_date))
+
+    if not parsed_dates:
+        return {}
+
+    range_rates = _fetch_exchange_rates_for_range(
+        min(target_date for _, target_date in parsed_dates),
+        max(target_date for _, target_date in parsed_dates),
+    )
+
+    rates_by_date: dict[str, dict[str, float | None]] = {}
+    for original_value, target_date in parsed_dates:
+        rates_by_date[original_value] = range_rates.get(target_date, _empty_rate_map())
 
     return rates_by_date
 

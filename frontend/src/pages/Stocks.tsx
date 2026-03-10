@@ -4,6 +4,7 @@ import { api, Stock } from '../services/api'
 import { useSettings } from '../SettingsContext'
 import { formatTimeInTimezone, getLatestTimestamp } from '../utils/time'
 import { getLocaleForLanguage, t } from '../i18n'
+import supportedExchanges from '../config/supportedExchanges.json'
 
 /**
  * Formats a numeric value as a localized currency string or returns "-" when the value is null.
@@ -31,21 +32,15 @@ function formatPurchaseDate(value: string | null, locale: string): string {
 }
 
 const EXCHANGES = [
-  { code: 'ST', name: 'Sweden (Stockholm)', suffix: '.ST', currency: 'SEK' },
-  { code: 'US', name: 'USA (NASDAQ/NYSE)', suffix: '', currency: 'USD' },
-  { code: 'L', name: 'UK (London)', suffix: '.L', currency: 'GBP' },
-  { code: 'DE', name: 'Germany (Xetra)', suffix: '.DE', currency: 'EUR' },
-  { code: 'PA', name: 'France (Paris)', suffix: '.PA', currency: 'EUR' },
-  { code: 'MI', name: 'Italy (Milan)', suffix: '.MI', currency: 'EUR' },
-  { code: 'AM', name: 'Netherlands (Amsterdam)', suffix: '.AM', currency: 'EUR' },
-  { code: 'BR', name: 'Belgium (Brussels)', suffix: '.BR', currency: 'EUR' },
-  { code: 'TO', name: 'Canada (Toronto)', suffix: '.TO', currency: 'CAD' },
-  { code: 'AX', name: 'Australia', suffix: '.AX', currency: 'AUD' },
-  { code: 'HK', name: 'Hong Kong', suffix: '.HK', currency: 'HKD' },
-  { code: 'T', name: 'Japan (Tokyo)', suffix: '.T', currency: 'JPY' },
-  { code: 'KS', name: 'South Korea', suffix: '.KS', currency: 'KRW' },
-  { code: 'SW', name: 'Switzerland', suffix: '.SW', currency: 'CHF' },
+  ...supportedExchanges,
 ]
+
+function getLocalDateInputValue(value: Date = new Date()): string {
+  const year = value.getFullYear()
+  const month = `${value.getMonth() + 1}`.padStart(2, '0')
+  const day = `${value.getDate()}`.padStart(2, '0')
+  return `${year}-${month}-${day}`
+}
 
 /**
   * Display and manage the user's stock positions with controls to view, add, edit, and remove entries, localized to the current language and timezone.
@@ -75,7 +70,7 @@ const EXCHANGES = [
   const [failedLogos, setFailedLogos] = useState<Record<string, boolean>>({})
   const { timezone, language } = useSettings()
   const locale = getLocaleForLanguage(language)
-  const maxPurchaseDate = new Date().toISOString().split('T')[0]
+  const maxPurchaseDate = getLocalDateInputValue()
 
   const fetchStocks = useCallback(async () => {
     try {

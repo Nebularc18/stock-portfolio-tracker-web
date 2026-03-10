@@ -145,8 +145,10 @@ def get_yahoo_normalized_events(stock_service, ticker: str) -> list:
         normalized_upcoming = normalize_dividend_event(div, 'upcoming')
         upcoming_key = dividend_event_merge_key(normalized_upcoming)
         historical_event = historical_by_ex_date.get(upcoming_key) if upcoming_key else None
+        got_from_wildcard = False
         if historical_event is None and upcoming_key and len(upcoming_key) > 1:
             historical_event = historical_by_ex_date.get((upcoming_key[0],))
+            got_from_wildcard = historical_event is not None
         if historical_event is not None:
             if not historical_event.get('payment_date') and normalized_upcoming.get('payment_date'):
                 historical_event['payment_date'] = normalized_upcoming.get('payment_date')
@@ -159,6 +161,8 @@ def get_yahoo_normalized_events(stock_service, ticker: str) -> list:
             fallback_key = dividend_event_merge_key(historical_event)
             if fallback_key:
                 historical_by_ex_date[fallback_key] = historical_event
+            if got_from_wildcard and upcoming_key:
+                historical_by_ex_date.pop((upcoming_key[0],), None)
             continue
         normalized.append(normalized_upcoming)
         if upcoming_key:
