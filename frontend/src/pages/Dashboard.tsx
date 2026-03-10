@@ -235,11 +235,9 @@ function getRangeTargetPoints(range: HistoryRangeKey): number | null {
 }
 
 /**
-  * Render the portfolio dashboard UI with summary cards, a performance chart, holdings table, and upcoming dividends.
+  * Renders the portfolio dashboard containing summary cards, a performance chart, a holdings table, and upcoming dividends.
   *
-  * The component fetches portfolio and market data, supports history range selection, performs currency conversion using available exchange rates, and formats numbers and dates according to the current language and timezone settings. It handles loading and error states and provides interactive navigation to individual stock pages.
-  *
-  * @returns A JSX element that renders the portfolio dashboard.
+  * @returns A JSX element that renders the portfolio dashboard UI
   */
 export default function Dashboard() {
   const navigate = useNavigate()

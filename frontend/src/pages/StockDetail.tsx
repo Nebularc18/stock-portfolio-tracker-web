@@ -138,6 +138,17 @@ function convertToSEKValue(
   return null
 }
 
+/**
+ * Compute per-dividend totals (quantity applied and SEK conversion) and aggregate yearly totals for paid and upcoming dividends.
+ *
+ * @param items - Upcoming dividend entries to process
+ * @param quantity - Number of shares used to compute total amounts per dividend
+ * @param safeRates - Mapping from currency code to SEK conversion rate; use `null` when a rate is unavailable
+ * @returns An object containing:
+ *  - `yearDividends`: the input dividends augmented with `quantity`, `total_amount`, and `total_converted` (SEK or `null`),
+ *  - `yearReceived`: the summed `total_converted` for dividends with status `"paid"`, or `null` if any paid dividend lacks a conversion,
+ *  - `yearRemaining`: the summed `total_converted` for dividends with status `"upcoming"`, or `null` if any upcoming dividend lacks a conversion
+ */
 function recalculateYearlyDividendState(
   items: UpcomingDividend[],
   quantity: number,
@@ -180,6 +191,15 @@ function recalculateYearlyDividendState(
   }
 }
 
+/**
+ * Filter a list of dividends to only those occurring on or after the given purchase date.
+ *
+ * If `purchaseDateValue` is null/undefined or a dividend's date cannot be parsed, that dividend is retained.
+ *
+ * @param items - Array of dividends to filter
+ * @param purchaseDateValue - Purchase date string (ISO or date-only) used as the cutoff
+ * @returns The input array with dividends whose ex-date is before `purchaseDateValue` removed
+ */
 function filterDividends(items: Dividend[], purchaseDateValue: string | null | undefined): Dividend[] {
   const purchaseDate = normalizeToDay(purchaseDateValue)
   return items.filter((div) => {
@@ -190,6 +210,15 @@ function filterDividends(items: Dividend[], purchaseDateValue: string | null | u
   })
 }
 
+/**
+ * Determine whether an event date occurs on or after the purchase date.
+ *
+ * If the purchase date or event date is missing or cannot be parsed, the check is treated as passing.
+ *
+ * @param eventDateValue - Event date (e.g., dividend ex-date) as an ISO date string or null/undefined.
+ * @param purchaseDateValue - Purchase date as an ISO date string or null/undefined.
+ * @returns `true` if the event date is on or after the purchase date, `false` otherwise.
+ */
 function isOnOrAfterPurchaseDate(eventDateValue: string | null | undefined, purchaseDateValue: string | null | undefined): boolean {
   const purchaseDate = normalizeToDay(purchaseDateValue)
   if (!purchaseDate) return true
@@ -199,13 +228,13 @@ function isOnOrAfterPurchaseDate(eventDateValue: string | null | undefined, purc
 }
 
 /**
- * Renders a detailed view for a single stock and manages its related data and user actions.
+ * Render the detailed stock page and manage its data and user interactions.
  *
- * Shows overview, profile, dividends, and analyst tabs; loads stock, dividend, upcoming dividend,
- * suppressed dividend, Finnhub profile/metrics/peers, analyst data, and exchange rates; displays
- * locale- and timezone-aware currency and date values (including SEK conversions when rates are available);
- * and exposes UI actions to edit or delete the position, add/edit/delete manual dividends, suppress/restore
- * dividends, and verify dividend data with Marketstack.
+ * Loads stock, dividend (historical and upcoming), suppressed dividend, exchange rate,
+ * company profile, financial metrics, peers, and analyst data; provides UI actions to
+ * edit or delete the position, add/edit/delete manual dividends, suppress/restore dividends,
+ * and verify dividends via Marketstack. Dates and currency values are formatted for the
+ * current locale/timezone and SEK conversions are shown when exchange rates are available.
  *
  * @returns The React element for the stock detail page.
  */

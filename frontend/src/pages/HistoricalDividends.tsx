@@ -49,11 +49,9 @@ interface YearlyData {
 }
 
 /**
- * Render a historical dividend overview grouped by year and month, including per-share values and totals converted to SEK and a year selector.
+ * Display a yearly and monthly breakdown of historical dividends with per-share values and totals converted to SEK, and provide a selector to choose the year.
  *
- * The component fetches portfolio stocks, exchange rates, and recent dividends, excludes dividends without a date or dated in the future, computes monthly and yearly totals (converted to SEK when exchange rates are available), and displays appropriate empty states when the portfolio is empty or the selected year has no data.
- *
- * @returns The rendered dividend history UI as a React element.
+ * @returns A React element containing the dividend history UI, including empty states when no stocks or no data for the selected year.
  */
 export default function HistoricalDividends() {
   const { language } = useSettings()

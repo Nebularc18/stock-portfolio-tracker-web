@@ -85,12 +85,9 @@ interface PerformanceData {
 }
 
 /**
- * Renders the portfolio performance dashboard including summaries, best/worst performers, holdings table, and CSV export.
+ * Display the portfolio performance dashboard with summary cards, best/worst performer lists, a sortable holdings table, and CSV export.
  *
- * The component fetches stocks and exchange rates on mount, derives locale from user settings, computes per-stock and aggregate metrics
- * (values, costs, gains, daily changes and SEK conversions), supports sorting by multiple fields, and provides a CSV export of the current view.
- *
- * @returns The React element for the performance dashboard UI.
+ * @returns The React element for the performance dashboard.
  */
 export default function Performance() {
   const [stocks, setStocks] = useState<Stock[]>([])

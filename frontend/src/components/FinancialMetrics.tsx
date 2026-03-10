@@ -79,13 +79,12 @@ function MetricCard({ label, value, format = 'number', locale }: { label: string
 }
 
 /**
- * Renders a localized card containing a 4x4 grid of formatted financial metric tiles.
+ * Render a localized card showing financial metric tiles in a 4x4 grid.
  *
- * Displays a localized loading message when `loading` is true, renders nothing when `metrics` is null,
- * and otherwise shows metric values formatted (percent, currency, date, volume, or number) with localized labels.
+ * When `loading` is true displays a localized loading message; when `metrics` is null renders nothing.
  *
- * @param props.metrics - Financial metrics object or `null`. When present, individual fields (e.g., `pe_ttm`, `roe_ttm`, `52_week_high`, `avg_volume_10d`) are displayed in the grid.
- * @param props.loading - Optional flag that, when true, shows a localized loading state instead of the metrics.
+ * @param metrics - Financial metrics object whose fields (for example `pe_ttm`, `roe_ttm`, `52_week_high`, `avg_volume_10d`) are displayed in the grid.
+ * @param loading - Optional flag that, when true, shows a localized loading state instead of the metrics.
  * @returns The rendered financial metrics card element, or `null` if `metrics` is falsy.
  */
 export default function FinancialMetrics({ metrics, loading }: Props) {

@@ -20,11 +20,12 @@ function formatCurrency(value: number, locale: string, currency: string = 'SEK')
 }
 
 /**
- * Format a "YYYY-MM-DD" date string into a locale-specific date with numeric year, short month, and day.
+ * Formats a "YYYY-MM-DD" date string into a localized date string.
  *
- * @param dateStr - Date in `YYYY-MM-DD` format (year, month, day). Time is treated as UTC.
- * @param locale - BCP 47 locale string used for formatting (for example `sv-SE` or `en-US`).
- * @returns A localized date string with numeric year, short month name, and day (for example `1 Jan 2025` or `1 jan. 2025` depending on `locale`)
+ * @param dateStr - Date in `YYYY-MM-DD` format; components are interpreted in UTC.
+ * @param locale - BCP 47 locale identifier used for formatting (e.g., `sv-SE`, `en-US`).
+ * @param options - Intl.DateTimeFormatOptions to customize the output (defaults to `year: 'numeric', month: 'short', day: 'numeric'`).
+ * @returns A localized date string formatted from the input date using the provided `locale` and `options` (for example `1 Jan 2025`).
  */
 function formatDate(dateStr: string, locale: string, options: Intl.DateTimeFormatOptions = { year: 'numeric', month: 'short', day: 'numeric' }): string {
   const [year, month, day] = dateStr.split('-').map(Number)
