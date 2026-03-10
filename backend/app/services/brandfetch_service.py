@@ -282,8 +282,9 @@ class BrandfetchService:
             expected_tokens |= self._token_set(company_name)
 
         ticker_base = ticker.upper().split('.', 1)[0].split('-', 1)[0]
-        ticker_token = ticker_base.lower() if ticker_base and ticker_base.isalpha() and len(ticker_base) >= 3 else ''
-        if ticker_base and ticker_base.isalpha() and len(ticker_base) >= 3:
+        valid_ticker = bool(ticker_base and ticker_base.isalpha() and len(ticker_base) >= 3)
+        ticker_token = ticker_base.lower() if valid_ticker else ''
+        if ticker_token:
             expected_tokens.add(ticker_token)
 
         if not expected_tokens:

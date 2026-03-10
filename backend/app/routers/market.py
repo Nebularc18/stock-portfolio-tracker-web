@@ -495,7 +495,7 @@ def get_market_hours(timezone: str | None = None):
     Returns:
         dict: Market status for all tracked markets with open/close times.
     """
-    return MarketHoursService.get_all_markets_status(timezone or "")
+    return MarketHoursService.get_all_markets_status(timezone)
 
 
 @router.get("/hours/{market}")
@@ -510,7 +510,7 @@ def get_specific_market_hours(market: str, timezone: str | None = None):
     Returns:
         dict: On success, a mapping with keys such as `open`, `close`, and `is_open` (`true` if the market is currently open, `false` otherwise). If the market is not found or an error occurs, returns a dict containing an `error` key with diagnostic information.
     """
-    return MarketHoursService.get_market_status(market.upper(), timezone or "")
+    return MarketHoursService.get_market_status(market.upper(), timezone)
 
 
 @router.get("/indices/sparklines")

@@ -21,6 +21,21 @@ MAX_BATCH_TICKERS = 25
 MAX_YEARS = 10
 
 
+def _parse_event_date(value: Optional[str]) -> Optional[date]:
+    if not value:
+        return None
+    try:
+        return date.fromisoformat(value)
+    except ValueError:
+        try:
+            return datetime.fromisoformat(value).date()
+        except ValueError:
+            try:
+                return date.fromisoformat(value.split('T', 1)[0])
+            except ValueError:
+                return None
+
+
 def _is_after_purchase_date(event_date: Optional[str], purchase_date: Optional[date]) -> bool:
     """
     Determine whether an event date is strictly after the given purchase date; if either date is missing, treat it as valid.
@@ -34,16 +49,9 @@ def _is_after_purchase_date(event_date: Optional[str], purchase_date: Optional[d
     """
     if purchase_date is None or not event_date:
         return True
-    try:
-        event_date_value = date.fromisoformat(event_date)
-    except ValueError:
-        try:
-            event_date_value = datetime.fromisoformat(event_date).date()
-        except ValueError:
-            try:
-                event_date_value = date.fromisoformat(event_date.split('T', 1)[0])
-            except ValueError:
-                return True
+    event_date_value = _parse_event_date(event_date)
+    if event_date_value is None:
+        return True
     return event_date_value > purchase_date
 
 
@@ -68,7 +76,7 @@ def _get_merged_stock_dividends(stock: Stock, ticker: str, years: int, stock_ser
         if _is_after_purchase_date(div.get('date'), stock.purchase_date)
     ]
     mapped_year_dividends = []
-    today_iso = utc_now().date().isoformat()
+    today = utc_now().date()
 
     avanza_mapping = avanza_service.get_mapping_by_ticker(normalized_ticker)
     if avanza_mapping and avanza_mapping.instrument_id:
@@ -76,8 +84,8 @@ def _get_merged_stock_dividends(stock: Stock, ticker: str, years: int, stock_ser
         for year in range(current_year - years + 1, current_year + 1):
             year_dividends = avanza_service.get_stock_dividends_for_year(normalized_ticker, year) or []
             for div in year_dividends:
-                payout = div.payment_date or div.ex_date
-                if payout and payout > today_iso:
+                payout_date = _parse_event_date(div.payment_date or div.ex_date)
+                if payout_date and payout_date > today:
                     continue
                 mapped_year_dividends.append({
                     'date': div.ex_date,
@@ -529,7 +537,7 @@ def get_upcoming_dividends(ticker: str, db: Session = Depends(get_db), current_u
         for div in historical_dividends
     }
 
-    today = utc_now().date().isoformat()
+    today = utc_now().date()
     current_year = utc_now().year
     avanza_mapping = avanza_service.get_mapping_by_ticker(normalized_ticker)
     if avanza_mapping and avanza_mapping.instrument_id:
@@ -549,8 +557,8 @@ def get_upcoming_dividends(ticker: str, db: Session = Depends(get_db), current_u
                     continue
                 if not _is_after_purchase_date(div.ex_date, stock.purchase_date):
                     continue
-                cutoff = div.payment_date or div.ex_date
-                if cutoff and cutoff <= today:
+                cutoff_date = _parse_event_date(div.payment_date or div.ex_date)
+                if cutoff_date and cutoff_date <= today:
                     continue
                 upcoming_or_remaining.append({
                     'ex_date': div.ex_date,
@@ -575,8 +583,8 @@ def get_upcoming_dividends(ticker: str, db: Session = Depends(get_db), current_u
                     continue
                 if not _is_after_purchase_date(div.get('ex_date'), stock.purchase_date):
                     continue
-                cutoff = div.get('payment_date') or div.get('ex_date')
-                if cutoff and cutoff <= today:
+                cutoff_date = _parse_event_date(div.get('payment_date') or div.get('ex_date'))
+                if cutoff_date and cutoff_date <= today:
                     continue
                 upcoming_or_remaining.append(div)
                 seen_event_keys.add(event_key)
