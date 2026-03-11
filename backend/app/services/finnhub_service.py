@@ -130,36 +130,41 @@ class FinnhubService:
         
         params = params or {}
         params['token'] = self.api_key
+        response = None
+        request_error = None
+        started_at = time.perf_counter()
         
         try:
             url = f"{self.base_url}/{endpoint}"
-            started_at = time.perf_counter()
             response = requests.get(url, params=params, timeout=10)
+            
+            if response.status_code != 200:
+                return None
+            
+            return response.json()
+        except Exception as exc:
+            request_error = exc
+            return None
+        finally:
             duration_ms = (time.perf_counter() - started_at) * 1000
-
-            if duration_ms >= SLOW_FINNHUB_REQUEST_MS:
+            status_code = response.status_code if response is not None else 'error'
+            if request_error is not None or duration_ms >= SLOW_FINNHUB_REQUEST_MS:
                 logger.warning(
-                    "Finnhub request slow endpoint=%s symbol=%s status=%s duration_ms=%.1f",
+                    "Finnhub request endpoint=%s symbol=%s status=%s duration_ms=%.1f error=%s",
                     endpoint,
                     params.get('symbol'),
-                    response.status_code,
+                    status_code,
                     duration_ms,
+                    request_error,
                 )
             else:
                 logger.info(
                     "Finnhub request endpoint=%s symbol=%s status=%s duration_ms=%.1f",
                     endpoint,
                     params.get('symbol'),
-                    response.status_code,
+                    status_code,
                     duration_ms,
                 )
-            
-            if response.status_code != 200:
-                return None
-            
-            return response.json()
-        except Exception:
-            return None
     
     def get_company_profile(self, ticker: str) -> Optional[Dict[str, Any]]:
         """Retrieve company profile from Finnhub.

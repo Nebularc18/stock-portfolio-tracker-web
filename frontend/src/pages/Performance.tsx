@@ -239,8 +239,8 @@ export default function Performance() {
         bVal = b.dailyChangeSEK
         break
       case 'dailyChangePercent':
-        aVal = a.dailyChangePercent || 0
-        bVal = b.dailyChangePercent || 0
+        aVal = a.dailyChangePercent ?? null
+        bVal = b.dailyChangePercent ?? null
         break
     }
 

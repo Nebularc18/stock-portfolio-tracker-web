@@ -307,7 +307,6 @@ class MarketstackService:
                 )
             
             if response.status_code == 429:
-                _decrement_usage()
                 raise FetchError("Marketstack rate limit reached", 429)
             
             if response.status_code in (404, 422):

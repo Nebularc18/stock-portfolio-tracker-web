@@ -1,9 +1,32 @@
 const API_BASE = '/api'
 export const AUTH_STORAGE_KEY = 'portfolioAuthUser'
 const SLOW_API_REQUEST_MS = 800
+const API_REQUEST_TIMEOUT_MS = 15000
 // These caches only deduplicate in-flight exchange rate requests.
 const exchangeRatesRequestCache = new Map<string, Promise<Record<string, number | null>>>()
 const exchangeRatesBatchRequestCache = new Map<string, Promise<Record<string, Record<string, number | null>>>>()
+
+function createTimeoutSignal(timeoutMs: number, externalSignal?: AbortSignal): { signal: AbortSignal; cleanup: () => void } {
+  const controller = new AbortController()
+  const timeoutId = window.setTimeout(() => controller.abort(), timeoutMs)
+
+  const abortFromExternal = () => controller.abort((externalSignal as AbortSignal & { reason?: unknown }).reason)
+  if (externalSignal?.aborted) {
+    abortFromExternal()
+  } else if (externalSignal) {
+    externalSignal.addEventListener('abort', abortFromExternal, { once: true })
+  }
+
+  return {
+    signal: controller.signal,
+    cleanup: () => {
+      window.clearTimeout(timeoutId)
+      if (externalSignal) {
+        externalSignal.removeEventListener('abort', abortFromExternal)
+      }
+    },
+  }
+}
 
 export interface AuthUser {
   id: number
@@ -63,35 +86,43 @@ function getStoredAuthUser(): AuthUser | null {
 async function fetchAPI(endpoint: string, options?: RequestInit) {
   const authUser = getStoredAuthUser()
   const startedAt = typeof performance !== 'undefined' ? performance.now() : Date.now()
-  const response = await fetch(`${API_BASE}${endpoint}`, {
-    ...options,
-    headers: {
-      'Content-Type': 'application/json',
-      ...(authUser ? { Authorization: `Bearer ${authUser.token}` } : {}),
-      ...options?.headers,
-    },
-  })
-  const durationMs = (typeof performance !== 'undefined' ? performance.now() : Date.now()) - startedAt
-  const method = options?.method || 'GET'
-  const logLabel = `[API timing] ${method} ${endpoint} ${Math.round(durationMs)}ms ${response.status}`
+  const externalSignal = options?.signal ?? undefined
+  const { signal, cleanup } = createTimeoutSignal(API_REQUEST_TIMEOUT_MS, externalSignal)
 
-  if (durationMs >= SLOW_API_REQUEST_MS) {
-    console.warn(logLabel)
-  } else if (
-    endpoint.includes('/finnhub/')
-    || endpoint.includes('/marketstack/')
-    || endpoint.includes('/dividends')
-    || endpoint.includes('/analyst')
-  ) {
-    console.info(logLabel)
+  try {
+    const response = await fetch(`${API_BASE}${endpoint}`, {
+      ...options,
+      signal,
+      headers: {
+        'Content-Type': 'application/json',
+        ...(authUser ? { Authorization: `Bearer ${authUser.token}` } : {}),
+        ...options?.headers,
+      },
+    })
+    const durationMs = (typeof performance !== 'undefined' ? performance.now() : Date.now()) - startedAt
+    const method = options?.method || 'GET'
+    const logLabel = `[API timing] ${method} ${endpoint} ${Math.round(durationMs)}ms ${response.status}`
+
+    if (durationMs >= SLOW_API_REQUEST_MS) {
+      console.warn(logLabel)
+    } else if (
+      endpoint.includes('/finnhub/')
+      || endpoint.includes('/marketstack/')
+      || endpoint.includes('/dividends')
+      || endpoint.includes('/analyst')
+    ) {
+      console.info(logLabel)
+    }
+
+    if (!response.ok) {
+      const error = await response.json().catch(() => ({ detail: 'Unknown error' }))
+      throw new Error(error.detail || 'Request failed')
+    }
+
+    return response.json()
+  } finally {
+    cleanup()
   }
-  
-  if (!response.ok) {
-    const error = await response.json().catch(() => ({ detail: 'Unknown error' }))
-    throw new Error(error.detail || 'Request failed')
-  }
-  
-  return response.json()
 }
 
 export interface Stock {

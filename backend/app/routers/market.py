@@ -115,6 +115,27 @@ def _store_exchange_rate(rates: dict[str, float | None], key: str, rate: float):
     rates[reverse_key] = None
 
 
+def _has_resolved_rates(rates: dict[str, float | None]) -> bool:
+    return any(value is not None for value in rates.values())
+
+
+def _group_consecutive_dates(values: list[tuple[str, date]]) -> list[list[tuple[str, date]]]:
+    if not values:
+        return []
+
+    sorted_values = sorted(values, key=lambda item: item[1])
+    groups: list[list[tuple[str, date]]] = [[sorted_values[0]]]
+
+    for entry in sorted_values[1:]:
+        previous_date = groups[-1][-1][1]
+        if (entry[1] - previous_date).days == 1:
+            groups[-1].append(entry)
+        else:
+            groups.append([entry])
+
+    return groups
+
+
 def _validate_exchange_rate_span(start_date: date, end_date: date):
     span_days = (end_date - start_date).days
     if span_days > MAX_EXCHANGE_RATE_SPAN_DAYS:
@@ -352,8 +373,12 @@ def _fetch_latest_exchange_rates() -> dict[str, float | None]:
             except Exception:
                 logger.exception("Failed to fetch exchange rate for %s (%s)", key, symbol)
 
-    _save_json_cache(_latest_exchange_rates_cache_key(), rates)
-    return rates
+    if _has_resolved_rates(rates):
+        _save_json_cache(_latest_exchange_rates_cache_key(), rates)
+        return rates
+
+    cached_snapshot = _load_json_cache(_latest_exchange_rates_cache_key(), EXCHANGE_RATES_CACHE_TTL)
+    return cached_snapshot if cached_snapshot is not None else rates
 
 
 def _fetch_exchange_rates_for_range(start_date: date, end_date: date) -> dict[date, dict[str, float | None]]:
@@ -426,7 +451,15 @@ def _fetch_exchange_rates_for_date(target_date: date | None) -> dict[str, float 
         target_date,
         _empty_rate_map(),
     )
-    _save_json_cache(_historical_exchange_rates_cache_key(target_date), rates)
+    if _has_resolved_rates(rates):
+        _save_json_cache(_historical_exchange_rates_cache_key(target_date), rates)
+    else:
+        cached_snapshot = _load_json_cache(
+            _historical_exchange_rates_cache_key(target_date),
+            HISTORICAL_EXCHANGE_RATES_CACHE_TTL,
+        )
+        if cached_snapshot is not None:
+            return cached_snapshot
     return rates
 
 def get_session():
@@ -704,19 +737,18 @@ def get_exchange_rates_batch(dates: List[str] = Body(..., embed=True)):
     if not missing_dates:
         return rates_by_date
 
-    min_date = min(target_date for _, target_date in missing_dates)
-    max_date = max(target_date for _, target_date in missing_dates)
-    _validate_exchange_rate_span(min_date, max_date)
+    for group in _group_consecutive_dates(missing_dates):
+        start_date = group[0][1]
+        end_date = group[-1][1]
+        _validate_exchange_rate_span(start_date, end_date)
 
-    range_rates = _fetch_exchange_rates_for_range(
-        min_date,
-        max_date,
-    )
+        range_rates = _fetch_exchange_rates_for_range(start_date, end_date)
 
-    for original_value, target_date in missing_dates:
-        daily_rates = range_rates.get(target_date, _empty_rate_map())
-        rates_by_date[original_value] = daily_rates
-        _save_json_cache(_historical_exchange_rates_cache_key(target_date), daily_rates)
+        for original_value, target_date in group:
+            daily_rates = range_rates.get(target_date, _empty_rate_map())
+            rates_by_date[original_value] = daily_rates
+            if _has_resolved_rates(daily_rates):
+                _save_json_cache(_historical_exchange_rates_cache_key(target_date), daily_rates)
 
     return rates_by_date
 

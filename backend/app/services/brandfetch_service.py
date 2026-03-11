@@ -10,6 +10,7 @@ import os
 import re
 import hashlib
 import mimetypes
+import tempfile
 from datetime import datetime
 from typing import Optional
 from urllib.parse import quote, urlparse
@@ -251,6 +252,7 @@ class BrandfetchService:
 
         session = _get_session()
         filepath: Optional[str] = None
+        temp_path: Optional[str] = None
         response: Optional[requests.Response] = None
         try:
             response = session.get(logo_url, timeout=10, stream=True)
@@ -275,8 +277,9 @@ class BrandfetchService:
 
             filename = _safe_logo_asset_filename(ticker, logo_url, extension)
             filepath = os.path.join(LOGO_DIR, filename)
+            fd, temp_path = tempfile.mkstemp(dir=LOGO_DIR, prefix='logo_tmp_', suffix=extension)
             bytes_written = 0
-            with open(filepath, 'wb') as f:
+            with os.fdopen(fd, 'wb') as f:
                 for chunk in response.iter_content(chunk_size=8192):
                     if not chunk:
                         continue
@@ -285,13 +288,14 @@ class BrandfetchService:
                         raise OSError(f"Logo exceeds maximum size of {MAX_LOGO_BYTES} bytes")
                     f.write(chunk)
 
-            response.close()
+            os.replace(temp_path, filepath)
+            temp_path = None
 
             return self._logo_public_path(filename)
         except (requests.RequestException, OSError) as exc:
-            if filepath and os.path.exists(filepath):
+            if temp_path and os.path.exists(temp_path):
                 try:
-                    os.remove(filepath)
+                    os.remove(temp_path)
                 except OSError:
                     pass
             logger.warning("Failed to persist logo for %s from %s: %s", ticker, logo_url, exc)
@@ -356,7 +360,12 @@ class BrandfetchService:
         Returns:
             True if the logo should be refreshed, False otherwise.
         """
-        return not value or not self._is_local_logo_url(value)
+        if not value:
+            return True
+        if not self._is_local_logo_url(value):
+            return True
+        local_path = os.path.join(LOGO_DIR, value.replace('/static/logos/', '', 1))
+        return not os.path.exists(local_path)
 
     def _root_domain_token(self, domain: str) -> str:
         """

@@ -11,6 +11,7 @@ from typing import Optional
 import uuid
 import logging
 import time
+import requests
 from datetime import date, datetime
 
 from app.main import get_db, get_current_user, User, Stock, StockCreate, StockUpdate, StockResponse, StockPriceHistory
@@ -190,12 +191,16 @@ def get_stocks(db: Session = Depends(get_db), current_user: User = Depends(get_c
 
     logos_updated = False
     for stock in (stock for stock in stocks if not stock.logo):
-        refreshed_logo = brandfetch_service.get_logo_url_for_ticker(
-            stock.ticker,
-            stock.name,
-            force_refresh=False,
-            existing_logo=stock.logo,
-        )
+        try:
+            refreshed_logo = brandfetch_service.get_logo_url_for_ticker(
+                stock.ticker,
+                stock.name,
+                force_refresh=False,
+                existing_logo=stock.logo,
+            )
+        except Exception as exc:
+            logger.warning("Failed to refresh logo for %s: %s", stock.ticker, exc)
+            continue
         if refreshed_logo and refreshed_logo != stock.logo:
             stock.logo = refreshed_logo
             logos_updated = True
@@ -496,12 +501,16 @@ def refresh_stock(ticker: str, db: Session = Depends(get_db), current_user: User
         
         should_refresh_logo = brandfetch_service.should_refresh_logo(stock.logo)
         if should_refresh_logo:
-            refreshed_logo = brandfetch_service.get_logo_url_for_ticker(
-                stock.ticker,
-                stock.name or info.get("name"),
-                force_refresh=False,
-                existing_logo=stock.logo,
-            )
+            try:
+                refreshed_logo = brandfetch_service.get_logo_url_for_ticker(
+                    stock.ticker,
+                    stock.name or info.get("name"),
+                    force_refresh=False,
+                    existing_logo=stock.logo,
+                )
+            except Exception as exc:
+                logger.warning("Failed to refresh logo for %s: %s", stock.ticker, exc)
+                refreshed_logo = None
             if refreshed_logo:
                 stock.logo = refreshed_logo
         

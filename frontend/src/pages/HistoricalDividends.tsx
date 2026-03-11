@@ -32,6 +32,13 @@ function formatCurrency(value: number, locale: string, currency: string = 'USD')
   }).format(value)
 }
 
+function getMissingConversionMessage(language: string, currencies: string[]): string {
+  const uniqueCurrencies = [...new Set(currencies)].sort().join(', ')
+  return language === 'sv'
+    ? `Konvertering saknas för ${uniqueCurrencies}`
+    : `Conversion missing for ${uniqueCurrencies}`
+}
+
 interface DividendWithStock {
   ticker: string
   name: string | null
@@ -189,11 +196,11 @@ export default function HistoricalDividends() {
     fetchDividends()
   }, [stocks])
 
-  const convertToSEK = (amount: number, currency: string): number => {
+  const convertToSEK = (amount: number, currency: string): number | null => {
     if (currency === 'SEK') return amount
     const rate = exchangeRates[`${currency}_SEK`]
-    if (rate) return amount * rate
-    return amount
+    if (rate != null) return amount * rate
+    return null
   }
 
   const yearData = dividendsByYear[selectedYear]
@@ -203,10 +210,16 @@ export default function HistoricalDividends() {
   const hasAnyDividendHistory = useMemo(() => Object.keys(dividendsByYear).length > 0, [dividendsByYear])
 
   let yearTotalSEK = 0
+  const yearMissingCurrencies = new Set<string>()
   if (yearData) {
     for (const monthDivs of Object.values(yearData.months)) {
       for (const div of monthDivs) {
-        yearTotalSEK += convertToSEK(div.amount * div.quantity, div.dividendCurrency)
+        const converted = convertToSEK(div.amount * div.quantity, div.dividendCurrency)
+        if (converted === null) {
+          yearMissingCurrencies.add(div.dividendCurrency)
+          continue
+        }
+        yearTotalSEK += converted
       }
     }
   }
@@ -232,9 +245,16 @@ export default function HistoricalDividends() {
             {t(language, 'history.title')}
           </div>
           {yearData && (
-            <div style={{ fontSize: 24, fontWeight: 800, letterSpacing: '-0.02em', color: 'var(--green)', fontFamily: "'Fira Code', monospace" }}>
-              {formatCurrency(yearTotalSEK, locale, 'SEK')}
-            </div>
+            <>
+              <div style={{ fontSize: 24, fontWeight: 800, letterSpacing: '-0.02em', color: 'var(--green)', fontFamily: "'Fira Code', monospace" }}>
+                {formatCurrency(yearTotalSEK, locale, 'SEK')}
+              </div>
+              {yearMissingCurrencies.size > 0 && (
+                <p style={{ color: 'var(--amber)', fontSize: 12, marginTop: 6 }}>
+                  {getMissingConversionMessage(language, Array.from(yearMissingCurrencies))}
+                </p>
+              )}
+            </>
           )}
         </div>
         <div style={{ display: 'flex', gap: 12, alignItems: 'center' }}>
@@ -277,15 +297,28 @@ export default function HistoricalDividends() {
             {sortedMonths.map((month) => {
               const monthDivs = yearData.months[month]
               let monthTotal = 0
+              const monthMissingCurrencies = new Set<string>()
               for (const div of monthDivs) {
-                monthTotal += convertToSEK(div.amount * div.quantity, div.dividendCurrency)
+                const converted = convertToSEK(div.amount * div.quantity, div.dividendCurrency)
+                if (converted === null) {
+                  monthMissingCurrencies.add(div.dividendCurrency)
+                  continue
+                }
+                monthTotal += converted
               }
 
               return (
                 <div key={month} style={{ marginTop: 20 }}>
                   {/* ── MONTH SECTION HEADER ── */}
                   <div className="sec-row">
-                    <span className="sec-title">{getMonthName(month, locale)}</span>
+                    <div>
+                      <span className="sec-title">{getMonthName(month, locale)}</span>
+                      {monthMissingCurrencies.size > 0 && (
+                        <p style={{ color: 'var(--amber)', fontSize: 11, marginTop: 4 }}>
+                          {getMissingConversionMessage(language, Array.from(monthMissingCurrencies))}
+                        </p>
+                      )}
+                    </div>
                     <span style={{ fontFamily: "'Fira Code', monospace", fontSize: 13, fontWeight: 700, color: 'var(--green)' }}>
                       {formatCurrency(monthTotal, locale, 'SEK')}
                     </span>
@@ -322,9 +355,9 @@ export default function HistoricalDividends() {
                                 <td style={{ fontFamily: "'Fira Code', monospace", textAlign: 'right' }}>
                                   {formatCurrency(div.amount, locale, div.dividendCurrency)}
                                 </td>
-                                <td style={{ fontFamily: "'Fira Code', monospace", textAlign: 'right', color: 'var(--green)', fontWeight: 700 }}>
-                                  {formatCurrency(totalSEK, locale, 'SEK')}
-                                </td>
+                                 <td style={{ fontFamily: "'Fira Code', monospace", textAlign: 'right', color: 'var(--green)', fontWeight: 700 }}>
+                                   {totalSEK !== null ? formatCurrency(totalSEK, locale, 'SEK') : getMissingConversionMessage(language, [div.dividendCurrency])}
+                                 </td>
                               </tr>
                             )
                           })}

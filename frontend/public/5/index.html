@@ -142,7 +142,7 @@ html, body {
   z-index: 99;
 }
 
-.nav a {
+.nav a, .nav button {
   font-size: 11.5px;
   font-weight: 600;
   letter-spacing: 0.03em;
@@ -152,10 +152,12 @@ html, body {
   border-radius: 5px;
   transition: color 0.14s, background 0.14s;
   cursor: pointer;
+  background: none;
+  border: 0;
 }
 
-.nav a:hover { color: var(--text2); background: var(--bg2); }
-.nav a.active { color: var(--v2); background: rgba(129,140,248,0.1); }
+.nav a:hover, .nav button:hover { color: var(--text2); background: var(--bg2); }
+.nav a.active, .nav button.active { color: var(--v2); background: rgba(129,140,248,0.1); }
 
 /* ── VIEWS ── */
 .view { display: none; }
@@ -1097,14 +1099,14 @@ html, body {
 
 <!-- NAV -->
 <nav class="nav">
-  <a data-view="dashboard" class="active">Dashboard</a>
-  <a data-view="portfolio">Portfolio</a>
-  <a data-view="transactions">Transactions</a>
-  <a data-view="dividends">Dividends</a>
-  <a data-view="analytics">Analytics</a>
-  <a data-view="search">Search</a>
-  <a data-view="alerts">Alerts</a>
-  <a data-view="account">Account</a>
+  <button type="button" data-view="dashboard" class="active">Dashboard</button>
+  <button type="button" data-view="portfolio">Portfolio</button>
+  <button type="button" data-view="transactions">Transactions</button>
+  <button type="button" data-view="dividends">Dividends</button>
+  <button type="button" data-view="analytics">Analytics</button>
+  <button type="button" data-view="search">Search</button>
+  <button type="button" data-view="alerts">Alerts</button>
+  <button type="button" data-view="account">Account</button>
 </nav>
 
 <!-- ══════════════════════ DASHBOARD VIEW ══════════════════════ -->
@@ -1927,7 +1929,7 @@ html, body {
 
 <script>
 // ── Navigation ──
-const navLinks = document.querySelectorAll('.nav a[data-view]');
+const navLinks = document.querySelectorAll('.nav [data-view]');
 const views = document.querySelectorAll('.view');
 
 navLinks.forEach(link => {

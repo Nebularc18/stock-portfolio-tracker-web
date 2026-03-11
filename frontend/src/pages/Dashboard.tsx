@@ -380,9 +380,8 @@ export default function Dashboard() {
 
   const rawChartData: ChartPoint[] = portfolioHistory
     .map((h) => {
-      const convertedValue = tryConvertToCurrency(h.value, 'SEK')
-      if (convertedValue === null || !Number.isFinite(convertedValue)) return null
-      return { date: h.date, value: convertedValue }
+      if (!Number.isFinite(h.value)) return null
+      return { date: h.date, value: h.value }
     })
     .filter((p): p is ChartPoint => p !== null)
 
