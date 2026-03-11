@@ -77,9 +77,9 @@ interface PerformanceData {
   gainPercent: number
   dailyChange: number | null
   dailyChangePercent: number | null
-  valueSEK: number
-  costSEK: number
-  gainSEK: number
+  valueSEK: number | null
+  costSEK: number | null
+  gainSEK: number | null
   dailyChangeSEK: number | null
 }
 
@@ -106,12 +106,24 @@ function SortHeader({
   sortOrder: SortOrder
   onSort: (field: SortField) => void
 }) {
+  const isActive = sortField === field
+  const ariaSort = isActive ? (sortOrder === 'asc' ? 'ascending' : 'descending') : 'none'
+
   return (
     <th
       onClick={() => onSort(field)}
+      onKeyDown={(event) => {
+        if (event.key === 'Enter' || event.key === ' ') {
+          event.preventDefault()
+          onSort(field)
+        }
+      }}
+      tabIndex={0}
+      role="button"
+      aria-sort={ariaSort}
       style={{ cursor: 'pointer', userSelect: 'none' }}
     >
-      {label} {sortField === field ? (sortOrder === 'asc' ? '↑' : '↓') : ''}
+      {label} {isActive ? (sortOrder === 'asc' ? '↑' : '↓') : ''}
     </th>
   )
 }
@@ -149,11 +161,12 @@ export default function Performance() {
     fetchData()
   }, [])
 
-  const convertToSEK = (amount: number, currency: string): number => {
+  const convertToSEK = (amount: number, currency: string): number | null => {
+    if (amount === 0) return 0
     if (currency === 'SEK') return amount
     const rate = exchangeRates[`${currency}_SEK`]
     if (rate != null) return amount * rate
-    return amount
+    return null
   }
 
   const performanceData: PerformanceData[] = stocks.map(stock => {
@@ -167,6 +180,9 @@ export default function Performance() {
     const dailyChangePercent = stock.current_price != null && stock.previous_close != null && stock.previous_close !== 0
       ? ((stock.current_price - stock.previous_close) / stock.previous_close) * 100
       : null
+
+    const valueSEK = convertToSEK(value, stock.currency)
+    const costSEK = convertToSEK(cost, stock.currency)
 
     return {
       ticker: stock.ticker,
@@ -182,16 +198,16 @@ export default function Performance() {
       gainPercent,
       dailyChange,
       dailyChangePercent,
-      valueSEK: convertToSEK(value, stock.currency),
-      costSEK: convertToSEK(cost, stock.currency),
-      gainSEK: convertToSEK(gain, stock.currency),
+      valueSEK,
+      costSEK,
+      gainSEK: valueSEK !== null && costSEK !== null ? valueSEK - costSEK : null,
       dailyChangeSEK: dailyChange != null ? convertToSEK(dailyChange, stock.currency) : null,
     }
   })
 
   const sortedData = [...performanceData].sort((a, b) => {
-    let aVal: number | string = 0
-    let bVal: number | string = 0
+    let aVal: number | string | null = 0
+    let bVal: number | string | null = 0
 
     switch (sortField) {
       case 'ticker':
@@ -219,8 +235,8 @@ export default function Performance() {
         bVal = b.gainPercent
         break
       case 'dailyChange':
-        aVal = a.dailyChangeSEK || 0
-        bVal = b.dailyChangeSEK || 0
+        aVal = a.dailyChangeSEK
+        bVal = b.dailyChangeSEK
         break
       case 'dailyChangePercent':
         aVal = a.dailyChangePercent || 0
@@ -231,6 +247,10 @@ export default function Performance() {
     if (typeof aVal === 'string' && typeof bVal === 'string') {
       return sortOrder === 'asc' ? aVal.localeCompare(bVal) : bVal.localeCompare(aVal)
     }
+    if (aVal === null && bVal === null) return 0
+    if (aVal === null) return sortOrder === 'asc' ? -1 : 1
+    if (bVal === null) return sortOrder === 'asc' ? 1 : -1
+
     return sortOrder === 'asc' ? (aVal as number) - (bVal as number) : (bVal as number) - (aVal as number)
   })
 
@@ -244,13 +264,26 @@ export default function Performance() {
   }
 
   const bestPerformers = [...performanceData].sort((a, b) => b.gainPercent - a.gainPercent).slice(0, 3)
-  const worstPerformers = [...performanceData].sort((a, b) => a.gainPercent - b.gainPercent).slice(0, 3)
+  const bestPerformerTickers = new Set(bestPerformers.map((stock) => stock.ticker))
+  const worstPerformers = performanceData
+    .filter((stock) => !bestPerformerTickers.has(stock.ticker))
+    .sort((a, b) => a.gainPercent - b.gainPercent)
+    .slice(0, 3)
 
-  const totalValue = performanceData.reduce((sum, s) => sum + s.valueSEK, 0)
-  const totalCost = performanceData.reduce((sum, s) => sum + s.costSEK, 0)
+  const missingRateStocks = performanceData.filter((stock) => (
+    stock.currency !== 'SEK' && (
+      stock.valueSEK === null
+      || stock.costSEK === null
+      || stock.gainSEK === null
+      || (stock.dailyChange !== null && stock.dailyChangeSEK === null)
+    )
+  ))
+
+  const totalValue = performanceData.reduce((sum, s) => sum + (s.valueSEK ?? 0), 0)
+  const totalCost = performanceData.reduce((sum, s) => sum + (s.costSEK ?? 0), 0)
   const totalGain = totalValue - totalCost
   const totalGainPercent = totalCost > 0 ? (totalGain / totalCost) * 100 : 0
-  const totalDailyChange = performanceData.reduce((sum, s) => sum + (s.dailyChangeSEK || 0), 0)
+  const totalDailyChange = performanceData.reduce((sum, s) => sum + (s.dailyChangeSEK ?? 0), 0)
 
   const exportToCSV = () => {
     const headers = ['Ticker', 'Name', 'Quantity', 'Currency', 'Purchase Price', 'Current Price', 'Value', 'Cost', 'Gain', 'Gain %', 'Daily Change', 'Daily Change %']
@@ -299,7 +332,7 @@ export default function Performance() {
       {/* ── HERO STATS ── */}
       <div style={{
         display: 'grid',
-        gridTemplateColumns: 'repeat(4, 1fr)',
+        gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))',
         borderBottom: '1px solid var(--border)',
         background: 'linear-gradient(115deg, #12141c 0%, var(--bg) 55%)',
       }}>
@@ -327,6 +360,13 @@ export default function Performance() {
       </div>
 
       <div style={{ padding: '0 28px 28px' }}>
+        {missingRateStocks.length > 0 && (
+          <div style={{ marginTop: 16, padding: '10px 16px', background: 'rgba(251,191,36,0.08)', border: '1px solid rgba(251,191,36,0.25)', borderRadius: 6 }}>
+            <p style={{ color: 'var(--amber)', margin: 0, fontSize: 13 }}>
+              {t(language, 'performance.missingRatesWarning')}
+            </p>
+          </div>
+        )}
 
         {/* ── PAGE HEADER ── */}
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '20px 0 14px' }}>
@@ -417,16 +457,16 @@ export default function Performance() {
                   <td style={{ color: 'var(--muted)', fontFamily: "'Fira Code', monospace" }}>{stock.ticker}</td>
                   <td style={{ fontFamily: "'Fira Code', monospace" }}>{stock.quantity}</td>
                   <td><span className="badge badge-muted">{stock.currency}</span></td>
-                  <td style={{ fontFamily: "'Fira Code', monospace" }}>{formatCurrency(stock.costSEK, locale, 'SEK')}</td>
-                  <td style={{ fontFamily: "'Fira Code', monospace" }}>{formatCurrency(stock.valueSEK, locale, 'SEK')}</td>
-                  <td className={stock.gain >= 0 ? 'positive' : 'negative'} style={{ fontFamily: "'Fira Code', monospace" }}>
-                    {formatCurrency(stock.gainSEK, locale, 'SEK')}
+                  <td style={{ fontFamily: "'Fira Code', monospace" }}>{stock.costSEK !== null ? formatCurrency(stock.costSEK, locale, 'SEK') : t(language, 'performance.rateMissing')}</td>
+                  <td style={{ fontFamily: "'Fira Code', monospace" }}>{stock.valueSEK !== null ? formatCurrency(stock.valueSEK, locale, 'SEK') : t(language, 'performance.rateMissing')}</td>
+                  <td className={stock.gainSEK != null ? (stock.gainSEK >= 0 ? 'positive' : 'negative') : ''} style={{ fontFamily: "'Fira Code', monospace" }}>
+                    {stock.gainSEK !== null ? formatCurrency(stock.gainSEK, locale, 'SEK') : t(language, 'performance.rateMissing')}
                   </td>
                   <td className={stock.gainPercent >= 0 ? 'positive' : 'negative'} style={{ fontFamily: "'Fira Code', monospace", fontWeight: 700 }}>
                     {formatPercent(stock.gainPercent, locale)}
                   </td>
                   <td className={stock.dailyChangeSEK != null ? (stock.dailyChangeSEK >= 0 ? 'positive' : 'negative') : ''} style={{ fontFamily: "'Fira Code', monospace" }}>
-                    {stock.dailyChangeSEK !== null ? formatCurrency(stock.dailyChangeSEK, locale, 'SEK') : '-'}
+                    {stock.dailyChangeSEK !== null ? formatCurrency(stock.dailyChangeSEK, locale, 'SEK') : (stock.dailyChange !== null ? t(language, 'performance.rateMissing') : '-')}
                   </td>
                   <td className={stock.dailyChangePercent != null ? (stock.dailyChangePercent >= 0 ? 'positive' : 'negative') : ''} style={{ fontFamily: "'Fira Code', monospace" }}>
                     {formatPercent(stock.dailyChangePercent, locale)}

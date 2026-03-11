@@ -10,6 +10,7 @@ import { formatTimeInTimezone } from '../utils/time'
 import { getLocaleForLanguage, t } from '../i18n'
 import { resolveBackendAssetUrl } from '../utils/assets'
 import { useModalFocusTrap } from '../hooks/useModalFocusTrap'
+import { formatDisplayName } from '../utils/displayName'
 
 /**
  * Format a numeric value as a localized currency string.
@@ -59,23 +60,6 @@ function normalizeToDay(dateInput: string | null | undefined): Date | null {
   if (!Number.isFinite(parsed.getTime())) return null
   parsed.setUTCHours(0, 0, 0, 0)
   return parsed
-}
-
-/**
- * Produce a normalized display name for a company, using the ticker when `name` is null.
- *
- * Removes a trailing "(The)" (case-insensitive), collapses consecutive whitespace into single spaces, and trims leading/trailing whitespace from `name` before returning it. If `name` is null, returns `ticker`.
- *
- * @param name - The company's full name, or `null` to indicate no name is available
- * @param ticker - The company's ticker symbol returned when `name` is `null`
- * @returns The cleaned company display name or the `ticker` when no name is provided
- */
-function formatDisplayName(name: string | null, ticker: string): string {
-  if (!name) return ticker
-  return name
-    .replace(/\s+\(The\)$/i, '')
-    .replace(/\s+/g, ' ')
-    .trim()
 }
 
 /**

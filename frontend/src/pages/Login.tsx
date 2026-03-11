@@ -23,7 +23,7 @@ export default function Login() {
     setError(null)
     const trimmed = username.trim()
     if (trimmed.length === 0) {
-      setError(language === 'sv' ? 'Användarnamn kan inte vara tomt.' : 'Username cannot be empty.')
+      setError(t(language, 'login.errorEmptyUsername'))
       return
     }
     try {

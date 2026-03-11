@@ -189,7 +189,7 @@ def get_stocks(db: Session = Depends(get_db), current_user: User = Depends(get_c
     stocks = db.query(Stock).filter(Stock.user_id == current_user.id).all()
 
     logos_updated = False
-    for stock in stocks:
+    for stock in (stock for stock in stocks if not stock.logo):
         refreshed_logo = brandfetch_service.get_logo_url_for_ticker(
             stock.ticker,
             stock.name,

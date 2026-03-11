@@ -24,6 +24,7 @@ os.makedirs(CACHE_DIR, exist_ok=True)
 os.makedirs(LOGO_DIR, exist_ok=True)
 
 _LOGO_CACHE_TTL = 86400
+MAX_LOGO_BYTES = 5 * 1024 * 1024
 _LOGO_CACHE: dict[str, tuple[Optional[str], float]] = {}
 _CURATED_LOGO_QUERIES: dict[str, list[str]] = {
     "VOLV-B.ST": ["volvogroup.com", "Volvo Group"],
@@ -249,10 +250,20 @@ class BrandfetchService:
             return None
 
         session = _get_session()
+        filepath: Optional[str] = None
+        response: Optional[requests.Response] = None
         try:
-            response = session.get(logo_url, timeout=10)
+            response = session.get(logo_url, timeout=10, stream=True)
             if response.status_code != 200:
                 return None
+
+            content_length = response.headers.get('Content-Length')
+            if content_length:
+                try:
+                    if int(content_length) > MAX_LOGO_BYTES:
+                        return None
+                except ValueError:
+                    pass
 
             content_type = (response.headers.get('Content-Type') or '').split(';', 1)[0].strip().lower()
             if not content_type.startswith('image/'):
@@ -264,13 +275,30 @@ class BrandfetchService:
 
             filename = _safe_logo_asset_filename(ticker, logo_url, extension)
             filepath = os.path.join(LOGO_DIR, filename)
+            bytes_written = 0
             with open(filepath, 'wb') as f:
-                f.write(response.content)
+                for chunk in response.iter_content(chunk_size=8192):
+                    if not chunk:
+                        continue
+                    bytes_written += len(chunk)
+                    if bytes_written > MAX_LOGO_BYTES:
+                        raise OSError(f"Logo exceeds maximum size of {MAX_LOGO_BYTES} bytes")
+                    f.write(chunk)
+
+            response.close()
 
             return self._logo_public_path(filename)
-        except Exception as exc:
+        except (requests.RequestException, OSError) as exc:
+            if filepath and os.path.exists(filepath):
+                try:
+                    os.remove(filepath)
+                except OSError:
+                    pass
             logger.warning("Failed to persist logo for %s from %s: %s", ticker, logo_url, exc)
             return None
+        finally:
+            if response is not None:
+                response.close()
 
     def _domain_favicon_candidates(self, domain: str) -> list[str]:
         """
@@ -648,12 +676,12 @@ class BrandfetchService:
 
         if force_refresh:
             _LOGO_CACHE.pop(ticker_upper, None)
+            filepath = _resolve_cache_path(cache_file)
             try:
-                filepath = _resolve_cache_path(cache_file)
                 if os.path.exists(filepath):
                     os.remove(filepath)
-            except Exception:
-                logger.warning("Failed to clear stale logo cache for %s", ticker_upper)
+            except OSError as exc:
+                logger.warning("Failed to clear stale logo cache for %s: %s", ticker_upper, exc)
 
         candidates = self._build_query_candidates(ticker_upper, company_name)
 

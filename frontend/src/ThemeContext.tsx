@@ -94,7 +94,11 @@ const ThemeContext = createContext<ThemeContextType | null>(null)
  */
 export function ThemeProvider({ children }: { children: ReactNode }) {
   const [themeName, setThemeName] = useState<ThemeName>(() => {
-    return normalizeStoredTheme(localStorage.getItem('theme'))
+    try {
+      return normalizeStoredTheme(localStorage.getItem('theme'))
+    } catch {
+      return normalizeStoredTheme(null)
+    }
   })
 
   useEffect(() => {

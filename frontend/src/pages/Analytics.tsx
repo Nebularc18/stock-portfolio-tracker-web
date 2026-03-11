@@ -3,6 +3,7 @@ import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip, BarChart, Bar, XAxis
 import { api, Dividend, DistributionResponse, DividendsByTicker } from '../services/api'
 import { useSettings } from '../SettingsContext'
 import { getLocaleForLanguage, t } from '../i18n'
+import { formatDisplayName } from '../utils/displayName'
 
 const STOCK_COLORS = ['#7c3aed', '#06b6d4', '#22c55e', '#f59e0b', '#f43f5e', '#8b5cf6', '#14b8a6', '#3b82f6']
 const SECTOR_COLORS = ['#f97316', '#eab308', '#84cc16', '#06b6d4', '#3b82f6', '#8b5cf6', '#ec4899', '#ef4444']
@@ -56,19 +57,6 @@ function formatPercent(value: number, locale: string): string {
     minimumFractionDigits: 0,
     maximumFractionDigits: 1,
   }).format(value)
-}
-
-/**
- * Normalizes a stock display name by removing a trailing " (The)" and collapsing excess whitespace.
- *
- * @param name - The raw stock display name to normalize
- * @returns The cleaned stock name with trailing " (The)" removed and consecutive whitespace collapsed to single spaces
- */
-function formatStockDisplayName(name: string): string {
-  return name
-    .replace(/\s+\(The\)$/i, '')
-    .replace(/\s+/g, ' ')
-    .trim()
 }
 
 /**
@@ -201,7 +189,7 @@ export default function Analytics() {
       if (!isCurrentFetch()) return
       setDistribution(distributionData)
       setStockNamesByTicker(Object.fromEntries(
-        stocksData.map((stock) => [stock.ticker, formatStockDisplayName(stock.name || stock.ticker)])
+        stocksData.map((stock) => [stock.ticker, formatDisplayName(stock.name, stock.ticker)])
       ))
       const targetCurrency = distributionData.display_currency || displayCurrency
 
@@ -230,6 +218,7 @@ export default function Analytics() {
         for (const div of dividends) {
           if (stock.purchase_date && div.date < stock.purchase_date) continue
           const payoutDate = div.payment_date || div.date
+          if (!payoutDate) continue
           const year = Number(payoutDate.slice(0, 4))
           const monthIndex = Number(payoutDate.slice(5, 7)) - 1
           if (!Number.isFinite(year) || monthIndex < 0 || monthIndex > 11) continue
@@ -298,7 +287,10 @@ export default function Analytics() {
     : []
   
   const stockData = distribution?.by_stock
-    ? Object.entries(distribution.by_stock).map(([name, value]) => ({ name: stockNamesByTicker[name] || name, value }))
+    ? Object.entries(distribution.by_stock).map(([ticker, value]) => {
+        const label = stockNamesByTicker[ticker] || ticker
+        return { name: `${label} (${ticker})`, value }
+      })
     : []
 
   const handleToggleComparisonYear = (year: number) => {

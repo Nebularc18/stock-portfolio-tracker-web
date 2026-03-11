@@ -1,6 +1,7 @@
 const API_BASE = '/api'
 export const AUTH_STORAGE_KEY = 'portfolioAuthUser'
 const SLOW_API_REQUEST_MS = 800
+// These caches only deduplicate in-flight exchange rate requests.
 const exchangeRatesRequestCache = new Map<string, Promise<Record<string, number | null>>>()
 const exchangeRatesBatchRequestCache = new Map<string, Promise<Record<string, Record<string, number | null>>>>()
 

@@ -225,7 +225,17 @@ def _historical_exchange_rates_cache_key(target_date: date) -> str:
     return f"exchange_rates_{target_date.isoformat().replace('-', '')}.json"
 
 
-def _fetch_latest_pair_rate(session: requests.Session, symbol: str, key: str) -> tuple[str, float | None]:
+def _build_session() -> requests.Session:
+    session = requests.Session()
+    session.headers.update({
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+        'Accept': 'application/json, text/plain, */*',
+        'Accept-Language': 'en-US,en;q=0.9',
+    })
+    return session
+
+
+def _fetch_latest_pair_rate(session: requests.Session | None, symbol: str, key: str) -> tuple[str, float | None]:
     """
     Fetches the most recent available daily close price for a given Yahoo Finance exchange-rate symbol.
     
@@ -236,26 +246,33 @@ def _fetch_latest_pair_rate(session: requests.Session, symbol: str, key: str) ->
     Returns:
         tuple[str, float | None]: A tuple (key, price) where `price` is the most recent daily close as a float, or `None` if no valid price was found.
     """
-    url = f"https://query1.finance.yahoo.com/v8/finance/chart/{symbol}?interval=1d&range=1d"
-    response = session.get(url, timeout=5)
+    active_session = session or _build_session()
+    owns_session = session is None
 
-    if response.status_code != 200:
-        _log_non_200_yahoo_response(url, response, f"exchange rate {key}")
-        return key, None
+    try:
+        url = f"https://query1.finance.yahoo.com/v8/finance/chart/{symbol}?interval=1d&range=1d"
+        response = active_session.get(url, timeout=5)
 
-    data = response.json()
-    if not data.get('chart', {}).get('result'):
-        return key, None
+        if response.status_code != 200:
+            _log_non_200_yahoo_response(url, response, f"exchange rate {key}")
+            return key, None
 
-    result = data['chart']['result'][0]
-    quote = result.get('indicators', {}).get('quote', [{}])[0]
-    closes = quote.get('close', [])
-    prices = [price for price in closes if price is not None]
-    return key, prices[-1] if prices else None
+        data = response.json()
+        if not data.get('chart', {}).get('result'):
+            return key, None
+
+        result = data['chart']['result'][0]
+        quote = result.get('indicators', {}).get('quote', [{}])[0]
+        closes = quote.get('close', [])
+        prices = [price for price in closes if price is not None]
+        return key, prices[-1] if prices else None
+    finally:
+        if owns_session:
+            active_session.close()
 
 
 def _fetch_range_pair_rates(
-    session: requests.Session,
+    session: requests.Session | None,
     symbol: str,
     key: str,
     period_start: datetime,
@@ -276,29 +293,36 @@ def _fetch_range_pair_rates(
         is a list of (date, price) pairs for each day in the range with an available close price. Returns an empty list
         when no valid data is available for the symbol in the requested range.
     """
-    url = (
-        f"https://query1.finance.yahoo.com/v8/finance/chart/{symbol}"
-        f"?period1={int(period_start.timestamp())}&period2={int(period_end.timestamp())}&interval=1d"
-    )
-    response = session.get(url, timeout=5)
+    active_session = session or _build_session()
+    owns_session = session is None
 
-    if response.status_code != 200:
-        _log_non_200_yahoo_response(url, response, f"exchange rate series {key}")
-        return key, []
+    try:
+        url = (
+            f"https://query1.finance.yahoo.com/v8/finance/chart/{symbol}"
+            f"?period1={int(period_start.timestamp())}&period2={int(period_end.timestamp())}&interval=1d"
+        )
+        response = active_session.get(url, timeout=5)
 
-    data = response.json()
-    if not data.get('chart', {}).get('result'):
-        return key, []
+        if response.status_code != 200:
+            _log_non_200_yahoo_response(url, response, f"exchange rate series {key}")
+            return key, []
 
-    result = data['chart']['result'][0]
-    quote = result.get('indicators', {}).get('quote', [{}])[0]
-    closes = quote.get('close', [])
-    timestamps = result.get('timestamp', [])
-    return key, [
-        (datetime.fromtimestamp(ts, tz=timezone.utc).date(), price)
-        for ts, price in zip(timestamps, closes, strict=False)
-        if price is not None
-    ]
+        data = response.json()
+        if not data.get('chart', {}).get('result'):
+            return key, []
+
+        result = data['chart']['result'][0]
+        quote = result.get('indicators', {}).get('quote', [{}])[0]
+        closes = quote.get('close', [])
+        timestamps = result.get('timestamp', [])
+        return key, [
+            (datetime.fromtimestamp(ts, tz=timezone.utc).date(), price)
+            for ts, price in zip(timestamps, closes, strict=False)
+            if price is not None
+        ]
+    finally:
+        if owns_session:
+            active_session.close()
 
 
 def _fetch_latest_exchange_rates() -> dict[str, float | None]:
@@ -312,12 +336,11 @@ def _fetch_latest_exchange_rates() -> dict[str, float | None]:
     if cached is not None:
         return cached
 
-    session = get_session()
     rates: dict[str, float | None] = _empty_rate_map()
 
     with ThreadPoolExecutor(max_workers=max(1, min(EXCHANGE_RATE_FETCH_WORKERS, len(pairs)))) as executor:
         futures = {
-            executor.submit(_fetch_latest_pair_rate, session, symbol, key): (symbol, key)
+            executor.submit(_fetch_latest_pair_rate, None, symbol, key): (symbol, key)
             for symbol, key in pairs
         }
         for future in as_completed(futures):
@@ -345,7 +368,6 @@ def _fetch_exchange_rates_for_range(start_date: date, end_date: date) -> dict[da
         dict[date, dict[str, float | None]]: A mapping where each date in the inclusive range maps to a dictionary of all rate keys (e.g., `USD_SEK`) to their rate value or `None` if unavailable.
     """
     _validate_exchange_rate_span(start_date, end_date)
-    session = get_session()
     rates_by_date: dict[date, dict[str, float | None]] = {
         start_date + timedelta(days=offset): _empty_rate_map()
         for offset in range((end_date - start_date).days + 1)
@@ -356,7 +378,7 @@ def _fetch_exchange_rates_for_range(start_date: date, end_date: date) -> dict[da
 
     with ThreadPoolExecutor(max_workers=max(1, min(EXCHANGE_RATE_FETCH_WORKERS, len(pairs)))) as executor:
         futures = {
-            executor.submit(_fetch_range_pair_rates, session, symbol, key, period_start, period_end): (symbol, key)
+            executor.submit(_fetch_range_pair_rates, None, symbol, key, period_start, period_end): (symbol, key)
             for symbol, key in pairs
         }
         for future in as_completed(futures):
@@ -415,12 +437,7 @@ def get_session():
     """
     global _session
     if _session is None:
-        _session = requests.Session()
-        _session.headers.update({
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-            'Accept': 'application/json, text/plain, */*',
-            'Accept-Language': 'en-US,en;q=0.9',
-        })
+        _session = _build_session()
     return _session
 
 

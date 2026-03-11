@@ -26,6 +26,7 @@ const en = {
     'login.toggleToRegister': 'Need an account? Register',
     'login.guestButton': 'Continue as guest demo user',
     'login.helper': 'Use your account credentials or continue with the guest demo user.',
+    'login.errorEmptyUsername': 'Username cannot be empty.',
     'login.errorAuthFailed': 'Authentication failed',
     'login.errorGuestFailed': 'Guest login failed',
 
@@ -119,6 +120,8 @@ const en = {
     'performance.title': 'Performance',
     'performance.exportCsv': 'Export CSV',
     'performance.noStocks': 'No stocks in portfolio. Add stocks from the Stocks page.',
+    'performance.rateMissing': 'Rate missing',
+    'performance.missingRatesWarning': 'Some holdings are excluded from SEK totals because exchange rates are missing.',
 
     'analytics.title': 'Analytics',
     'analytics.overview': 'Portfolio distribution overview',
@@ -421,6 +424,7 @@ const sv: LocaleTranslations = {
     'login.toggleToRegister': 'Behöver du ett konto? Registrera dig',
     'login.guestButton': 'Fortsätt som gästdemoanvändare',
     'login.helper': 'Använd dina kontouppgifter eller fortsätt med gästdemoanvändaren.',
+    'login.errorEmptyUsername': 'Användarnamn kan inte vara tomt.',
     'login.errorAuthFailed': 'Autentisering misslyckades',
     'login.errorGuestFailed': 'Gästinloggning misslyckades',
 
@@ -516,6 +520,8 @@ const sv: LocaleTranslations = {
     'performance.title': 'Prestanda',
     'performance.exportCsv': 'Exportera CSV',
     'performance.noStocks': 'Inga aktier i portföljen. Lägg till aktier från sidan Aktier.',
+    'performance.rateMissing': 'Kurs saknas',
+    'performance.missingRatesWarning': 'Vissa innehav är exkluderade från SEK-summorna eftersom valutakurser saknas.',
 
     'analytics.title': 'Analys',
     'analytics.overview': 'Översikt av portföljfördelning',

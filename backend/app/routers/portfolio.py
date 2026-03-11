@@ -12,8 +12,8 @@ from typing import List, Optional
 import logging
 
 from app.main import get_db, get_current_user, User, Stock, PortfolioHistory, UserSettings, StockPriceHistory
-from app.services.exchange_rate_service import ExchangeRateService
 from app.services.brandfetch_service import brandfetch_service
+from app.services.exchange_rate_service import ExchangeRateService
 from app.utils.time import utc_now
 
 router = APIRouter()
@@ -294,23 +294,6 @@ def get_portfolio_summary(db: Session = Depends(get_db), current_user: User = De
     stocks = db.query(Stock).filter(Stock.user_id == current_user.id).all()
     display_currency = get_display_currency(db, current_user.id)
 
-    logos_updated = False
-    for stock in stocks:
-        refreshed_logo = brandfetch_service.get_logo_url_for_ticker(
-            stock.ticker,
-            stock.name,
-            force_refresh=False,
-            existing_logo=stock.logo,
-        )
-        if refreshed_logo and refreshed_logo != stock.logo:
-            stock.logo = refreshed_logo
-            logos_updated = True
-
-    if logos_updated:
-        db.commit()
-        for stock in stocks:
-            db.refresh(stock)
-    
     currencies = {s.currency for s in stocks if s.currency}
     currencies.add('SEK')
     rates = ExchangeRateService.get_rates_for_currencies(currencies, display_currency)
