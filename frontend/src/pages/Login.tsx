@@ -76,7 +76,7 @@ export default function Login() {
           </div>
           <div>
             <div style={{ fontSize: 12, fontWeight: 800, letterSpacing: '0.14em', textTransform: 'uppercase', color: 'var(--text)' }}>
-              PORTFOLIO
+              {t(language, 'login.productName')}
             </div>
             <div style={{ fontSize: 9, color: 'var(--muted)', letterSpacing: '0.1em', textTransform: 'uppercase' }}>
               {t(language, 'login.productLabel')}

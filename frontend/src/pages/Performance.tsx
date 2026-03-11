@@ -54,11 +54,10 @@ function sanitizeCsvCell(value: string | number | null | undefined): string {
   if (value === null || value === undefined) return '""'
   const str = String(value)
   const escaped = str.replace(/"/g, '""')
-  const quoted = `"${escaped}"`
   if (/^[\u0000-\u001F\s]*[=+\-@]/.test(str)) {
     return `"\t${escaped}"`
   }
-  return quoted
+  return `"${escaped}"`
 }
 
 type SortField = 'ticker' | 'name' | 'value' | 'cost' | 'gain' | 'gainPercent' | 'dailyChange' | 'dailyChangePercent'
@@ -82,6 +81,29 @@ interface PerformanceData {
   costSEK: number
   gainSEK: number
   dailyChangeSEK: number | null
+}
+
+function SortHeader({
+  field,
+  label,
+  sortField,
+  sortOrder,
+  onSort,
+}: {
+  field: SortField
+  label: string
+  sortField: SortField
+  sortOrder: SortOrder
+  onSort: (field: SortField) => void
+}) {
+  return (
+    <th
+      onClick={() => onSort(field)}
+      style={{ cursor: 'pointer', userSelect: 'none' }}
+    >
+      {label} {sortField === field ? (sortOrder === 'asc' ? '↑' : '↓') : ''}
+    </th>
+  )
 }
 
 /**
@@ -210,15 +232,6 @@ export default function Performance() {
       setSortOrder('desc')
     }
   }
-
-  const SortHeader = ({ field, label }: { field: SortField; label: string }) => (
-    <th 
-      onClick={() => handleSort(field)} 
-      style={{ cursor: 'pointer', userSelect: 'none' }}
-    >
-      {label} {sortField === field ? (sortOrder === 'asc' ? '↑' : '↓') : ''}
-    </th>
-  )
 
   const bestPerformers = [...performanceData].sort((a, b) => b.gainPercent - a.gainPercent).slice(0, 3)
   const worstPerformers = [...performanceData].sort((a, b) => a.gainPercent - b.gainPercent).slice(0, 3)
@@ -371,16 +384,16 @@ export default function Performance() {
           <table>
             <thead>
               <tr>
-                <SortHeader field="name" label={t(language, 'performance.name')} />
-                <SortHeader field="ticker" label={t(language, 'performance.ticker')} />
+                <SortHeader field="name" label={t(language, 'performance.name')} sortField={sortField} sortOrder={sortOrder} onSort={handleSort} />
+                <SortHeader field="ticker" label={t(language, 'performance.ticker')} sortField={sortField} sortOrder={sortOrder} onSort={handleSort} />
                 <th>{t(language, 'performance.qty')}</th>
                 <th>{t(language, 'performance.currency')}</th>
-                <SortHeader field="cost" label={t(language, 'performance.costSek')} />
-                <SortHeader field="value" label={t(language, 'performance.valueSek')} />
-                <SortHeader field="gain" label={t(language, 'performance.gainLoss')} />
-                <SortHeader field="gainPercent" label={t(language, 'performance.returnPercent')} />
-                <SortHeader field="dailyChange" label={t(language, 'performance.dailySek')} />
-                <SortHeader field="dailyChangePercent" label={t(language, 'performance.dailyPercent')} />
+                <SortHeader field="cost" label={t(language, 'performance.costSek')} sortField={sortField} sortOrder={sortOrder} onSort={handleSort} />
+                <SortHeader field="value" label={t(language, 'performance.valueSek')} sortField={sortField} sortOrder={sortOrder} onSort={handleSort} />
+                <SortHeader field="gain" label={t(language, 'performance.gainLoss')} sortField={sortField} sortOrder={sortOrder} onSort={handleSort} />
+                <SortHeader field="gainPercent" label={t(language, 'performance.returnPercent')} sortField={sortField} sortOrder={sortOrder} onSort={handleSort} />
+                <SortHeader field="dailyChange" label={t(language, 'performance.dailySek')} sortField={sortField} sortOrder={sortOrder} onSort={handleSort} />
+                <SortHeader field="dailyChangePercent" label={t(language, 'performance.dailyPercent')} sortField={sortField} sortOrder={sortOrder} onSort={handleSort} />
               </tr>
             </thead>
             <tbody>

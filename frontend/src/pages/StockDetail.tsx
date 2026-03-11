@@ -507,9 +507,9 @@ export default function StockDetail() {
     setFinnhubLoading(true)
 
     const request = Promise.all([
-      api.finnhub.profile(activeTicker).catch(() => null),
-      api.finnhub.metrics(activeTicker).catch(() => null),
-      api.finnhub.peers(activeTicker).catch(() => []),
+      api.finnhub.profile(activeTicker),
+      api.finnhub.metrics(activeTicker),
+      api.finnhub.peers(activeTicker),
     ]).then(([profile, metrics, peersData]) => {
       if (tickerRef.current !== activeTicker) return
       setCompanyProfile(profile)
@@ -538,7 +538,7 @@ export default function StockDetail() {
     const activeTicker = ticker
     setAnalystDataLoading(true)
 
-    const request = api.stocks.analyst(activeTicker).catch(() => null)
+    const request = api.stocks.analyst(activeTicker)
       .then((analystInfo) => {
         if (tickerRef.current !== activeTicker) return
         setAnalystData(analystInfo)

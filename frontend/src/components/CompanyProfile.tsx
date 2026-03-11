@@ -50,15 +50,17 @@ export default function CompanyProfile({ profile, loading }: Props) {
     return null
   }
 
+  const resolvedLogoUrl = resolveBackendAssetUrl(profile.logo)
+
   return (
     <div className="card">
       <h3 style={{ marginBottom: '16px' }}>{t(language, 'companyProfile.title')}</h3>
       
       <div style={{ display: 'flex', gap: '24px', alignItems: 'flex-start' }}>
-        {resolveBackendAssetUrl(profile.logo) && (
+        {resolvedLogoUrl && (
           <div style={{ flexShrink: 0 }}>
             <img 
-              src={resolveBackendAssetUrl(profile.logo) || undefined} 
+              src={resolvedLogoUrl} 
               alt={profile.name || 'Company logo'}
               style={{ 
                 width: 64, 

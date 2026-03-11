@@ -161,6 +161,7 @@ export default function Settings() {
                 return (
                   <label
                     key={idx.symbol}
+                    className="indexChip"
                     style={{
                       display: 'flex',
                       alignItems: 'center',

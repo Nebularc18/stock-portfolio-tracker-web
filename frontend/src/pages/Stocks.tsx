@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useRef, useId } from 'react'
 import { Link } from 'react-router-dom'
 import { api, Stock } from '../services/api'
 import { useSettings } from '../SettingsContext'
@@ -6,6 +6,7 @@ import { formatTimeInTimezone, getLatestTimestamp } from '../utils/time'
 import { resolveBackendAssetUrl } from '../utils/assets'
 import { getLocaleForLanguage, t } from '../i18n'
 import supportedExchanges from '../config/supportedExchanges.json'
+import { useModalFocusTrap } from '../hooks/useModalFocusTrap'
 
 /**
  * Formats a numeric value as a localized currency string or returns "-" when the value is null.
@@ -69,9 +70,21 @@ function getLocalDateInputValue(value: Date = new Date()): string {
   const [saving, setSaving] = useState(false)
   const [lastUpdate, setLastUpdate] = useState<string | null>(null)
   const [failedLogos, setFailedLogos] = useState<Record<string, boolean>>({})
+  const editModalRef = useRef<HTMLDivElement | null>(null)
+  const editQuantityInputRef = useRef<HTMLInputElement | null>(null)
+  const editModalHeadingId = useId()
   const { timezone, language } = useSettings()
   const locale = getLocaleForLanguage(language)
   const maxPurchaseDate = getLocalDateInputValue()
+
+  const closeEditModal = useCallback(() => setEditStock(null), [])
+
+  useModalFocusTrap({
+    modalRef: editModalRef,
+    open: editStock !== null,
+    onClose: closeEditModal,
+    initialFocusRef: editQuantityInputRef,
+  })
 
   const fetchStocks = useCallback(async () => {
     try {
@@ -407,24 +420,35 @@ function getLocalDateInputValue(value: Date = new Date()): string {
             background: 'rgba(0,0,0,0.7)', backdropFilter: 'blur(4px)',
             display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000,
           }}
+          onKeyDown={(event) => {
+            if (event.key === 'Escape') {
+              event.stopPropagation()
+              setEditStock(null)
+            }
+          }}
           onClick={() => setEditStock(null)}
         >
           <div
+            ref={editModalRef}
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby={editModalHeadingId}
+            tabIndex={-1}
             style={{ width: 420, maxWidth: '90%', background: 'var(--bg2)', border: '1px solid var(--border2)', borderRadius: 10, overflow: 'hidden' }}
             onClick={(e) => e.stopPropagation()}
           >
             <div style={{ padding: '16px 20px', borderBottom: '1px solid var(--border)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-              <span style={{ fontSize: 9, fontWeight: 700, letterSpacing: '0.18em', textTransform: 'uppercase', color: 'var(--v2)' }}>
+              <span id={editModalHeadingId} style={{ fontSize: 9, fontWeight: 700, letterSpacing: '0.18em', textTransform: 'uppercase', color: 'var(--v2)' }}>
                 {t(language, 'stocks.editTitle', { ticker: editStock.ticker })}
               </span>
-              <button style={{ background: 'none', border: 'none', color: 'var(--muted)', cursor: 'pointer', fontSize: 18, lineHeight: 1 }} onClick={() => setEditStock(null)}>×</button>
+              <button type="button" style={{ background: 'none', border: 'none', color: 'var(--muted)', cursor: 'pointer', fontSize: 18, lineHeight: 1 }} onClick={() => setEditStock(null)}>×</button>
             </div>
             <div style={{ padding: '20px' }}>
               <div style={{ marginBottom: 16 }}>
                 <label style={{ display: 'block', marginBottom: 6, color: 'var(--muted)', fontSize: 11, fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase' }}>
                   {t(language, 'stocks.quantity')}
                 </label>
-                <input type="number" step="0.01" value={editQuantity} onChange={(e) => setEditQuantity(e.target.value)} style={{ width: '100%' }} />
+                <input ref={editQuantityInputRef} type="number" step="0.01" value={editQuantity} onChange={(e) => setEditQuantity(e.target.value)} style={{ width: '100%' }} />
               </div>
               <div style={{ marginBottom: 16 }}>
                 <label style={{ display: 'block', marginBottom: 6, color: 'var(--muted)', fontSize: 11, fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase' }}>
@@ -439,10 +463,10 @@ function getLocalDateInputValue(value: Date = new Date()): string {
                 <input type="date" value={editPurchaseDate} onChange={(e) => setEditPurchaseDate(e.target.value)} max={maxPurchaseDate} style={{ width: '100%' }} />
               </div>
               <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
-                <button className="btn btn-secondary" onClick={() => setEditStock(null)}>
+                <button type="button" className="btn btn-secondary" onClick={() => setEditStock(null)}>
                   {t(language, 'stocks.cancel')}
                 </button>
-                <button className="btn btn-primary" onClick={handleSaveEdit} disabled={saving}>
+                <button type="button" className="btn btn-primary" onClick={handleSaveEdit} disabled={saving}>
                   {saving ? t(language, 'stocks.saving') : t(language, 'stocks.save')}
                 </button>
               </div>

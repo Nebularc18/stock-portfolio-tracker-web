@@ -205,7 +205,7 @@ export default function Markets() {
             </Link>
           </div>
         </div>
-        <div style={{ padding: '16px', display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 12 }}>
+        <div style={{ padding: '16px', display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 12 }}>
           {marketHours.map((market) => (
             <div
               key={market.market}

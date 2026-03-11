@@ -12,8 +12,10 @@ import json
 import logging
 from typing import Optional, Dict, Any, List, Tuple
 
+from app.services.env_utils import parse_float_env
+
 logger = logging.getLogger(__name__)
-SLOW_FINNHUB_REQUEST_MS = float(os.environ.get('SLOW_FINNHUB_REQUEST_MS', '800'))
+SLOW_FINNHUB_REQUEST_MS = parse_float_env('SLOW_FINNHUB_REQUEST_MS', 800.0, logger)
 
 CACHE_DIR = os.path.join(os.path.dirname(__file__), '..', '..', 'data', 'cache')
 os.makedirs(CACHE_DIR, exist_ok=True)

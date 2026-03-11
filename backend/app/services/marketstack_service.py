@@ -16,8 +16,10 @@ from datetime import datetime, timezone, timedelta
 from typing import Optional, Dict, Any, List
 from dataclasses import dataclass, asdict
 
+from app.services.env_utils import parse_float_env
+
 logger = logging.getLogger(__name__)
-SLOW_MARKETSTACK_REQUEST_MS = float(os.environ.get('SLOW_MARKETSTACK_REQUEST_MS', '800'))
+SLOW_MARKETSTACK_REQUEST_MS = parse_float_env('SLOW_MARKETSTACK_REQUEST_MS', 800.0, logger)
 
 CACHE_DIR = os.path.join(os.path.dirname(__file__), '..', '..', 'data', 'cache')
 os.makedirs(CACHE_DIR, exist_ok=True)

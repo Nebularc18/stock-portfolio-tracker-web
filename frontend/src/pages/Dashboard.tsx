@@ -77,19 +77,28 @@ function parseHistoryDate(value: string): Date {
   return new Date(`${value}T00:00:00Z`)
 }
 
-function filterToCurrentUtcDay(data: ChartPoint[]): ChartPoint[] {
+function filterToCurrentUtcDay(data: ChartPoint[], referenceDate?: Date): ChartPoint[] {
   if (data.length === 0) return data
-  const today = new Date()
-  const todayYear = today.getUTCFullYear()
-  const todayMonth = today.getUTCMonth()
-  const todayDate = today.getUTCDate()
+  const resolvedReference = referenceDate ?? (() => {
+    for (let index = data.length - 1; index >= 0; index -= 1) {
+      const parsed = parseHistoryDate(data[index].date)
+      if (!Number.isNaN(parsed.getTime())) return parsed
+    }
+    return null
+  })()
+
+  if (!resolvedReference || Number.isNaN(resolvedReference.getTime())) return []
+
+  const referenceYear = resolvedReference.getUTCFullYear()
+  const referenceMonth = resolvedReference.getUTCMonth()
+  const referenceDay = resolvedReference.getUTCDate()
 
   return data.filter((point) => {
     const parsed = parseHistoryDate(point.date)
     if (Number.isNaN(parsed.getTime())) return false
-    return parsed.getUTCFullYear() === todayYear
-      && parsed.getUTCMonth() === todayMonth
-      && parsed.getUTCDate() === todayDate
+    return parsed.getUTCFullYear() === referenceYear
+      && parsed.getUTCMonth() === referenceMonth
+      && parsed.getUTCDate() === referenceDay
   })
 }
 
@@ -405,7 +414,7 @@ export default function Dashboard() {
             <div style={{ fontSize: 9, fontWeight: 700, letterSpacing: '0.2em', textTransform: 'uppercase', color: 'var(--muted)', marginBottom: 10 }}>
               {stat.label}
             </div>
-            <div style={{ fontSize: 26, fontWeight: 800, letterSpacing: '-0.02em', lineHeight: 1, color: stat.color, animation: `fadeUp 0.45s ${i * 0.1}s ease both` }}>
+            <div style={{ fontSize: 26, fontWeight: 800, letterSpacing: '-0.02em', lineHeight: 1, color: stat.color, animation: `fade-up 0.45s ${i * 0.1}s ease both` }}>
               {stat.value}
               {stat.partial && <span style={{ fontSize: 11, fontWeight: 500, color: 'var(--muted)', marginLeft: 6 }}>({t(language, 'dashboard.partial')})</span>}
             </div>

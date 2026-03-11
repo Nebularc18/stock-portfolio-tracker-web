@@ -24,6 +24,7 @@ type PieLabelProps = {
   index?: number
   x?: number
   y?: number
+  cx?: number
 }
 
 /**
@@ -58,14 +59,14 @@ function formatStockDisplayName(name: string): string {
 }
 
 function createColoredPieLabel(colors: string[]) {
-  return function ColoredPieLabel({ name, percent, index = 0, x = 0, y = 0 }: PieLabelProps) {
+  return function ColoredPieLabel({ name, percent, index = 0, x = 0, y = 0, cx = 0 }: PieLabelProps) {
     if (percent < 0.05) return null
     return (
       <text
         x={x}
         y={y}
         fill={colors[index % colors.length]}
-        textAnchor={x > 210 ? 'start' : 'end'}
+        textAnchor={x > cx ? 'start' : 'end'}
         dominantBaseline="central"
         style={{ fontSize: 12, fontWeight: 700 }}
       >

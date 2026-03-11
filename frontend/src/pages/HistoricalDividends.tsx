@@ -65,6 +65,8 @@ export default function HistoricalDividends() {
   const [selectedYear, setSelectedYear] = useState<number>(new Date().getFullYear() - 1)
   const [dividendsByYear, setDividendsByYear] = useState<Record<number, YearlyData>>({})
   const [availableYears, setAvailableYears] = useState<number[]>([])
+  const [dividendsPartialLoad, setDividendsPartialLoad] = useState(false)
+  const [dividendsLoadFailed, setDividendsLoadFailed] = useState(false)
 
   useEffect(() => {
     const fetchData = async () => {
@@ -90,6 +92,8 @@ export default function HistoricalDividends() {
 
     const fetchDividends = async () => {
       setLoading(true)
+      setDividendsPartialLoad(false)
+      setDividendsLoadFailed(false)
       try {
         const todayIso = new Date().toISOString().slice(0, 10)
         const currentYear = new Date().getUTCFullYear()
@@ -108,6 +112,7 @@ export default function HistoricalDividends() {
               return api.stocks.dividendsForTickers(batch.map((stock) => stock.ticker), Math.min(yearsToFetch, 10))
                 .catch((err) => {
                   console.error('Failed to fetch dividend history batch:', err)
+                  setDividendsPartialLoad(true)
                   return {}
                 })
             })
@@ -173,6 +178,9 @@ export default function HistoricalDividends() {
         setDividendsByYear(byYear)
       } catch (err) {
         console.error('Failed to fetch dividends:', err)
+        setDividendsLoadFailed(true)
+        setDividendsByYear({})
+        setAvailableYears([])
       } finally {
         setLoading(false)
       }
@@ -246,8 +254,20 @@ export default function HistoricalDividends() {
       </div>
 
       <div style={{ padding: '0 28px 28px' }}>
+        {dividendsLoadFailed && (
+          <div style={{ background: 'rgba(248,113,113,0.08)', border: '1px solid rgba(248,113,113,0.25)', borderRadius: 8, padding: '12px 16px', marginTop: 20 }}>
+            <p style={{ color: 'var(--red)', fontSize: 13 }}>{t(language, 'history.failedLoadData')}</p>
+          </div>
+        )}
+        {!dividendsLoadFailed && dividendsPartialLoad && (
+          <div style={{ background: 'rgba(251,191,36,0.08)', border: '1px solid rgba(251,191,36,0.25)', borderRadius: 8, padding: '12px 16px', marginTop: 20 }}>
+            <p style={{ color: 'var(--amber)', fontSize: 13 }}>{t(language, 'history.partialLoadWarning')}</p>
+          </div>
+        )}
         {!hasStocks ? (
           <div className="empty-state" style={{ paddingTop: 60 }}>{t(language, 'history.noStocks')}</div>
+        ) : dividendsLoadFailed ? (
+          <div className="empty-state" style={{ paddingTop: 60 }}>{t(language, 'history.failedLoadData')}</div>
         ) : !hasAnyDividendHistory ? (
           <div className="empty-state" style={{ paddingTop: 60 }}>{t(language, 'history.noHistory')}</div>
         ) : !yearData || Object.keys(yearData.months).length === 0 ? (

@@ -12,6 +12,7 @@ import requests
 import logging
 import json
 import os
+import tempfile
 from functools import lru_cache
 
 from app.services.market_hours_service import MarketHoursService
@@ -140,7 +141,10 @@ def _load_json_cache(filename: str, ttl: int) -> dict | None:
         if not os.path.exists(filepath):
             return None
         with open(filepath, 'r', encoding='utf-8') as f:
-            payload = json.load(f)
+            try:
+                payload = json.load(f)
+            except json.JSONDecodeError:
+                return None
         cached_at = payload.get('cached_at', 0)
         if datetime.now(timezone.utc).timestamp() - cached_at >= ttl:
             return None
@@ -154,11 +158,19 @@ def _save_json_cache(filename: str, value: dict):
     try:
         os.makedirs(_CACHE_DIR, exist_ok=True)
         filepath = os.path.join(_CACHE_DIR, filename)
-        with open(filepath, 'w', encoding='utf-8') as f:
-            json.dump({
-                'cached_at': datetime.now(timezone.utc).timestamp(),
-                'value': value,
-            }, f)
+        fd, temp_path = tempfile.mkstemp(dir=_CACHE_DIR, prefix=f"{filename}.", suffix='.tmp')
+        try:
+            with os.fdopen(fd, 'w', encoding='utf-8') as f:
+                json.dump({
+                    'cached_at': datetime.now(timezone.utc).timestamp(),
+                    'value': value,
+                }, f)
+                f.flush()
+                os.fsync(f.fileno())
+            os.replace(temp_path, filepath)
+        finally:
+            if os.path.exists(temp_path):
+                os.remove(temp_path)
     except Exception:
         logger.exception("Failed to save cache file %s", filename)
 

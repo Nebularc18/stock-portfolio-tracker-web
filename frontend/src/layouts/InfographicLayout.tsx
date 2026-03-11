@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import { Link, useLocation, Outlet } from 'react-router-dom'
 import { useHeaderData } from '../contexts/HeaderDataContext'
 import { useSettings } from '../SettingsContext'
@@ -9,6 +9,30 @@ import { useAuth } from '../AuthContext'
  * Graphite layout — sticky topbar with market indices + live clock,
  * sticky horizontal nav bar, full-width content area.
  */
+function formatClock(d: Date, locale: string, timezone?: string) {
+  const tz = timezone || Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC'
+  return d.toLocaleTimeString(locale, {
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+    hour12: false,
+    timeZone: tz,
+  })
+}
+
+function LiveClock({ locale, timezone }: { locale: string; timezone?: string }) {
+  const [clock, setClock] = useState(() => new Date())
+
+  useEffect(() => {
+    const intervalId = setInterval(() => setClock(new Date()), 1000)
+    return () => {
+      clearInterval(intervalId)
+    }
+  }, [])
+
+  return <span>{formatClock(clock, locale, timezone)}</span>
+}
+
 export default function InfographicLayout() {
   const location = useLocation()
   const { indices: allIndices, exchangeRates } = useHeaderData()
@@ -18,28 +42,6 @@ export default function InfographicLayout() {
   const currentYear = new Date().getUTCFullYear()
   const [logoutError, setLogoutError] = useState<string | null>(null)
   const [isLoggingOut, setIsLoggingOut] = useState(false)
-  const [clock, setClock] = useState(() => new Date())
-  const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null)
-
-  // Live clock tick
-  useEffect(() => {
-    intervalRef.current = setInterval(() => setClock(new Date()), 1000)
-    return () => {
-      if (intervalRef.current) clearInterval(intervalRef.current)
-    }
-  }, [])
-
-  const formatClock = (d: Date) => {
-    const tz = timezone || Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC'
-    return d.toLocaleTimeString(locale, {
-      hour: '2-digit',
-      minute: '2-digit',
-      second: '2-digit',
-      hour12: false,
-      timeZone: tz,
-    })
-  }
-
   // Filter indices based on settings
   const hasValidHeaderIndices = Array.isArray(headerIndices) && headerIndices.length > 0
   const matched = hasValidHeaderIndices
@@ -146,7 +148,7 @@ export default function InfographicLayout() {
         {/* Clock + user */}
         <div className="tb-time">
           <span className="live-dot" />
-          {formatClock(clock)}
+          <LiveClock locale={locale} timezone={timezone} />
           <span style={{ borderLeft: '1px solid var(--border)', paddingLeft: 14, marginLeft: 8 }}>
             {user?.username || ''}
             {user?.is_guest ? (
