@@ -2,6 +2,14 @@ import { FormEvent, useState } from 'react'
 import { useAuth } from '../AuthContext'
 import { Language, t } from '../i18n'
 
+/**
+ * Renders the authentication form allowing users to sign in, register, or log in as a guest.
+ *
+ * Validates that the username is not empty, displays localized error messages, and delegates
+ * authentication actions (login, register, guest login) to the authentication context.
+ *
+ * @returns The login/register UI as a JSX element
+ */
 export default function Login() {
   const { login, register, loginAsGuest, loading } = useAuth()
   const language: Language = localStorage.getItem('language') === 'sv' ? 'sv' : 'en'

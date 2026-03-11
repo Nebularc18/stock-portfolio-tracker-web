@@ -6,8 +6,12 @@ import { getLocaleForLanguage, t } from '../i18n'
 import { useAuth } from '../AuthContext'
 
 /**
- * Graphite layout — sticky topbar with market indices + live clock,
- * sticky horizontal nav bar, full-width content area.
+ * Format a Date as a localized 24-hour time string with two-digit hour, minute, and second.
+ *
+ * @param d - The Date to format
+ * @param locale - BCP 47 language tag or locale string used for localization
+ * @param timezone - Optional IANA time zone identifier; if omitted, the system time zone is used and falls back to `UTC` if the system zone cannot be determined
+ * @returns The time string formatted according to `locale` and the resolved time zone (e.g., "14:05:09")
  */
 function formatClock(d: Date, locale: string, timezone?: string) {
   const tz = timezone || Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC'
@@ -20,6 +24,13 @@ function formatClock(d: Date, locale: string, timezone?: string) {
   })
 }
 
+/**
+ * Renders a live-updating localized time string.
+ *
+ * @param locale - BCP 47 language tag used to localize the time display (e.g., "en-US")
+ * @param timezone - Optional IANA time zone name (e.g., "Europe/Stockholm"); when omitted the display uses the resolved/system time zone (fallbacks are handled by the formatter)
+ * @returns A <span> element containing the localized time that updates once per second
+ */
 function LiveClock({ locale, timezone }: { locale: string; timezone?: string }) {
   const [clock, setClock] = useState(() => new Date())
 
@@ -33,6 +44,15 @@ function LiveClock({ locale, timezone }: { locale: string; timezone?: string }) 
   return <span>{formatClock(clock, locale, timezone)}</span>
 }
 
+/**
+ * Main layout component that renders the application's top bar, navigation bar, and content area.
+ *
+ * Renders a top bar with market indices, FX rates, a live localized clock, and user controls (including logout),
+ * a horizontal navigation bar whose active link is determined from the current route, and a main content Outlet
+ * for nested routes.
+ *
+ * @returns The layout React element containing the top bar with market data and clock, the navigation bar, and the content Outlet.
+ */
 export default function InfographicLayout() {
   const location = useLocation()
   const { indices: allIndices, exchangeRates } = useHeaderData()

@@ -67,6 +67,12 @@ export const THEMES: Record<ThemeName, Theme> = {
   }
 }
 
+/**
+ * Map a stored theme value to a valid ThemeName, defaulting to 'dark'.
+ *
+ * @param value - The stored theme string (e.g., from localStorage); may be `null` or any string.
+ * @returns `'light'` if `value` is `'light'`, `'dark'` otherwise.
+ */
 function normalizeStoredTheme(value: string | null): ThemeName {
   if (value === 'light') return 'light'
   return 'dark'
@@ -80,6 +86,12 @@ interface ThemeContextType {
 
 const ThemeContext = createContext<ThemeContextType | null>(null)
 
+/**
+ * Provides theme context to descendants, applies the active theme's CSS variables to the document, and persists the selected theme to localStorage.
+ *
+ * @param children - React nodes to render inside the provider
+ * @returns A React element rendering ThemeContext.Provider that supplies `{ theme, setTheme, themeName }` to descendant components
+ */
 export function ThemeProvider({ children }: { children: ReactNode }) {
   const [themeName, setThemeName] = useState<ThemeName>(() => {
     return normalizeStoredTheme(localStorage.getItem('theme'))

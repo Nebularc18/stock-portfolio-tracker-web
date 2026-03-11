@@ -20,10 +20,25 @@ const HISTORY_RANGE_OPTIONS: Array<{ key: HistoryRangeKey; labelKey: Translation
 
 type ChartPoint = { date: string; value: number }
 
+/**
+ * Format a numeric amount as a localized currency string.
+ *
+ * @param value - The monetary amount in major currency units (e.g., 12.34 for twelve dollars)
+ * @param locale - A BCP 47 locale string used to localize number and currency formatting
+ * @param currency - ISO 4217 currency code to format with (defaults to `USD`)
+ * @returns The formatted currency string for the given locale and currency
+ */
 function formatCurrency(value: number, locale: string, currency: string = 'USD'): string {
   return new Intl.NumberFormat(locale, { style: 'currency', currency }).format(value)
 }
 
+/**
+ * Format a percentage value for display according to locale.
+ *
+ * @param value - The percentage value in percentage points (e.g., `12.34` represents `12.34%`).
+ * @param locale - The BCP 47 locale string used for formatting (e.g., `"en-US"`).
+ * @returns The localized percentage string with an explicit sign and two decimal places (e.g., `"+12.34%"`).
+ */
 function formatPercent(value: number, locale: string): string {
   return new Intl.NumberFormat(locale, {
     style: 'percent',
@@ -33,6 +48,18 @@ function formatPercent(value: number, locale: string): string {
   }).format(value / 100)
 }
 
+/**
+ * Parse a variety of date string formats into a Date object.
+ *
+ * Accepts:
+ * - `YYYY-MM-DD` (interpreted as UTC midnight for that date),
+ * - integer epoch values (treated as seconds if absolute value < 1e12, otherwise milliseconds),
+ * - ISO-like datetime strings containing `T` (if no timezone is present, treated as UTC),
+ * - any other string passed through to the `Date` constructor.
+ *
+ * @param value - The input date string to parse
+ * @returns The resulting `Date` instance parsed from `value`
+ */
 function parseDisplayDate(value: string): Date {
   const trimmedDate = value.trim()
   if (/^\d{4}-\d{2}-\d{2}$/.test(trimmedDate)) {
@@ -51,24 +78,53 @@ function parseDisplayDate(value: string): Date {
   return new Date(trimmedDate)
 }
 
+/**
+ * Format an input date string as a localized short month/day representation using UTC.
+ *
+ * @param dateStr - Input date string to format; if it cannot be parsed, the original string is returned unchanged.
+ * @param locale - BCP‑47 locale identifier used for formatting (e.g., "en-US").
+ * @returns A localized short date like "Mar 5" (formatted in UTC), or the original `dateStr` if parsing fails.
+ */
 function formatDate(dateStr: string, locale: string): string {
   const date = parseDisplayDate(dateStr.trim())
   if (Number.isNaN(date.getTime())) return dateStr
   return date.toLocaleDateString(locale, { month: 'short', day: 'numeric', timeZone: 'UTC' })
 }
 
+/**
+ * Produce a month key in `YYYY-MM` format from a date string, or return the input unchanged when parsing fails.
+ *
+ * @param dateStr - A date string in a supported format (e.g., ISO, epoch seconds, T-based, or plain date)
+ * @returns The month key `YYYY-MM` derived from `dateStr`, or the original `dateStr` if it cannot be parsed as a valid date
+ */
 function getMonthKey(dateStr: string): string {
   const date = parseDisplayDate(dateStr.trim())
   if (Number.isNaN(date.getTime())) return dateStr
   return `${date.getUTCFullYear()}-${String(date.getUTCMonth() + 1).padStart(2, '0')}`
 }
 
+/**
+ * Formats a month key into a localized month and year label.
+ *
+ * @param monthKey - Month key in `YYYY-MM` format
+ * @param locale - BCP 47 locale identifier (for example, `en-US`)
+ * @returns A localized month and year string (for example, `January 2026`)
+ */
 function formatMonthLabel(monthKey: string, locale: string): string {
   const [year, month] = monthKey.split('-').map(Number)
   return new Date(Date.UTC(year, month - 1, 1))
     .toLocaleDateString(locale, { month: 'long', year: 'numeric', timeZone: 'UTC' })
 }
 
+/**
+ * Parse a history date string into a UTC Date.
+ *
+ * Accepts ISO date-time strings (with or without an explicit timezone) and date-only strings.
+ * If the input lacks a timezone, it is interpreted as UTC. Date-only inputs are treated as midnight UTC.
+ *
+ * @param value - A date string in ISO date-time form, ISO date without timezone, or plain date (YYYY-MM-DD)
+ * @returns The corresponding Date in UTC
+ */
 function parseHistoryDate(value: string): Date {
   if (value.includes('T')) {
     const hasTimezone = /([zZ]|[+-]\d{2}:\d{2})$/.test(value)
@@ -77,6 +133,15 @@ function parseHistoryDate(value: string): Date {
   return new Date(`${value}T00:00:00Z`)
 }
 
+/**
+ * Retains only data points that occur on the same UTC calendar day as a reference date.
+ *
+ * If `referenceDate` is omitted, the function uses the latest parsable date found in `data`.
+ * Points with unparsable dates are excluded.
+ *
+ * @param referenceDate - Optional date to use as the UTC day reference; if omitted the latest valid date in `data` is used
+ * @returns An array of `ChartPoint` entries whose year, month, and day in UTC match the resolved reference date
+ */
 function filterToCurrentUtcDay(data: ChartPoint[], referenceDate?: Date): ChartPoint[] {
   if (data.length === 0) return data
   const resolvedReference = referenceDate ?? (() => {
@@ -102,6 +167,14 @@ function filterToCurrentUtcDay(data: ChartPoint[], referenceDate?: Date): ChartP
   })
 }
 
+/**
+ * Format an x-axis tick label for portfolio history charts according to the selected range and locale.
+ *
+ * @param dateValue - Date or date-like string representing the tick's timestamp
+ * @param range - History range key that determines the label granularity
+ * @param locale - BCP 47 locale string used for localization of the label
+ * @returns A localized label string for the tick, or an empty string if the date is invalid
+ */
 function formatXAxisTick(dateValue: string, range: HistoryRangeKey, locale: string): string {
   const date = parseHistoryDate(dateValue)
   if (Number.isNaN(date.getTime())) return ''
@@ -112,6 +185,14 @@ function formatXAxisTick(dateValue: string, range: HistoryRangeKey, locale: stri
   return date.toLocaleDateString(locale, { month: 'short', year: '2-digit', timeZone: 'UTC' })
 }
 
+/**
+ * Format a history data point timestamp for display in chart tooltips.
+ *
+ * @param dateValue - The raw history date value (ISO, epoch seconds, or other supported formats)
+ * @param range - The selected history range which determines whether the time component is included
+ * @param locale - BCP 47 locale used for localized month/day/weekday labels
+ * @returns A localized, human-readable date string; returns `dateValue` unchanged when the input cannot be parsed as a date
+ */
 function formatTooltipDate(dateValue: string, range: HistoryRangeKey, locale: string): string {
   const date = parseHistoryDate(dateValue)
   if (Number.isNaN(date.getTime())) return dateValue
@@ -121,6 +202,13 @@ function formatTooltipDate(dateValue: string, range: HistoryRangeKey, locale: st
   return date.toLocaleDateString(locale, { weekday: 'short', month: 'short', day: 'numeric', year: 'numeric', timeZone: 'UTC' })
 }
 
+/**
+ * Reduce a time-series to at most `targetPoints` by sampling the first and last points and evenly selecting intermediate points.
+ *
+ * @param data - Ordered array of chart points (time-series) to sample from
+ * @param targetPoints - Maximum number of points to retain; if less than or equal to 0 or not smaller than `data.length`, the original `data` is returned
+ * @returns An array with up to `targetPoints` `ChartPoint` entries, preserving the first and last items and sampled intermediate points
+ */
 function downsampleChartData(data: ChartPoint[], targetPoints: number): ChartPoint[] {
   if (targetPoints <= 0 || data.length <= targetPoints) return data
   const sampled: ChartPoint[] = [data[0]]
@@ -132,6 +220,14 @@ function downsampleChartData(data: ChartPoint[], targetPoints: number): ChartPoi
   return sampled
 }
 
+/**
+ * Determine the target number of points to downsample chart data for a given history range.
+ *
+ * For ranges that should use raw data without downsampling (`1D`, `1W`) this returns `null`.
+ *
+ * @param range - The selected history range key
+ * @returns The target number of chart points to downsample to, or `null` when no target is specified
+ */
 function getRangeTargetPoints(range: HistoryRangeKey): number | null {
   if (range === '1D' || range === '1W') return null
   if (range === '1M') return 120
@@ -141,6 +237,11 @@ function getRangeTargetPoints(range: HistoryRangeKey): number | null {
   return Math.min(220, Math.max(80, elapsedMonths * 18))
 }
 
+/**
+ * Renders the portfolio dashboard UI, including hero statistics, performance chart with range selection, holdings list, and grouped upcoming dividends, while fetching and synchronizing portfolio, market, and dividend data and applying currency conversion and localization.
+ *
+ * @returns The dashboard UI as JSX elements.
+ */
 export default function Dashboard() {
   const navigate = useNavigate()
   const [summary, setSummary] = useState<PortfolioSummary | null>(null)

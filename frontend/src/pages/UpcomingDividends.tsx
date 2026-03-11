@@ -45,11 +45,11 @@ function getMonthKey(dateStr: string): string {
 }
 
 /**
- * Produce a localized month label from a year-month key.
+ * Produces a localized month label from a year-month key.
  *
  * @param monthKey - Year-month key in the format `YYYY-MM`
  * @param locale - BCP 47 locale identifier used for formatting (for example `sv-SE`)
- * @returns A locale-formatted month label (e.g., `March 2026`)
+ * @returns The month and year formatted for `locale` (e.g., `March 2026`)
  */
 function formatMonthLabel(monthKey: string, locale: string): string {
   const [year, month] = monthKey.split('-').map(Number)
@@ -58,11 +58,9 @@ function formatMonthLabel(monthKey: string, locale: string): string {
 }
 
 /**
- * Displays the current year's dividend payments for the user's portfolio.
+ * Render the current year's upcoming dividend payments for the user's portfolio, including data fetching, refresh handling, and month-grouped listings.
  *
- * Renders loading and error states, fetches data on mount and refresh, and groups dividend rows by month using the dashboard-style table layout.
- *
- * @returns The component's rendered JSX containing the current-year dividends UI
+ * @returns The component's rendered JSX for the upcoming dividends UI
  */
 export default function UpcomingDividends() {
   const { language } = useSettings()

@@ -260,18 +260,19 @@ class MarketstackService:
         return bool(self.api_key)
     
     def _make_request(self, endpoint: str, params: Optional[Dict[str, Any]] = None) -> Optional[Any]:
-        """Make an authenticated request to the Marketstack API.
+        """
+        Perform an authenticated HTTP GET to a Marketstack endpoint and return the parsed JSON.
         
-        Args:
-            endpoint: API endpoint path (e.g., 'dividends').
-            params: Optional query parameters.
+        Parameters:
+            endpoint (str): API endpoint path (for example, "dividends").
+            params (Optional[Dict[str, Any]]): Query parameters to include in the request.
         
         Returns:
-            JSON response data, or None if request fails.
+            The parsed JSON response on success, or None when the API returns 404 or 422.
         
         Raises:
-            FetchError: If API key not configured, rate limit reached,
-                or other API error.
+            FetchError: If the API key is not configured, the monthly call limit is reached,
+                the request is rate-limited (429), or another API/network error occurs.
         """
         if not self.api_key:
             raise FetchError("Marketstack API key not configured", 503)

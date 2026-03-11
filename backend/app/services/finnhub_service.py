@@ -113,14 +113,17 @@ class FinnhubService:
         self.base_url = "https://finnhub.io/api/v1"
     
     def _make_request(self, endpoint: str, params: Optional[Dict[str, str]] = None) -> Optional[Any]:
-        """Make an authenticated request to Finnhub API.
+        """
+        Perform an authenticated GET to a Finnhub API endpoint and return the parsed JSON response.
         
-        Args:
-            endpoint: API endpoint path (e.g., 'stock/profile2').
-            params: Optional query parameters.
+        If the API key is missing, the HTTP status is not 200, or an error occurs during the request, returns `None`.
+        
+        Parameters:
+            endpoint (str): Finnhub API path (for example, "stock/profile2").
+            params (Optional[Dict[str, str]]): Query parameters to include in the request; the API token will be added automatically.
         
         Returns:
-            JSON response data, or None if request fails.
+            Parsed JSON response data, or `None` if the request failed or returned a non-200 status.
         """
         if not self.api_key:
             return None

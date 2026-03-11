@@ -48,6 +48,17 @@ function getStoredAuthUser(): AuthUser | null {
   }
 }
 
+/**
+ * Performs an HTTP request against the API and returns the parsed JSON response.
+ *
+ * The function automatically prefixes `endpoint` with the module's API_BASE and, when a stored
+ * authenticated user exists, adds an `Authorization: Bearer <token>` header to the request.
+ *
+ * @param endpoint - The API path to request (appended to API_BASE), e.g. `/stocks` or `/auth/login`
+ * @param options - Optional fetch RequestInit options (method, headers, body, etc.)
+ * @returns The parsed JSON response from the API
+ * @throws Error if the response has a non-OK status; the error message is taken from the response's `detail` field when available, otherwise `"Request failed"`
+ */
 async function fetchAPI(endpoint: string, options?: RequestInit) {
   const authUser = getStoredAuthUser()
   const startedAt = typeof performance !== 'undefined' ? performance.now() : Date.now()

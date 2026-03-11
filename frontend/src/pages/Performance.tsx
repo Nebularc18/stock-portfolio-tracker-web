@@ -83,6 +83,16 @@ interface PerformanceData {
   dailyChangeSEK: number | null
 }
 
+/**
+ * Renders a table header cell that toggles sorting for a given field.
+ *
+ * @param field - The sort key represented by this header.
+ * @param label - Visible header text.
+ * @param sortField - Currently active sort field.
+ * @param sortOrder - Current sort order ('asc' or 'desc').
+ * @param onSort - Callback invoked with `field` when the header is clicked.
+ * @returns The table header cell (<th>) element showing the label and an ascending/descending indicator when active.
+ */
 function SortHeader({
   field,
   label,

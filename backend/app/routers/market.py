@@ -125,6 +125,14 @@ def _validate_exchange_rate_span(start_date: date, end_date: date):
 
 
 def _log_non_200_yahoo_response(url: str, response: requests.Response, context: str):
+    """
+    Log a warning when a Yahoo HTTP request returns a non-200 response.
+    
+    Parameters:
+        url (str): The requested Yahoo URL.
+        response (requests.Response): The HTTP response whose status code and body will be logged (body truncated).
+        context (str): Short description of the request context (for example symbol or endpoint name).
+    """
     logger.warning(
         "Yahoo returned %s for %s (%s): %s",
         response.status_code,
@@ -135,6 +143,16 @@ def _log_non_200_yahoo_response(url: str, response: requests.Response, context: 
 
 
 def _load_json_cache(filename: str, ttl: int) -> dict | None:
+    """
+    Load a JSON cache file from the module cache directory and return its stored value if not expired.
+    
+    Parameters:
+        filename (str): Name of the cache file inside the cache directory.
+        ttl (int): Time-to-live in seconds; the cached entry is considered expired when current UTC time minus `cached_at` is greater than or equal to `ttl`.
+    
+    Returns:
+        dict | None: The cached `value` object from the file if present and not expired, otherwise `None` (also returned on parse or I/O errors).
+    """
     try:
         os.makedirs(_CACHE_DIR, exist_ok=True)
         filepath = os.path.join(_CACHE_DIR, filename)
@@ -155,6 +173,15 @@ def _load_json_cache(filename: str, ttl: int) -> dict | None:
 
 
 def _save_json_cache(filename: str, value: dict):
+    """
+    Write a JSON-serializable mapping to the module cache directory as an atomic cache file with a UTC timestamp.
+    
+    The function stores `value` under `filename` inside the configured cache directory. The on-disk payload contains two keys: `cached_at` (UTC epoch seconds) and `value` (the provided mapping). The file is written atomically via a temporary file and rename; any I/O or serialization errors are logged and suppressed (no exception is raised).
+     
+    Parameters:
+        filename (str): Name of the cache file to create (relative to the cache directory).
+        value (dict): JSON-serializable mapping to persist.
+    """
     try:
         os.makedirs(_CACHE_DIR, exist_ok=True)
         filepath = os.path.join(_CACHE_DIR, filename)
@@ -176,14 +203,39 @@ def _save_json_cache(filename: str, value: dict):
 
 
 def _latest_exchange_rates_cache_key() -> str:
+    """
+    Return the filename used for caching the latest exchange rates JSON.
+    
+    Returns:
+        cache_filename (str): The relative filename 'exchange_rates_latest.json'.
+    """
     return 'exchange_rates_latest.json'
 
 
 def _historical_exchange_rates_cache_key(target_date: date) -> str:
+    """
+    Builds the cache filename for historical exchange rates for a specific date.
+    
+    Parameters:
+        target_date (date): The date for which to generate the cache key.
+    
+    Returns:
+        str: Cache filename in the format "exchange_rates_YYYYMMDD.json" (e.g., "exchange_rates_20260311.json").
+    """
     return f"exchange_rates_{target_date.isoformat().replace('-', '')}.json"
 
 
 def _fetch_latest_pair_rate(session: requests.Session, symbol: str, key: str) -> tuple[str, float | None]:
+    """
+    Fetches the most recent available daily close price for a given Yahoo Finance exchange-rate symbol.
+    
+    Parameters:
+        symbol (str): Yahoo Finance symbol for the currency pair (e.g., "USDSEK=X").
+        key (str): Result mapping key for the pair (e.g., "USD_SEK").
+    
+    Returns:
+        tuple[str, float | None]: A tuple (key, price) where `price` is the most recent daily close as a float, or `None` if no valid price was found.
+    """
     url = f"https://query1.finance.yahoo.com/v8/finance/chart/{symbol}?interval=1d&range=1d"
     response = session.get(url, timeout=5)
 
@@ -209,6 +261,21 @@ def _fetch_range_pair_rates(
     period_start: datetime,
     period_end: datetime,
 ) -> tuple[str, list[tuple[date, float]]]:
+    """
+    Retrieve daily close prices for the given ticker symbol between period_start and period_end.
+    
+    Parameters:
+        session (requests.Session): HTTP session used to perform the request.
+        symbol (str): Ticker symbol to fetch historical data for (e.g., "USDSEK=X").
+        key (str): Pair key to return alongside the series (e.g., "USD_SEK").
+        period_start (datetime): Inclusive start of the requested time range (UTC-aware recommended).
+        period_end (datetime): Exclusive end of the requested time range (UTC-aware recommended).
+    
+    Returns:
+        tuple[str, list[tuple[date, float]]]: A tuple whose first element is the provided `key` and whose second element
+        is a list of (date, price) pairs for each day in the range with an available close price. Returns an empty list
+        when no valid data is available for the symbol in the requested range.
+    """
     url = (
         f"https://query1.finance.yahoo.com/v8/finance/chart/{symbol}"
         f"?period1={int(period_start.timestamp())}&period2={int(period_end.timestamp())}&interval=1d"
@@ -235,6 +302,12 @@ def _fetch_range_pair_rates(
 
 
 def _fetch_latest_exchange_rates() -> dict[str, float | None]:
+    """
+    Retrieve the latest exchange rate values for all supported currency pairs.
+    
+    Returns:
+        dict[str, float | None]: A mapping of rate keys to their latest exchange rates or `None` if unavailable.
+    """
     cached = _load_json_cache(_latest_exchange_rates_cache_key(), EXCHANGE_RATES_CACHE_TTL)
     if cached is not None:
         return cached
@@ -261,6 +334,16 @@ def _fetch_latest_exchange_rates() -> dict[str, float | None]:
 
 
 def _fetch_exchange_rates_for_range(start_date: date, end_date: date) -> dict[date, dict[str, float | None]]:
+    """
+    Fetches exchange rates for every date in the inclusive date range and returns a per-day map of rate keys to values.
+    
+    Parameters:
+        start_date (date): Inclusive start of the date range.
+        end_date (date): Inclusive end of the date range.
+    
+    Returns:
+        dict[date, dict[str, float | None]]: A mapping where each date in the inclusive range maps to a dictionary of all rate keys (e.g., `USD_SEK`) to their rate value or `None` if unavailable.
+    """
     _validate_exchange_rate_span(start_date, end_date)
     session = get_session()
     rates_by_date: dict[date, dict[str, float | None]] = {
@@ -298,6 +381,15 @@ def _fetch_exchange_rates_for_range(start_date: date, end_date: date) -> dict[da
 
 
 def _fetch_exchange_rates_for_date(target_date: date | None) -> dict[str, float | None]:
+    """
+    Retrieve exchange rates for a specific date, or the latest rates when no date is provided.
+    
+    Parameters:
+        target_date (date | None): The ISO date to retrieve historical rates for; if None, the current/latest rates are returned.
+    
+    Returns:
+        dict[str, float | None]: A mapping from rate key (e.g., "USD_SEK") to the exchange rate as a float, or `None` if no valid rate is available for that key.
+    """
     if target_date is None:
         return _fetch_latest_exchange_rates()
 
@@ -554,7 +646,20 @@ def get_exchange_rates(date: str | None = Query(None)):
 
 @router.post("/exchange-rates/batch")
 def get_exchange_rates_batch(dates: List[str] = Body(..., embed=True)):
-    """Retrieve exchange rates for multiple ISO dates provided in the request body."""
+    """
+    Return exchange rate maps for multiple ISO date strings provided in the request body.
+    
+    Parses each input string as YYYY-MM-DD and returns a mapping from the original input string to a per-rate-key mapping of exchange rates (float) or None when a rate is unavailable. Cached per-date results are used when available; missing dates are fetched as a contiguous range and cached.
+    
+    Parameters:
+        dates (List[str]): List of date strings in the format "YYYY-MM-DD" provided in the request body.
+    
+    Returns:
+        dict[str, dict[str, float | None]]: Mapping from each input date string to a map of rate keys (e.g., "USD_SEK") to their rate value or `None`.
+    
+    Raises:
+        HTTPException: If any input date is not a valid YYYY-MM-DD string (status code 400).
+    """
     if not dates:
         return {}
 

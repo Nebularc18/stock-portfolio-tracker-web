@@ -43,6 +43,13 @@ function formatCurrency(value: number, locale: string, currency: string = 'USD')
   }).format(value)
 }
 
+/**
+ * Formats a numeric fraction as a locale-aware percentage string.
+ *
+ * @param value - The numeric fraction where 1 === 100% (for example, 0.25 for 25%).
+ * @param locale - The BCP 47 locale identifier used for formatting (for example, "en-US").
+ * @returns A localized percent string formatted with 0 to 1 decimal places (for example, "25%" or "25.5%").
+ */
 function formatPercent(value: number, locale: string): string {
   return new Intl.NumberFormat(locale, {
     style: 'percent',
@@ -51,6 +58,12 @@ function formatPercent(value: number, locale: string): string {
   }).format(value)
 }
 
+/**
+ * Normalizes a stock display name by removing a trailing " (The)" and collapsing excess whitespace.
+ *
+ * @param name - The raw stock display name to normalize
+ * @returns The cleaned stock name with trailing " (The)" removed and consecutive whitespace collapsed to single spaces
+ */
 function formatStockDisplayName(name: string): string {
   return name
     .replace(/\s+\(The\)$/i, '')
@@ -58,6 +71,16 @@ function formatStockDisplayName(name: string): string {
     .trim()
 }
 
+/**
+ * Produces a Pie chart label renderer that colors labels from the provided palette and hides very small slices.
+ *
+ * The returned component renders a text label showing the slice name and its percentage (rounded to nearest whole percent)
+ * and uses a color chosen from `colors` based on the slice index. Labels for slices with less than 5% (`percent < 0.05`)
+ * are not rendered.
+ *
+ * @param colors - Array of CSS color strings used cyclically to color labels
+ * @returns A React component suitable for use as a Pie label renderer that returns an SVG <text> element or `null`
+ */
 function createColoredPieLabel(colors: string[]) {
   return function ColoredPieLabel({ name, percent, index = 0, x = 0, y = 0, cx = 0 }: PieLabelProps) {
     if (percent < 0.05) return null
@@ -76,6 +99,14 @@ function createColoredPieLabel(colors: string[]) {
   }
 }
 
+/**
+ * Render a compact legend for distribution entries with colored swatches and localized percentage shares.
+ *
+ * @param data - Array of distribution entries to display; only the first four entries are rendered.
+ * @param colors - Color palette used for swatches; colors are applied in order and wrap if fewer than entries.
+ * @param locale - Locale identifier used to format percentage values.
+ * @returns An array of React elements where each element is a legend row showing the entry name, a color swatch, and the entry's percentage share of the total.
+ */
 function renderDistributionLegend(data: DistributionDatum[], colors: string[], locale: string) {
   const total = data.reduce((sum, entry) => sum + entry.value, 0)
   return data.slice(0, 4).map((entry, index) => {
@@ -132,11 +163,11 @@ function convertDividendValue(
 }
 
 /**
- * Render the Analytics page showing portfolio and sector distributions using pie charts.
+ * Render the Analytics page showing portfolio, sector, and country distributions and an optional dividend comparison chart.
  *
- * Displays locale- and currency-aware tooltips and manages loading, error (with retry), and empty-data states.
+ * Handles data loading, retryable errors, empty-state display, and locale- and currency-aware formatting for charts and tooltips.
  *
- * @returns A React element that renders distribution charts, a centered loading indicator, an error card with a retry action, or an empty-data message.
+ * @returns A React element containing the analytics dashboard UI
  */
 export default function Analytics() {
   const [distribution, setDistribution] = useState<DistributionResponse | null>(null)

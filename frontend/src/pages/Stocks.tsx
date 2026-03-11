@@ -45,12 +45,12 @@ function getLocalDateInputValue(value: Date = new Date()): string {
 }
 
 /**
-  * Display and manage the user's stock positions with controls to view, add, edit, and remove entries, localized to the current language and timezone.
-  *
-  * The component loads the user's stocks on mount, shows current prices and daily changes, and supports recording a purchase price and purchase date for each position.
-  *
-  * @returns A React element containing the Stocks management user interface.
-  */
+ * Display and manage the user's stock positions with controls to view, add, edit, and remove entries localized to the current language and timezone.
+ *
+ * Loads the user's stocks on mount, shows current prices and daily changes, and allows recording or updating a purchase price and purchase date for each position.
+ *
+ * @returns A React element containing the Stocks management user interface.
+ */
  export default function Stocks() {
   const [stocks, setStocks] = useState<Stock[]>([])
   const [loading, setLoading] = useState(true)

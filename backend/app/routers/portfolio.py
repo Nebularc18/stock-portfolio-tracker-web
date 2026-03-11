@@ -270,21 +270,26 @@ def infer_country_from_ticker(ticker: str) -> Optional[str]:
 @router.get("/summary")
 def get_portfolio_summary(db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
     """
-    Calculate portfolio summary including totals and per-stock metrics in the user's display currency.
+    Compute portfolio totals and per-stock metrics expressed in the current user's display currency.
     
     Returns:
-        dict: A summary object with keys:
-            total_value (float): Total portfolio value in display currency.
-            total_cost (float): Total cost basis in display currency.
-            total_gain_loss (float): Aggregate gain or loss in display currency.
-            total_gain_loss_percent (float): Gain or loss as a percentage (0 if total_cost <= 0).
-            display_currency (str): Currency code used for display values.
+        dict: Summary with keys:
+            total_value (float): Sum of all convertible current stock values in display currency.
+            total_cost (float): Sum of all convertible cost bases in display currency.
+            total_gain_loss (float): Aggregate gain or loss (total_value - total_cost) in display currency.
+            total_gain_loss_percent (float): Percentage gain/loss relative to total_cost (0 if total_cost <= 0).
+            display_currency (str): Currency code used for all converted display values.
             stocks (list): Per-stock dictionaries containing:
-                - ticker, name, quantity, current_price, current_value, currency, sector, logo
-                - gain_loss (float or None), gain_loss_percent (float or None)
-                - current_value_converted (bool), cost_converted (bool)
-            stock_count (int): Number of stocks processed.
-            unconverted_stocks (list): Entries for stocks omitted from totals due to missing exchange rates.
+                ticker (str), name (str), quantity (number), current_price (number),
+                current_value (number): value in display currency when convertible, otherwise native value,
+                currency (str), sector (str), logo (str),
+                gain_loss (number or None): per-stock gain/loss in display currency when both value and cost convertible,
+                gain_loss_percent (number or None): per-stock percent gain when computable,
+                current_value_converted (bool): whether current_value is converted to display currency,
+                cost_converted (bool): whether purchase cost was converted to display currency.
+            stock_count (int): Number of stocks retrieved for the user.
+            unconverted_stocks (list): Entries for stocks omitted or partially omitted from totals due to missing exchange rates;
+                each entry includes ticker, currency, and reason.
     """
     stocks = db.query(Stock).filter(Stock.user_id == current_user.id).all()
     display_currency = get_display_currency(db, current_user.id)

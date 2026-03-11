@@ -7,11 +7,11 @@ import AvanzaMappings from '../components/AvanzaMappings'
 import { t } from '../i18n'
 
 /**
- * Render the Settings page and allow users to change appearance, header indices, language, display currency, and timezone.
+ * Render the Settings page and provide controls for appearance, header indices, language, display currency, and timezone.
  *
  * Fetches available header indices on mount and refreshes header data when header index selections change.
  *
- * @returns The Settings component rendered as a JSX element
+ * @returns The rendered Settings page as a JSX element
  */
 export default function Settings() {
   const { timezone, setTimezone, displayCurrency, setDisplayCurrency, language, setLanguage, headerIndices, setHeaderIndices } = useSettings()

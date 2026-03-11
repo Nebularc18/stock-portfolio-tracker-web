@@ -614,6 +614,18 @@ app.mount('/api/static', StaticFiles(directory=STATIC_DIR), name='api-static')
 
 @app.middleware("http")
 async def log_request_timing(request: Request, call_next):
+    """
+    Log timing for incoming HTTP requests under /api/ and emit warnings for slow requests or informational logs for selected tracked endpoints.
+    
+    Logs the request method, path, response status, and duration in milliseconds. If the duration is greater than or equal to REQUEST_TIMING_WARN_MS a warning is emitted; for specific tracked endpoints an informational log is emitted for normal-duration requests.
+    
+    Parameters:
+        request (Request): The incoming FastAPI request.
+        call_next (Callable): The ASGI call_next callable that processes the request and returns a Response.
+    
+    Returns:
+        Response: The HTTP response produced by the next request handler.
+    """
     start = time.perf_counter()
     response = await call_next(request)
     duration_ms = (time.perf_counter() - start) * 1000
