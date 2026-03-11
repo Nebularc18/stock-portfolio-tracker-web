@@ -10,10 +10,12 @@ from pydantic import BaseModel
 from typing import Optional
 import uuid
 import logging
+import time
 from datetime import date, datetime
 
 from app.main import get_db, get_current_user, User, Stock, StockCreate, StockUpdate, StockResponse, StockPriceHistory
 from app.utils.time import utc_now
+from app.services.brandfetch_service import brandfetch_service
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -185,6 +187,24 @@ def get_stocks(db: Session = Depends(get_db), current_user: User = Depends(get_c
         list[StockResponse]: List of all stocks.
     """
     stocks = db.query(Stock).filter(Stock.user_id == current_user.id).all()
+
+    logos_updated = False
+    for stock in stocks:
+        refreshed_logo = brandfetch_service.get_logo_url_for_ticker(
+            stock.ticker,
+            stock.name,
+            force_refresh=False,
+            existing_logo=stock.logo,
+        )
+        if refreshed_logo and refreshed_logo != stock.logo:
+            stock.logo = refreshed_logo
+            logos_updated = True
+
+    if logos_updated:
+        db.commit()
+        for stock in stocks:
+            db.refresh(stock)
+
     return stocks
 
 
@@ -474,12 +494,13 @@ def refresh_stock(ticker: str, db: Session = Depends(get_db), current_user: User
         stock.sector = info.get("sector") or stock.sector
         stock.last_updated = utc_now()
         
-        should_refresh_logo = not stock.logo
+        should_refresh_logo = brandfetch_service.should_refresh_logo(stock.logo)
         if should_refresh_logo:
             refreshed_logo = brandfetch_service.get_logo_url_for_ticker(
                 stock.ticker,
                 stock.name or info.get("name"),
                 force_refresh=False,
+                existing_logo=stock.logo,
             )
             if refreshed_logo:
                 stock.logo = refreshed_logo
@@ -522,7 +543,16 @@ def get_stock_dividends(ticker: str, years: int = 5, db: Session = Depends(get_d
             detail=f"years must be between 1 and {MAX_YEARS}",
         )
 
-    return _get_merged_stock_dividends(stock, stock.ticker or ticker.upper(), years, stock_service, avanza_service)
+    started_at = time.perf_counter()
+    dividends = _get_merged_stock_dividends(stock, stock.ticker or ticker.upper(), years, stock_service, avanza_service)
+    logger.info(
+        "Stock dividends route ticker=%s years=%s count=%s duration_ms=%.1f",
+        stock.ticker or ticker.upper(),
+        years,
+        len(dividends),
+        (time.perf_counter() - started_at) * 1000,
+    )
+    return dividends
 
 
 @router.get("/{ticker}/upcoming-dividends")
@@ -553,6 +583,7 @@ def get_upcoming_dividends(ticker: str, db: Session = Depends(get_db), current_u
     if not stock:
         raise HTTPException(status_code=404, detail="Stock not found")
     
+    started_at = time.perf_counter()
     normalized_ticker = stock.ticker or ticker.upper()
     historical_dividends = [
         div for div in (stock_service.get_dividends(normalized_ticker, 2) or [])
@@ -621,10 +652,16 @@ def get_upcoming_dividends(ticker: str, db: Session = Depends(get_db), current_u
                 upcoming_or_remaining.append(div)
                 seen_event_keys.add(event_key)
 
+            logger.info(
+                "Upcoming dividends route ticker=%s source=avanza count=%s duration_ms=%.1f",
+                normalized_ticker,
+                len(upcoming_or_remaining),
+                (time.perf_counter() - started_at) * 1000,
+            )
             return upcoming_or_remaining
 
     upcoming = stock_service.get_upcoming_dividends(normalized_ticker) or []
-    return [
+    filtered_upcoming = [
         div for div in upcoming
         if _is_after_purchase_date(div.get('ex_date'), stock.purchase_date)
         and not (
@@ -632,6 +669,13 @@ def get_upcoming_dividends(ticker: str, db: Session = Depends(get_db), current_u
             and cutoff_date <= today
         )
     ]
+    logger.info(
+        "Upcoming dividends route ticker=%s source=stock_service count=%s duration_ms=%.1f",
+        normalized_ticker,
+        len(filtered_upcoming),
+        (time.perf_counter() - started_at) * 1000,
+    )
+    return filtered_upcoming
 
 
 @router.get("/{ticker}/analyst")
@@ -659,10 +703,21 @@ def get_analyst_data(ticker: str, db: Session = Depends(get_db), current_user: U
     if not stock:
         raise HTTPException(status_code=404, detail="Stock not found")
     
+    started_at = time.perf_counter()
     normalized_ticker = stock.ticker or ticker.upper()
     all_recommendations = stock_service.get_all_analyst_recommendations(normalized_ticker)
     price_targets = stock_service.get_price_targets(normalized_ticker)
     latest_rating = stock_service.get_latest_rating(normalized_ticker)
+
+    duration_ms = (time.perf_counter() - started_at) * 1000
+    logger.info(
+        "Analyst route ticker=%s yfinance_count=%s finnhub_count=%s has_price_targets=%s duration_ms=%.1f",
+        normalized_ticker,
+        len(all_recommendations.get('yfinance') or []),
+        len(all_recommendations.get('finnhub') or []),
+        price_targets is not None,
+        duration_ms,
+    )
     
     return {
         "recommendations": all_recommendations.get('yfinance'),

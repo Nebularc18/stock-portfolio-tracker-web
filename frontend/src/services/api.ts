@@ -1,5 +1,8 @@
 const API_BASE = '/api'
 export const AUTH_STORAGE_KEY = 'portfolioAuthUser'
+const SLOW_API_REQUEST_MS = 800
+const exchangeRatesRequestCache = new Map<string, Promise<Record<string, number | null>>>()
+const exchangeRatesBatchRequestCache = new Map<string, Promise<Record<string, Record<string, number | null>>>>()
 
 export interface AuthUser {
   id: number
@@ -47,6 +50,7 @@ function getStoredAuthUser(): AuthUser | null {
 
 async function fetchAPI(endpoint: string, options?: RequestInit) {
   const authUser = getStoredAuthUser()
+  const startedAt = typeof performance !== 'undefined' ? performance.now() : Date.now()
   const response = await fetch(`${API_BASE}${endpoint}`, {
     ...options,
     headers: {
@@ -55,6 +59,20 @@ async function fetchAPI(endpoint: string, options?: RequestInit) {
       ...options?.headers,
     },
   })
+  const durationMs = (typeof performance !== 'undefined' ? performance.now() : Date.now()) - startedAt
+  const method = options?.method || 'GET'
+  const logLabel = `[API timing] ${method} ${endpoint} ${Math.round(durationMs)}ms ${response.status}`
+
+  if (durationMs >= SLOW_API_REQUEST_MS) {
+    console.warn(logLabel)
+  } else if (
+    endpoint.includes('/finnhub/')
+    || endpoint.includes('/marketstack/')
+    || endpoint.includes('/dividends')
+    || endpoint.includes('/analyst')
+  ) {
+    console.info(logLabel)
+  }
   
   if (!response.ok) {
     const error = await response.json().catch(() => ({ detail: 'Unknown error' }))
@@ -128,6 +146,7 @@ export interface Dividend {
   currency?: string
   source?: string
   payment_date: string | null
+  dividend_type?: string | null
 }
 
 export type DividendsByTicker = Record<string, Dividend[]>
@@ -415,11 +434,35 @@ export const api = {
   market: {
     header: (force: boolean = false) => fetchAPI(`/market/header${force ? '?force=true' : ''}`) as Promise<HeaderMarketData>,
     indices: () => fetchAPI('/market/indices') as Promise<{ indices: MarketIndex[]; updated_at: string; next_refresh_at: string }>,
-    exchangeRates: (date?: string) => fetchAPI(`/market/exchange-rates${date ? `?date=${encodeURIComponent(date)}` : ''}`) as Promise<Record<string, number | null>>,
-    exchangeRatesBatch: (dates: string[]) => fetchAPI('/market/exchange-rates/batch', {
-      method: 'POST',
-      body: JSON.stringify({ dates }),
-    }) as Promise<Record<string, Record<string, number | null>>>,
+    exchangeRates: (date?: string) => {
+      const key = date || '__latest__'
+      const cached = exchangeRatesRequestCache.get(key)
+      if (cached) return cached
+
+      const request = fetchAPI(`/market/exchange-rates${date ? `?date=${encodeURIComponent(date)}` : ''}`)
+        .finally(() => {
+          exchangeRatesRequestCache.delete(key)
+        }) as Promise<Record<string, number | null>>
+
+      exchangeRatesRequestCache.set(key, request)
+      return request
+    },
+    exchangeRatesBatch: (dates: string[]) => {
+      const normalizedDates = [...new Set(dates)].sort()
+      const key = normalizedDates.join('|')
+      const cached = exchangeRatesBatchRequestCache.get(key)
+      if (cached) return cached
+
+      const request = fetchAPI('/market/exchange-rates/batch', {
+        method: 'POST',
+        body: JSON.stringify({ dates: normalizedDates }),
+      }).finally(() => {
+        exchangeRatesBatchRequestCache.delete(key)
+      }) as Promise<Record<string, Record<string, number | null>>>
+
+      exchangeRatesBatchRequestCache.set(key, request)
+      return request
+    },
     convert: (amount: number, from: string, to: string) => 
       fetchAPI(`/market/convert?amount=${amount}&from_currency=${from}&to_currency=${to}`),
     hours: (timezone?: string) => fetchAPI(`/market/hours${timezone ? `?timezone=${encodeURIComponent(timezone)}` : ''}`) as Promise<MarketStatus[]>,

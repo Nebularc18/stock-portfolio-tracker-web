@@ -1,57 +1,13 @@
-import { useState, useEffect } from 'react'
+import React, { useState, useEffect } from 'react'
 import { useSettings, TIMEZONES, SUPPORTED_CURRENCIES } from '../SettingsContext'
-import { useTheme, THEMES, ThemeName } from '../ThemeContext'
+import { useTheme } from '../ThemeContext'
 import { useHeaderData } from '../contexts/HeaderDataContext'
 import { api, AvailableIndex } from '../services/api'
 import AvanzaMappings from '../components/AvanzaMappings'
-import { t, TranslationKey } from '../i18n'
-
-const preferenceGridStyle = {
-  display: 'grid',
-  gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))',
-  gap: '16px',
-  alignItems: 'stretch',
-} as const
-
-const preferencePanelStyle = {
-  display: 'flex',
-  flexDirection: 'column',
-  gap: '10px',
-  minHeight: '100%',
-  padding: '18px',
-  backgroundColor: 'var(--bg-tertiary)',
-  background: 'linear-gradient(180deg, color-mix(in srgb, var(--bg-tertiary) 88%, transparent) 0%, color-mix(in srgb, var(--bg-secondary) 82%, transparent) 100%)',
-  border: '1px solid var(--border-color)',
-  borderRadius: '16px',
-} as const
-
-const preferenceLabelStyle = {
-  display: 'block',
-  marginBottom: '8px',
-  color: 'var(--text-secondary)',
-  fontSize: '13px',
-  letterSpacing: '0.02em',
-} as const
-
-const preferenceSelectStyle = {
-  width: '100%',
-  padding: '12px 16px',
-  border: '1px solid var(--border-color)',
-  borderRadius: 'var(--card-radius)',
-  background: 'var(--bg-tertiary)',
-  color: 'var(--text-primary)',
-  fontSize: '14px',
-} as const
-
-const preferenceDescriptionStyle = {
-  color: 'var(--text-secondary)',
-  fontSize: '12px',
-  lineHeight: 1.5,
-  margin: 0,
-} as const
+import { t } from '../i18n'
 
 /**
- * Render the Settings page and allow users to change theme, header indices, language, display currency, and timezone.
+ * Render the Settings page and allow users to change appearance, header indices, language, display currency, and timezone.
  *
  * Fetches available header indices on mount and refreshes header data when header index selections change.
  *
@@ -109,280 +65,199 @@ export default function Settings() {
     invalidateHeaderCache()
   }
 
-  const getThemeText = (theme: (typeof THEMES)[ThemeName], field: 'title' | 'description') => {
-    const key = `settings.theme.${theme.name}.${field}` as TranslationKey
-    const translated = t(language, key)
-    return translated !== key ? translated : (field === 'title' ? theme.displayName : theme.description)
-  }
+  const secLabel: React.CSSProperties = { fontSize: 9, fontWeight: 700, letterSpacing: '0.18em', textTransform: 'uppercase', color: 'var(--muted)' }
+  const panelStyle: React.CSSProperties = { background: 'var(--bg2)', border: '1px solid var(--border)', borderRadius: 8, marginBottom: 16 }
 
   return (
     <div>
-      <h2 style={{ fontSize: '24px', fontWeight: '600', marginBottom: '24px' }}>{t(language, 'settings.title')}</h2>
-      
-      <div className="card" style={{ marginBottom: '24px' }}>
-        <h3 style={{ marginBottom: '20px' }}>{t(language, 'settings.theme')}</h3>
-        <p style={{ color: 'var(--text-secondary)', fontSize: '14px', marginBottom: '24px' }}>
-          {t(language, 'settings.themeDescription')}
-        </p>
-        
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: '16px' }}>
-          {Object.values(THEMES).map((theme) => (
-            <button
-              type="button"
-              key={theme.name}
-              className={`theme-card ${themeName === theme.name ? 'active' : ''}`}
-              onClick={() => setTheme(theme.name as ThemeName)}
-              aria-pressed={themeName === theme.name}
-              style={{
-                background: theme.vars['--bg-secondary'],
-                border: `2px solid ${themeName === theme.name ? theme.vars['--accent-blue'] : theme.vars['--border-color']}`,
-                borderRadius: '12px',
-                padding: '16px',
-                cursor: 'pointer',
-                transition: 'all 0.3s ease',
-                textAlign: 'left',
-              }}
-            >
-              <div 
-                style={{ 
-                  height: 80, 
-                  borderRadius: 8, 
-                  background: theme.preview,
-                  marginBottom: 12,
-                  display: 'flex',
-                  alignItems: 'flex-end',
-                  padding: 12,
-                  gap: 8,
-                }}
-              >
-                <div style={{ 
-                  width: 40, 
-                  height: 40, 
-                  borderRadius: 8, 
-                  background: theme.vars['--bg-secondary'],
-                  border: `1px solid ${theme.vars['--border-color']}`,
-                }} />
-                <div style={{ flex: 1 }}>
-                  <div style={{ 
-                    height: 8, 
-                    width: '60%', 
-                    borderRadius: 4, 
-                    background: theme.vars['--text-primary'],
-                    marginBottom: 6,
-                    opacity: 0.8,
-                  }} />
-                  <div style={{ 
-                    height: 6, 
-                    width: '80%', 
-                    borderRadius: 3, 
-                    background: theme.vars['--text-secondary'],
-                    opacity: 0.6,
-                  }} />
-                </div>
-              </div>
-              
-              <h4 style={{ 
-                fontSize: '16px', 
-                fontWeight: 600, 
-                marginBottom: 4,
-                color: theme.vars['--text-primary'],
-              }}>
-                {getThemeText(theme, 'title')}
-              </h4>
-              <p style={{ 
-                fontSize: '13px', 
-                color: theme.vars['--text-secondary'],
-                lineHeight: 1.4,
-              }}>
-                {getThemeText(theme, 'description')}
-              </p>
-              
-              <div style={{ display: 'flex', gap: 8, marginTop: 12 }}>
-                <div style={{ 
-                  width: 16, 
-                  height: 16, 
-                  borderRadius: '50%', 
-                  background: theme.vars['--accent-green'],
-                }} />
-                <div style={{ 
-                  width: 16, 
-                  height: 16, 
-                  borderRadius: '50%', 
-                  background: theme.vars['--accent-red'],
-                }} />
-                <div style={{ 
-                  width: 16, 
-                  height: 16, 
-                  borderRadius: '50%', 
-                  background: theme.vars['--accent-blue'],
-                }} />
-                <div style={{ 
-                  width: 16, 
-                  height: 16, 
-                  borderRadius: '50%', 
-                  background: theme.vars['--accent-yellow'],
-                }} />
-              </div>
-            </button>
-          ))}
-        </div>
+      {/* Page header */}
+      <div style={{
+        background: 'linear-gradient(115deg, #12141c 0%, var(--bg) 55%)',
+        border: '1px solid var(--border)',
+        borderRadius: 10,
+        padding: '22px 24px',
+        marginBottom: 20,
+      }}>
+        <h2 style={{ fontSize: 22, fontWeight: 700, letterSpacing: '-0.02em' }}>{t(language, 'settings.title')}</h2>
       </div>
-      
-      <div className="card" style={{ marginBottom: '24px' }}>
-        <h3 style={{ marginBottom: '16px' }}>{t(language, 'settings.headerIndices')}</h3>
-        <p style={{ color: 'var(--text-secondary)', fontSize: '14px', marginBottom: '16px' }}>
-          {t(language, 'settings.headerIndicesDescription')}
-        </p>
-        
-        {loadingIndices ? (
-          <p style={{ color: 'var(--text-secondary)' }}>{t(language, 'settings.loadingIndices')}</p>
-        ) : indicesLoadFailed ? (
-          <p style={{ color: 'var(--accent-red)' }}>{t(language, 'settings.failedLoadIndices')}</p>
-        ) : (
-          <div style={{ display: 'flex', flexWrap: 'wrap', gap: '12px' }}>
-            {availableIndices.map((idx) => (
-              <label 
-                key={idx.symbol}
-                style={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: '8px',
-                  padding: '10px 16px',
-                  background: headerIndices.includes(idx.symbol) ? 'var(--accent-blue)' : 'var(--bg-tertiary)',
-                  border: `1px solid ${headerIndices.includes(idx.symbol) ? 'var(--accent-blue)' : 'var(--border-color)'}`,
-                  borderRadius: '8px',
-                  cursor: 'pointer',
-                  transition: 'all 0.2s',
-                }}
-              >
-                <input
-                  type="checkbox"
-                  checked={headerIndices.includes(idx.symbol)}
-                  onChange={() => toggleIndex(idx.symbol)}
-                  aria-label={idx.name}
-                  style={{
-                    position: 'absolute',
-                    width: '1px',
-                    height: '1px',
-                    padding: 0,
-                    margin: -1,
-                    overflow: 'hidden',
-                    clip: 'rect(0, 0, 0, 0)',
-                    whiteSpace: 'nowrap',
-                    border: 0,
-                  }}
-                />
-                <span style={{ 
-                  fontSize: '14px',
-                  color: headerIndices.includes(idx.symbol) ? 'var(--text-on-accent)' : 'var(--text-primary)',
-                  fontWeight: headerIndices.includes(idx.symbol) ? 600 : 400,
-                }}>
-                  {idx.name}
-                </span>
-              </label>
-            ))}
-          </div>
-        )}
-        
-        {headerIndices.length > 0 && (
+
+      {/* Appearance section */}
+      <div style={panelStyle}>
+        <div className="sec-row" style={{ padding: '12px 16px', borderBottom: '1px solid var(--border)' }}>
+          <span className="sec-title">{t(language, 'settings.theme')}</span>
+        </div>
+        <div style={{ padding: '16px' }}>
+          <p style={{ color: 'var(--muted)', fontSize: 12, marginBottom: 16 }}>
+            {t(language, 'settings.themeDescription')}
+          </p>
           <button
-            onClick={clearSelection}
+            type="button"
+            onClick={() => setTheme(themeName === 'dark' ? 'light' : 'dark')}
+            aria-pressed={themeName === 'dark'}
             style={{
-              marginTop: '16px',
-              padding: '8px 16px',
-              fontSize: '13px',
-              background: 'transparent',
-              border: '1px solid var(--border-color)',
-              borderRadius: '6px',
-              color: 'var(--text-secondary)',
+              width: '100%',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              gap: 16,
+              padding: '16px 18px',
+              borderRadius: 10,
+              border: '1px solid var(--border)',
+              background: 'var(--bg3)',
+              color: 'var(--text)',
               cursor: 'pointer',
             }}
           >
-            {t(language, 'settings.clearSelection')}
-          </button>
-        )}
-      </div>
-      
-      <div className="card">
-        <h3 style={{ marginBottom: '16px' }}>{t(language, 'settings.displayPreferences')}</h3>
-        <div style={preferenceGridStyle}>
-          <div style={preferencePanelStyle}>
-            <div>
-              <label
-                htmlFor="language-select"
-                style={preferenceLabelStyle}
-              >
-                {t(language, 'settings.language')}
-              </label>
-              <select
-                id="language-select"
-                value={language}
-                onChange={(e) => setLanguage(e.target.value as 'en' | 'sv')}
-                style={preferenceSelectStyle}
-              >
-                <option value="en">{t(language, 'language.english')}</option>
-                <option value="sv">{t(language, 'language.swedish')}</option>
-              </select>
+            <div style={{ textAlign: 'left' }}>
+              <div style={{ fontSize: 14, fontWeight: 600, marginBottom: 4 }}>
+                {themeName === 'dark' ? t(language, 'settings.darkMode') : t(language, 'settings.lightMode')}
+              </div>
+              <div style={{ fontSize: 12, color: 'var(--muted)' }}>
+                {t(language, 'settings.themeToggleDescription')}
+              </div>
             </div>
-            <p style={preferenceDescriptionStyle}>
+            <div
+              aria-hidden="true"
+              style={{
+                width: 56,
+                height: 30,
+                borderRadius: 999,
+                background: themeName === 'dark' ? 'var(--v)' : 'var(--bg)',
+                border: '1px solid var(--border2)',
+                padding: 3,
+                display: 'flex',
+                justifyContent: themeName === 'dark' ? 'flex-end' : 'flex-start',
+                transition: 'all 0.2s ease',
+              }}
+            >
+              <div style={{ width: 22, height: 22, borderRadius: '50%', background: 'var(--text-on-accent)', boxShadow: '0 1px 3px rgba(0,0,0,0.25)' }} />
+            </div>
+          </button>
+        </div>
+      </div>
+
+      {/* Header indices */}
+      <div style={panelStyle}>
+        <div className="sec-row" style={{ padding: '12px 16px', borderBottom: '1px solid var(--border)' }}>
+          <span className="sec-title">{t(language, 'settings.headerIndices')}</span>
+          {headerIndices.length > 0 && (
+            <button onClick={clearSelection} style={{ background: 'none', border: '1px solid var(--border)', borderRadius: 4, padding: '3px 10px', fontSize: 11, color: 'var(--muted)', cursor: 'pointer' }}>
+              {t(language, 'settings.clearSelection')}
+            </button>
+          )}
+        </div>
+        <div style={{ padding: '16px' }}>
+          <p style={{ color: 'var(--muted)', fontSize: 12, marginBottom: 14 }}>
+            {t(language, 'settings.headerIndicesDescription')}
+          </p>
+          {loadingIndices ? (
+            <p style={{ color: 'var(--muted)', fontSize: 13 }}>{t(language, 'settings.loadingIndices')}</p>
+          ) : indicesLoadFailed ? (
+            <p style={{ color: 'var(--red)', fontSize: 13 }}>{t(language, 'settings.failedLoadIndices')}</p>
+          ) : (
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+              {availableIndices.map((idx) => {
+                const active = headerIndices.includes(idx.symbol)
+                return (
+                  <label
+                    key={idx.symbol}
+                    style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: 7,
+                      padding: '7px 14px',
+                      background: active ? 'rgba(129,140,248,0.15)' : 'var(--bg3)',
+                      border: `1px solid ${active ? 'var(--v)' : 'var(--border)'}`,
+                      borderRadius: 6,
+                      cursor: 'pointer',
+                      transition: 'all 0.15s',
+                    }}
+                  >
+                    <input
+                      type="checkbox"
+                      checked={active}
+                      onChange={() => toggleIndex(idx.symbol)}
+                      aria-label={idx.name}
+                      style={{ position: 'absolute', width: 1, height: 1, padding: 0, margin: -1, overflow: 'hidden', clip: 'rect(0,0,0,0)', whiteSpace: 'nowrap', border: 0 }}
+                    />
+                    <span style={{ fontSize: 13, color: active ? 'var(--v3)' : 'var(--text2)', fontWeight: active ? 600 : 400 }}>
+                      {idx.name}
+                    </span>
+                  </label>
+                )
+              })}
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* Display preferences */}
+      <div style={panelStyle}>
+        <div className="sec-row" style={{ padding: '12px 16px', borderBottom: '1px solid var(--border)' }}>
+          <span className="sec-title">{t(language, 'settings.displayPreferences')}</span>
+        </div>
+        <div style={{ padding: '16px', display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 12 }}>
+          {/* Language */}
+          <div style={{ background: 'var(--bg3)', border: '1px solid var(--border)', borderRadius: 6, padding: '14px 16px' }}>
+            <label htmlFor="language-select" style={{ ...secLabel, display: 'block', marginBottom: 8 }}>
+              {t(language, 'settings.language')}
+            </label>
+            <select
+              id="language-select"
+              value={language}
+              onChange={(e) => setLanguage(e.target.value as 'en' | 'sv')}
+              style={{ width: '100%', padding: '9px 12px', background: 'var(--bg2)', border: '1px solid var(--border2)', borderRadius: 5, color: 'var(--text)', fontSize: 13 }}
+            >
+              <option value="en">{t(language, 'language.english')}</option>
+              <option value="sv">{t(language, 'language.swedish')}</option>
+            </select>
+            <p style={{ color: 'var(--muted)', fontSize: 11, lineHeight: 1.5, marginTop: 8 }}>
               {t(language, 'settings.languageDescription')}
             </p>
           </div>
 
-          <div style={preferencePanelStyle}>
-            <div>
-              <label
-                htmlFor="display-currency-select"
-                style={preferenceLabelStyle}
-              >
-                {t(language, 'settings.displayCurrency')}
-              </label>
-              <select
-                id="display-currency-select"
-                value={displayCurrency}
-                onChange={(e) => setDisplayCurrency(e.target.value)}
-                style={preferenceSelectStyle}
-              >
-                {SUPPORTED_CURRENCIES.map((c) => (
-                  <option key={c.code} value={c.code}>
-                    {c.code} - {c.label}
-                  </option>
-                ))}
-              </select>
-            </div>
-            <p style={preferenceDescriptionStyle}>
+          {/* Display currency */}
+          <div style={{ background: 'var(--bg3)', border: '1px solid var(--border)', borderRadius: 6, padding: '14px 16px' }}>
+            <label htmlFor="display-currency-select" style={{ ...secLabel, display: 'block', marginBottom: 8 }}>
+              {t(language, 'settings.displayCurrency')}
+            </label>
+            <select
+              id="display-currency-select"
+              value={displayCurrency}
+              onChange={(e) => setDisplayCurrency(e.target.value)}
+              style={{ width: '100%', padding: '9px 12px', background: 'var(--bg2)', border: '1px solid var(--border2)', borderRadius: 5, color: 'var(--text)', fontSize: 13 }}
+            >
+              {SUPPORTED_CURRENCIES.map((c) => (
+                <option key={c.code} value={c.code}>{c.code} - {c.label}</option>
+              ))}
+            </select>
+            <p style={{ color: 'var(--muted)', fontSize: 11, lineHeight: 1.5, marginTop: 8 }}>
               {t(language, 'settings.displayCurrencyDescription')}
             </p>
           </div>
 
-          <div style={preferencePanelStyle}>
-            <div>
-              <label
-                htmlFor="timezone-select"
-                style={preferenceLabelStyle}
-              >
-                {t(language, 'settings.timezone')}
-              </label>
-              <select
-                id="timezone-select"
-                value={timezone}
-                onChange={(e) => setTimezone(e.target.value)}
-                style={preferenceSelectStyle}
-              >
-                {TIMEZONES.map((tz) => (
-                  <option key={tz.id} value={tz.id}>
-                    {tz.label}
-                  </option>
-                ))}
-              </select>
-            </div>
-            <p style={preferenceDescriptionStyle}>
+          {/* Timezone */}
+          <div style={{ background: 'var(--bg3)', border: '1px solid var(--border)', borderRadius: 6, padding: '14px 16px' }}>
+            <label htmlFor="timezone-select" style={{ ...secLabel, display: 'block', marginBottom: 8 }}>
+              {t(language, 'settings.timezone')}
+            </label>
+            <select
+              id="timezone-select"
+              value={timezone}
+              onChange={(e) => setTimezone(e.target.value)}
+              style={{ width: '100%', padding: '9px 12px', background: 'var(--bg2)', border: '1px solid var(--border2)', borderRadius: 5, color: 'var(--text)', fontSize: 13 }}
+            >
+              {TIMEZONES.map((tz) => (
+                <option key={tz.id} value={tz.id}>{tz.label}</option>
+              ))}
+            </select>
+            <p style={{ color: 'var(--muted)', fontSize: 11, lineHeight: 1.5, marginTop: 8 }}>
               {t(language, 'settings.timezoneDescription')}
             </p>
           </div>
         </div>
       </div>
-      
+
       <AvanzaMappings />
     </div>
   )

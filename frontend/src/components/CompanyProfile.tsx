@@ -1,6 +1,7 @@
 import { CompanyProfile as CompanyProfileType } from '../services/api'
 import { useSettings } from '../SettingsContext'
 import { t } from '../i18n'
+import { resolveBackendAssetUrl } from '../utils/assets'
 
 interface Props {
   profile: CompanyProfileType | null
@@ -54,10 +55,10 @@ export default function CompanyProfile({ profile, loading }: Props) {
       <h3 style={{ marginBottom: '16px' }}>{t(language, 'companyProfile.title')}</h3>
       
       <div style={{ display: 'flex', gap: '24px', alignItems: 'flex-start' }}>
-        {profile.logo && (
+        {resolveBackendAssetUrl(profile.logo) && (
           <div style={{ flexShrink: 0 }}>
             <img 
-              src={profile.logo} 
+              src={resolveBackendAssetUrl(profile.logo) || undefined} 
               alt={profile.name || 'Company logo'}
               style={{ 
                 width: 64, 

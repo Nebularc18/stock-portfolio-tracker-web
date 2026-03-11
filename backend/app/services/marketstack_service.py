@@ -17,6 +17,7 @@ from typing import Optional, Dict, Any, List
 from dataclasses import dataclass, asdict
 
 logger = logging.getLogger(__name__)
+SLOW_MARKETSTACK_REQUEST_MS = float(os.environ.get('SLOW_MARKETSTACK_REQUEST_MS', '800'))
 
 CACHE_DIR = os.path.join(os.path.dirname(__file__), '..', '..', 'data', 'cache')
 os.makedirs(CACHE_DIR, exist_ok=True)
@@ -281,7 +282,26 @@ class MarketstackService:
         
         try:
             url = f"{self.base_url}/{endpoint}"
+            started_at = time.perf_counter()
             response = requests.get(url, params=params, timeout=15)
+            duration_ms = (time.perf_counter() - started_at) * 1000
+
+            if duration_ms >= SLOW_MARKETSTACK_REQUEST_MS:
+                logger.warning(
+                    "Marketstack request slow endpoint=%s symbols=%s status=%s duration_ms=%.1f",
+                    endpoint,
+                    params.get('symbols'),
+                    response.status_code,
+                    duration_ms,
+                )
+            else:
+                logger.info(
+                    "Marketstack request endpoint=%s symbols=%s status=%s duration_ms=%.1f",
+                    endpoint,
+                    params.get('symbols'),
+                    response.status_code,
+                    duration_ms,
+                )
             
             if response.status_code == 429:
                 _decrement_usage()

@@ -7,6 +7,7 @@ market hours status, and sparkline charts for the header component.
 from fastapi import APIRouter, Body, HTTPException, Query
 from typing import List
 from datetime import date, datetime, timezone, timedelta
+from concurrent.futures import ThreadPoolExecutor, as_completed
 import requests
 import logging
 import json
@@ -42,6 +43,9 @@ def _get_int_env(name: str, default: int) -> int:
 
 MAX_EXCHANGE_RATE_SPAN_DAYS = _get_int_env('MARKET_MAX_EXCHANGE_RATE_SPAN_DAYS', 3650)
 INDICES_CACHE_TTL = 900  # 15 minutes
+EXCHANGE_RATES_CACHE_TTL = _get_int_env('EXCHANGE_RATES_CACHE_TTL', 900)
+HISTORICAL_EXCHANGE_RATES_CACHE_TTL = _get_int_env('HISTORICAL_EXCHANGE_RATES_CACHE_TTL', 86400 * 30)
+EXCHANGE_RATE_FETCH_WORKERS = _get_int_env('EXCHANGE_RATE_FETCH_WORKERS', 6)
 
 
 @lru_cache(maxsize=1)
@@ -129,32 +133,118 @@ def _log_non_200_yahoo_response(url: str, response: requests.Response, context: 
     )
 
 
+def _load_json_cache(filename: str, ttl: int) -> dict | None:
+    try:
+        os.makedirs(_CACHE_DIR, exist_ok=True)
+        filepath = os.path.join(_CACHE_DIR, filename)
+        if not os.path.exists(filepath):
+            return None
+        with open(filepath, 'r', encoding='utf-8') as f:
+            payload = json.load(f)
+        cached_at = payload.get('cached_at', 0)
+        if datetime.now(timezone.utc).timestamp() - cached_at >= ttl:
+            return None
+        return payload.get('value')
+    except Exception:
+        logger.exception("Failed to load cache file %s", filename)
+        return None
+
+
+def _save_json_cache(filename: str, value: dict):
+    try:
+        os.makedirs(_CACHE_DIR, exist_ok=True)
+        filepath = os.path.join(_CACHE_DIR, filename)
+        with open(filepath, 'w', encoding='utf-8') as f:
+            json.dump({
+                'cached_at': datetime.now(timezone.utc).timestamp(),
+                'value': value,
+            }, f)
+    except Exception:
+        logger.exception("Failed to save cache file %s", filename)
+
+
+def _latest_exchange_rates_cache_key() -> str:
+    return 'exchange_rates_latest.json'
+
+
+def _historical_exchange_rates_cache_key(target_date: date) -> str:
+    return f"exchange_rates_{target_date.isoformat().replace('-', '')}.json"
+
+
+def _fetch_latest_pair_rate(session: requests.Session, symbol: str, key: str) -> tuple[str, float | None]:
+    url = f"https://query1.finance.yahoo.com/v8/finance/chart/{symbol}?interval=1d&range=1d"
+    response = session.get(url, timeout=5)
+
+    if response.status_code != 200:
+        _log_non_200_yahoo_response(url, response, f"exchange rate {key}")
+        return key, None
+
+    data = response.json()
+    if not data.get('chart', {}).get('result'):
+        return key, None
+
+    result = data['chart']['result'][0]
+    quote = result.get('indicators', {}).get('quote', [{}])[0]
+    closes = quote.get('close', [])
+    prices = [price for price in closes if price is not None]
+    return key, prices[-1] if prices else None
+
+
+def _fetch_range_pair_rates(
+    session: requests.Session,
+    symbol: str,
+    key: str,
+    period_start: datetime,
+    period_end: datetime,
+) -> tuple[str, list[tuple[date, float]]]:
+    url = (
+        f"https://query1.finance.yahoo.com/v8/finance/chart/{symbol}"
+        f"?period1={int(period_start.timestamp())}&period2={int(period_end.timestamp())}&interval=1d"
+    )
+    response = session.get(url, timeout=5)
+
+    if response.status_code != 200:
+        _log_non_200_yahoo_response(url, response, f"exchange rate series {key}")
+        return key, []
+
+    data = response.json()
+    if not data.get('chart', {}).get('result'):
+        return key, []
+
+    result = data['chart']['result'][0]
+    quote = result.get('indicators', {}).get('quote', [{}])[0]
+    closes = quote.get('close', [])
+    timestamps = result.get('timestamp', [])
+    return key, [
+        (datetime.fromtimestamp(ts, tz=timezone.utc).date(), price)
+        for ts, price in zip(timestamps, closes, strict=False)
+        if price is not None
+    ]
+
+
 def _fetch_latest_exchange_rates() -> dict[str, float | None]:
+    cached = _load_json_cache(_latest_exchange_rates_cache_key(), EXCHANGE_RATES_CACHE_TTL)
+    if cached is not None:
+        return cached
+
     session = get_session()
     rates: dict[str, float | None] = _empty_rate_map()
 
-    for symbol, key in pairs:
-        try:
-            url = f"https://query1.finance.yahoo.com/v8/finance/chart/{symbol}?interval=1d&range=1d"
-            response = session.get(url, timeout=5)
+    with ThreadPoolExecutor(max_workers=max(1, min(EXCHANGE_RATE_FETCH_WORKERS, len(pairs)))) as executor:
+        futures = {
+            executor.submit(_fetch_latest_pair_rate, session, symbol, key): (symbol, key)
+            for symbol, key in pairs
+        }
+        for future in as_completed(futures):
+            symbol, key = futures[future]
+            try:
+                _, rate = future.result()
+                if rate is not None:
+                    _store_exchange_rate(rates, key, rate)
+            except Exception:
+                logger.exception("Failed to fetch exchange rate for %s (%s)", key, symbol)
 
-            if response.status_code != 200:
-                _log_non_200_yahoo_response(url, response, f"exchange rate {key}")
-                continue
-
-            data = response.json()
-            if not data.get('chart', {}).get('result'):
-                continue
-
-            result = data['chart']['result'][0]
-            quote = result.get('indicators', {}).get('quote', [{}])[0]
-            closes = quote.get('close', [])
-            prices = [price for price in closes if price is not None]
-            if prices:
-                _store_exchange_rate(rates, key, prices[-1])
-        except Exception:
-            logger.exception("Failed to fetch exchange rate for %s (%s)", key, symbol)
-
+    _save_json_cache(_latest_exchange_rates_cache_key(), rates)
     return rates
 
 
@@ -169,45 +259,28 @@ def _fetch_exchange_rates_for_range(start_date: date, end_date: date) -> dict[da
     period_start = datetime.combine(start_date - timedelta(days=7), datetime.min.time(), tzinfo=timezone.utc)
     period_end = datetime.combine(end_date + timedelta(days=1), datetime.min.time(), tzinfo=timezone.utc)
 
-    for symbol, key in pairs:
-        try:
-            url = (
-                f"https://query1.finance.yahoo.com/v8/finance/chart/{symbol}"
-                f"?period1={int(period_start.timestamp())}&period2={int(period_end.timestamp())}&interval=1d"
-            )
-            response = session.get(url, timeout=5)
+    with ThreadPoolExecutor(max_workers=max(1, min(EXCHANGE_RATE_FETCH_WORKERS, len(pairs)))) as executor:
+        futures = {
+            executor.submit(_fetch_range_pair_rates, session, symbol, key, period_start, period_end): (symbol, key)
+            for symbol, key in pairs
+        }
+        for future in as_completed(futures):
+            symbol, key = futures[future]
+            try:
+                _, series = future.result()
+                if not series:
+                    continue
 
-            if response.status_code != 200:
-                _log_non_200_yahoo_response(url, response, f"exchange rate series {key}")
-                continue
-
-            data = response.json()
-            if not data.get('chart', {}).get('result'):
-                continue
-
-            result = data['chart']['result'][0]
-            quote = result.get('indicators', {}).get('quote', [{}])[0]
-            closes = quote.get('close', [])
-            timestamps = result.get('timestamp', [])
-            series = [
-                (datetime.fromtimestamp(ts, tz=timezone.utc).date(), price)
-                for ts, price in zip(timestamps, closes, strict=False)
-                if price is not None
-            ]
-
-            if not series:
-                continue
-
-            series_index = 0
-            latest_price = None
-            for current_date in sorted(rates_by_date):
-                while series_index < len(series) and series[series_index][0] <= current_date:
-                    latest_price = series[series_index][1]
-                    series_index += 1
-                if latest_price is not None:
-                    _store_exchange_rate(rates_by_date[current_date], key, latest_price)
-        except Exception:
-            logger.exception("Failed to fetch exchange rate series for %s (%s)", key, symbol)
+                series_index = 0
+                latest_price = None
+                for current_date in sorted(rates_by_date):
+                    while series_index < len(series) and series[series_index][0] <= current_date:
+                        latest_price = series[series_index][1]
+                        series_index += 1
+                    if latest_price is not None:
+                        _store_exchange_rate(rates_by_date[current_date], key, latest_price)
+            except Exception:
+                logger.exception("Failed to fetch exchange rate series for %s (%s)", key, symbol)
 
     return rates_by_date
 
@@ -216,10 +289,19 @@ def _fetch_exchange_rates_for_date(target_date: date | None) -> dict[str, float 
     if target_date is None:
         return _fetch_latest_exchange_rates()
 
-    return _fetch_exchange_rates_for_range(target_date, target_date).get(
+    cached = _load_json_cache(
+        _historical_exchange_rates_cache_key(target_date),
+        HISTORICAL_EXCHANGE_RATES_CACHE_TTL,
+    )
+    if cached is not None:
+        return cached
+
+    rates = _fetch_exchange_rates_for_range(target_date, target_date).get(
         target_date,
         _empty_rate_map(),
     )
+    _save_json_cache(_historical_exchange_rates_cache_key(target_date), rates)
+    return rates
 
 def get_session():
     """Get or create a shared requests session with default headers.
@@ -461,7 +543,12 @@ def get_exchange_rates(date: str | None = Query(None)):
 @router.post("/exchange-rates/batch")
 def get_exchange_rates_batch(dates: List[str] = Body(..., embed=True)):
     """Retrieve exchange rates for multiple ISO dates provided in the request body."""
+    if not dates:
+        return {}
+
     parsed_dates: list[tuple[str, date]] = []
+    rates_by_date: dict[str, dict[str, float | None]] = {}
+    missing_dates: list[tuple[str, date]] = []
 
     for value in dates:
         try:
@@ -471,8 +558,20 @@ def get_exchange_rates_batch(dates: List[str] = Body(..., embed=True)):
 
         parsed_dates.append((value, target_date))
 
-    min_date = min(target_date for _, target_date in parsed_dates)
-    max_date = max(target_date for _, target_date in parsed_dates)
+        cached = _load_json_cache(
+            _historical_exchange_rates_cache_key(target_date),
+            HISTORICAL_EXCHANGE_RATES_CACHE_TTL,
+        )
+        if cached is not None:
+            rates_by_date[value] = cached
+        else:
+            missing_dates.append((value, target_date))
+
+    if not missing_dates:
+        return rates_by_date
+
+    min_date = min(target_date for _, target_date in missing_dates)
+    max_date = max(target_date for _, target_date in missing_dates)
     _validate_exchange_rate_span(min_date, max_date)
 
     range_rates = _fetch_exchange_rates_for_range(
@@ -480,9 +579,10 @@ def get_exchange_rates_batch(dates: List[str] = Body(..., embed=True)):
         max_date,
     )
 
-    rates_by_date: dict[str, dict[str, float | None]] = {}
-    for original_value, target_date in parsed_dates:
-        rates_by_date[original_value] = range_rates.get(target_date, _empty_rate_map())
+    for original_value, target_date in missing_dates:
+        daily_rates = range_rates.get(target_date, _empty_rate_map())
+        rates_by_date[original_value] = daily_rates
+        _save_json_cache(_historical_exchange_rates_cache_key(target_date), daily_rates)
 
     return rates_by_date
 

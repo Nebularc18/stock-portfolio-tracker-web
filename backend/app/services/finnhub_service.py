@@ -13,6 +13,7 @@ import logging
 from typing import Optional, Dict, Any, List, Tuple
 
 logger = logging.getLogger(__name__)
+SLOW_FINNHUB_REQUEST_MS = float(os.environ.get('SLOW_FINNHUB_REQUEST_MS', '800'))
 
 CACHE_DIR = os.path.join(os.path.dirname(__file__), '..', '..', 'data', 'cache')
 os.makedirs(CACHE_DIR, exist_ok=True)
@@ -127,7 +128,26 @@ class FinnhubService:
         
         try:
             url = f"{self.base_url}/{endpoint}"
+            started_at = time.perf_counter()
             response = requests.get(url, params=params, timeout=10)
+            duration_ms = (time.perf_counter() - started_at) * 1000
+
+            if duration_ms >= SLOW_FINNHUB_REQUEST_MS:
+                logger.warning(
+                    "Finnhub request slow endpoint=%s symbol=%s status=%s duration_ms=%.1f",
+                    endpoint,
+                    params.get('symbol'),
+                    response.status_code,
+                    duration_ms,
+                )
+            else:
+                logger.info(
+                    "Finnhub request endpoint=%s symbol=%s status=%s duration_ms=%.1f",
+                    endpoint,
+                    params.get('symbol'),
+                    response.status_code,
+                    duration_ms,
+                )
             
             if response.status_code != 200:
                 return None

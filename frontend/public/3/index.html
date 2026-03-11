@@ -1,0 +1,707 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Portfolio — Slate</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Syne:wght@400;500;600;700;800&family=Outfit:wght@300;400;500&display=swap" rel="stylesheet">
+<style>
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+:root {
+  --bg:     #111318;
+  --bg1:    #161820;
+  --bg2:    #1c1e28;
+  --bg3:    #22252f;
+  --border: #252830;
+  --text:   #d4dae6;
+  --muted:  #5a6070;
+  --dim:    #2e3040;
+  --teal:   #2dd4bf;
+  --teal2:  #5eead4;
+  --green:  #4ade80;
+  --red:    #f87171;
+  --amber:  #fbbf24;
+  --purple: #a78bfa;
+}
+
+html, body {
+  background: var(--bg);
+  color: var(--text);
+  font-family: 'Outfit', sans-serif;
+  font-weight: 400;
+  font-size: 13px;
+  line-height: 1.5;
+  min-height: 100vh;
+}
+
+/* ── HEADER ── */
+.header {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  align-items: stretch;
+  height: 52px;
+  border-bottom: 1px solid var(--border);
+  background: var(--bg1);
+}
+
+.header-brand {
+  font-family: 'Syne', sans-serif;
+  font-weight: 800;
+  font-size: 14px;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--text);
+  padding: 0 28px;
+  border-right: 1px solid var(--border);
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.teal-bar {
+  width: 3px;
+  height: 18px;
+  background: var(--teal);
+  border-radius: 2px;
+  flex-shrink: 0;
+}
+
+.header-indices {
+  display: flex;
+  align-items: stretch;
+  padding: 0 8px;
+}
+
+.h-idx {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 0 16px;
+}
+
+.h-idx-nm { font-size: 10px; color: var(--muted); letter-spacing: 0.1em; text-transform: uppercase; font-weight: 500; }
+.h-idx-vl { font-family: 'Syne', sans-serif; font-weight: 600; font-size: 13px; }
+.h-idx-ch { font-size: 11px; font-weight: 500; }
+
+.up { color: var(--green); }
+.dn { color: var(--red); }
+
+.header-time {
+  padding: 0 24px;
+  display: flex;
+  align-items: center;
+  font-size: 11px;
+  color: var(--muted);
+  border-left: 1px solid var(--border);
+  letter-spacing: 0.06em;
+}
+
+/* ── NAV ── */
+.nav {
+  height: 42px;
+  display: flex;
+  align-items: center;
+  border-bottom: 1px solid var(--border);
+  background: var(--bg);
+  padding: 0 28px;
+  gap: 2px;
+}
+
+.nav a {
+  font-family: 'Syne', sans-serif;
+  font-size: 12px;
+  font-weight: 500;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  text-decoration: none;
+  color: var(--muted);
+  padding: 6px 14px;
+  border-radius: 4px;
+  transition: color 0.15s, background 0.15s;
+}
+
+.nav a:hover { color: var(--text); background: var(--bg2); }
+.nav a.active { color: var(--teal); background: rgba(45,212,191,0.07); }
+
+/* ── PAGE ── */
+.page {
+  display: grid;
+  grid-template-columns: 280px 1fr;
+  min-height: calc(100vh - 94px);
+}
+
+/* ── LEFT SIDEBAR ── */
+.left {
+  border-right: 1px solid var(--border);
+  background: var(--bg1);
+  display: flex;
+  flex-direction: column;
+}
+
+/* Big stacked KPI numbers */
+.kpi-stack {
+  padding: 32px 24px 0;
+  border-bottom: 1px solid var(--border);
+}
+
+.kpi-item {
+  margin-bottom: 28px;
+}
+
+.kpi-item:last-child { margin-bottom: 24px; }
+
+.kpi-lbl {
+  font-size: 10px;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--muted);
+  margin-bottom: 4px;
+  font-weight: 500;
+}
+
+.kpi-num {
+  font-family: 'Syne', sans-serif;
+  font-weight: 700;
+  font-size: 32px;
+  line-height: 1;
+  letter-spacing: -0.01em;
+}
+
+.kpi-num.teal { color: var(--teal); }
+.kpi-num.green { color: var(--green); }
+.kpi-num.amber { color: var(--amber); }
+
+.kpi-sub {
+  font-size: 11px;
+  color: var(--muted);
+  margin-top: 4px;
+  font-weight: 400;
+}
+
+/* Holdings in sidebar */
+.left-section {
+  padding: 16px 24px 8px;
+  flex: 1;
+}
+
+.left-sec-title {
+  font-family: 'Syne', sans-serif;
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+  color: var(--muted);
+  margin-bottom: 12px;
+}
+
+.holding-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 9px 0;
+  border-bottom: 1px solid rgba(37,40,48,0.6);
+  transition: opacity 0.12s;
+}
+
+.holding-row:last-child { border-bottom: none; }
+.holding-row:hover { opacity: 0.8; }
+
+.hr-left {}
+
+.hr-ticker {
+  font-family: 'Syne', sans-serif;
+  font-weight: 700;
+  font-size: 14px;
+  letter-spacing: 0.04em;
+  color: var(--text);
+}
+
+.hr-name { font-size: 10px; color: var(--muted); margin-top: 1px; }
+
+.hr-right { text-align: right; }
+
+.hr-val {
+  font-family: 'Syne', sans-serif;
+  font-weight: 600;
+  font-size: 14px;
+  color: var(--text);
+}
+
+.hr-chg { font-size: 10px; margin-top: 2px; font-weight: 500; }
+
+/* Alloc bars in sidebar */
+.alloc-sec { padding: 16px 24px; border-top: 1px solid var(--border); }
+
+.alloc-title {
+  font-family: 'Syne', sans-serif;
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--muted);
+  margin-bottom: 12px;
+}
+
+.a-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+.a-row:last-child { margin-bottom: 0; }
+
+.a-nm { font-size: 10px; color: var(--muted); width: 48px; flex-shrink: 0; font-weight: 500; }
+
+.a-track {
+  flex: 1;
+  height: 3px;
+  background: var(--dim);
+  border-radius: 2px;
+  overflow: hidden;
+}
+
+.a-fill { height: 100%; border-radius: 2px; }
+
+.a-pct { font-size: 10px; color: var(--muted); width: 34px; text-align: right; flex-shrink: 0; }
+
+/* ── RIGHT CONTENT ── */
+.right { display: flex; flex-direction: column; }
+
+/* Hero total */
+.r-hero {
+  padding: 36px 36px 28px;
+  border-bottom: 1px solid var(--border);
+  background: linear-gradient(135deg, var(--bg1) 0%, var(--bg) 70%);
+  position: relative;
+}
+
+/* Subtle teal accent line */
+.r-hero::after {
+  content: '';
+  position: absolute;
+  top: 0; left: 0; right: 0;
+  height: 2px;
+  background: linear-gradient(90deg, var(--teal) 0%, rgba(45,212,191,0.2) 40%, transparent 70%);
+}
+
+.r-hero-label {
+  font-size: 10px;
+  letter-spacing: 0.22em;
+  text-transform: uppercase;
+  color: var(--muted);
+  font-weight: 500;
+  margin-bottom: 10px;
+}
+
+.r-hero-value {
+  font-family: 'Syne', sans-serif;
+  font-weight: 800;
+  font-size: clamp(52px, 6vw, 84px);
+  line-height: 0.92;
+  letter-spacing: -0.02em;
+  color: var(--text);
+}
+
+.r-hero-value .unit {
+  font-size: 0.25em;
+  font-weight: 500;
+  color: var(--teal);
+  vertical-align: 0.7em;
+  margin-right: 6px;
+  letter-spacing: 0.12em;
+}
+
+.r-hero-bottom {
+  display: flex;
+  align-items: center;
+  gap: 28px;
+  margin-top: 20px;
+}
+
+.r-stat-lbl { font-size: 10px; color: var(--muted); margin-bottom: 3px; letter-spacing: 0.08em; font-weight: 500; }
+.r-stat-val { font-family: 'Syne', sans-serif; font-weight: 600; font-size: 18px; line-height: 1; }
+.r-stat-sub { font-size: 10px; color: var(--muted); margin-top: 2px; }
+
+.r-sep {
+  width: 1px;
+  height: 36px;
+  background: var(--border);
+  flex-shrink: 0;
+}
+
+/* Chart */
+.r-chart {
+  border-bottom: 1px solid var(--border);
+}
+
+.r-sec-hdr {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 12px 24px;
+  border-bottom: 1px solid var(--border);
+}
+
+.r-sec-title {
+  font-family: 'Syne', sans-serif;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.r-period { display: flex; gap: 0; }
+
+.r-period button {
+  font-family: 'Outfit', sans-serif;
+  font-size: 10px;
+  font-weight: 500;
+  background: none;
+  border: 1px solid var(--border);
+  color: var(--muted);
+  padding: 4px 11px;
+  margin-left: -1px;
+  cursor: pointer;
+  letter-spacing: 0.06em;
+  transition: color 0.12s, background 0.12s;
+}
+
+.r-period button:hover { color: var(--text); background: var(--bg2); }
+.r-period button.a { color: var(--teal); background: rgba(45,212,191,0.07); border-color: rgba(45,212,191,0.3); }
+
+.chart-box {
+  padding: 16px 24px 12px;
+  height: 190px;
+}
+
+.chart-box svg { width: 100%; height: 100%; }
+
+/* Dividends */
+.r-divs {}
+
+.r-div-list { list-style: none; }
+
+.r-div-item {
+  display: grid;
+  grid-template-columns: 52px 1fr auto;
+  align-items: center;
+  gap: 14px;
+  padding: 13px 24px;
+  border-bottom: 1px solid rgba(37,40,48,0.6);
+  transition: background 0.12s;
+}
+
+.r-div-item:hover { background: var(--bg1); }
+.r-div-item:last-child { border-bottom: none; }
+
+.r-div-dt {
+  font-family: 'Syne', sans-serif;
+  font-weight: 700;
+  font-size: 22px;
+  line-height: 1;
+  color: var(--teal);
+  text-align: center;
+}
+
+.r-div-dt .mo {
+  font-family: 'Outfit', sans-serif;
+  font-size: 9px;
+  font-weight: 500;
+  letter-spacing: 0.15em;
+  text-transform: uppercase;
+  color: var(--muted);
+  display: block;
+  text-align: center;
+  margin-top: 2px;
+}
+
+.r-div-tk { font-family: 'Syne', sans-serif; font-weight: 700; font-size: 14px; }
+.r-div-ds { font-size: 10px; color: var(--muted); margin-top: 2px; font-weight: 400; }
+
+.r-div-amt {
+  font-family: 'Syne', sans-serif;
+  font-weight: 600;
+  font-size: 16px;
+  text-align: right;
+  white-space: nowrap;
+}
+
+.r-div-cur {
+  font-size: 9px;
+  color: var(--muted);
+  text-align: right;
+  margin-top: 2px;
+  font-weight: 400;
+  letter-spacing: 0.08em;
+}
+
+/* Market in a bottom row */
+.r-market {
+  border-top: 1px solid var(--border);
+  display: grid;
+  grid-template-columns: repeat(5, 1fr);
+}
+
+.mkt-c {
+  padding: 14px 16px;
+  border-right: 1px solid var(--border);
+  transition: background 0.12s;
+}
+
+.mkt-c:last-child { border-right: none; }
+.mkt-c:hover { background: var(--bg2); }
+
+.mkt-nm { font-size: 9px; letter-spacing: 0.16em; text-transform: uppercase; color: var(--muted); margin-bottom: 6px; font-weight: 500; }
+.mkt-vl { font-family: 'Syne', sans-serif; font-weight: 700; font-size: 17px; line-height: 1; }
+.mkt-ch { font-size: 11px; margin-top: 4px; font-weight: 500; }
+
+/* ── SWITCHER ── */
+.switcher {
+  border-top: 1px solid var(--border);
+  display: flex;
+  align-items: center;
+  padding: 10px 28px;
+  gap: 0;
+  background: var(--bg1);
+  grid-column: 1 / 3;
+}
+
+.sw-lbl {
+  font-size: 9px;
+  letter-spacing: 0.24em;
+  text-transform: uppercase;
+  color: var(--muted);
+  margin-right: 14px;
+  font-weight: 500;
+}
+
+.switcher a {
+  font-family: 'Outfit', sans-serif;
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--muted);
+  text-decoration: none;
+  padding: 5px 14px;
+  border: 1px solid var(--border);
+  margin-right: -1px;
+  transition: color 0.12s, background 0.12s;
+}
+
+.switcher a:hover { color: var(--text); background: var(--bg2); }
+.switcher a.active { color: var(--teal); background: rgba(45,212,191,0.07); border-color: rgba(45,212,191,0.3); z-index: 1; }
+</style>
+</head>
+<body>
+
+<div class="header">
+  <div class="header-brand"><span class="teal-bar"></span>Portfolio</div>
+  <div class="header-indices">
+    <div class="h-idx"><span class="h-idx-nm">S&P 500</span><span class="h-idx-vl">5,842.10</span><span class="h-idx-ch up">+0.34%</span></div>
+    <div class="h-idx"><span class="h-idx-nm">NASDAQ</span><span class="h-idx-vl">18,402</span><span class="h-idx-ch up">+0.51%</span></div>
+    <div class="h-idx"><span class="h-idx-nm">OMX 30</span><span class="h-idx-vl">2,641.80</span><span class="h-idx-ch dn">-0.12%</span></div>
+    <div class="h-idx"><span class="h-idx-nm">USD/SEK</span><span class="h-idx-vl">10.4200</span><span class="h-idx-ch dn">-0.08%</span></div>
+    <div class="h-idx"><span class="h-idx-nm">EUR/SEK</span><span class="h-idx-vl">10.8125</span><span class="h-idx-ch up">+0.03%</span></div>
+  </div>
+  <div class="header-time">10 MAR 2026 · 09:42</div>
+</div>
+
+<nav class="nav">
+  <a href="#" class="active">Dashboard</a>
+  <a href="#">Portfolio</a>
+  <a href="#">Transactions</a>
+  <a href="#">Dividends</a>
+  <a href="#">Analytics</a>
+  <a href="#">Search</a>
+  <a href="#">Alerts</a>
+  <a href="#">Account</a>
+</nav>
+
+<div class="page">
+
+  <!-- LEFT SIDEBAR -->
+  <div class="left">
+    <div class="kpi-stack">
+      <div class="kpi-item">
+        <div class="kpi-lbl">Total Value</div>
+        <div class="kpi-num teal">842,341</div>
+        <div class="kpi-sub">SEK · 5 positions</div>
+      </div>
+      <div class="kpi-item">
+        <div class="kpi-lbl">Today's P&amp;L</div>
+        <div class="kpi-num green">+2,841</div>
+        <div class="kpi-sub">+0.34% SEK</div>
+      </div>
+      <div class="kpi-item">
+        <div class="kpi-lbl">YTD Return</div>
+        <div class="kpi-num green">+12.4%</div>
+        <div class="kpi-sub">+93,014 SEK</div>
+      </div>
+      <div class="kpi-item">
+        <div class="kpi-lbl">Annual Yield</div>
+        <div class="kpi-num amber">3.2%</div>
+        <div class="kpi-sub">26,955 SEK est.</div>
+      </div>
+    </div>
+
+    <div class="left-section">
+      <div class="left-sec-title">Holdings</div>
+      <div class="holding-row">
+        <div class="hr-left"><div class="hr-ticker">AAPL</div><div class="hr-name">Apple Inc.</div></div>
+        <div class="hr-right"><div class="hr-val">98,703</div><div class="hr-chg up">+0.87%</div></div>
+      </div>
+      <div class="holding-row">
+        <div class="hr-left"><div class="hr-ticker">TSLA</div><div class="hr-name">Tesla Inc.</div></div>
+        <div class="hr-right"><div class="hr-val">77,546</div><div class="hr-chg dn">-1.23%</div></div>
+      </div>
+      <div class="holding-row">
+        <div class="hr-left"><div class="hr-ticker">NOVO B</div><div class="hr-name">Novo Nordisk</div></div>
+        <div class="hr-right"><div class="hr-val">294,440</div><div class="hr-chg dn">-0.45%</div></div>
+      </div>
+      <div class="holding-row">
+        <div class="hr-left"><div class="hr-ticker">VOLV B</div><div class="hr-name">Volvo AB</div></div>
+        <div class="hr-right"><div class="hr-val">52,040</div><div class="hr-chg up">+0.22%</div></div>
+      </div>
+      <div class="holding-row">
+        <div class="hr-left"><div class="hr-ticker">SAP</div><div class="hr-name">SAP SE</div></div>
+        <div class="hr-right"><div class="hr-val">32,894</div><div class="hr-chg up">+1.15%</div></div>
+      </div>
+    </div>
+
+    <div class="alloc-sec">
+      <div class="alloc-title">Allocation</div>
+      <div class="a-row"><span class="a-nm">NOVO B</span><div class="a-track"><div class="a-fill" style="width:34.9%;background:var(--amber);"></div></div><span class="a-pct">34.9%</span></div>
+      <div class="a-row"><span class="a-nm">AAPL</span><div class="a-track"><div class="a-fill" style="width:11.7%;background:var(--teal);"></div></div><span class="a-pct">11.7%</span></div>
+      <div class="a-row"><span class="a-nm">TSLA</span><div class="a-track"><div class="a-fill" style="width:9.2%;background:var(--red);"></div></div><span class="a-pct">9.2%</span></div>
+      <div class="a-row"><span class="a-nm">VOLV B</span><div class="a-track"><div class="a-fill" style="width:6.2%;background:var(--purple);"></div></div><span class="a-pct">6.2%</span></div>
+      <div class="a-row"><span class="a-nm">SAP</span><div class="a-track"><div class="a-fill" style="width:3.9%;background:var(--green);"></div></div><span class="a-pct">3.9%</span></div>
+    </div>
+  </div>
+
+  <!-- RIGHT CONTENT -->
+  <div class="right">
+
+    <!-- Hero -->
+    <div class="r-hero">
+      <div class="r-hero-label">Net portfolio value · SEK</div>
+      <div class="r-hero-value"><span class="unit">SEK</span>842,341</div>
+      <div class="r-hero-bottom">
+        <div>
+          <div class="r-stat-lbl">Today</div>
+          <div class="r-stat-val up">+2,841 SEK</div>
+          <div class="r-stat-sub">+0.34%</div>
+        </div>
+        <div class="r-sep"></div>
+        <div>
+          <div class="r-stat-lbl">YTD</div>
+          <div class="r-stat-val up">+12.4%</div>
+          <div class="r-stat-sub">+93,014 SEK</div>
+        </div>
+        <div class="r-sep"></div>
+        <div>
+          <div class="r-stat-lbl">Yield (annual)</div>
+          <div class="r-stat-val" style="color:var(--amber);">3.2%</div>
+          <div class="r-stat-sub">26,955 SEK</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Chart -->
+    <div class="r-chart">
+      <div class="r-sec-hdr">
+        <span class="r-sec-title">Performance</span>
+        <div class="r-period">
+          <button>1W</button><button>1M</button><button class="a">3M</button><button>1Y</button><button>ALL</button>
+        </div>
+      </div>
+      <div class="chart-box">
+        <svg viewBox="0 0 640 160" preserveAspectRatio="none">
+          <defs>
+            <linearGradient id="sg" x1="0" y1="0" x2="0" y2="1">
+              <stop offset="0%" stop-color="rgba(45,212,191,0.16)"/>
+              <stop offset="100%" stop-color="rgba(45,212,191,0)"/>
+            </linearGradient>
+          </defs>
+          <line x1="0" y1="40" x2="640" y2="40" stroke="#252830" stroke-width="1"/>
+          <line x1="0" y1="80" x2="640" y2="80" stroke="#252830" stroke-width="1"/>
+          <line x1="0" y1="120" x2="640" y2="120" stroke="#252830" stroke-width="1"/>
+          <text x="4" y="122" font-family="Outfit" font-size="8" fill="#3a4050">750k</text>
+          <text x="4" y="82"  font-family="Outfit" font-size="8" fill="#3a4050">800k</text>
+          <text x="4" y="42"  font-family="Outfit" font-size="8" fill="#3a4050">840k</text>
+          <path d="M0,148 L64,143 L128,139 L192,135 L256,141 L320,129 L384,120 L448,110 L512,99 L576,86 L640,74 L640,160 L0,160 Z" fill="url(#sg)"/>
+          <path d="M0,148 L64,143 L128,139 L192,135 L256,141 L320,129 L384,120 L448,110 L512,99 L576,86 L640,74" fill="none" stroke="#2dd4bf" stroke-width="2" stroke-linejoin="round"/>
+          <circle cx="640" cy="74" r="3.5" fill="var(--bg)" stroke="#2dd4bf" stroke-width="2"/>
+          <text x="636" y="66" font-family="Outfit" font-size="8" fill="#2dd4bf" text-anchor="end">842,341</text>
+          <text x="0"   y="158" font-family="Outfit" font-size="8" fill="#3a4050">DEC</text>
+          <text x="213" y="158" font-family="Outfit" font-size="8" fill="#3a4050" text-anchor="middle">JAN</text>
+          <text x="427" y="158" font-family="Outfit" font-size="8" fill="#3a4050" text-anchor="middle">FEB</text>
+          <text x="636" y="158" font-family="Outfit" font-size="8" fill="#3a4050" text-anchor="end">MAR</text>
+        </svg>
+      </div>
+    </div>
+
+    <!-- Dividends -->
+    <div class="r-divs">
+      <div class="r-sec-hdr">
+        <span class="r-sec-title">Upcoming Dividends</span>
+        <span style="font-size:10px;color:var(--muted);">Next 90 days</span>
+      </div>
+      <ul class="r-div-list">
+        <li class="r-div-item">
+          <div class="r-div-dt">15<span class="mo">MAR</span></div>
+          <div><div class="r-div-tk">AAPL</div><div class="r-div-ds">Quarterly · 0.25 USD/share · Ex-div Mar 10</div></div>
+          <div><div class="r-div-amt">130</div><div class="r-div-cur">SEK</div></div>
+        </li>
+        <li class="r-div-item">
+          <div class="r-div-dt">03<span class="mo">APR</span></div>
+          <div><div class="r-div-tk">VOLV B</div><div class="r-div-ds">Annual · 8.00 SEK/share · Ex-div Mar 28</div></div>
+          <div><div class="r-div-amt">1,600</div><div class="r-div-cur">SEK</div></div>
+        </li>
+        <li class="r-div-item">
+          <div class="r-div-dt">22<span class="mo">APR</span></div>
+          <div><div class="r-div-tk">NOVO B</div><div class="r-div-ds">Semi-annual · 5.40 DKK/share · Ex-div Apr 17</div></div>
+          <div><div class="r-div-amt">2,480</div><div class="r-div-cur">SEK</div></div>
+        </li>
+        <li class="r-div-item">
+          <div class="r-div-dt">18<span class="mo">MAY</span></div>
+          <div><div class="r-div-tk">SAP</div><div class="r-div-ds">Annual · 2.20 EUR/share · Ex-div May 13</div></div>
+          <div><div class="r-div-amt">357</div><div class="r-div-cur">SEK</div></div>
+        </li>
+      </ul>
+    </div>
+
+    <!-- Market strip -->
+    <div class="r-market">
+      <div class="mkt-c"><div class="mkt-nm">S&amp;P 500</div><div class="mkt-vl">5,842</div><div class="mkt-ch up">+0.34%</div></div>
+      <div class="mkt-c"><div class="mkt-nm">NASDAQ</div><div class="mkt-vl">18,402</div><div class="mkt-ch up">+0.51%</div></div>
+      <div class="mkt-c"><div class="mkt-nm">OMX 30</div><div class="mkt-vl">2,641</div><div class="mkt-ch dn">-0.12%</div></div>
+      <div class="mkt-c"><div class="mkt-nm">USD/SEK</div><div class="mkt-vl">10.420</div><div class="mkt-ch dn">-0.08%</div></div>
+      <div class="mkt-c"><div class="mkt-nm">EUR/SEK</div><div class="mkt-vl">10.8125</div><div class="mkt-ch up">+0.03%</div></div>
+    </div>
+
+    <!-- Switcher -->
+    <div class="switcher">
+      <span class="sw-lbl">Design</span>
+      <a href="/1/">01</a>
+      <a href="/2/">02</a>
+      <a href="/3/" class="active">03</a>
+      <a href="/4/">04</a>
+      <a href="/5/">05</a>
+    </div>
+  </div>
+</div>
+
+<script>
+  document.querySelectorAll('.r-period button').forEach(btn => {
+    btn.addEventListener('click', function() {
+      this.closest('.r-period').querySelectorAll('button').forEach(b => b.classList.remove('a'));
+      this.classList.add('a');
+    });
+  });
+</script>
+</body>
+</html>

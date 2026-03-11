@@ -1,6 +1,6 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useMemo } from 'react'
 import { Link } from 'react-router-dom'
-import { api, Stock } from '../services/api'
+import { api, Dividend, Stock } from '../services/api'
 import { getLocaleForLanguage, t } from '../i18n'
 import { useSettings } from '../SettingsContext'
 
@@ -41,12 +41,15 @@ interface DividendWithStock {
   date: string
   amount: number
   dividendCurrency: string
+  dividendType: string | null
 }
 
 interface YearlyData {
   total: number
   months: Record<number, DividendWithStock[]>
 }
+
+const DIVIDEND_BATCH_SIZE = 25
 
 /**
  * Display a yearly and monthly breakdown of historical dividends with per-share values and totals converted to SEK, and provide a selector to choose the year.
@@ -88,39 +91,66 @@ export default function HistoricalDividends() {
     const fetchDividends = async () => {
       setLoading(true)
       try {
-        const currentYear = new Date().getFullYear()
-        const years = Array.from({ length: Math.max(currentYear - 2000, 0) }, (_, i) => currentYear - 1 - i)
-        setAvailableYears(years)
         const todayIso = new Date().toISOString().slice(0, 10)
+        const currentYear = new Date().getUTCFullYear()
+        const earliestPurchaseYear = stocks.reduce((minYear, stock) => {
+          if (!stock.purchase_date) return minYear
+          const parsedYear = Number(stock.purchase_date.slice(0, 4))
+          if (!Number.isFinite(parsedYear)) return minYear
+          return Math.min(minYear, parsedYear)
+        }, currentYear)
+        const yearsToFetch = Math.max(1, currentYear - earliestPurchaseYear + 1)
 
-        const allDividends: DividendWithStock[] = []
-        
-        for (const stock of stocks) {
-          try {
-            const divs = await api.stocks.dividends(stock.ticker, 25)
-            for (const div of divs) {
-              if (stock.purchase_date && div.date < stock.purchase_date) {
-                continue
-              }
-              allDividends.push({
-                ticker: stock.ticker,
-                name: stock.name,
-                currency: stock.currency,
-                quantity: stock.quantity,
-                purchaseDate: stock.purchase_date,
-                date: div.date,
-                amount: div.amount,
-                dividendCurrency: div.currency || stock.currency,
-              })
+        const dividendsByTicker = stocks.length > 0
+          ? Object.assign({}, ...(await Promise.all(
+            Array.from({ length: Math.ceil(stocks.length / DIVIDEND_BATCH_SIZE) }, (_, index) => {
+              const batch = stocks.slice(index * DIVIDEND_BATCH_SIZE, (index + 1) * DIVIDEND_BATCH_SIZE)
+              return api.stocks.dividendsForTickers(batch.map((stock) => stock.ticker), Math.min(yearsToFetch, 10))
+                .catch((err) => {
+                  console.error('Failed to fetch dividend history batch:', err)
+                  return {}
+                })
+            })
+          )))
+          : {}
+
+        const allDividends: DividendWithStock[] = stocks.flatMap((stock) => {
+          const stockDividends = (dividendsByTicker[stock.ticker] || []) as Dividend[]
+          return stockDividends.flatMap((div: Dividend) => {
+            if (stock.purchase_date && div.date < stock.purchase_date) {
+              return []
             }
-          } catch (err) {
-            console.error(`Failed to fetch dividends for ${stock.ticker}:`, err)
-          }
-        }
+            return [{
+              ticker: stock.ticker,
+              name: stock.name,
+              currency: stock.currency,
+              quantity: stock.quantity,
+              purchaseDate: stock.purchase_date,
+              date: div.date,
+              amount: div.amount,
+              dividendCurrency: div.currency || stock.currency,
+              dividendType: div.dividend_type || null,
+            }]
+          })
+        })
 
         const byYear: Record<number, YearlyData> = {}
         
+        const uniqueDividendMap = new Map<string, DividendWithStock>()
         for (const div of allDividends) {
+          const uniqueKey = [
+            div.ticker,
+            div.date,
+            div.amount,
+            div.dividendCurrency,
+            div.dividendType || '',
+          ].join('|')
+          if (!uniqueDividendMap.has(uniqueKey)) {
+            uniqueDividendMap.set(uniqueKey, div)
+          }
+        }
+
+        for (const div of uniqueDividendMap.values()) {
           if (!div.date || div.date > todayIso) {
             continue
           }
@@ -135,6 +165,11 @@ export default function HistoricalDividends() {
           byYear[year].months[month].push(div)
         }
 
+        const years = Object.keys(byYear).map(Number).sort((a, b) => b - a)
+        setAvailableYears(years)
+        if (years.length > 0) {
+          setSelectedYear((currentSelectedYear) => (years.includes(currentSelectedYear) ? currentSelectedYear : years[0]))
+        }
         setDividendsByYear(byYear)
       } catch (err) {
         console.error('Failed to fetch dividends:', err)
@@ -156,6 +191,9 @@ export default function HistoricalDividends() {
   const yearData = dividendsByYear[selectedYear]
   const sortedMonths = yearData?.months ? Object.keys(yearData.months).map(Number).sort((a, b) => a - b) : []
 
+  const hasStocks = stocks.length > 0
+  const hasAnyDividendHistory = useMemo(() => Object.keys(dividendsByYear).length > 0, [dividendsByYear])
+
   let yearTotalSEK = 0
   if (yearData) {
     for (const monthDivs of Object.values(yearData.months)) {
@@ -166,105 +204,119 @@ export default function HistoricalDividends() {
   }
 
   if (loading && stocks.length === 0) {
-    return <div style={{ textAlign: 'center', padding: '40px' }}>{t(language, 'history.loading')}</div>
+    return <div className="loading-state">{t(language, 'history.loading')}</div>
   }
 
   return (
     <div>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '24px' }}>
-          <h2 style={{ fontSize: '24px', fontWeight: '600' }}>{t(language, 'history.title')}</h2>
-        <div style={{ display: 'flex', gap: '12px', alignItems: 'center' }}>
-          <label htmlFor="year-select" style={{ color: 'var(--text-secondary)', fontSize: '14px' }}>{t(language, 'common.year')}:</label>
+      {/* ── HERO HEADER ── */}
+      <div style={{
+        display: 'grid',
+        gridTemplateColumns: '1fr auto',
+        alignItems: 'center',
+        borderBottom: '1px solid var(--border)',
+        padding: '26px 28px',
+        background: 'linear-gradient(115deg, #12141c 0%, var(--bg) 55%)',
+        gap: 20,
+      }}>
+        <div>
+          <div style={{ fontSize: 9, fontWeight: 700, letterSpacing: '0.2em', textTransform: 'uppercase', color: 'var(--muted)', marginBottom: 8 }}>
+            {t(language, 'history.title')}
+          </div>
+          {yearData && (
+            <div style={{ fontSize: 24, fontWeight: 800, letterSpacing: '-0.02em', color: 'var(--green)', fontFamily: "'Fira Code', monospace" }}>
+              {formatCurrency(yearTotalSEK, locale, 'SEK')}
+            </div>
+          )}
+        </div>
+        <div style={{ display: 'flex', gap: 12, alignItems: 'center' }}>
+          <label htmlFor="year-select" style={{ color: 'var(--muted)', fontSize: 11, fontWeight: 700, letterSpacing: '0.1em', textTransform: 'uppercase' }}>
+            {t(language, 'common.year')}
+          </label>
           <select
             id="year-select"
             value={selectedYear}
             onChange={(e) => setSelectedYear(parseInt(e.target.value))}
-            style={{
-              padding: '8px 12px',
-              border: '1px solid var(--border-color)',
-              borderRadius: '6px',
-              background: 'var(--bg-tertiary)',
-              color: 'var(--text-primary)',
-              fontSize: '14px',
-            }}
           >
             {availableYears.map((year) => (
-              <option key={year} value={year}>
-                {year}
-              </option>
+              <option key={year} value={year}>{year}</option>
             ))}
           </select>
         </div>
       </div>
 
-      {stocks.length === 0 ? (
-        <div className="card" style={{ textAlign: 'center', padding: '40px' }}>
-          <p style={{ color: 'var(--text-secondary)' }}>{t(language, 'history.noStocks')}</p>
-        </div>
-      ) : !yearData || Object.keys(yearData.months).length === 0 ? (
-        <div className="card" style={{ textAlign: 'center', padding: '40px' }}>
-          <p style={{ color: 'var(--text-secondary)' }}>{t(language, 'history.noDataYear', { year: selectedYear })}</p>
-        </div>
-      ) : (
-        <>
-          <div className="card" style={{ marginBottom: '24px' }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-              <h3 style={{ fontSize: '16px' }}>{t(language, 'history.totalYear', { year: selectedYear })}</h3>
-              <span style={{ fontSize: '24px', fontWeight: '600', color: 'var(--accent-green)' }}>
-                {formatCurrency(yearTotalSEK, locale, 'SEK')}
-              </span>
-            </div>
-          </div>
+      <div style={{ padding: '0 28px 28px' }}>
+        {!hasStocks ? (
+          <div className="empty-state" style={{ paddingTop: 60 }}>{t(language, 'history.noStocks')}</div>
+        ) : !hasAnyDividendHistory ? (
+          <div className="empty-state" style={{ paddingTop: 60 }}>{t(language, 'history.noHistory')}</div>
+        ) : !yearData || Object.keys(yearData.months).length === 0 ? (
+          <div className="empty-state" style={{ paddingTop: 60 }}>{t(language, 'history.noDataYear', { year: selectedYear })}</div>
+        ) : (
+          <>
+            {sortedMonths.map((month) => {
+              const monthDivs = yearData.months[month]
+              let monthTotal = 0
+              for (const div of monthDivs) {
+                monthTotal += convertToSEK(div.amount * div.quantity, div.dividendCurrency)
+              }
 
-          {sortedMonths.map((month) => {
-            const monthDivs = yearData.months[month]
-            let monthTotal = 0
-            for (const div of monthDivs) {
-              monthTotal += convertToSEK(div.amount * div.quantity, div.dividendCurrency)
-            }
+              return (
+                <div key={month} style={{ marginTop: 20 }}>
+                  {/* ── MONTH SECTION HEADER ── */}
+                  <div className="sec-row">
+                    <span className="sec-title">{getMonthName(month, locale)}</span>
+                    <span style={{ fontFamily: "'Fira Code', monospace", fontSize: 13, fontWeight: 700, color: 'var(--green)' }}>
+                      {formatCurrency(monthTotal, locale, 'SEK')}
+                    </span>
+                  </div>
 
-            return (
-              <div key={month} className="card" style={{ marginBottom: '16px' }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
-                  <h4 style={{ color: 'var(--text-secondary)', fontSize: '14px' }}>{getMonthName(month, locale)}</h4>
-                  <span style={{ color: 'var(--accent-green)', fontWeight: '600' }}>
-                    {formatCurrency(monthTotal, locale, 'SEK')}
-                  </span>
+                  <div style={{ background: 'var(--bg2)', border: '1px solid var(--border)', borderRadius: 8 }}>
+                    <table>
+                      <thead>
+                        <tr>
+                          <th>{t(language, 'performance.name')}</th>
+                          <th>{t(language, 'history.date')}</th>
+                          <th style={{ textAlign: 'right' }}>{t(language, 'history.perShare')}</th>
+                          <th style={{ textAlign: 'right' }}>{t(language, 'history.totalSek')}</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {monthDivs
+                          .sort((a, b) => a.date.localeCompare(b.date))
+                          .map((div, i) => {
+                            const totalSEK = convertToSEK(div.amount * div.quantity, div.dividendCurrency)
+                            return (
+                              <tr key={`${div.ticker}-${i}`}>
+                                 <td>
+                                   <Link to={`/stocks/${div.ticker}`} style={{ color: 'var(--v2)', textDecoration: 'none', fontWeight: 700 }}>
+                                     {div.name || div.ticker}
+                                   </Link>
+                                   {div.dividendType && (
+                                     <span className="badge badge-muted" style={{ marginLeft: 8 }}>
+                                       {div.dividendType}
+                                     </span>
+                                   )}
+                                 </td>
+                                <td style={{ fontFamily: "'Fira Code', monospace", color: 'var(--muted)' }}>{div.date}</td>
+                                <td style={{ fontFamily: "'Fira Code', monospace", textAlign: 'right' }}>
+                                  {formatCurrency(div.amount, locale, div.dividendCurrency)}
+                                </td>
+                                <td style={{ fontFamily: "'Fira Code', monospace", textAlign: 'right', color: 'var(--green)', fontWeight: 700 }}>
+                                  {formatCurrency(totalSEK, locale, 'SEK')}
+                                </td>
+                              </tr>
+                            )
+                          })}
+                      </tbody>
+                    </table>
+                  </div>
                 </div>
-                <table>
-                  <thead>
-                    <tr>
-                      <th>{t(language, 'performance.name')}</th>
-                      <th>{t(language, 'history.date')}</th>
-                      <th>{t(language, 'history.perShare')}</th>
-                      <th>{t(language, 'history.totalSek')}</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {monthDivs
-                      .sort((a, b) => a.date.localeCompare(b.date))
-                      .map((div, i) => {
-                        const totalSEK = convertToSEK(div.amount * div.quantity, div.dividendCurrency)
-                        return (
-                          <tr key={`${div.ticker}-${i}`}>
-                            <td>
-                              <Link to={`/stocks/${div.ticker}`} style={{ color: 'var(--accent-blue)', textDecoration: 'none', fontWeight: '600' }}>
-                                {div.name || div.ticker}
-                              </Link>
-                            </td>
-                            <td>{div.date}</td>
-                            <td>{formatCurrency(div.amount, locale, div.dividendCurrency)}</td>
-                            <td style={{ color: 'var(--accent-green)' }}>{formatCurrency(totalSEK, locale, 'SEK')}</td>
-                          </tr>
-                        )
-                      })}
-                  </tbody>
-                </table>
-              </div>
-            )
-          })}
-        </>
-      )}
+              )
+            })}
+          </>
+        )}
+      </div>
     </div>
   )
 }

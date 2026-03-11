@@ -9,6 +9,7 @@ import logging
 import os
 import re
 import hashlib
+import mimetypes
 from datetime import datetime
 from typing import Optional
 from urllib.parse import quote, urlparse
@@ -18,7 +19,9 @@ import requests
 logger = logging.getLogger(__name__)
 
 CACHE_DIR = os.path.join(os.path.dirname(__file__), '..', '..', 'data', 'cache')
+LOGO_DIR = os.path.join(os.path.dirname(__file__), '..', '..', 'data', 'static', 'logos')
 os.makedirs(CACHE_DIR, exist_ok=True)
+os.makedirs(LOGO_DIR, exist_ok=True)
 
 _LOGO_CACHE_TTL = 86400
 _LOGO_CACHE: dict[str, tuple[Optional[str], float]] = {}
@@ -27,6 +30,15 @@ _CURATED_LOGO_QUERIES: dict[str, list[str]] = {
 }
 
 _session: Optional[requests.Session] = None
+_ALLOWED_REMOTE_LOGO_HOSTS = {
+    'cdn.brandfetch.io',
+    'logo.clearbit.com',
+    'www.google.com',
+    'icons.duckduckgo.com',
+}
+_LEGACY_BRANDFETCH_HOSTS = {
+    'cdn.brandfetch.io',
+}
 
 
 def _resolve_cache_path(filename: str) -> str:
@@ -61,6 +73,12 @@ def _safe_logo_cache_filename(ticker_upper: str) -> str:
     """
     digest = hashlib.sha256(ticker_upper.encode('utf-8')).hexdigest()[:24]
     return f"brandfetch_logo_v2_{digest}.json"
+
+
+def _safe_logo_asset_filename(ticker_upper: str, source: str, extension: str) -> str:
+    digest = hashlib.sha256(f"{ticker_upper}:{source}".encode('utf-8')).hexdigest()[:24]
+    sanitized_extension = extension if extension.startswith('.') else f'.{extension}'
+    return f"logo_{digest}{sanitized_extension}"
 
 
 def _get_session() -> requests.Session:
@@ -142,6 +160,84 @@ def _save_file_cache(filename: str, value: Optional[str], ttl: int = _LOGO_CACHE
 
 
 class BrandfetchService:
+    def _is_local_logo_url(self, value: Optional[str]) -> bool:
+        return bool(value and value.startswith('/static/logos/'))
+
+    def _is_remote_logo_url(self, value: Optional[str]) -> bool:
+        if not value:
+            return False
+        parsed = urlparse(value)
+        return parsed.scheme in {'http', 'https'} and bool(parsed.netloc)
+
+    def _is_allowed_remote_logo_url(self, value: str) -> bool:
+        parsed = urlparse(value)
+        return parsed.scheme in {'http', 'https'} and parsed.netloc.lower() in _ALLOWED_REMOTE_LOGO_HOSTS
+
+    def _is_legacy_remote_logo_url(self, value: str) -> bool:
+        if not value:
+            return False
+        parsed = urlparse(value)
+        return parsed.scheme in {'http', 'https'} and parsed.netloc.lower() in _LEGACY_BRANDFETCH_HOSTS
+
+    def _logo_public_path(self, filename: str) -> str:
+        return f"/static/logos/{filename}"
+
+    def _download_logo_to_local(self, logo_url: str, ticker: str) -> Optional[str]:
+        if not self._is_allowed_remote_logo_url(logo_url):
+            return None
+
+        session = _get_session()
+        try:
+            response = session.get(logo_url, timeout=10)
+            if response.status_code != 200:
+                return None
+
+            content_type = (response.headers.get('Content-Type') or '').split(';', 1)[0].strip().lower()
+            if not content_type.startswith('image/'):
+                return None
+
+            extension = mimetypes.guess_extension(content_type) or os.path.splitext(urlparse(logo_url).path)[1] or '.png'
+            if extension == '.jpe':
+                extension = '.jpg'
+
+            filename = _safe_logo_asset_filename(ticker, logo_url, extension)
+            filepath = os.path.join(LOGO_DIR, filename)
+            with open(filepath, 'wb') as f:
+                f.write(response.content)
+
+            return self._logo_public_path(filename)
+        except Exception as exc:
+            logger.warning("Failed to persist logo for %s from %s: %s", ticker, logo_url, exc)
+            return None
+
+    def _domain_favicon_candidates(self, domain: str) -> list[str]:
+        normalized_domain = domain.strip().lower()
+        if not normalized_domain:
+            return []
+        return [
+            f"https://www.google.com/s2/favicons?sz=128&domain={quote(normalized_domain, safe='')}",
+            f"https://icons.duckduckgo.com/ip3/{quote(normalized_domain, safe='')}.ico",
+        ]
+
+    def _persist_candidate_logo(self, candidate: dict, ticker: str) -> Optional[str]:
+        icon_url = candidate.get('icon') if isinstance(candidate, dict) else None
+        domain = str(candidate.get('domain') or '').strip() if isinstance(candidate, dict) else ''
+
+        if isinstance(icon_url, str):
+            persisted = self._download_logo_to_local(icon_url, ticker)
+            if persisted:
+                return persisted
+
+        for fallback_url in self._domain_favicon_candidates(domain):
+            persisted = self._download_logo_to_local(fallback_url, ticker)
+            if persisted:
+                return persisted
+
+        return None
+
+    def should_refresh_logo(self, value: Optional[str]) -> bool:
+        return not value or not self._is_local_logo_url(value)
+
     def _root_domain_token(self, domain: str) -> str:
         """
         Derives a root domain token from a domain-like string.
@@ -378,7 +474,7 @@ class BrandfetchService:
 
         return unique_candidates
 
-    def _search_logo(self, query: str, ticker: str, company_name: Optional[str]) -> Optional[str]:
+    def _search_logo(self, query: str, ticker: str, company_name: Optional[str]) -> Optional[dict]:
         """
         Searches Brandfetch for a logo matching the provided query and returns the first confidently matched icon URL.
         
@@ -388,7 +484,7 @@ class BrandfetchService:
             company_name (Optional[str]): Company name used to build expected tokens for matching; may be None.
         
         Returns:
-            Optional[str]: The first icon URL judged to be a confident match, or `None` if no suitable logo is found.
+            Optional[dict]: The first Brandfetch candidate judged to be a confident match, or `None` if no suitable logo is found.
         """
         if not query:
             return None
@@ -406,9 +502,8 @@ class BrandfetchService:
                 return None
 
             for candidate in data:
-                icon = candidate.get('icon') if isinstance(candidate, dict) else None
-                if icon and isinstance(candidate, dict) and self._is_confident_match(candidate, ticker, company_name, query):
-                    return icon
+                if isinstance(candidate, dict) and self._is_confident_match(candidate, ticker, company_name, query):
+                    return candidate
         except Exception as exc:
             logger.warning(f"Brandfetch search failed for '{query}': {exc}")
 
@@ -419,6 +514,7 @@ class BrandfetchService:
         ticker: str,
         company_name: Optional[str] = None,
         force_refresh: bool = False,
+        existing_logo: Optional[str] = None,
     ) -> Optional[str]:
         """
         Resolve a logo URL for a given stock ticker, using in-memory and file-based caches and falling back to Brandfetch search when needed.
@@ -434,22 +530,47 @@ class BrandfetchService:
         ticker_upper = ticker.strip().upper()
         cache_file = _safe_logo_cache_filename(ticker_upper)
 
+        if existing_logo and self._is_legacy_remote_logo_url(existing_logo):
+            force_refresh = True
+
+        if existing_logo and self._is_local_logo_url(existing_logo) and not force_refresh:
+            return existing_logo
+
+        if existing_logo and self._is_remote_logo_url(existing_logo):
+            persisted_existing_logo = self._download_logo_to_local(existing_logo, ticker_upper)
+            if persisted_existing_logo:
+                _LOGO_CACHE[ticker_upper] = (persisted_existing_logo, datetime.now().timestamp())
+                _save_file_cache(cache_file, persisted_existing_logo)
+                return persisted_existing_logo
+
         if not force_refresh and ticker_upper in _LOGO_CACHE:
             cached_logo, timestamp = _LOGO_CACHE[ticker_upper]
             if datetime.now().timestamp() - timestamp < _LOGO_CACHE_TTL:
-                return cached_logo
+                if self._is_local_logo_url(cached_logo) or cached_logo is None:
+                    return cached_logo
 
         if not force_refresh:
             cache_hit, cached_logo = _load_file_cache(cache_file)
             if cache_hit:
-                _LOGO_CACHE[ticker_upper] = (cached_logo, datetime.now().timestamp())
-                return cached_logo
+                if self._is_local_logo_url(cached_logo) or cached_logo is None:
+                    _LOGO_CACHE[ticker_upper] = (cached_logo, datetime.now().timestamp())
+                    return cached_logo
+
+        if force_refresh:
+            _LOGO_CACHE.pop(ticker_upper, None)
+            try:
+                filepath = _resolve_cache_path(cache_file)
+                if os.path.exists(filepath):
+                    os.remove(filepath)
+            except Exception:
+                logger.warning("Failed to clear stale logo cache for %s", ticker_upper)
 
         candidates = self._build_query_candidates(ticker_upper, company_name)
 
         logo_url = None
         for query in candidates:
-            logo_url = self._search_logo(query, ticker_upper, company_name)
+            candidate = self._search_logo(query, ticker_upper, company_name)
+            logo_url = self._persist_candidate_logo(candidate, ticker_upper) if candidate else None
             if logo_url:
                 break
 

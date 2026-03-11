@@ -4,12 +4,27 @@ import { api, Dividend, DistributionResponse, DividendsByTicker } from '../servi
 import { useSettings } from '../SettingsContext'
 import { getLocaleForLanguage, t } from '../i18n'
 
-const COLORS = ['#6366f1', '#ec4899', '#ef4444', '#f97316', '#22c55e', '#3b82f6', '#a855f7', '#f43f5e']
-const COMPARISON_COLORS = ['#22c55e', '#f59e0b', '#ec4899']
+const STOCK_COLORS = ['#7c3aed', '#06b6d4', '#22c55e', '#f59e0b', '#f43f5e', '#8b5cf6', '#14b8a6', '#3b82f6']
+const SECTOR_COLORS = ['#f97316', '#eab308', '#84cc16', '#06b6d4', '#3b82f6', '#8b5cf6', '#ec4899', '#ef4444']
+const COUNTRY_COLORS = ['#0ea5e9', '#38bdf8', '#14b8a6', '#22c55e', '#eab308', '#f97316', '#f43f5e', '#a855f7']
+const COMPARISON_COLORS = ['#818cf8', '#4ade80', '#fbbf24']
 
 type DividendComparisonRow = {
   month: string
 } & Record<string, number | string>
+
+type DistributionDatum = {
+  name: string
+  value: number
+}
+
+type PieLabelProps = {
+  name: string
+  percent: number
+  index?: number
+  x?: number
+  y?: number
+}
 
 /**
  * Format a number as a currency string using the specified locale and currency.
@@ -25,6 +40,69 @@ function formatCurrency(value: number, locale: string, currency: string = 'USD')
     currency,
     minimumFractionDigits: 2,
   }).format(value)
+}
+
+function formatPercent(value: number, locale: string): string {
+  return new Intl.NumberFormat(locale, {
+    style: 'percent',
+    minimumFractionDigits: 0,
+    maximumFractionDigits: 1,
+  }).format(value)
+}
+
+function formatStockDisplayName(name: string): string {
+  return name
+    .replace(/\s+\(The\)$/i, '')
+    .replace(/\s+/g, ' ')
+    .trim()
+}
+
+function createColoredPieLabel(colors: string[]) {
+  return function ColoredPieLabel({ name, percent, index = 0, x = 0, y = 0 }: PieLabelProps) {
+    if (percent < 0.05) return null
+    return (
+      <text
+        x={x}
+        y={y}
+        fill={colors[index % colors.length]}
+        textAnchor={x > 210 ? 'start' : 'end'}
+        dominantBaseline="central"
+        style={{ fontSize: 12, fontWeight: 700 }}
+      >
+        {`${name} (${(percent * 100).toFixed(0)}%)`}
+      </text>
+    )
+  }
+}
+
+function renderDistributionLegend(data: DistributionDatum[], colors: string[], locale: string) {
+  const total = data.reduce((sum, entry) => sum + entry.value, 0)
+  return data.slice(0, 4).map((entry, index) => {
+    const share = total > 0 ? entry.value / total : 0
+    return (
+      <div
+        key={entry.name}
+        style={{
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          gap: 10,
+          padding: '10px 12px',
+          background: 'rgba(255,255,255,0.03)',
+          border: '1px solid rgba(255,255,255,0.06)',
+          borderRadius: 10,
+        }}
+      >
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, minWidth: 0 }}>
+          <span style={{ width: 10, height: 10, borderRadius: '50%', background: colors[index % colors.length], boxShadow: `0 0 16px ${colors[index % colors.length]}66`, flexShrink: 0 }} />
+          <span style={{ fontSize: 12, color: 'var(--text)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{entry.name}</span>
+        </div>
+        <span style={{ fontSize: 12, fontWeight: 700, color: colors[index % colors.length], fontFamily: "'Fira Code', monospace" }}>
+          {formatPercent(share, locale)}
+        </span>
+      </div>
+    )
+  })
 }
 
 /**
@@ -61,6 +139,7 @@ function convertDividendValue(
  */
 export default function Analytics() {
   const [distribution, setDistribution] = useState<DistributionResponse | null>(null)
+  const [stockNamesByTicker, setStockNamesByTicker] = useState<Record<string, string>>({})
   const [dividendComparisonData, setDividendComparisonData] = useState<DividendComparisonRow[]>([])
   const [availableComparisonYears, setAvailableComparisonYears] = useState<number[]>([])
   const [selectedComparisonYears, setSelectedComparisonYears] = useState<number[]>([])
@@ -70,6 +149,9 @@ export default function Analytics() {
   const { displayCurrency, language } = useSettings()
   const locale = getLocaleForLanguage(language)
   const chartCurrency = distribution?.display_currency || displayCurrency
+  const stockPieLabel = createColoredPieLabel(STOCK_COLORS)
+  const sectorPieLabel = createColoredPieLabel(SECTOR_COLORS)
+  const countryPieLabel = createColoredPieLabel(COUNTRY_COLORS)
 
   const fetchData = useCallback(async () => {
     const fetchId = latestFetchId.current + 1
@@ -86,6 +168,9 @@ export default function Analytics() {
       ])
       if (!isCurrentFetch()) return
       setDistribution(distributionData)
+      setStockNamesByTicker(Object.fromEntries(
+        stocksData.map((stock) => [stock.ticker, formatStockDisplayName(stock.name || stock.ticker)])
+      ))
       const targetCurrency = distributionData.display_currency || displayCurrency
 
       const now = new Date()
@@ -181,13 +266,8 @@ export default function Analytics() {
     : []
   
   const stockData = distribution?.by_stock
-    ? Object.entries(distribution.by_stock).map(([name, value]) => ({ name, value }))
+    ? Object.entries(distribution.by_stock).map(([name, value]) => ({ name: stockNamesByTicker[name] || name, value }))
     : []
-
-  const renderPieLabel = ({ name, percent }: { name: string; percent: number }) => {
-    if (percent < 0.05) return null
-    return `${name} (${(percent * 100).toFixed(0)}%)`
-  }
 
   const handleToggleComparisonYear = (year: number) => {
     setSelectedComparisonYears((currentYears) => {
@@ -204,193 +284,220 @@ export default function Analytics() {
   }
 
   if (loading) {
-    return <div style={{ textAlign: 'center', padding: '40px' }}>{t(language, 'common.loading')}</div>
+    return <div className="loading-state">{t(language, 'common.loading')}</div>
   }
 
   if (error) {
     return (
-      <div className="card" style={{ textAlign: 'center', padding: '40px' }}>
-        <p style={{ color: 'var(--accent-red)', marginBottom: '16px' }}>{error}</p>
-        <button className="btn btn-primary" onClick={fetchData}>{t(language, 'common.retry')}</button>
+      <div style={{ padding: 28 }}>
+        <div style={{ background: 'var(--bg2)', border: '1px solid var(--border)', borderRadius: 8, padding: '32px', textAlign: 'center' }}>
+          <p style={{ color: 'var(--red)', marginBottom: 16 }}>{error}</p>
+          <button className="btn btn-primary" onClick={fetchData}>{t(language, 'common.retry')}</button>
+        </div>
       </div>
     )
   }
 
+  const tooltipStyle = {
+    background: 'var(--bg3)',
+    border: '1px solid var(--border2)',
+    borderRadius: 6,
+    color: 'var(--text)',
+    fontSize: 12,
+    fontFamily: "'Fira Code', monospace",
+  }
+
   return (
     <div>
-      <div style={{ marginBottom: '24px' }}>
-        <h2 style={{ fontSize: '24px', fontWeight: '600' }}>{t(language, 'analytics.title')}</h2>
-        <p style={{ color: 'var(--text-secondary)', fontSize: '12px', marginTop: '4px' }}>
+      {/* ── HERO HEADER ── */}
+      <div style={{
+        borderBottom: '1px solid var(--border)',
+        padding: '26px 28px',
+        background: 'linear-gradient(115deg, #12141c 0%, var(--bg) 55%)',
+      }}>
+        <div style={{ fontSize: 9, fontWeight: 700, letterSpacing: '0.2em', textTransform: 'uppercase', color: 'var(--muted)', marginBottom: 8 }}>
           {t(language, 'analytics.overview')}
-        </p>
+        </div>
+        <h2 style={{ fontSize: 22, fontWeight: 800, letterSpacing: '-0.02em' }}>{t(language, 'analytics.title')}</h2>
       </div>
 
-      {(sectorData.length > 0 || stockData.length > 0 || countryData.length > 0) ? (
-        <div className="grid grid-2">
-          {stockData.length > 0 && (
-            <div className="card">
-              <h3 style={{ marginBottom: '16px' }}>{t(language, 'analytics.portfolioDistribution')}</h3>
-              <div style={{ height: 280 }}>
-                <ResponsiveContainer width="100%" height="100%">
-                  <PieChart>
-                    <Pie
-                      data={stockData}
-                      cx="50%"
-                      cy="50%"
-                      labelLine={false}
-                      label={renderPieLabel}
-                      outerRadius={100}
-                      fill="#8884d8"
-                      dataKey="value"
-                    >
-                      {stockData.map((_, index) => (
-                        <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
-                      ))}
-                    </Pie>
-                    <Tooltip 
-                      formatter={(value: number) => formatCurrency(value, locale, chartCurrency)}
-                      contentStyle={{ 
-                        background: '#2a2a2a', 
-                        border: '1px solid #444', 
-                        borderRadius: '8px',
-                        color: '#fff'
-                      }}
-                      itemStyle={{ color: '#fff' }}
-                    />
-                  </PieChart>
-                </ResponsiveContainer>
-              </div>
-            </div>
-          )}
-          
-          {sectorData.length > 0 && (
-            <div className="card">
-              <h3 style={{ marginBottom: '16px' }}>{t(language, 'analytics.sectorDistribution')}</h3>
-              <div style={{ height: 280 }}>
-                <ResponsiveContainer width="100%" height="100%">
-                  <PieChart>
-                    <Pie
-                      data={sectorData}
-                      cx="50%"
-                      cy="50%"
-                      labelLine={false}
-                      label={renderPieLabel}
-                      outerRadius={100}
-                      fill="#8884d8"
-                      dataKey="value"
-                    >
-                      {sectorData.map((_, index) => (
-                        <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
-                      ))}
-                    </Pie>
-                    <Tooltip 
-                      formatter={(value: number) => formatCurrency(value, locale, chartCurrency)}
-                      contentStyle={{ 
-                        background: '#2a2a2a', 
-                        border: '1px solid #444', 
-                        borderRadius: '8px',
-                        color: '#fff'
-                      }}
-                      itemStyle={{ color: '#fff' }}
-                    />
-                  </PieChart>
-                </ResponsiveContainer>
-              </div>
-            </div>
-          )}
+      <div style={{ padding: '0 28px 28px' }}>
 
-          {countryData.length > 0 && (
-            <div className="card">
-              <h3 style={{ marginBottom: '16px' }}>{t(language, 'analytics.countryDistribution')}</h3>
-              <div style={{ height: 280 }}>
-                <ResponsiveContainer width="100%" height="100%">
-                  <PieChart>
-                    <Pie
-                      data={countryData}
-                      cx="50%"
-                      cy="50%"
-                      labelLine={false}
-                      label={renderPieLabel}
-                      outerRadius={100}
-                      fill="#8884d8"
-                      dataKey="value"
-                    >
-                      {countryData.map((_, index) => (
-                        <Cell key={`country-cell-${index}`} fill={COLORS[index % COLORS.length]} />
-                      ))}
-                    </Pie>
-                    <Tooltip 
-                      formatter={(value: number) => formatCurrency(value, locale, chartCurrency)}
-                      contentStyle={{ 
-                        background: '#2a2a2a', 
-                        border: '1px solid #444', 
-                        borderRadius: '8px',
-                        color: '#fff'
-                      }}
-                      itemStyle={{ color: '#fff' }}
-                    />
-                  </PieChart>
-                </ResponsiveContainer>
-              </div>
-            </div>
-          )}
+        {(sectorData.length > 0 || stockData.length > 0 || countryData.length > 0) ? (
+          <>
+            {/* ── DISTRIBUTION CHARTS ── */}
+            <div className="grid grid-3" style={{ marginTop: 20, marginBottom: 20 }}>
+              {stockData.length > 0 && (
+                <div style={{ background: 'linear-gradient(180deg, rgba(124,58,237,0.16) 0%, rgba(6,182,212,0.06) 42%, var(--bg2) 100%)', border: '1px solid rgba(124,58,237,0.22)', borderRadius: 14, overflow: 'hidden', boxShadow: '0 18px 40px rgba(12,18,38,0.22)' }}>
+                  <div style={{ padding: '12px 18px', borderBottom: '1px solid rgba(255,255,255,0.06)' }}>
+                    <span style={{ fontSize: 9, fontWeight: 700, letterSpacing: '0.18em', textTransform: 'uppercase', color: 'var(--muted)' }}>
+                      {t(language, 'analytics.portfolioDistribution')}
+                    </span>
+                  </div>
+                  <div style={{ padding: 18, height: 280 }}>
+                    <ResponsiveContainer width="100%" height="100%">
+                      <PieChart>
+                        <Pie
+                          data={stockData}
+                          cx="50%"
+                          cy="50%"
+                          labelLine={false}
+                          label={stockPieLabel}
+                          outerRadius={92}
+                          innerRadius={42}
+                          dataKey="value"
+                        >
+                          {stockData.map((_, index) => (
+                            <Cell key={`cell-${index}`} fill={STOCK_COLORS[index % STOCK_COLORS.length]} stroke="rgba(255,255,255,0.72)" strokeWidth={1.2} />
+                          ))}
+                        </Pie>
+                        <Tooltip
+                          formatter={(value: number) => formatCurrency(value, locale, chartCurrency)}
+                          contentStyle={tooltipStyle}
+                          itemStyle={{ color: 'var(--text2)' }}
+                        />
+                      </PieChart>
+                    </ResponsiveContainer>
+                  </div>
+                  <div style={{ padding: '0 18px 18px', display: 'grid', gap: 8 }}>
+                    {renderDistributionLegend(stockData, STOCK_COLORS, locale)}
+                  </div>
+                </div>
+              )}
 
-          {dividendComparisonData.length > 0 && (
-            <div className="card" style={{ gridColumn: '1 / -1' }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: '16px', marginBottom: '16px', flexWrap: 'wrap' }}>
-                <div>
-                  <h3 style={{ marginBottom: '8px' }}>{t(language, 'analytics.dividendComparison')}</h3>
-                  <p style={{ color: 'var(--text-secondary)', fontSize: '12px', margin: 0 }}>{t(language, 'analytics.dividendComparisonHint')}</p>
+              {sectorData.length > 0 && (
+                <div style={{ background: 'linear-gradient(180deg, rgba(249,115,22,0.16) 0%, rgba(234,179,8,0.06) 42%, var(--bg2) 100%)', border: '1px solid rgba(249,115,22,0.22)', borderRadius: 14, overflow: 'hidden', boxShadow: '0 18px 40px rgba(12,18,38,0.22)' }}>
+                  <div style={{ padding: '12px 18px', borderBottom: '1px solid rgba(255,255,255,0.06)' }}>
+                    <span style={{ fontSize: 9, fontWeight: 700, letterSpacing: '0.18em', textTransform: 'uppercase', color: 'var(--muted)' }}>
+                      {t(language, 'analytics.sectorDistribution')}
+                    </span>
+                  </div>
+                  <div style={{ padding: 18, height: 280 }}>
+                    <ResponsiveContainer width="100%" height="100%">
+                      <PieChart>
+                        <Pie
+                          data={sectorData}
+                          cx="50%"
+                          cy="50%"
+                          labelLine={false}
+                          label={sectorPieLabel}
+                          outerRadius={92}
+                          innerRadius={42}
+                          dataKey="value"
+                        >
+                          {sectorData.map((_, index) => (
+                            <Cell key={`cell-${index}`} fill={SECTOR_COLORS[index % SECTOR_COLORS.length]} stroke="rgba(255,255,255,0.72)" strokeWidth={1.2} />
+                          ))}
+                        </Pie>
+                        <Tooltip
+                          formatter={(value: number) => formatCurrency(value, locale, chartCurrency)}
+                          contentStyle={tooltipStyle}
+                          itemStyle={{ color: 'var(--text2)' }}
+                        />
+                      </PieChart>
+                    </ResponsiveContainer>
+                  </div>
+                  <div style={{ padding: '0 18px 18px', display: 'grid', gap: 8 }}>
+                    {renderDistributionLegend(sectorData, SECTOR_COLORS, locale)}
+                  </div>
                 </div>
-                <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', justifyContent: 'flex-end' }}>
-                  {availableComparisonYears.map((year) => {
-                    const selected = selectedComparisonYears.includes(year)
-                    return (
-                      <button
-                        key={year}
-                        type="button"
-                        className={selected ? 'btn btn-primary' : 'btn btn-secondary'}
-                        style={{ padding: '6px 12px', fontSize: '12px' }}
-                        onClick={() => handleToggleComparisonYear(year)}
-                        aria-pressed={selected}
-                      >
-                        {year}
-                      </button>
-                    )
-                  })}
+              )}
+
+              {countryData.length > 0 && (
+                <div style={{ background: 'linear-gradient(180deg, rgba(14,165,233,0.16) 0%, rgba(34,197,94,0.06) 42%, var(--bg2) 100%)', border: '1px solid rgba(14,165,233,0.22)', borderRadius: 14, overflow: 'hidden', boxShadow: '0 18px 40px rgba(12,18,38,0.22)' }}>
+                  <div style={{ padding: '12px 18px', borderBottom: '1px solid rgba(255,255,255,0.06)' }}>
+                    <span style={{ fontSize: 9, fontWeight: 700, letterSpacing: '0.18em', textTransform: 'uppercase', color: 'var(--muted)' }}>
+                      {t(language, 'analytics.countryDistribution')}
+                    </span>
+                  </div>
+                  <div style={{ padding: 18, height: 280 }}>
+                    <ResponsiveContainer width="100%" height="100%">
+                      <PieChart>
+                        <Pie
+                          data={countryData}
+                          cx="50%"
+                          cy="50%"
+                          labelLine={false}
+                          label={countryPieLabel}
+                          outerRadius={92}
+                          innerRadius={42}
+                          dataKey="value"
+                        >
+                          {countryData.map((_, index) => (
+                            <Cell key={`country-cell-${index}`} fill={COUNTRY_COLORS[index % COUNTRY_COLORS.length]} stroke="rgba(255,255,255,0.72)" strokeWidth={1.2} />
+                          ))}
+                        </Pie>
+                        <Tooltip
+                          formatter={(value: number) => formatCurrency(value, locale, chartCurrency)}
+                          contentStyle={tooltipStyle}
+                          itemStyle={{ color: 'var(--text2)' }}
+                        />
+                      </PieChart>
+                    </ResponsiveContainer>
+                  </div>
+                  <div style={{ padding: '0 18px 18px', display: 'grid', gap: 8 }}>
+                    {renderDistributionLegend(countryData, COUNTRY_COLORS, locale)}
+                  </div>
                 </div>
-              </div>
-              <div style={{ height: 320 }}>
-                <ResponsiveContainer width="100%" height="100%">
-                  <BarChart data={dividendComparisonData}>
-                    <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.08)" vertical={true} />
-                    <XAxis dataKey="month" stroke="#888" fontSize={12} />
-                    <YAxis stroke="#888" fontSize={12} />
-                    <Tooltip
-                      formatter={(value: number) => formatCurrency(value, locale, chartCurrency)}
-                      contentStyle={{
-                        background: '#111827',
-                        border: '1px solid #374151',
-                        borderRadius: '10px',
-                        color: '#fff'
-                      }}
-                      itemStyle={{ color: '#fff' }}
-                    />
-                    <Legend />
-                    {selectedComparisonYears.map((year, index) => (
-                      <Bar key={year} dataKey={String(year)} fill={COMPARISON_COLORS[index % COMPARISON_COLORS.length]} radius={[6, 6, 0, 0]} />
-                    ))}
-                  </BarChart>
-                </ResponsiveContainer>
-              </div>
+              )}
             </div>
-          )}
-        </div>
-      ) : (
-        <div className="card" style={{ textAlign: 'center', padding: '40px' }}>
-          <p style={{ color: 'var(--text-secondary)' }}>{t(language, 'analytics.noData')}</p>
-        </div>
-      )}
+
+            {/* ── DIVIDEND COMPARISON ── */}
+            {dividendComparisonData.length > 0 && (
+              <div style={{ background: 'var(--bg2)', border: '1px solid var(--border)', borderRadius: 8 }}>
+                <div style={{ padding: '12px 18px 12px', borderBottom: '1px solid var(--border)', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 12 }}>
+                  <div>
+                    <span style={{ fontSize: 9, fontWeight: 700, letterSpacing: '0.18em', textTransform: 'uppercase', color: 'var(--muted)' }}>
+                      {t(language, 'analytics.dividendComparison')}
+                    </span>
+                    <p style={{ fontSize: 11, color: 'var(--muted)', marginTop: 4 }}>{t(language, 'analytics.dividendComparisonHint')}</p>
+                  </div>
+                  <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                    {availableComparisonYears.map((year) => {
+                      const selected = selectedComparisonYears.includes(year)
+                      return (
+                        <button
+                          key={year}
+                          type="button"
+                          className={selected ? 'btn btn-primary' : 'btn btn-secondary'}
+                          style={{ padding: '4px 12px', fontSize: 12, fontFamily: "'Fira Code', monospace" }}
+                          onClick={() => handleToggleComparisonYear(year)}
+                          aria-pressed={selected}
+                        >
+                          {year}
+                        </button>
+                      )
+                    })}
+                  </div>
+                </div>
+                <div style={{ padding: '18px 18px 12px', height: 320 }}>
+                  <ResponsiveContainer width="100%" height="100%">
+                    <BarChart data={dividendComparisonData}>
+                      <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" vertical={false} />
+                      <XAxis dataKey="month" stroke="var(--muted)" fontSize={11} fontFamily="'Fira Code', monospace" tickLine={false} />
+                      <YAxis stroke="var(--muted)" fontSize={11} fontFamily="'Fira Code', monospace" tickLine={false} axisLine={false} />
+                      <Tooltip
+                        formatter={(value: number) => formatCurrency(value, locale, chartCurrency)}
+                        contentStyle={tooltipStyle}
+                        itemStyle={{ color: 'var(--text2)' }}
+                        cursor={{ fill: 'rgba(129,140,248,0.06)' }}
+                      />
+                      <Legend
+                        wrapperStyle={{ fontSize: 12, fontFamily: "'Fira Code', monospace", color: 'var(--text2)' }}
+                      />
+                      {selectedComparisonYears.map((year, index) => (
+                        <Bar key={year} dataKey={String(year)} fill={COMPARISON_COLORS[index % COMPARISON_COLORS.length]} radius={[4, 4, 0, 0]} maxBarSize={40} />
+                      ))}
+                    </BarChart>
+                  </ResponsiveContainer>
+                </div>
+              </div>
+            )}
+          </>
+        ) : (
+          <div className="empty-state" style={{ paddingTop: 60 }}>{t(language, 'analytics.noData')}</div>
+        )}
+      </div>
     </div>
   )
 }

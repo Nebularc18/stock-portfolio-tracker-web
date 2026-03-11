@@ -8,6 +8,7 @@ import YfinanceAnalystPanel from '../components/YfinanceAnalystPanel'
 import { useSettings } from '../SettingsContext'
 import { formatTimeInTimezone } from '../utils/time'
 import { getLocaleForLanguage, t } from '../i18n'
+import { resolveBackendAssetUrl } from '../utils/assets'
 import { useModalFocusTrap } from '../hooks/useModalFocusTrap'
 
 /**
@@ -267,15 +268,21 @@ export default function StockDetail() {
   const [financialMetrics, setFinancialMetrics] = useState<FinancialMetrics | null>(null)
   const [peers, setPeers] = useState<string[]>([])
   const [finnhubLoading, setFinnhubLoading] = useState(false)
+  const [finnhubDataLoaded, setFinnhubDataLoaded] = useState(false)
   const [analystDataLoading, setAnalystDataLoading] = useState(false)
   const [analystDataLoaded, setAnalystDataLoaded] = useState(false)
   const [verificationResult, setVerificationResult] = useState<VerificationResult | null>(null)
   const [verificationLoading, setVerificationLoading] = useState(false)
   const [marketstackStatus, setMarketstackStatus] = useState<MarketstackUsage | null>(null)
   const [exchangeRates, setExchangeRates] = useState<Record<string, number | null>>({})
+  const [logoFailed, setLogoFailed] = useState(false)
   const editModalRef = useRef<HTMLDivElement | null>(null)
   const dividendModalRef = useRef<HTMLDivElement | null>(null)
   const dividendDateInputRef = useRef<HTMLInputElement | null>(null)
+  const tickerRef = useRef<string | undefined>(ticker)
+  const finnhubRequestRef = useRef<Promise<void> | null>(null)
+  const analystRequestRef = useRef<Promise<void> | null>(null)
+  const marketstackRequestRef = useRef<Promise<void> | null>(null)
   const editModalHeadingId = useId()
   const dividendModalHeadingId = useId()
   const { timezone, language } = useSettings()
@@ -290,6 +297,10 @@ export default function StockDetail() {
 
   const closeEditModal = useCallback(() => setShowEditModal(false), [])
   const closeDividendModal = useCallback(() => setShowDividendModal(false), [])
+
+  useEffect(() => {
+    tickerRef.current = ticker
+  }, [ticker])
 
   useModalFocusTrap({
     modalRef: editModalRef,
@@ -466,31 +477,7 @@ export default function StockDetail() {
       }
     }
     
-    const fetchFinnhubData = async () => {
-      try {
-        if (active) {
-          setFinnhubLoading(true)
-        }
-        const [profile, metrics, peersData] = await Promise.all([
-          api.finnhub.profile(ticker).catch(() => null),
-          api.finnhub.metrics(ticker).catch(() => null),
-          api.finnhub.peers(ticker).catch(() => []),
-        ])
-        if (!active) return
-        setCompanyProfile(profile)
-        setFinancialMetrics(metrics)
-        setPeers(peersData)
-      } catch (err) {
-        console.error('Failed to load Finnhub data', err)
-      } finally {
-        if (active) {
-          setFinnhubLoading(false)
-        }
-      }
-    }
-    
     fetchData()
-    fetchFinnhubData()
 
     return () => {
       active = false
@@ -498,47 +485,127 @@ export default function StockDetail() {
   }, [ticker])
 
   useEffect(() => {
+    setCompanyProfile(null)
+    setFinancialMetrics(null)
+    setPeers([])
+    setFinnhubLoading(false)
+    setFinnhubDataLoaded(false)
+    finnhubRequestRef.current = null
     setAnalystData(null)
     setAnalystDataLoaded(false)
     setAnalystDataLoading(false)
+    analystRequestRef.current = null
+    marketstackRequestRef.current = null
+    setLogoFailed(false)
   }, [ticker])
 
-  useEffect(() => {
-    if (!ticker || analystDataLoaded || activeTab !== 'analyst') return
+  const loadFinnhubData = useCallback(() => {
+    if (!ticker || finnhubDataLoaded) return Promise.resolve()
+    if (finnhubRequestRef.current) return finnhubRequestRef.current
 
-    let isCurrent = true
-    setAnalystData(null)
-    setAnalystDataLoaded(false)
+    const activeTicker = ticker
+    setFinnhubLoading(true)
+
+    const request = Promise.all([
+      api.finnhub.profile(activeTicker).catch(() => null),
+      api.finnhub.metrics(activeTicker).catch(() => null),
+      api.finnhub.peers(activeTicker).catch(() => []),
+    ]).then(([profile, metrics, peersData]) => {
+      if (tickerRef.current !== activeTicker) return
+      setCompanyProfile(profile)
+      setFinancialMetrics(metrics)
+      setPeers(peersData)
+      setFinnhubDataLoaded(true)
+    }).catch((err) => {
+      if (tickerRef.current === activeTicker) {
+        console.error('Failed to load Finnhub data', err)
+      }
+    }).finally(() => {
+      finnhubRequestRef.current = null
+      if (tickerRef.current === activeTicker) {
+        setFinnhubLoading(false)
+      }
+    })
+
+    finnhubRequestRef.current = request
+    return request
+  }, [ticker, finnhubDataLoaded])
+
+  const loadAnalystData = useCallback(() => {
+    if (!ticker || analystDataLoaded) return Promise.resolve()
+    if (analystRequestRef.current) return analystRequestRef.current
+
+    const activeTicker = ticker
     setAnalystDataLoading(true)
 
-    const fetchAnalystData = async () => {
-      try {
-        const analystInfo = await api.stocks.analyst(ticker).catch(() => null)
-        if (!isCurrent) return
+    const request = api.stocks.analyst(activeTicker).catch(() => null)
+      .then((analystInfo) => {
+        if (tickerRef.current !== activeTicker) return
         setAnalystData(analystInfo)
         setAnalystDataLoaded(true)
-      } catch (err) {
-        if (isCurrent) {
+      })
+      .catch((err) => {
+        if (tickerRef.current === activeTicker) {
           console.error('Failed to load analyst data', err)
         }
-      } finally {
-        if (isCurrent) {
+      })
+      .finally(() => {
+        analystRequestRef.current = null
+        if (tickerRef.current === activeTicker) {
           setAnalystDataLoading(false)
         }
-      }
-    }
+      })
 
-    fetchAnalystData()
+    analystRequestRef.current = request
+    return request
+  }, [ticker, analystDataLoaded])
 
-    return () => {
-      isCurrent = false
-    }
-  }, [ticker, activeTab, analystDataLoaded])
+  const loadMarketstackStatus = useCallback(() => {
+    if (!ticker || marketstackStatus || marketstackRequestRef.current) return Promise.resolve()
+
+    const activeTicker = ticker
+    const request = api.marketstack.status()
+      .then((status) => {
+        if (tickerRef.current !== activeTicker) return
+        setMarketstackStatus(status)
+      })
+      .catch(() => undefined)
+      .finally(() => {
+        marketstackRequestRef.current = null
+      })
+
+    marketstackRequestRef.current = request
+    return request
+  }, [ticker, marketstackStatus])
+
+  useEffect(() => {
+    if (activeTab !== 'profile') return
+    void loadFinnhubData()
+  }, [activeTab, loadFinnhubData])
+
+  useEffect(() => {
+    if (activeTab !== 'analyst') return
+    void loadAnalystData()
+  }, [activeTab, loadAnalystData])
 
   useEffect(() => {
     if (activeTab !== 'dividends') return
-    api.marketstack.status().then(setMarketstackStatus).catch(() => null)
-  }, [activeTab, ticker])
+    void loadMarketstackStatus()
+  }, [activeTab, loadMarketstackStatus])
+
+  useEffect(() => {
+    if (!ticker || loading) return
+
+    const prefetchTimer = window.setTimeout(() => {
+      void loadFinnhubData()
+      void loadAnalystData()
+      void loadMarketstackStatus()
+    }, 150)
+
+    return () => {
+      window.clearTimeout(prefetchTimer)
+    }
+  }, [ticker, loading, loadFinnhubData, loadAnalystData, loadMarketstackStatus])
 
   const handleVerifyDividends = async () => {
     if (!ticker) return
@@ -685,13 +752,13 @@ export default function StockDetail() {
   }
 
   if (loading) {
-    return <div style={{ textAlign: 'center', padding: '40px' }}>{t(language, 'common.loading')}</div>
+    return <div className="loading-state">{t(language, 'common.loading')}</div>
   }
 
   if (error || !stock) {
     return (
-      <div className="card" style={{ textAlign: 'center', padding: '40px' }}>
-        <p style={{ color: 'var(--accent-red)', marginBottom: '16px' }}>{error || t(language, 'stockDetail.notFound')}</p>
+      <div style={{ textAlign: 'center', padding: '60px 24px' }}>
+        <p style={{ color: 'var(--red)', marginBottom: '16px' }}>{error || t(language, 'stockDetail.notFound')}</p>
         <Link to="/stocks" className="btn btn-primary">{t(language, 'stockDetail.backToStocks')}</Link>
       </div>
     )
@@ -806,122 +873,105 @@ export default function StockDetail() {
     displayDividendPerShare !== null ? displayDividendPerShare * stock.quantity : null
   const hasProfileContent = Boolean(companyProfile || financialMetrics || (peers && peers.length > 0))
 
+  const panelStyle = { background: 'var(--bg2)', border: '1px solid var(--border)', borderRadius: 8 }
+  const secLabel = { fontSize: 9, fontWeight: 700, letterSpacing: '0.18em', textTransform: 'uppercase' as const, color: 'var(--muted)' }
+
   return (
     <div>
-      <div style={{ marginBottom: '24px' }}>
-        <Link to="/stocks" style={{ color: 'var(--accent-blue)', textDecoration: 'none' }}>
+      {/* Back link */}
+      <div style={{ marginBottom: '20px' }}>
+        <Link to="/stocks" style={{ color: 'var(--v2)', textDecoration: 'none', fontSize: 13 }}>
           ← {t(language, 'stockDetail.backToStocks')}
         </Link>
       </div>
 
-      <div className="card" style={{ marginBottom: '24px' }}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
-          <div style={{ display: 'flex', gap: '14px', alignItems: 'flex-start' }}>
-            {stock.logo ? (
+      {/* Hero header */}
+      <div style={{
+        background: 'linear-gradient(115deg, #12141c 0%, var(--bg) 55%)',
+        border: '1px solid var(--border)',
+        borderRadius: 10,
+        padding: '28px 28px 24px',
+        marginBottom: 20,
+        position: 'relative',
+        overflow: 'hidden',
+      }}>
+        {/* Radial glow */}
+        <div style={{
+          position: 'absolute', top: -60, right: -60,
+          width: 280, height: 280,
+          background: 'radial-gradient(circle, rgba(129,140,248,0.07) 0%, transparent 70%)',
+          pointerEvents: 'none',
+        }} />
+
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 16, position: 'relative' }}>
+          {/* Left: logo + name + price */}
+          <div style={{ display: 'flex', gap: 16, alignItems: 'flex-start' }}>
+            {resolveBackendAssetUrl(stock.logo) && !logoFailed ? (
               <img
-                src={stock.logo}
+                src={resolveBackendAssetUrl(stock.logo) || undefined}
                 alt={displayName}
-                style={{
-                  width: 48,
-                  height: 48,
-                  borderRadius: 10,
-                  objectFit: 'contain',
-                  background: 'var(--bg-secondary)',
-                  padding: 6,
-                  border: '1px solid var(--border-color)'
-                }}
+                style={{ width: 52, height: 52, borderRadius: 10, objectFit: 'contain', background: 'var(--bg3)', padding: 6, border: '1px solid var(--border2)', flexShrink: 0 }}
+                onError={() => setLogoFailed(true)}
               />
             ) : (
-              <div
-                style={{
-                  width: 48,
-                  height: 48,
-                  borderRadius: 10,
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  fontSize: 18,
-                  fontWeight: 700,
-                  color: 'var(--text-secondary)',
-                  background: 'var(--bg-secondary)',
-                  border: '1px solid var(--border-color)'
-                }}
-              >
+              <div style={{ width: 52, height: 52, borderRadius: 10, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 20, fontWeight: 700, color: 'var(--muted)', background: 'var(--bg3)', border: '1px solid var(--border2)', flexShrink: 0 }}>
                 {displayName.charAt(0).toUpperCase()}
               </div>
             )}
             <div>
-              <h1 style={{ fontSize: '32px', fontWeight: '600', marginBottom: '8px' }}>
-                {stock.ticker}
-              </h1>
-              <p style={{ color: 'var(--text-secondary)', fontSize: '18px' }}>
-                {displayName}
-              </p>
+              <div style={{ display: 'flex', alignItems: 'baseline', gap: 12, marginBottom: 2 }}>
+                <h1 style={{ fontSize: 28, fontWeight: 700, letterSpacing: '-0.02em', margin: 0 }}>{stock.ticker}</h1>
+                <span style={{ color: 'var(--text2)', fontSize: 15 }}>{displayName}</span>
+                {stock.sector && <span className="badge badge-muted">{stock.sector}</span>}
+              </div>
+              <div style={{ display: 'flex', alignItems: 'baseline', gap: 12, marginTop: 10 }}>
+                <span className="mono" style={{ fontSize: 30, fontWeight: 700, color: 'var(--text)' }}>
+                  {formatCurrency(stock.current_price, locale, stock.currency)}
+                </span>
+                {stock.currency !== 'SEK' && convertToSEK(stock.current_price, stock.currency) !== null && (
+                  <span className="mono" style={{ fontSize: 14, color: 'var(--muted)' }}>
+                    {formatCurrency(convertToSEK(stock.current_price, stock.currency), locale, 'SEK')}
+                  </span>
+                )}
+                {dailyChange !== null && (
+                  <span className={`mono ${dailyChange >= 0 ? 'up' : 'dn'}`} style={{ fontSize: 15 }}>
+                    {dailyChange >= 0 ? '+' : ''}{formatCurrency(dailyChange, locale, stock.currency)}
+                    {dailyChangePercent !== null && ` (${dailyChangePercent.toFixed(2)}%)`}
+                  </span>
+                )}
+                <span style={{ color: 'var(--muted)', fontSize: 12 }}>{stock.currency}</span>
+              </div>
+              <div style={{ marginTop: 8, color: 'var(--muted)', fontSize: 11 }}>
+                {t(language, 'common.lastUpdated')}: {formatTimeInTimezone(stock.last_updated, timezone, locale)} · {t(language, 'common.autoRefresh10m')}
+              </div>
             </div>
-            {stock.sector && (
-              <p style={{ color: 'var(--text-secondary)', fontSize: '14px', marginTop: '4px' }}>
-                {stock.sector}
-              </p>
-            )}
-            <p style={{ color: 'var(--text-secondary)', fontSize: '12px', marginTop: '8px' }}>
-              {t(language, 'common.lastUpdated')}: {formatTimeInTimezone(stock.last_updated, timezone, locale)} · {t(language, 'common.autoRefresh10m')}
-            </p>
           </div>
-          <div style={{ display: 'flex', gap: '8px' }}>
-            <button className="btn btn-secondary" onClick={openEditModal}>
-              {t(language, 'stockDetail.edit')}
-            </button>
-            <button className="btn btn-danger" onClick={handleDelete}>
-              {t(language, 'common.delete')}
-            </button>
+
+          {/* Right: action buttons */}
+          <div style={{ display: 'flex', gap: 8, flexShrink: 0 }}>
+            <button className="btn btn-secondary" onClick={openEditModal}>{t(language, 'stockDetail.edit')}</button>
+            <button className="btn btn-danger" onClick={handleDelete}>{t(language, 'common.delete')}</button>
           </div>
-        </div>
-        
-        <div style={{ marginTop: '24px', display: 'flex', gap: '32px', alignItems: 'baseline' }}>
-          <div>
-            <div style={{ fontSize: '36px', fontWeight: '600' }}>
-              {formatCurrency(stock.current_price, locale, stock.currency)}
-            </div>
-            {stock.currency !== 'SEK' && convertToSEK(stock.current_price, stock.currency) !== null && (
-              <p style={{ color: 'var(--text-secondary)', fontSize: '14px', marginTop: '4px' }}>
-                {formatCurrency(convertToSEK(stock.current_price, stock.currency), locale, 'SEK')}
-              </p>
-            )}
-            {dailyChange !== null && (
-              <p style={{ 
-                color: dailyChange >= 0 ? 'var(--accent-green)' : 'var(--accent-red)',
-                fontSize: '16px'
-              }}>
-                {dailyChange >= 0 ? '+' : ''}{formatCurrency(dailyChange, locale, stock.currency)} {dailyChangePercent !== null ? `(${dailyChangePercent.toFixed(2)}%)` : '(—)'}
-              </p>
-            )}
-            {dailyChange !== null && stock.currency !== 'SEK' && convertToSEK(dailyChange, stock.currency) !== null && (
-              <p style={{ color: 'var(--text-secondary)', fontSize: '13px', marginTop: '2px' }}>
-                {dailyChange >= 0 ? '+' : ''}{formatCurrency(convertToSEK(dailyChange, stock.currency), locale, 'SEK')}
-              </p>
-            )}
-          </div>
-          <p style={{ color: 'var(--text-secondary)' }}>
-            {stock.currency}
-          </p>
         </div>
       </div>
 
-      <div style={{ marginBottom: '24px', borderBottom: '1px solid var(--border-color)' }}>
-        <div style={{ display: 'flex', gap: '24px' }}>
+      {/* Tab bar */}
+      <div style={{ marginBottom: 20, borderBottom: '1px solid var(--border)' }}>
+        <div style={{ display: 'flex', gap: 4 }}>
           {tabs.map((tab) => (
             <button
               key={tab}
               onClick={() => setActiveTab(tab)}
               style={{
-                padding: '12px 0',
+                padding: '10px 16px',
                 background: 'none',
                 border: 'none',
-                color: activeTab === tab ? 'var(--text-primary)' : 'var(--text-secondary)',
-                borderBottom: activeTab === tab ? '2px solid var(--accent-blue)' : 'none',
+                borderBottom: activeTab === tab ? '2px solid var(--v)' : '2px solid transparent',
+                color: activeTab === tab ? 'var(--text)' : 'var(--muted)',
                 cursor: 'pointer',
-                fontSize: '14px',
-                fontWeight: 500,
+                fontSize: 13,
+                fontWeight: activeTab === tab ? 600 : 400,
+                transition: 'color 0.15s',
               }}
             >
               {tabLabels[tab] ?? tab}
@@ -930,59 +980,60 @@ export default function StockDetail() {
         </div>
       </div>
 
+      {/* Overview tab */}
       {activeTab === 'overview' && (
         <div className="grid grid-2">
-          <div className="card">
-            <h3 style={{ marginBottom: '16px' }}>{t(language, 'stockDetail.position')}</h3>
-            <table>
+          <div style={panelStyle}>
+            <div className="sec-row" style={{ padding: '12px 16px', borderBottom: '1px solid var(--border)' }}>
+              <span className="sec-title">{t(language, 'stockDetail.position')}</span>
+            </div>
+            <table style={{ margin: 0 }}>
               <tbody>
                 <tr>
-                  <td style={{ color: 'var(--text-secondary)' }}>{t(language, 'stockDetail.quantity')}</td>
-                  <td style={{ textAlign: 'right' }}>{stock.quantity}</td>
+                  <td style={{ color: 'var(--muted)', fontSize: 13 }}>{t(language, 'stockDetail.quantity')}</td>
+                  <td className="mono" style={{ textAlign: 'right' }}>{stock.quantity}</td>
                 </tr>
                 <tr>
-                  <td style={{ color: 'var(--text-secondary)' }}>{t(language, 'stockDetail.purchasePrice')}</td>
+                  <td style={{ color: 'var(--muted)', fontSize: 13 }}>{t(language, 'stockDetail.purchasePrice')}</td>
                   <td>{renderValueWithSEK(stock.purchase_price, stock.currency)}</td>
                 </tr>
                 <tr>
-                  <td style={{ color: 'var(--text-secondary)' }}>{t(language, 'stockDetail.purchaseDate')}</td>
-                  <td style={{ textAlign: 'right' }}>{stock.purchase_date ? formatDate(stock.purchase_date, locale) : '-'}</td>
+                  <td style={{ color: 'var(--muted)', fontSize: 13 }}>{t(language, 'stockDetail.purchaseDate')}</td>
+                  <td className="mono" style={{ textAlign: 'right' }}>{stock.purchase_date ? formatDate(stock.purchase_date, locale) : '-'}</td>
                 </tr>
                 <tr>
-                  <td style={{ color: 'var(--text-secondary)' }}>{t(language, 'stockDetail.currentValue')}</td>
+                  <td style={{ color: 'var(--muted)', fontSize: 13 }}>{t(language, 'stockDetail.currentValue')}</td>
                   <td>{renderValueWithSEK(stock.current_price != null ? stock.current_price * stock.quantity : null, stock.currency)}</td>
                 </tr>
                 <tr>
-                  <td style={{ color: 'var(--text-secondary)' }}>{t(language, 'stockDetail.totalCost')}</td>
+                  <td style={{ color: 'var(--muted)', fontSize: 13 }}>{t(language, 'stockDetail.totalCost')}</td>
                   <td>{renderValueWithSEK(stock.purchase_price != null ? stock.purchase_price * stock.quantity : null, stock.currency)}</td>
                 </tr>
               </tbody>
             </table>
           </div>
-          
-          <div className="card">
-            <h3 style={{ marginBottom: '16px' }}>{t(language, 'stockDetail.dividendInfo')}</h3>
-            <table>
+
+          <div style={panelStyle}>
+            <div className="sec-row" style={{ padding: '12px 16px', borderBottom: '1px solid var(--border)' }}>
+              <span className="sec-title">{t(language, 'stockDetail.dividendInfo')}</span>
+            </div>
+            <table style={{ margin: 0 }}>
               <tbody>
                 <tr>
-                  <td style={{ color: 'var(--text-secondary)' }}>{t(language, 'stockDetail.dividendYield')}</td>
-                      <td style={{ textAlign: 'right' }}>
-                        {displayDividendYield !== null
-                        ? new Intl.NumberFormat(locale, {
-                            style: 'percent',
-                            minimumFractionDigits: 2,
-                            maximumFractionDigits: 2,
-                          }).format(displayDividendYield / 100)
-                        : '-'}
+                  <td style={{ color: 'var(--muted)', fontSize: 13 }}>{t(language, 'stockDetail.dividendYield')}</td>
+                  <td className="mono" style={{ textAlign: 'right' }}>
+                    {displayDividendYield !== null
+                      ? new Intl.NumberFormat(locale, { style: 'percent', minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(displayDividendYield / 100)
+                      : '-'}
                   </td>
                 </tr>
                 <tr>
-                  <td style={{ color: 'var(--text-secondary)' }}>{t(language, 'stockDetail.dividendPerShare')}</td>
-                  <td style={{ textAlign: 'right' }}>{formatCurrency(displayDividendPerShare, locale, stock.currency)}</td>
+                  <td style={{ color: 'var(--muted)', fontSize: 13 }}>{t(language, 'stockDetail.dividendPerShare')}</td>
+                  <td className="mono" style={{ textAlign: 'right' }}>{formatCurrency(displayDividendPerShare, locale, stock.currency)}</td>
                 </tr>
                 <tr>
-                  <td style={{ color: 'var(--text-secondary)' }}>{t(language, 'stockDetail.annualIncome')}</td>
-                  <td style={{ textAlign: 'right' }}>
+                  <td style={{ color: 'var(--muted)', fontSize: 13 }}>{t(language, 'stockDetail.annualIncome')}</td>
+                  <td className="mono" style={{ textAlign: 'right' }}>
                     {displayAnnualIncome !== null ? formatCurrency(displayAnnualIncome, locale, stock.currency) : '-'}
                   </td>
                 </tr>
@@ -992,29 +1043,32 @@ export default function StockDetail() {
         </div>
       )}
 
+      {/* Profile tab */}
       {activeTab === 'profile' && (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
           <CompanyProfileComponent profile={companyProfile} loading={finnhubLoading} />
           <FinancialMetricsComponent metrics={financialMetrics} loading={finnhubLoading} />
           <PeerCompanies peers={peers} loading={finnhubLoading} />
           {!finnhubLoading && !hasProfileContent && (
-            <div className="card">
-              <h3 style={{ marginBottom: '12px' }}>{t(language, 'stockDetail.profileSnapshot')}</h3>
-              <p style={{ color: 'var(--text-secondary)', marginBottom: '14px' }}>
-                {t(language, 'stockDetail.profileSnapshotDesc')}
-              </p>
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, minmax(0, 1fr))', gap: '12px' }}>
-                <div style={{ background: 'var(--bg-secondary)', border: '1px solid var(--border-color)', borderRadius: 8, padding: '12px' }}>
-                  <p style={{ color: 'var(--text-secondary)', fontSize: '12px', marginBottom: '4px' }}>{t(language, 'stockDetail.sector')}</p>
-                  <p>{stock.sector || '-'}</p>
-                </div>
-                <div style={{ background: 'var(--bg-secondary)', border: '1px solid var(--border-color)', borderRadius: 8, padding: '12px' }}>
-                  <p style={{ color: 'var(--text-secondary)', fontSize: '12px', marginBottom: '4px' }}>{t(language, 'stockDetail.dividendPerShareModeled')}</p>
-                  <p>{formatCurrency(displayDividendPerShare, locale, stock.currency)}</p>
-                </div>
-                <div style={{ background: 'var(--bg-secondary)', border: '1px solid var(--border-color)', borderRadius: 8, padding: '12px' }}>
-                  <p style={{ color: 'var(--text-secondary)', fontSize: '12px', marginBottom: '4px' }}>{t(language, 'stockDetail.annualIncome')}</p>
-                  <p>{displayAnnualIncome !== null ? formatCurrency(displayAnnualIncome, locale, stock.currency) : '-'}</p>
+            <div style={panelStyle}>
+              <div className="sec-row" style={{ padding: '12px 16px', borderBottom: '1px solid var(--border)' }}>
+                <span className="sec-title">{t(language, 'stockDetail.profileSnapshot')}</span>
+              </div>
+              <div style={{ padding: '16px' }}>
+                <p style={{ color: 'var(--muted)', marginBottom: 16, fontSize: 13 }}>
+                  {t(language, 'stockDetail.profileSnapshotDesc')}
+                </p>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 12 }}>
+                  {[
+                    { label: t(language, 'stockDetail.sector'), value: stock.sector || '-' },
+                    { label: t(language, 'stockDetail.dividendPerShareModeled'), value: formatCurrency(displayDividendPerShare, locale, stock.currency) },
+                    { label: t(language, 'stockDetail.annualIncome'), value: displayAnnualIncome !== null ? formatCurrency(displayAnnualIncome, locale, stock.currency) : '-' },
+                  ].map(({ label, value }) => (
+                    <div key={label} style={{ background: 'var(--bg3)', border: '1px solid var(--border)', borderRadius: 6, padding: '12px 14px' }}>
+                      <div style={{ ...secLabel, marginBottom: 6 }}>{label}</div>
+                      <div className="mono" style={{ fontSize: 15, fontWeight: 600 }}>{value}</div>
+                    </div>
+                  ))}
                 </div>
               </div>
             </div>
@@ -1022,17 +1076,20 @@ export default function StockDetail() {
         </div>
       )}
 
+      {/* Dividends tab */}
       {activeTab === 'dividends' && (
-        <div>
-          <div className="card" style={{ marginBottom: '20px' }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
-              <h3>{t(language, 'stockDetail.manualDividends')}</h3>
-              <button className="btn btn-primary" onClick={openAddDividendModal}>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+
+          {/* Manual dividends */}
+          <div style={panelStyle}>
+            <div className="sec-row" style={{ padding: '12px 16px', borderBottom: '1px solid var(--border)' }}>
+              <span className="sec-title">{t(language, 'stockDetail.manualDividends')}</span>
+              <button className="btn btn-primary" style={{ padding: '5px 14px', fontSize: 12 }} onClick={openAddDividendModal}>
                 {t(language, 'stockDetail.addDividend')}
               </button>
             </div>
             {stock.manual_dividends && stock.manual_dividends.length > 0 ? (
-              <table>
+              <table style={{ margin: 0 }}>
                 <thead>
                   <tr>
                     <th>{t(language, 'stockDetail.date')}</th>
@@ -1044,23 +1101,15 @@ export default function StockDetail() {
                 <tbody>
                   {stock.manual_dividends.map((div) => (
                     <tr key={div.id}>
-                      <td>{formatDate(div.date, locale)}</td>
-                      <td style={{ color: 'var(--accent-green)' }}>{formatCurrency(div.amount, locale, div.currency)}</td>
-                      <td>{div.note || '-'}</td>
+                      <td className="mono">{formatDate(div.date, locale)}</td>
+                      <td className="mono" style={{ color: 'var(--green)' }}>{formatCurrency(div.amount, locale, div.currency)}</td>
+                      <td style={{ color: 'var(--text2)', fontSize: 12 }}>{div.note || '-'}</td>
                       <td>
-                        <div style={{ display: 'flex', gap: '8px' }}>
-                          <button 
-                            className="btn btn-secondary" 
-                            style={{ padding: '4px 8px', fontSize: '12px' }}
-                            onClick={() => openEditDividendModal(div)}
-                          >
+                        <div style={{ display: 'flex', gap: 6 }}>
+                          <button className="btn btn-secondary" style={{ padding: '3px 10px', fontSize: 11 }} onClick={() => openEditDividendModal(div)}>
                             {t(language, 'stockDetail.edit')}
                           </button>
-                          <button 
-                            className="btn btn-danger" 
-                            style={{ padding: '4px 8px', fontSize: '12px' }}
-                            onClick={() => handleDeleteDividend(div.id)}
-                          >
+                          <button className="btn btn-danger" style={{ padding: '3px 10px', fontSize: 11 }} onClick={() => handleDeleteDividend(div.id)}>
                             {t(language, 'common.delete')}
                           </button>
                         </div>
@@ -1070,26 +1119,25 @@ export default function StockDetail() {
                 </tbody>
               </table>
             ) : (
-              <p style={{ color: 'var(--text-secondary)', textAlign: 'center', padding: '20px' }}>
-                {t(language, 'stockDetail.noManualDividends')}
-              </p>
+              <div className="empty-state">{t(language, 'stockDetail.noManualDividends')}</div>
             )}
           </div>
-          
+
+          {/* Dividends this year */}
           {yearDividends.length > 0 && (
-            <div className="card" style={{ marginBottom: '20px' }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
-                <h3>{t(language, 'stockDetail.dividendsThisYear')}</h3>
-                <div style={{ display: 'flex', gap: '16px', fontSize: '13px' }}>
-                  <span style={{ color: 'var(--text-secondary)' }}>
-                    {t(language, 'stockDetail.received')}: <strong style={{ color: 'var(--accent-green)' }}>{formatYearTotal(yearReceived)}</strong>
+            <div style={panelStyle}>
+              <div className="sec-row" style={{ padding: '12px 16px', borderBottom: '1px solid var(--border)' }}>
+                <span className="sec-title">{t(language, 'stockDetail.dividendsThisYear')}</span>
+                <div style={{ display: 'flex', gap: 20, fontSize: 12 }}>
+                  <span style={{ color: 'var(--muted)' }}>
+                    {t(language, 'stockDetail.received')}: <strong className="mono" style={{ color: 'var(--green)' }}>{formatYearTotal(yearReceived)}</strong>
                   </span>
-                  <span style={{ color: 'var(--text-secondary)' }}>
-                    {t(language, 'stockDetail.remaining')}: <strong style={{ color: 'var(--accent-blue)' }}>{formatYearTotal(yearRemaining)}</strong>
+                  <span style={{ color: 'var(--muted)' }}>
+                    {t(language, 'stockDetail.remaining')}: <strong className="mono" style={{ color: 'var(--v2)' }}>{formatYearTotal(yearRemaining)}</strong>
                   </span>
                 </div>
               </div>
-              <table>
+              <table style={{ margin: 0 }}>
                 <thead>
                   <tr>
                     <th>{t(language, 'stockDetail.exDate')}</th>
@@ -1102,30 +1150,31 @@ export default function StockDetail() {
                 <tbody>
                   {yearDividends.map((div) => (
                     <tr key={`${div.ex_date}-${div.payment_date || ''}-${div.amount_per_share ?? ''}-${div.source || ''}`}>
-                      <td>{formatDate(div.ex_date, locale)}</td>
-                      <td>{div.payment_date ? formatDate(div.payment_date, locale) : '-'}</td>
-                      <td>{formatCurrency(div.amount_per_share, locale, div.currency || stock.currency)}</td>
-                      <td style={{ color: div.status === 'paid' ? 'var(--accent-green)' : 'var(--accent-blue)', fontSize: '12px' }}>
-                        {div.status === 'paid' ? t(language, 'stockDetail.paid') : t(language, 'stockDetail.upcoming')}
+                      <td className="mono">{formatDate(div.ex_date, locale)}</td>
+                      <td className="mono">{div.payment_date ? formatDate(div.payment_date, locale) : '-'}</td>
+                      <td className="mono">{formatCurrency(div.amount_per_share, locale, div.currency || stock.currency)}</td>
+                      <td>
+                        <span className={`badge ${div.status === 'paid' ? 'badge-green' : 'badge-violet'}`}>
+                          {div.status === 'paid' ? t(language, 'stockDetail.paid') : t(language, 'stockDetail.upcoming')}
+                        </span>
                       </td>
-                      <td style={{ color: 'var(--text-secondary)', fontSize: '12px' }}>
-                        {div.source || 'historical'}
-                      </td>
+                      <td><span className="badge badge-muted">{div.source || 'historical'}</span></td>
                     </tr>
                   ))}
                 </tbody>
               </table>
             </div>
           )}
-          
-          <div className="card">
-            <h3 style={{ marginBottom: '16px' }}>{t(language, 'stockDetail.history5y')}</h3>
+
+          {/* 5-year history */}
+          <div style={panelStyle}>
+            <div className="sec-row" style={{ padding: '12px 16px', borderBottom: '1px solid var(--border)' }}>
+              <span className="sec-title">{t(language, 'stockDetail.history5y')}</span>
+            </div>
             {dividends.length === 0 ? (
-              <p style={{ color: 'var(--text-secondary)', textAlign: 'center', padding: '20px' }}>
-                {t(language, 'stockDetail.noHistory')}
-              </p>
+              <div className="empty-state">{t(language, 'stockDetail.noHistory')}</div>
             ) : (
-              <table>
+              <table style={{ margin: 0 }}>
                 <thead>
                   <tr>
                     <th>{t(language, 'stockDetail.date')}</th>
@@ -1137,27 +1186,19 @@ export default function StockDetail() {
                   {dividends.slice(0, 20).map((div, i) => {
                     const suppressed = isDividendSuppressed(div.date)
                     return (
-                      <tr key={i} style={{ opacity: suppressed ? 0.5 : 1 }}>
-                        <td>{formatDate(div.date, locale)}</td>
-                        <td style={{ color: suppressed ? 'var(--text-secondary)' : 'var(--accent-green)' }}>
+                      <tr key={i} style={{ opacity: suppressed ? 0.45 : 1 }}>
+                        <td className="mono">{formatDate(div.date, locale)}</td>
+                        <td className="mono" style={{ color: suppressed ? 'var(--muted)' : 'var(--green)' }}>
                           {formatCurrency(div.amount, locale, div.currency || stock.currency)}
-                          {suppressed && <span style={{ marginLeft: '8px', fontSize: '12px' }}>{t(language, 'stockDetail.suppressedTag')}</span>}
+                          {suppressed && <span style={{ marginLeft: 8, fontSize: 11, color: 'var(--muted)' }}>{t(language, 'stockDetail.suppressedTag')}</span>}
                         </td>
                         <td>
                           {suppressed ? (
-                            <button 
-                              className="btn btn-secondary" 
-                              style={{ padding: '4px 8px', fontSize: '12px' }}
-                              onClick={() => handleRestoreDividend(div.date)}
-                            >
+                            <button className="btn btn-secondary" style={{ padding: '3px 10px', fontSize: 11 }} onClick={() => handleRestoreDividend(div.date)}>
                               {t(language, 'stockDetail.restore')}
                             </button>
                           ) : (
-                            <button 
-                              className="btn btn-secondary" 
-                              style={{ padding: '4px 8px', fontSize: '12px' }}
-                              onClick={() => handleSuppressDividend(div.date, div.amount)}
-                            >
+                            <button className="btn btn-secondary" style={{ padding: '3px 10px', fontSize: 11 }} onClick={() => handleSuppressDividend(div.date, div.amount)}>
                               {t(language, 'stockDetail.hide')}
                             </button>
                           )}
@@ -1169,123 +1210,106 @@ export default function StockDetail() {
               </table>
             )}
           </div>
-          
-          <div className="card" style={{ marginTop: '20px' }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
-              <h3>{t(language, 'stockDetail.verification')}</h3>
+
+          {/* Verification */}
+          <div style={panelStyle}>
+            <div className="sec-row" style={{ padding: '12px 16px', borderBottom: '1px solid var(--border)' }}>
+              <span className="sec-title">{t(language, 'stockDetail.verification')}</span>
               {marketstackStatus && (
-                <span style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>
+                <span className="mono" style={{ fontSize: 11, color: 'var(--muted)' }}>
                   API: {marketstackStatus.calls_remaining}/{marketstackStatus.calls_limit} {t(language, 'stockDetail.callsRemaining')}
                 </span>
               )}
             </div>
-            
-            {marketstackStatus && marketstackStatus.api_configured === false ? (
-              <p style={{ color: 'var(--text-secondary)', textAlign: 'center', padding: '20px' }}>
-                {t(language, 'stockDetail.apiNotConfigured')}
-              </p>
-            ) : verificationLoading ? (
-              <p style={{ color: 'var(--text-secondary)', textAlign: 'center', padding: '20px' }}>
-                {t(language, 'stockDetail.verifying')}
-              </p>
-            ) : verificationResult ? (
-              <div>
-                <div style={{ display: 'flex', gap: '16px', marginBottom: '16px', flexWrap: 'wrap' }}>
-                  <div style={{ padding: '12px 16px', background: 'var(--card-bg-alt)', borderRadius: '8px' }}>
-                    <span style={{ color: 'var(--text-secondary)', fontSize: '12px' }}>Yahoo</span>
-                    <p style={{ fontSize: '20px', fontWeight: '600' }}>{verificationResult.summary.yahoo_count}</p>
+            <div style={{ padding: '16px' }}>
+              {marketstackStatus && marketstackStatus.api_configured === false ? (
+                <p className="empty-state">{t(language, 'stockDetail.apiNotConfigured')}</p>
+              ) : verificationLoading ? (
+                <p className="loading-state">{t(language, 'stockDetail.verifying')}</p>
+              ) : verificationResult ? (
+                <div>
+                  <div style={{ display: 'flex', gap: 12, marginBottom: 16, flexWrap: 'wrap' }}>
+                    {[
+                      { label: 'Yahoo', value: verificationResult.summary.yahoo_count, color: 'var(--text)' },
+                      { label: 'Marketstack', value: verificationResult.summary.marketstack_count, color: 'var(--text)' },
+                      { label: t(language, 'stockDetail.matches'), value: verificationResult.summary.match_count, color: 'var(--green)' },
+                      { label: t(language, 'stockDetail.discrepancies'), value: verificationResult.summary.discrepancy_count, color: verificationResult.summary.discrepancy_count > 0 ? 'var(--red)' : 'var(--text)' },
+                    ].map(({ label, value, color }) => (
+                      <div key={label} style={{ padding: '10px 16px', background: 'var(--bg3)', border: '1px solid var(--border)', borderRadius: 6, minWidth: 90 }}>
+                        <div style={{ ...secLabel, marginBottom: 4 }}>{label}</div>
+                        <div className="mono" style={{ fontSize: 22, fontWeight: 700, color }}>{value}</div>
+                      </div>
+                    ))}
                   </div>
-                  <div style={{ padding: '12px 16px', background: 'var(--card-bg-alt)', borderRadius: '8px' }}>
-                    <span style={{ color: 'var(--text-secondary)', fontSize: '12px' }}>Marketstack</span>
-                    <p style={{ fontSize: '20px', fontWeight: '600' }}>{verificationResult.summary.marketstack_count}</p>
-                  </div>
-                  <div style={{ padding: '12px 16px', background: 'rgba(34, 197, 94, 0.15)', borderRadius: '8px' }}>
-                    <span style={{ color: 'var(--accent-green)', fontSize: '12px' }}>{t(language, 'stockDetail.matches')}</span>
-                    <p style={{ fontSize: '20px', fontWeight: '600', color: 'var(--accent-green)' }}>{verificationResult.summary.match_count}</p>
-                  </div>
-                  <div style={{ padding: '12px 16px', background: verificationResult.summary.discrepancy_count > 0 ? 'var(--accent-red)' : 'var(--card-bg-alt)', borderRadius: '8px' }}>
-                    <span style={{ color: verificationResult.summary.discrepancy_count > 0 ? '#ffffff' : 'var(--text-secondary)', fontSize: '12px' }}>{t(language, 'stockDetail.discrepancies')}</span>
-                    <p style={{ fontSize: '20px', fontWeight: '600', color: verificationResult.summary.discrepancy_count > 0 ? '#ffffff' : 'var(--text-primary)' }}>{verificationResult.summary.discrepancy_count}</p>
-                  </div>
-                </div>
-                
-                {verificationResult.cached && (
-                  <p style={{ fontSize: '12px', color: 'var(--text-secondary)', marginBottom: '12px' }}>
-                    {t(language, 'stockDetail.cachedAt', { date: new Date(verificationResult.verified_at).toLocaleString(locale) })}
-                  </p>
-                )}
-                
-                {verificationResult.discrepancies.length > 0 && (
-                  <div>
-                    <h4 style={{ marginBottom: '12px', fontSize: '14px' }}>{t(language, 'stockDetail.discrepancyDetails')}</h4>
-                    <table>
-                      <thead>
-                        <tr>
-                          <th>{t(language, 'stockDetail.date')}</th>
-                          <th>{t(language, 'stockDetail.type')}</th>
-                          <th>Yahoo</th>
-                          <th>Marketstack</th>
-                          <th>{t(language, 'stockDetail.difference')}</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {verificationResult.discrepancies.map((d, i) => (
-                          <tr key={i}>
-                            <td>{d.date || '-'}</td>
-                            <td>
-                              <span style={{
-                                padding: '2px 8px',
-                                borderRadius: '4px',
-                                fontSize: '11px',
-                                fontWeight: 500,
-                                background: d.type === 'amount_mismatch' ? '#fbbf24' : 
-                                           d.type === 'missing_from_yahoo' ? '#3b82f6' :
-                                           d.type === 'missing_from_marketstack' ? '#f97316' : '#ef4444',
-                                color: '#1a1a1a',
-                              }}>
-                                {d.type.replace(/_/g, ' ')}
-                              </span>
-                            </td>
-                            <td>{d.yahoo_amount !== null ? formatCurrency(d.yahoo_amount, locale, stock.currency) : '-'}</td>
-                            <td>{d.marketstack_amount !== null ? formatCurrency(d.marketstack_amount, locale, stock.currency) : '-'}</td>
-                            <td>{d.difference !== null ? formatCurrency(d.difference, locale, stock.currency) : '-'}</td>
+                  {verificationResult.cached && (
+                    <p style={{ fontSize: 12, color: 'var(--muted)', marginBottom: 12 }}>
+                      {t(language, 'stockDetail.cachedAt', { date: new Date(verificationResult.verified_at).toLocaleString(locale) })}
+                    </p>
+                  )}
+                  {verificationResult.discrepancies.length > 0 && (
+                    <div style={{ marginBottom: 16 }}>
+                      <div style={{ ...secLabel, marginBottom: 10 }}>{t(language, 'stockDetail.discrepancyDetails')}</div>
+                      <table style={{ margin: 0 }}>
+                        <thead>
+                          <tr>
+                            <th>{t(language, 'stockDetail.date')}</th>
+                            <th>{t(language, 'stockDetail.type')}</th>
+                            <th>Yahoo</th>
+                            <th>Marketstack</th>
+                            <th>{t(language, 'stockDetail.difference')}</th>
                           </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
-                )}
-                
-                <div style={{ marginTop: '16px' }}>
-                  <button 
-                    className="btn btn-secondary" 
-                    onClick={handleVerifyDividends}
-                    disabled={verificationLoading || (marketstackStatus !== null && (marketstackStatus.calls_remaining ?? 0) <= 0)}
-                  >
+                        </thead>
+                        <tbody>
+                          {verificationResult.discrepancies.map((d, i) => (
+                            <tr key={i}>
+                              <td className="mono">{d.date || '-'}</td>
+                              <td>
+                                <span className="badge" style={{
+                                  background: d.type === 'amount_mismatch' ? 'rgba(251,191,36,0.15)' :
+                                             d.type === 'missing_from_yahoo' ? 'rgba(56,189,248,0.15)' :
+                                             d.type === 'missing_from_marketstack' ? 'rgba(249,115,22,0.15)' : 'rgba(248,113,113,0.15)',
+                                  color: d.type === 'amount_mismatch' ? 'var(--amber)' :
+                                         d.type === 'missing_from_yahoo' ? 'var(--sky)' :
+                                         d.type === 'missing_from_marketstack' ? '#f97316' : 'var(--red)',
+                                }}>
+                                  {d.type.replace(/_/g, ' ')}
+                                </span>
+                              </td>
+                              <td className="mono">{d.yahoo_amount !== null ? formatCurrency(d.yahoo_amount, locale, stock.currency) : '-'}</td>
+                              <td className="mono">{d.marketstack_amount !== null ? formatCurrency(d.marketstack_amount, locale, stock.currency) : '-'}</td>
+                              <td className="mono">{d.difference !== null ? formatCurrency(d.difference, locale, stock.currency) : '-'}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
+                  <button className="btn btn-secondary" onClick={handleVerifyDividends}
+                    disabled={verificationLoading || (marketstackStatus !== null && (marketstackStatus.calls_remaining ?? 0) <= 0)}>
                     {t(language, 'stockDetail.reverify')}
                   </button>
                 </div>
-              </div>
-            ) : (
-              <div style={{ textAlign: 'center', padding: '20px' }}>
-                <p style={{ color: 'var(--text-secondary)', marginBottom: '12px' }}>
-                  {t(language, 'stockDetail.verifyDescription')}
-                </p>
-                <button 
-                  className="btn btn-primary" 
-                  onClick={handleVerifyDividends}
-                  disabled={verificationLoading || (marketstackStatus !== null && (marketstackStatus.calls_remaining ?? 0) <= 0)}
-                >
-                  {t(language, 'stockDetail.verify')}
-                </button>
-              </div>
-            )}
+              ) : (
+                <div style={{ textAlign: 'center', padding: '20px 0' }}>
+                  <p style={{ color: 'var(--muted)', marginBottom: 16, fontSize: 13 }}>
+                    {t(language, 'stockDetail.verifyDescription')}
+                  </p>
+                  <button className="btn btn-primary" onClick={handleVerifyDividends}
+                    disabled={verificationLoading || (marketstackStatus !== null && (marketstackStatus.calls_remaining ?? 0) <= 0)}>
+                    {t(language, 'stockDetail.verify')}
+                  </button>
+                </div>
+              )}
+            </div>
           </div>
-          
+
+          {/* Suppressed dividends */}
           {suppressedDividends.length > 0 && (
-            <div className="card" style={{ marginTop: '20px' }}>
-              <h3 style={{ marginBottom: '16px', color: 'var(--text-secondary)' }}>{t(language, 'stockDetail.suppressedDividends')}</h3>
-              <table>
+            <div style={panelStyle}>
+              <div className="sec-row" style={{ padding: '12px 16px', borderBottom: '1px solid var(--border)' }}>
+                <span className="sec-title" style={{ color: 'var(--muted)' }}>{t(language, 'stockDetail.suppressedDividends')}</span>
+              </div>
+              <table style={{ margin: 0 }}>
                 <thead>
                   <tr>
                     <th>{t(language, 'stockDetail.date')}</th>
@@ -1296,14 +1320,10 @@ export default function StockDetail() {
                 <tbody>
                   {suppressedDividends.map((div) => (
                     <tr key={div.id}>
-                      <td>{formatDate(div.date, locale)}</td>
-                      <td>{formatCurrency(div.amount || 0, locale, div.currency || stock.currency)}</td>
+                      <td className="mono">{formatDate(div.date, locale)}</td>
+                      <td className="mono">{formatCurrency(div.amount || 0, locale, div.currency || stock.currency)}</td>
                       <td>
-                        <button 
-                          className="btn btn-secondary" 
-                          style={{ padding: '4px 8px', fontSize: '12px' }}
-                          onClick={() => handleRestoreDividend(div.date)}
-                        >
+                        <button className="btn btn-secondary" style={{ padding: '3px 10px', fontSize: 11 }} onClick={() => handleRestoreDividend(div.date)}>
                           {t(language, 'stockDetail.restore')}
                         </button>
                       </td>
@@ -1316,14 +1336,11 @@ export default function StockDetail() {
         </div>
       )}
 
+      {/* Analyst tab */}
       {activeTab === 'analyst' && (
         <div>
           {analystDataLoading ? (
-            <div className="card">
-              <p style={{ color: 'var(--text-secondary)', textAlign: 'center', padding: '40px' }}>
-                {t(language, 'stockDetail.loadingAnalyst')}
-              </p>
-            </div>
+            <div className="loading-state">{t(language, 'stockDetail.loadingAnalyst')}</div>
           ) : (
             <>
               <YfinanceAnalystPanel
@@ -1333,38 +1350,22 @@ export default function StockDetail() {
                 currency={stock?.currency || 'USD'}
                 currentPrice={stock?.current_price ?? null}
               />
-
               {!analystData?.price_targets && !analystData?.recommendations?.length && !analystData?.finnhub_recommendations?.length && !finnhubLoading && !analystDataLoading && (
-                <div className="card">
-                  <p style={{ color: 'var(--text-secondary)', textAlign: 'center', padding: '40px' }}>
-                    {t(language, 'stockDetail.noAnalyst')}
-                  </p>
-                </div>
+                <div className="empty-state">{t(language, 'stockDetail.noAnalyst')}</div>
               )}
             </>
           )}
         </div>
       )}
 
+      {/* Edit position modal */}
       {showEditModal && (
-        <div 
-          style={{
-            position: 'fixed',
-            top: 0,
-            left: 0,
-            right: 0,
-            bottom: 0,
-            background: 'rgba(0, 0, 0, 0.7)',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            zIndex: 1000,
-          }}
+        <div
+          style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.7)', backdropFilter: 'blur(4px)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000 }}
           onClick={() => setShowEditModal(false)}
         >
-          <div 
-            className="card" 
-            style={{ width: '400px', maxWidth: '90%' }}
+          <div
+            style={{ width: 400, maxWidth: '92vw', background: 'var(--bg2)', border: '1px solid var(--border2)', borderRadius: 10, padding: 24 }}
             onClick={(e) => e.stopPropagation()}
             role="dialog"
             aria-modal="true"
@@ -1372,47 +1373,21 @@ export default function StockDetail() {
             ref={editModalRef}
             tabIndex={-1}
           >
-            <h3 id={editModalHeadingId} style={{ marginBottom: '20px' }}>{t(language, 'stockDetail.editPosition')}</h3>
-            <div style={{ marginBottom: '16px' }}>
-              <label style={{ display: 'block', marginBottom: '8px', color: 'var(--text-secondary)', fontSize: '14px' }}>
-                {t(language, 'stockDetail.quantity')}
-              </label>
-              <input
-                type="number"
-                step="0.01"
-                value={editQuantity}
-                onChange={(e) => setEditQuantity(e.target.value)}
-                style={{ width: '100%' }}
-              />
+            <h3 id={editModalHeadingId} style={{ marginBottom: 20, fontSize: 16, fontWeight: 600 }}>{t(language, 'stockDetail.editPosition')}</h3>
+            <div style={{ marginBottom: 14 }}>
+              <label style={{ display: 'block', marginBottom: 6, color: 'var(--muted)', fontSize: 12 }}>{t(language, 'stockDetail.quantity')}</label>
+              <input type="number" step="0.01" value={editQuantity} onChange={(e) => setEditQuantity(e.target.value)} style={{ width: '100%' }} />
             </div>
-            <div style={{ marginBottom: '24px' }}>
-              <label style={{ display: 'block', marginBottom: '8px', color: 'var(--text-secondary)', fontSize: '14px' }}>
-                {t(language, 'stockDetail.purchasePrice')} ({stock?.currency})
-              </label>
-              <input
-                type="number"
-                step="0.01"
-                value={editPurchasePrice}
-                onChange={(e) => setEditPurchasePrice(e.target.value)}
-                style={{ width: '100%' }}
-                placeholder="e.g. 150.00"
-              />
+            <div style={{ marginBottom: 14 }}>
+              <label style={{ display: 'block', marginBottom: 6, color: 'var(--muted)', fontSize: 12 }}>{t(language, 'stockDetail.purchasePrice')} ({stock?.currency})</label>
+              <input type="number" step="0.01" value={editPurchasePrice} onChange={(e) => setEditPurchasePrice(e.target.value)} style={{ width: '100%' }} placeholder="e.g. 150.00" />
             </div>
-            <div style={{ marginBottom: '24px' }}>
-              <label style={{ display: 'block', marginBottom: '8px', color: 'var(--text-secondary)', fontSize: '14px' }}>
-                {t(language, 'stockDetail.purchaseDate')}
-              </label>
-              <input
-                type="date"
-                value={editPurchaseDate}
-                onChange={(e) => setEditPurchaseDate(e.target.value)}
-                style={{ width: '100%' }}
-              />
+            <div style={{ marginBottom: 22 }}>
+              <label style={{ display: 'block', marginBottom: 6, color: 'var(--muted)', fontSize: 12 }}>{t(language, 'stockDetail.purchaseDate')}</label>
+              <input type="date" value={editPurchaseDate} onChange={(e) => setEditPurchaseDate(e.target.value)} style={{ width: '100%' }} />
             </div>
-            <div style={{ display: 'flex', gap: '12px', justifyContent: 'flex-end' }}>
-              <button className="btn btn-secondary" onClick={() => setShowEditModal(false)}>
-                {t(language, 'stockDetail.cancel')}
-              </button>
+            <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
+              <button className="btn btn-secondary" onClick={() => setShowEditModal(false)}>{t(language, 'stockDetail.cancel')}</button>
               <button className="btn btn-primary" onClick={handleSaveEdit} disabled={saving}>
                 {saving ? t(language, 'stockDetail.saving') : t(language, 'stockDetail.save')}
               </button>
@@ -1421,25 +1396,14 @@ export default function StockDetail() {
         </div>
       )}
 
+      {/* Add/edit dividend modal */}
       {showDividendModal && (
-        <div 
-          style={{
-            position: 'fixed',
-            top: 0,
-            left: 0,
-            right: 0,
-            bottom: 0,
-            background: 'rgba(0, 0, 0, 0.7)',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            zIndex: 1000,
-          }}
+        <div
+          style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.7)', backdropFilter: 'blur(4px)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000 }}
           onClick={() => setShowDividendModal(false)}
         >
-          <div 
-            className="card" 
-            style={{ width: '400px', maxWidth: '90%' }}
+          <div
+            style={{ width: 400, maxWidth: '92vw', background: 'var(--bg2)', border: '1px solid var(--border2)', borderRadius: 10, padding: 24 }}
             onClick={(e) => e.stopPropagation()}
             role="dialog"
             aria-modal="true"
@@ -1447,55 +1411,24 @@ export default function StockDetail() {
             ref={dividendModalRef}
             tabIndex={-1}
           >
-            <h3 id={dividendModalHeadingId} style={{ marginBottom: '20px' }}>
+            <h3 id={dividendModalHeadingId} style={{ marginBottom: 20, fontSize: 16, fontWeight: 600 }}>
               {editingDividend ? t(language, 'stockDetail.editDividend') : t(language, 'stockDetail.addDividend')}
             </h3>
-            <div style={{ marginBottom: '16px' }}>
-              <label style={{ display: 'block', marginBottom: '8px', color: 'var(--text-secondary)', fontSize: '14px' }}>
-                {t(language, 'stockDetail.date')}
-              </label>
-              <input
-                ref={dividendDateInputRef}
-                type="date"
-                value={divDate}
-                onChange={(e) => setDivDate(e.target.value)}
-                style={{ width: '100%' }}
-              />
+            <div style={{ marginBottom: 14 }}>
+              <label style={{ display: 'block', marginBottom: 6, color: 'var(--muted)', fontSize: 12 }}>{t(language, 'stockDetail.date')}</label>
+              <input ref={dividendDateInputRef} type="date" value={divDate} onChange={(e) => setDivDate(e.target.value)} style={{ width: '100%' }} />
             </div>
-            <div style={{ marginBottom: '16px' }}>
-              <label style={{ display: 'block', marginBottom: '8px', color: 'var(--text-secondary)', fontSize: '14px' }}>
-                {t(language, 'stockDetail.amount')} ({stock?.currency})
-              </label>
-              <input
-                type="number"
-                step="0.01"
-                value={divAmount}
-                onChange={(e) => setDivAmount(e.target.value)}
-                style={{ width: '100%' }}
-                placeholder="e.g. 1.50"
-              />
+            <div style={{ marginBottom: 14 }}>
+              <label style={{ display: 'block', marginBottom: 6, color: 'var(--muted)', fontSize: 12 }}>{t(language, 'stockDetail.amount')} ({stock?.currency})</label>
+              <input type="number" step="0.01" value={divAmount} onChange={(e) => setDivAmount(e.target.value)} style={{ width: '100%' }} placeholder="e.g. 1.50" />
             </div>
-            <div style={{ marginBottom: '24px' }}>
-              <label style={{ display: 'block', marginBottom: '8px', color: 'var(--text-secondary)', fontSize: '14px' }}>
-                {t(language, 'stockDetail.noteOptional')}
-              </label>
-              <input
-                type="text"
-                value={divNote}
-                onChange={(e) => setDivNote(e.target.value)}
-                style={{ width: '100%' }}
-                placeholder="e.g. Q1 2024 dividend"
-              />
+            <div style={{ marginBottom: 22 }}>
+              <label style={{ display: 'block', marginBottom: 6, color: 'var(--muted)', fontSize: 12 }}>{t(language, 'stockDetail.noteOptional')}</label>
+              <input type="text" value={divNote} onChange={(e) => setDivNote(e.target.value)} style={{ width: '100%' }} placeholder="e.g. Q1 2024 dividend" />
             </div>
-            <div style={{ display: 'flex', gap: '12px', justifyContent: 'flex-end' }}>
-              <button className="btn btn-secondary" onClick={() => setShowDividendModal(false)}>
-                {t(language, 'stockDetail.cancel')}
-              </button>
-              <button 
-                className="btn btn-primary" 
-                onClick={handleSaveDividend} 
-                disabled={saving || !divDate || !divAmount}
-              >
+            <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
+              <button className="btn btn-secondary" onClick={() => setShowDividendModal(false)}>{t(language, 'stockDetail.cancel')}</button>
+              <button className="btn btn-primary" onClick={handleSaveDividend} disabled={saving || !divDate || !divAmount}>
                 {saving ? t(language, 'stockDetail.saving') : t(language, 'stockDetail.save')}
               </button>
             </div>

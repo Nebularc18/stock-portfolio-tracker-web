@@ -1,0 +1,802 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Portfolio — Carbon</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@300;400;500;600;700&family=DM+Mono:wght@300;400;500&display=swap" rel="stylesheet">
+<style>
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+:root {
+  --bg:       #0e0e10;
+  --bg1:      #141416;
+  --bg2:      #1a1a1e;
+  --bg3:      #202024;
+  --border:   #26262c;
+  --text:     #e8e8e6;
+  --muted:    #6b6b72;
+  --dim:      #3a3a42;
+  --accent:   #44aaff;
+  --accent2:  #44ffaa;
+  --red:      #ff5566;
+  --amber:    #ffaa33;
+}
+
+html, body {
+  background: var(--bg);
+  color: var(--text);
+  font-family: 'DM Mono', monospace;
+  font-size: 13px;
+  line-height: 1.5;
+  min-height: 100vh;
+}
+
+/* ── TOP BAR ── */
+.topbar {
+  display: flex;
+  align-items: stretch;
+  height: 44px;
+  border-bottom: 1px solid var(--border);
+  background: var(--bg1);
+}
+
+.topbar-brand {
+  font-family: 'Barlow Condensed', sans-serif;
+  font-weight: 700;
+  font-size: 17px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--text);
+  padding: 0 24px;
+  border-right: 1px solid var(--border);
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.topbar-brand .dot {
+  width: 7px; height: 7px;
+  border-radius: 50%;
+  background: var(--accent);
+  box-shadow: 0 0 8px var(--accent);
+  flex-shrink: 0;
+}
+
+.topbar-indices {
+  display: flex;
+  flex: 1;
+  overflow: hidden;
+}
+
+.idx-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 0 20px;
+  border-right: 1px solid var(--border);
+  white-space: nowrap;
+}
+
+.idx-name {
+  font-family: 'DM Mono', monospace;
+  font-size: 10px;
+  color: var(--muted);
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
+.idx-val {
+  font-family: 'Barlow Condensed', sans-serif;
+  font-size: 15px;
+  font-weight: 500;
+  letter-spacing: 0.02em;
+}
+
+.idx-chg { font-size: 11px; }
+.up { color: var(--accent2); }
+.dn { color: var(--red); }
+
+.topbar-time {
+  display: flex;
+  align-items: center;
+  padding: 0 20px;
+  font-size: 11px;
+  color: var(--muted);
+  letter-spacing: 0.08em;
+  margin-left: auto;
+  white-space: nowrap;
+  border-left: 1px solid var(--border);
+}
+
+/* ── NAV ── */
+.nav {
+  display: flex;
+  align-items: center;
+  height: 40px;
+  border-bottom: 1px solid var(--border);
+  background: var(--bg);
+  padding: 0 24px;
+  gap: 2px;
+}
+
+.nav a {
+  font-family: 'Barlow Condensed', sans-serif;
+  font-size: 13px;
+  font-weight: 500;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  text-decoration: none;
+  color: var(--muted);
+  padding: 6px 14px;
+  border-radius: 3px;
+  transition: color 0.15s, background 0.15s;
+}
+
+.nav a:hover { color: var(--text); background: var(--bg2); }
+
+.nav a.active {
+  color: var(--accent);
+  background: rgba(68,170,255,0.08);
+}
+
+/* ── PAGE LAYOUT ── */
+.layout {
+  display: grid;
+  grid-template-columns: 1fr 1fr 1fr 300px;
+  grid-template-rows: auto auto auto;
+  min-height: calc(100vh - 84px);
+}
+
+/* ── HERO (spans cols 1-3) ── */
+.hero {
+  grid-column: 1 / 4;
+  border-bottom: 1px solid var(--border);
+  border-right: 1px solid var(--border);
+  padding: 32px 32px 28px;
+  background: linear-gradient(135deg, var(--bg1) 0%, var(--bg) 60%);
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 40px;
+}
+
+.hero-left {}
+
+.hero-eyebrow {
+  font-size: 10px;
+  letter-spacing: 0.25em;
+  text-transform: uppercase;
+  color: var(--muted);
+  margin-bottom: 10px;
+}
+
+.hero-value {
+  font-family: 'Barlow Condensed', sans-serif;
+  font-size: clamp(56px, 7vw, 96px);
+  font-weight: 700;
+  line-height: 0.9;
+  letter-spacing: -0.01em;
+  color: var(--text);
+}
+
+.hero-value .unit {
+  font-size: 0.28em;
+  font-weight: 400;
+  color: var(--muted);
+  letter-spacing: 0.12em;
+  vertical-align: super;
+  margin-right: 6px;
+}
+
+.hero-sub {
+  margin-top: 14px;
+  font-size: 11px;
+  color: var(--muted);
+  letter-spacing: 0.08em;
+  display: flex;
+  gap: 16px;
+}
+
+.hero-sub span { display: flex; align-items: center; gap: 6px; }
+
+.hero-right {
+  display: flex;
+  gap: 40px;
+  align-items: flex-end;
+  flex-shrink: 0;
+}
+
+.hero-stat {}
+
+.hero-stat-label {
+  font-size: 10px;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--muted);
+  margin-bottom: 6px;
+}
+
+.hero-stat-val {
+  font-family: 'Barlow Condensed', sans-serif;
+  font-size: 28px;
+  font-weight: 600;
+  line-height: 1;
+}
+
+.hero-stat-sub { font-size: 11px; color: var(--muted); margin-top: 4px; }
+
+/* ── RIGHT COLUMN (holdings) ── */
+.col-right {
+  grid-column: 4;
+  grid-row: 1 / 5;
+  border-left: 1px solid var(--border);
+  background: var(--bg1);
+  display: flex;
+  flex-direction: column;
+}
+
+.panel-header {
+  padding: 14px 18px 12px;
+  border-bottom: 1px solid var(--border);
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.panel-title {
+  font-family: 'Barlow Condensed', sans-serif;
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.panel-badge {
+  font-size: 10px;
+  letter-spacing: 0.1em;
+  color: var(--accent);
+  background: rgba(68,170,255,0.1);
+  padding: 2px 8px;
+  border-radius: 2px;
+}
+
+/* Holdings table */
+.htable { width: 100%; border-collapse: collapse; }
+
+.htable th {
+  font-size: 9px;
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+  color: var(--muted);
+  font-weight: 400;
+  padding: 10px 18px;
+  border-bottom: 1px solid var(--border);
+  text-align: left;
+}
+
+.htable th:last-child { text-align: right; }
+
+.htable tbody tr {
+  border-bottom: 1px solid rgba(38,38,44,0.5);
+  transition: background 0.12s;
+}
+
+.htable tbody tr:hover { background: var(--bg2); }
+.htable tbody tr:last-child { border-bottom: none; }
+
+.htable td {
+  padding: 12px 18px;
+  vertical-align: middle;
+}
+
+.htable td:last-child { text-align: right; }
+
+.h-ticker {
+  font-family: 'Barlow Condensed', sans-serif;
+  font-size: 16px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  color: var(--text);
+}
+
+.h-name { font-size: 10px; color: var(--muted); margin-top: 2px; }
+
+.h-val {
+  font-family: 'Barlow Condensed', sans-serif;
+  font-size: 15px;
+  font-weight: 500;
+  color: var(--text);
+}
+
+.h-chg { font-size: 10px; margin-top: 3px; }
+
+/* Allocation bars */
+.alloc-wrap { padding: 16px 18px; border-top: 1px solid var(--border); }
+
+.alloc-label {
+  font-size: 9px;
+  letter-spacing: 0.22em;
+  text-transform: uppercase;
+  color: var(--muted);
+  margin-bottom: 14px;
+}
+
+.alloc-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 9px;
+}
+
+.alloc-row:last-child { margin-bottom: 0; }
+
+.alloc-name {
+  font-size: 10px;
+  color: var(--muted);
+  width: 52px;
+  flex-shrink: 0;
+}
+
+.alloc-track {
+  flex: 1;
+  height: 3px;
+  background: var(--bg3);
+  border-radius: 2px;
+  overflow: hidden;
+}
+
+.alloc-fill {
+  height: 100%;
+  border-radius: 2px;
+  background: var(--accent);
+}
+
+.alloc-fill.c2 { background: var(--accent2); }
+.alloc-fill.c3 { background: var(--amber); }
+.alloc-fill.c4 { background: #aa66ff; }
+.alloc-fill.c5 { background: #ff8866; }
+
+.alloc-pct { font-size: 10px; color: var(--muted); width: 36px; text-align: right; flex-shrink: 0; }
+
+/* ── KPI ROW ── */
+.kpi-row {
+  grid-column: 1 / 4;
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  border-bottom: 1px solid var(--border);
+}
+
+.kpi-cell {
+  padding: 20px 24px;
+  border-right: 1px solid var(--border);
+}
+
+.kpi-cell:last-child { border-right: none; }
+
+.kpi-label {
+  font-size: 10px;
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+  color: var(--muted);
+  margin-bottom: 10px;
+}
+
+.kpi-value {
+  font-family: 'Barlow Condensed', sans-serif;
+  font-size: 32px;
+  font-weight: 600;
+  line-height: 1;
+  letter-spacing: 0.01em;
+}
+
+.kpi-sub { font-size: 11px; color: var(--muted); margin-top: 6px; }
+
+/* ── CHART ── */
+.chart-panel {
+  grid-column: 1 / 3;
+  border-right: 1px solid var(--border);
+  border-bottom: 1px solid var(--border);
+}
+
+.chart-body {
+  padding: 16px 20px 12px;
+  height: 200px;
+}
+
+.chart-svg { width: 100%; height: 100%; }
+
+/* ── DIVIDENDS ── */
+.div-panel {
+  border-bottom: 1px solid var(--border);
+}
+
+.div-list { list-style: none; }
+
+.div-item {
+  display: grid;
+  grid-template-columns: 48px 1fr auto;
+  gap: 10px;
+  align-items: center;
+  padding: 11px 18px;
+  border-bottom: 1px solid rgba(38,38,44,0.5);
+  transition: background 0.12s;
+}
+
+.div-item:hover { background: var(--bg2); }
+.div-item:last-child { border-bottom: none; }
+
+.div-date {
+  font-family: 'Barlow Condensed', sans-serif;
+  font-size: 22px;
+  font-weight: 600;
+  line-height: 1;
+  color: var(--accent);
+  text-align: center;
+}
+
+.div-date .mo {
+  font-size: 9px;
+  font-weight: 400;
+  letter-spacing: 0.15em;
+  text-transform: uppercase;
+  color: var(--muted);
+  display: block;
+  text-align: center;
+  margin-top: 2px;
+}
+
+.div-ticker {
+  font-family: 'Barlow Condensed', sans-serif;
+  font-size: 15px;
+  font-weight: 600;
+}
+
+.div-desc { font-size: 10px; color: var(--muted); margin-top: 2px; }
+
+.div-amount {
+  font-family: 'Barlow Condensed', sans-serif;
+  font-size: 17px;
+  font-weight: 500;
+  text-align: right;
+  white-space: nowrap;
+}
+
+.div-amount .cur { font-size: 10px; color: var(--muted); font-weight: 400; font-family: 'DM Mono', monospace; }
+
+/* ── MARKET SUMMARY ── */
+.market-panel {
+  border-right: 1px solid var(--border);
+}
+
+.market-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+}
+
+.m-cell {
+  padding: 14px 18px;
+  border-bottom: 1px solid var(--border);
+  border-right: 1px solid var(--border);
+  transition: background 0.12s;
+}
+
+.m-cell:hover { background: var(--bg2); }
+.m-cell:nth-child(2n) { border-right: none; }
+.m-cell:nth-last-child(-n+2) { border-bottom: none; }
+
+.m-name {
+  font-size: 9px;
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+  color: var(--muted);
+  margin-bottom: 6px;
+}
+
+.m-val {
+  font-family: 'Barlow Condensed', sans-serif;
+  font-size: 22px;
+  font-weight: 600;
+  line-height: 1;
+}
+
+.m-chg { font-size: 11px; margin-top: 4px; }
+
+/* ── SWITCHER ── */
+.switcher {
+  grid-column: 1 / 5;
+  display: flex;
+  align-items: center;
+  gap: 0;
+  padding: 12px 24px;
+  border-top: 1px solid var(--border);
+  background: var(--bg1);
+}
+
+.switcher-label {
+  font-size: 9px;
+  letter-spacing: 0.25em;
+  text-transform: uppercase;
+  color: var(--muted);
+  margin-right: 16px;
+}
+
+.switcher a {
+  font-family: 'DM Mono', monospace;
+  font-size: 11px;
+  color: var(--muted);
+  text-decoration: none;
+  padding: 5px 14px;
+  border: 1px solid var(--border);
+  margin-right: -1px;
+  transition: color 0.12s, background 0.12s;
+}
+
+.switcher a:hover { color: var(--text); background: var(--bg2); }
+
+.switcher a.active {
+  color: var(--accent);
+  background: rgba(68,170,255,0.08);
+  border-color: rgba(68,170,255,0.3);
+  z-index: 1;
+}
+</style>
+</head>
+<body>
+
+<div class="topbar">
+  <div class="topbar-brand"><span class="dot"></span>Portfolio</div>
+  <div class="topbar-indices">
+    <div class="idx-item">
+      <span class="idx-name">S&P 500</span>
+      <span class="idx-val">5,842.10</span>
+      <span class="idx-chg up">+0.34%</span>
+    </div>
+    <div class="idx-item">
+      <span class="idx-name">NASDAQ</span>
+      <span class="idx-val">18,402</span>
+      <span class="idx-chg up">+0.51%</span>
+    </div>
+    <div class="idx-item">
+      <span class="idx-name">OMX 30</span>
+      <span class="idx-val">2,641.80</span>
+      <span class="idx-chg dn">-0.12%</span>
+    </div>
+    <div class="idx-item">
+      <span class="idx-name">USD/SEK</span>
+      <span class="idx-val">10.4200</span>
+      <span class="idx-chg dn">-0.08%</span>
+    </div>
+    <div class="idx-item">
+      <span class="idx-name">EUR/SEK</span>
+      <span class="idx-val">10.8125</span>
+      <span class="idx-chg up">+0.03%</span>
+    </div>
+  </div>
+  <div class="topbar-time">10 MAR 2026 &nbsp;09:42 CET</div>
+</div>
+
+<nav class="nav">
+  <a href="#" class="active">Dashboard</a>
+  <a href="#">Portfolio</a>
+  <a href="#">Transactions</a>
+  <a href="#">Dividends</a>
+  <a href="#">Analytics</a>
+  <a href="#">Search</a>
+  <a href="#">Alerts</a>
+  <a href="#">Account</a>
+</nav>
+
+<div class="layout">
+
+  <!-- HERO -->
+  <div class="hero">
+    <div class="hero-left">
+      <div class="hero-eyebrow">Total Portfolio Value</div>
+      <div class="hero-value"><span class="unit">SEK</span>842,341</div>
+      <div class="hero-sub">
+        <span>5 positions</span>
+        <span style="color:var(--dim)">|</span>
+        <span>3 markets</span>
+        <span style="color:var(--dim)">|</span>
+        <span>Updated 09:42</span>
+      </div>
+    </div>
+    <div class="hero-right">
+      <div class="hero-stat">
+        <div class="hero-stat-label">Today</div>
+        <div class="hero-stat-val up">+2,841</div>
+        <div class="hero-stat-sub">+0.34% SEK</div>
+      </div>
+      <div class="hero-stat">
+        <div class="hero-stat-label">YTD Return</div>
+        <div class="hero-stat-val up">+12.4%</div>
+        <div class="hero-stat-sub">+93,014 SEK</div>
+      </div>
+      <div class="hero-stat">
+        <div class="hero-stat-label">Annual Yield</div>
+        <div class="hero-stat-val" style="color:var(--amber);">3.2%</div>
+        <div class="hero-stat-sub">26,955 SEK est.</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- RIGHT COLUMN -->
+  <div class="col-right">
+    <div class="panel-header">
+      <span class="panel-title">Holdings</span>
+      <span class="panel-badge">5 positions</span>
+    </div>
+    <table class="htable">
+      <thead>
+        <tr>
+          <th>Asset</th>
+          <th>Qty</th>
+          <th>Value SEK</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><div class="h-ticker">AAPL</div><div class="h-name">Apple Inc.</div></td>
+          <td style="color:var(--muted);font-size:12px;">50</td>
+          <td><div class="h-val">98,703</div><div class="h-chg up">+0.87%</div></td>
+        </tr>
+        <tr>
+          <td><div class="h-ticker">TSLA</div><div class="h-name">Tesla Inc.</div></td>
+          <td style="color:var(--muted);font-size:12px;">30</td>
+          <td><div class="h-val">77,546</div><div class="h-chg dn">-1.23%</div></td>
+        </tr>
+        <tr>
+          <td><div class="h-ticker">NOVO B</div><div class="h-name">Novo Nordisk</div></td>
+          <td style="color:var(--muted);font-size:12px;">120</td>
+          <td><div class="h-val">294,440</div><div class="h-chg dn">-0.45%</div></td>
+        </tr>
+        <tr>
+          <td><div class="h-ticker">VOLV B</div><div class="h-name">Volvo AB</div></td>
+          <td style="color:var(--muted);font-size:12px;">200</td>
+          <td><div class="h-val">52,040</div><div class="h-chg up">+0.22%</div></td>
+        </tr>
+        <tr>
+          <td><div class="h-ticker">SAP</div><div class="h-name">SAP SE</div></td>
+          <td style="color:var(--muted);font-size:12px;">15</td>
+          <td><div class="h-val">32,894</div><div class="h-chg up">+1.15%</div></td>
+        </tr>
+      </tbody>
+    </table>
+    <div class="alloc-wrap">
+      <div class="alloc-label">Portfolio weight</div>
+      <div class="alloc-row"><span class="alloc-name">NOVO B</span><div class="alloc-track"><div class="alloc-fill" style="width:34.9%"></div></div><span class="alloc-pct">34.9%</span></div>
+      <div class="alloc-row"><span class="alloc-name">AAPL</span><div class="alloc-track"><div class="alloc-fill c2" style="width:11.7%"></div></div><span class="alloc-pct">11.7%</span></div>
+      <div class="alloc-row"><span class="alloc-name">TSLA</span><div class="alloc-track"><div class="alloc-fill c3" style="width:9.2%"></div></div><span class="alloc-pct">9.2%</span></div>
+      <div class="alloc-row"><span class="alloc-name">VOLV B</span><div class="alloc-track"><div class="alloc-fill c4" style="width:6.2%"></div></div><span class="alloc-pct">6.2%</span></div>
+      <div class="alloc-row"><span class="alloc-name">SAP</span><div class="alloc-track"><div class="alloc-fill c5" style="width:3.9%"></div></div><span class="alloc-pct">3.9%</span></div>
+    </div>
+  </div>
+
+  <!-- KPI ROW -->
+  <div class="kpi-row">
+    <div class="kpi-cell">
+      <div class="kpi-label">Daily P&amp;L</div>
+      <div class="kpi-value up">+2,841</div>
+      <div class="kpi-sub">SEK &nbsp;·&nbsp; +0.34%</div>
+    </div>
+    <div class="kpi-cell">
+      <div class="kpi-label">Positions</div>
+      <div class="kpi-value">5</div>
+      <div class="kpi-sub">3 markets · 2 FX</div>
+    </div>
+    <div class="kpi-cell">
+      <div class="kpi-label">Annual Yield</div>
+      <div class="kpi-value" style="color:var(--amber);">3.2%</div>
+      <div class="kpi-sub">26,955 SEK est.</div>
+    </div>
+    <div class="kpi-cell">
+      <div class="kpi-label">YTD Return</div>
+      <div class="kpi-value up">+12.4%</div>
+      <div class="kpi-sub">+93,014 SEK</div>
+    </div>
+  </div>
+
+  <!-- CHART -->
+  <div class="chart-panel">
+    <div class="panel-header">
+      <span class="panel-title">Performance — 3M</span>
+      <div style="display:flex;gap:0;">
+        <button onclick="this.parentNode.querySelectorAll('button').forEach(b=>b.style.cssText='');this.style.cssText='color:var(--accent);background:rgba(68,170,255,0.1);border-color:rgba(68,170,255,0.3);'"
+          style="font-family:'DM Mono',monospace;font-size:10px;background:none;border:1px solid var(--border);color:var(--muted);padding:4px 10px;cursor:pointer;margin-left:-1px;">1W</button>
+        <button onclick="this.parentNode.querySelectorAll('button').forEach(b=>b.style.cssText='');this.style.cssText='color:var(--accent);background:rgba(68,170,255,0.1);border-color:rgba(68,170,255,0.3);'"
+          style="font-family:'DM Mono',monospace;font-size:10px;background:none;border:1px solid var(--border);color:var(--muted);padding:4px 10px;cursor:pointer;margin-left:-1px;">1M</button>
+        <button onclick="this.parentNode.querySelectorAll('button').forEach(b=>b.style.cssText='');this.style.cssText='color:var(--accent);background:rgba(68,170,255,0.1);border-color:rgba(68,170,255,0.3);'"
+          style="font-family:'DM Mono',monospace;font-size:10px;color:var(--accent);background:rgba(68,170,255,0.1);border:1px solid rgba(68,170,255,0.3);padding:4px 10px;cursor:pointer;margin-left:-1px;">3M</button>
+        <button onclick="this.parentNode.querySelectorAll('button').forEach(b=>b.style.cssText='');this.style.cssText='color:var(--accent);background:rgba(68,170,255,0.1);border-color:rgba(68,170,255,0.3);'"
+          style="font-family:'DM Mono',monospace;font-size:10px;background:none;border:1px solid var(--border);color:var(--muted);padding:4px 10px;cursor:pointer;margin-left:-1px;">1Y</button>
+        <button onclick="this.parentNode.querySelectorAll('button').forEach(b=>b.style.cssText='');this.style.cssText='color:var(--accent);background:rgba(68,170,255,0.1);border-color:rgba(68,170,255,0.3);'"
+          style="font-family:'DM Mono',monospace;font-size:10px;background:none;border:1px solid var(--border);color:var(--muted);padding:4px 10px;cursor:pointer;margin-left:-1px;">ALL</button>
+      </div>
+    </div>
+    <div class="chart-body">
+      <svg class="chart-svg" viewBox="0 0 600 160" preserveAspectRatio="none">
+        <defs>
+          <linearGradient id="cg1" x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0%" stop-color="rgba(68,170,255,0.18)"/>
+            <stop offset="100%" stop-color="rgba(68,170,255,0)"/>
+          </linearGradient>
+        </defs>
+        <line x1="0" y1="40" x2="600" y2="40" stroke="rgba(38,38,44,1)" stroke-width="1"/>
+        <line x1="0" y1="80" x2="600" y2="80" stroke="rgba(38,38,44,1)" stroke-width="1"/>
+        <line x1="0" y1="120" x2="600" y2="120" stroke="rgba(38,38,44,1)" stroke-width="1"/>
+        <text x="4" y="122" font-family="DM Mono" font-size="8" fill="#3a3a42">750k</text>
+        <text x="4" y="82" font-family="DM Mono" font-size="8" fill="#3a3a42">800k</text>
+        <text x="4" y="42" font-family="DM Mono" font-size="8" fill="#3a3a42">840k</text>
+        <path d="M0,140 L60,136 L120,132 L180,129 L240,133 L300,122 L360,114 L420,105 L480,96 L540,84 L600,72 L600,160 L0,160 Z" fill="url(#cg1)"/>
+        <path d="M0,140 L60,136 L120,132 L180,129 L240,133 L300,122 L360,114 L420,105 L480,96 L540,84 L600,72" fill="none" stroke="#44aaff" stroke-width="1.5" stroke-linejoin="round"/>
+        <circle cx="600" cy="72" r="3.5" fill="#0e0e10" stroke="#44aaff" stroke-width="1.5"/>
+        <text x="596" y="64" font-family="DM Mono" font-size="8" fill="#44aaff" text-anchor="end">842,341</text>
+        <text x="0" y="158" font-family="DM Mono" font-size="8" fill="#3a3a42">DEC</text>
+        <text x="200" y="158" font-family="DM Mono" font-size="8" fill="#3a3a42" text-anchor="middle">JAN</text>
+        <text x="400" y="158" font-family="DM Mono" font-size="8" fill="#3a3a42" text-anchor="middle">FEB</text>
+        <text x="580" y="158" font-family="DM Mono" font-size="8" fill="#3a3a42" text-anchor="end">MAR</text>
+      </svg>
+    </div>
+  </div>
+
+  <!-- DIVIDENDS -->
+  <div class="div-panel">
+    <div class="panel-header">
+      <span class="panel-title">Upcoming Dividends</span>
+      <span style="font-size:10px;color:var(--muted);">90 days</span>
+    </div>
+    <ul class="div-list">
+      <li class="div-item">
+        <div class="div-date">15<span class="mo">MAR</span></div>
+        <div><div class="div-ticker">AAPL</div><div class="div-desc">Quarterly · 0.25 USD/sh · Ex Mar 10</div></div>
+        <div class="div-amount">130 <span class="cur">SEK</span></div>
+      </li>
+      <li class="div-item">
+        <div class="div-date">03<span class="mo">APR</span></div>
+        <div><div class="div-ticker">VOLV B</div><div class="div-desc">Annual · 8.00 SEK/sh · Ex Mar 28</div></div>
+        <div class="div-amount">1,600 <span class="cur">SEK</span></div>
+      </li>
+      <li class="div-item">
+        <div class="div-date">22<span class="mo">APR</span></div>
+        <div><div class="div-ticker">NOVO B</div><div class="div-desc">Semi-annual · 5.40 DKK/sh · Ex Apr 17</div></div>
+        <div class="div-amount">2,480 <span class="cur">SEK</span></div>
+      </li>
+      <li class="div-item">
+        <div class="div-date">18<span class="mo">MAY</span></div>
+        <div><div class="div-ticker">SAP</div><div class="div-desc">Annual · 2.20 EUR/sh · Ex May 13</div></div>
+        <div class="div-amount">357 <span class="cur">SEK</span></div>
+      </li>
+    </ul>
+  </div>
+
+  <!-- MARKET -->
+  <div class="market-panel">
+    <div class="panel-header">
+      <span class="panel-title">Markets</span>
+    </div>
+    <div class="market-grid">
+      <div class="m-cell"><div class="m-name">S&amp;P 500</div><div class="m-val">5,842</div><div class="m-chg up">+0.34%</div></div>
+      <div class="m-cell"><div class="m-name">NASDAQ</div><div class="m-val">18,402</div><div class="m-chg up">+0.51%</div></div>
+      <div class="m-cell"><div class="m-name">OMX 30</div><div class="m-val">2,641</div><div class="m-chg dn">-0.12%</div></div>
+      <div class="m-cell"><div class="m-name">USD/SEK</div><div class="m-val">10.420</div><div class="m-chg dn">-0.08%</div></div>
+      <div class="m-cell" style="grid-column:1/3;border-right:none;border-bottom:none;"><div class="m-name">EUR/SEK</div><div class="m-val">10.8125</div><div class="m-chg up">+0.03%</div></div>
+    </div>
+  </div>
+
+  <!-- SWITCHER -->
+  <div class="switcher">
+    <span class="switcher-label">Design</span>
+    <a href="/1/" class="active">01</a>
+    <a href="/2/">02</a>
+    <a href="/3/">03</a>
+    <a href="/4/">04</a>
+    <a href="/5/">05</a>
+  </div>
+
+</div>
+</body>
+</html>

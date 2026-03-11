@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom'
 import { api, Stock } from '../services/api'
 import { useSettings } from '../SettingsContext'
 import { formatTimeInTimezone, getLatestTimestamp } from '../utils/time'
+import { resolveBackendAssetUrl } from '../utils/assets'
 import { getLocaleForLanguage, t } from '../i18n'
 import supportedExchanges from '../config/supportedExchanges.json'
 
@@ -180,314 +181,275 @@ function getLocalDateInputValue(value: Date = new Date()): string {
   const selectedExchangeData = EXCHANGES.find(e => e.code === selectedExchange)
 
   if (loading) {
-    return <div style={{ textAlign: 'center', padding: '40px' }}>{t(language, 'common.loading')}</div>
+    return <div className="loading-state">{t(language, 'common.loading')}</div>
   }
 
   return (
     <div>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '24px' }}>
+      {/* ── HERO HEADER ── */}
+      <div style={{
+        display: 'grid',
+        gridTemplateColumns: '1fr auto',
+        alignItems: 'center',
+        borderBottom: '1px solid var(--border)',
+        padding: '26px 28px',
+        background: 'linear-gradient(115deg, #12141c 0%, var(--bg) 55%)',
+        gap: 20,
+      }}>
         <div>
-          <h2 style={{ fontSize: '24px', fontWeight: '600' }}>{t(language, 'stocks.title')}</h2>
-          <p style={{ color: 'var(--text-secondary)', fontSize: '12px', marginTop: '4px' }}>
+          <div style={{ fontSize: 9, fontWeight: 700, letterSpacing: '0.2em', textTransform: 'uppercase', color: 'var(--muted)', marginBottom: 6 }}>
             {t(language, 'common.lastUpdated')}: {formatTimeInTimezone(lastUpdate, timezone, locale)} · {t(language, 'common.autoRefresh10m')}
-          </p>
+          </div>
+          <h2 style={{ fontSize: 22, fontWeight: 800, letterSpacing: '-0.02em' }}>{t(language, 'stocks.title')}</h2>
         </div>
         <button className="btn btn-primary" onClick={() => setShowAddForm(!showAddForm)}>
           {showAddForm ? t(language, 'stocks.cancel') : t(language, 'stocks.addStock')}
         </button>
       </div>
 
-      {error && (
-        <div className="card" style={{ background: 'rgba(248, 81, 73, 0.1)', marginBottom: '20px' }}>
-          <p style={{ color: 'var(--accent-red)' }}>{error}</p>
-        </div>
-      )}
+      <div style={{ padding: '0 28px 28px' }}>
 
-      {showAddForm && (
-        <div className="card" style={{ marginBottom: '20px' }}>
-          <h3 style={{ marginBottom: '16px' }}>{t(language, 'stocks.addNewStock')}</h3>
-          <form onSubmit={handleAddStock}>
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(6, 1fr)', gap: '16px' }}>
-              <div>
-                <label style={{ display: 'block', marginBottom: '8px', color: 'var(--text-secondary)', fontSize: '12px' }}>
-                  {t(language, 'stocks.exchange')}
-                </label>
-                <select
-                  value={selectedExchange}
-                  onChange={(e) => handleExchangeChange(e.target.value)}
-                  style={{
-                    width: '100%',
-                    padding: '10px 14px',
-                    border: '1px solid var(--border-color)',
-                    borderRadius: '6px',
-                    background: 'var(--bg-tertiary)',
-                    color: 'var(--text-primary)',
-                    fontSize: '14px',
-                  }}
-                >
-                  {EXCHANGES.map((ex) => (
-                    <option key={ex.code} value={ex.code}>
-                      {ex.name}
-                    </option>
-                  ))}
-                </select>
+        {error && (
+          <div style={{ marginTop: 16, padding: '10px 16px', background: 'rgba(248,113,113,0.08)', border: '1px solid rgba(248,113,113,0.2)', borderRadius: 6 }}>
+            <p style={{ color: 'var(--red)', margin: 0, fontSize: 13 }}>{error}</p>
+          </div>
+        )}
+
+        {/* ── ADD FORM ── */}
+        {showAddForm && (
+          <div style={{ marginTop: 20, background: 'var(--bg2)', border: '1px solid var(--border)', borderRadius: 8 }}>
+            <div style={{ padding: '12px 18px', borderBottom: '1px solid var(--border)' }}>
+              <span style={{ fontSize: 9, fontWeight: 700, letterSpacing: '0.18em', textTransform: 'uppercase', color: 'var(--v2)' }}>
+                {t(language, 'stocks.addNewStock')}
+              </span>
+            </div>
+            <form onSubmit={handleAddStock} style={{ padding: '18px' }}>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(6, 1fr)', gap: 16 }}>
+                <div>
+                  <label style={{ display: 'block', marginBottom: 6, color: 'var(--muted)', fontSize: 11, fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase' }}>
+                    {t(language, 'stocks.exchange')}
+                  </label>
+                  <select value={selectedExchange} onChange={(e) => handleExchangeChange(e.target.value)}>
+                    {EXCHANGES.map((ex) => (
+                      <option key={ex.code} value={ex.code}>{ex.name}</option>
+                    ))}
+                  </select>
+                </div>
+                <div>
+                  <label style={{ display: 'block', marginBottom: 6, color: 'var(--muted)', fontSize: 11, fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase' }}>
+                    {t(language, 'stocks.tickerSymbol')}
+                  </label>
+                  <input
+                    type="text"
+                    value={newTicker}
+                    onChange={(e) => handleTickerChange(e.target.value)}
+                    placeholder={selectedExchange === 'US' ? 'AAPL' : 'INVE-B'}
+                    style={{
+                      borderColor: validationStatus === 'valid' ? 'var(--green)' :
+                                   validationStatus === 'invalid' ? 'var(--red)' : undefined
+                    }}
+                    required
+                  />
+                  {newTicker && (
+                    <p style={{ fontSize: 11, color: 'var(--muted)', marginTop: 4, fontFamily: "'Fira Code', monospace" }}>
+                      {t(language, 'stocks.full')}: {getFullTicker(newTicker, selectedExchange)}
+                    </p>
+                  )}
+                </div>
+                <div>
+                  <label style={{ display: 'block', marginBottom: 6, color: 'var(--muted)', fontSize: 11, fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase' }}>
+                    {t(language, 'stocks.quantity')}
+                  </label>
+                  <input
+                    type="number" step="0.01" min="0"
+                    value={newQuantity}
+                    onChange={(e) => setNewQuantity(e.target.value)}
+                    placeholder={t(language, 'stocks.placeholderQuantity')}
+                    required
+                  />
+                </div>
+                <div>
+                  <label style={{ display: 'block', marginBottom: 6, color: 'var(--muted)', fontSize: 11, fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase' }}>
+                    {t(language, 'stocks.purchasePrice')} ({selectedExchangeData?.currency})
+                  </label>
+                  <input
+                    type="number" step="0.01" min="0"
+                    value={newPurchasePrice}
+                    onChange={(e) => setNewPurchasePrice(e.target.value)}
+                    placeholder={t(language, 'stocks.placeholderPrice')}
+                  />
+                </div>
+                <div>
+                  <label style={{ display: 'block', marginBottom: 6, color: 'var(--muted)', fontSize: 11, fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase' }}>
+                    {t(language, 'stocks.purchaseDate')}
+                  </label>
+                  <input
+                    type="date"
+                    value={newPurchaseDate}
+                    onChange={(e) => setNewPurchaseDate(e.target.value)}
+                    max={maxPurchaseDate}
+                  />
+                </div>
+                <div style={{ display: 'flex', alignItems: 'flex-end' }}>
+                  <button type="submit" className="btn btn-primary" style={{ width: '100%' }} disabled={adding}>
+                    {adding ? t(language, 'stocks.adding') : t(language, 'stocks.add')}
+                  </button>
+                </div>
               </div>
-              <div>
-                <label style={{ display: 'block', marginBottom: '8px', color: 'var(--text-secondary)', fontSize: '12px' }}>
-                  {t(language, 'stocks.tickerSymbol')}
-                </label>
-                <input
-                  type="text"
-                  value={newTicker}
-                  onChange={(e) => handleTickerChange(e.target.value)}
-                  placeholder={selectedExchange === 'US' ? 'AAPL' : 'INVE-B'}
-                  style={{ 
-                    width: '100%',
-                    borderColor: validationStatus === 'valid' ? 'var(--accent-green)' : 
-                                 validationStatus === 'invalid' ? 'var(--accent-red)' : undefined
-                  }}
-                  required
-                />
-                {newTicker && (
-                  <p style={{ fontSize: '11px', color: 'var(--text-secondary)', marginTop: '4px' }}>
-                    {t(language, 'stocks.full')}: {getFullTicker(newTicker, selectedExchange)}
-                  </p>
-                )}
-              </div>
-              <div>
-                <label style={{ display: 'block', marginBottom: '8px', color: 'var(--text-secondary)', fontSize: '12px' }}>
+            </form>
+          </div>
+        )}
+
+        {/* ── HOLDINGS TABLE ── */}
+        <div style={{ marginTop: 20, background: 'var(--bg2)', border: '1px solid var(--border)', borderRadius: 8 }}>
+          <div style={{ padding: '12px 18px', borderBottom: '1px solid var(--border)' }}>
+            <span style={{ fontSize: 9, fontWeight: 700, letterSpacing: '0.18em', textTransform: 'uppercase', color: 'var(--muted)' }}>
+              {t(language, 'stocks.title')}
+            </span>
+          </div>
+          {!stocks.length ? (
+            <div className="empty-state" style={{ padding: '40px' }}>{t(language, 'stocks.noStocksMessage')}</div>
+          ) : (
+            <table>
+              <thead>
+                <tr>
+                  <th>{t(language, 'stocks.tableTicker')}</th>
+                  <th>{t(language, 'stocks.tableName')}</th>
+                  <th>{t(language, 'stocks.tableQty')}</th>
+                  <th>{t(language, 'stocks.tableCurr')}</th>
+                  <th style={{ textAlign: 'right' }}>{t(language, 'stocks.tablePurchase')}</th>
+                  <th>{t(language, 'stocks.purchaseDate')}</th>
+                  <th style={{ textAlign: 'right' }}>{t(language, 'stocks.tablePrice')}</th>
+                  <th style={{ textAlign: 'right' }}>{t(language, 'stocks.tableChange')}</th>
+                  <th style={{ textAlign: 'right' }}>{t(language, 'stocks.tableDivYield')}</th>
+                  <th>{t(language, 'stocks.tableActions')}</th>
+                </tr>
+              </thead>
+              <tbody>
+                {stocks.map((stock) => {
+                  const dailyChange = stock.current_price && stock.previous_close
+                    ? stock.current_price - stock.previous_close
+                    : null
+                  const dailyChangePercent = dailyChange && stock.previous_close
+                    ? (dailyChange / stock.previous_close) * 100
+                    : null
+
+                  return (
+                    <tr key={stock.id}>
+                      <td>
+                        <Link
+                          to={`/stocks/${stock.ticker}`}
+                          style={{ color: 'var(--v2)', textDecoration: 'none', fontWeight: 700, display: 'flex', alignItems: 'center', gap: 8 }}
+                        >
+                          {resolveBackendAssetUrl(stock.logo) && !failedLogos[stock.ticker] ? (
+                            <img
+                              src={resolveBackendAssetUrl(stock.logo) || undefined}
+                              alt={stock.name || stock.ticker}
+                              style={{ width: 22, height: 22, borderRadius: 4, objectFit: 'contain', background: 'var(--bg3)', padding: 2 }}
+                              onError={() => setFailedLogos((prev) => ({ ...prev, [stock.ticker]: true }))}
+                            />
+                          ) : (
+                            <span style={{
+                              width: 22, height: 22, borderRadius: 4,
+                              display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+                              fontSize: 11, fontWeight: 700, color: 'var(--muted)', background: 'var(--bg3)',
+                            }}>
+                              {(stock.name || stock.ticker || '?').charAt(0).toUpperCase()}
+                            </span>
+                          )}
+                          <span style={{ fontFamily: "'Fira Code', monospace" }}>{stock.ticker}</span>
+                        </Link>
+                      </td>
+                      <td style={{ color: 'var(--text2)' }}>{stock.name || '-'}</td>
+                      <td style={{ fontFamily: "'Fira Code', monospace" }}>{stock.quantity}</td>
+                      <td><span className="badge badge-muted">{stock.currency}</span></td>
+                      <td style={{ fontFamily: "'Fira Code', monospace", textAlign: 'right' }}>{formatCurrency(stock.purchase_price, locale, stock.currency)}</td>
+                      <td style={{ fontFamily: "'Fira Code', monospace", color: 'var(--muted)' }}>{formatPurchaseDate(stock.purchase_date, locale)}</td>
+                      <td style={{ fontFamily: "'Fira Code', monospace", textAlign: 'right' }}>{formatCurrency(stock.current_price, locale, stock.currency)}</td>
+                      <td className={dailyChange && dailyChange >= 0 ? 'positive' : 'negative'} style={{ fontFamily: "'Fira Code', monospace", textAlign: 'right' }}>
+                        {dailyChangePercent !== null ? `${dailyChangePercent >= 0 ? '+' : ''}${dailyChangePercent.toFixed(2)}%` : '-'}
+                      </td>
+                      <td style={{ fontFamily: "'Fira Code', monospace", textAlign: 'right' }}>
+                        {stock.dividend_yield ? `${stock.dividend_yield.toFixed(2)}%` : '-'}
+                      </td>
+                      <td>
+                        <div style={{ display: 'flex', gap: 6 }}>
+                          <button
+                            className="btn btn-secondary"
+                            style={{ padding: '4px 10px', fontSize: 11 }}
+                            onClick={() => openEditModal(stock)}
+                          >
+                            {t(language, 'stocks.edit')}
+                          </button>
+                          <button
+                            className="btn btn-danger"
+                            style={{ padding: '4px 10px', fontSize: 11 }}
+                            onClick={() => handleDeleteStock(stock.ticker)}
+                          >
+                            {t(language, 'stocks.delete')}
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                  )
+                })}
+              </tbody>
+            </table>
+          )}
+        </div>
+      </div>
+
+      {/* ── EDIT MODAL ── */}
+      {editStock && (
+        <div
+          style={{
+            position: 'fixed', top: 0, left: 0, right: 0, bottom: 0,
+            background: 'rgba(0,0,0,0.7)', backdropFilter: 'blur(4px)',
+            display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000,
+          }}
+          onClick={() => setEditStock(null)}
+        >
+          <div
+            style={{ width: 420, maxWidth: '90%', background: 'var(--bg2)', border: '1px solid var(--border2)', borderRadius: 10, overflow: 'hidden' }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div style={{ padding: '16px 20px', borderBottom: '1px solid var(--border)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <span style={{ fontSize: 9, fontWeight: 700, letterSpacing: '0.18em', textTransform: 'uppercase', color: 'var(--v2)' }}>
+                {t(language, 'stocks.editTitle', { ticker: editStock.ticker })}
+              </span>
+              <button style={{ background: 'none', border: 'none', color: 'var(--muted)', cursor: 'pointer', fontSize: 18, lineHeight: 1 }} onClick={() => setEditStock(null)}>×</button>
+            </div>
+            <div style={{ padding: '20px' }}>
+              <div style={{ marginBottom: 16 }}>
+                <label style={{ display: 'block', marginBottom: 6, color: 'var(--muted)', fontSize: 11, fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase' }}>
                   {t(language, 'stocks.quantity')}
                 </label>
-                <input
-                  type="number"
-                  step="0.01"
-                  min="0"
-                  value={newQuantity}
-                  onChange={(e) => setNewQuantity(e.target.value)}
-                  placeholder={t(language, 'stocks.placeholderQuantity')}
-                  style={{ width: '100%' }}
-                  required
-                />
+                <input type="number" step="0.01" value={editQuantity} onChange={(e) => setEditQuantity(e.target.value)} style={{ width: '100%' }} />
               </div>
-              <div>
-                <label style={{ display: 'block', marginBottom: '8px', color: 'var(--text-secondary)', fontSize: '12px' }}>
-                  {t(language, 'stocks.purchasePrice')} ({selectedExchangeData?.currency})
+              <div style={{ marginBottom: 16 }}>
+                <label style={{ display: 'block', marginBottom: 6, color: 'var(--muted)', fontSize: 11, fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase' }}>
+                  {t(language, 'stocks.purchasePrice')} ({editStock.currency})
                 </label>
-                <input
-                  type="number"
-                  step="0.01"
-                  min="0"
-                  value={newPurchasePrice}
-                  onChange={(e) => setNewPurchasePrice(e.target.value)}
-                  placeholder={t(language, 'stocks.placeholderPrice')}
-                  style={{ width: '100%' }}
-                />
+                <input type="number" step="0.01" value={editPurchasePrice} onChange={(e) => setEditPurchasePrice(e.target.value)} placeholder={t(language, 'stocks.placeholderPrice')} style={{ width: '100%' }} />
               </div>
-              <div>
-                <label style={{ display: 'block', marginBottom: '8px', color: 'var(--text-secondary)', fontSize: '12px' }}>
+              <div style={{ marginBottom: 24 }}>
+                <label style={{ display: 'block', marginBottom: 6, color: 'var(--muted)', fontSize: 11, fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase' }}>
                   {t(language, 'stocks.purchaseDate')}
                 </label>
-                <input
-                  type="date"
-                  value={newPurchaseDate}
-                  onChange={(e) => setNewPurchaseDate(e.target.value)}
-                  max={maxPurchaseDate}
-                  style={{ width: '100%' }}
-                />
+                <input type="date" value={editPurchaseDate} onChange={(e) => setEditPurchaseDate(e.target.value)} max={maxPurchaseDate} style={{ width: '100%' }} />
               </div>
-              <div style={{ display: 'flex', alignItems: 'flex-end' }}>
-                <button 
-                  type="submit" 
-                  className="btn btn-primary" 
-                  style={{ width: '100%' }} 
-                  disabled={adding}
-                >
-                  {adding ? t(language, 'stocks.adding') : t(language, 'stocks.add')}
+              <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
+                <button className="btn btn-secondary" onClick={() => setEditStock(null)}>
+                  {t(language, 'stocks.cancel')}
+                </button>
+                <button className="btn btn-primary" onClick={handleSaveEdit} disabled={saving}>
+                  {saving ? t(language, 'stocks.saving') : t(language, 'stocks.save')}
                 </button>
               </div>
             </div>
-          </form>
+          </div>
         </div>
       )}
-
-      <div className="card">
-        {!stocks.length ? (
-          <p style={{ color: 'var(--text-secondary)', textAlign: 'center', padding: '40px' }}>
-            {t(language, 'stocks.noStocksMessage')}
-          </p>
-        ) : (
-          <table>
-            <thead>
-              <tr>
-                <th>{t(language, 'stocks.tableTicker')}</th>
-                <th>{t(language, 'stocks.tableName')}</th>
-                <th>{t(language, 'stocks.tableQty')}</th>
-                <th>{t(language, 'stocks.tableCurr')}</th>
-                <th>{t(language, 'stocks.tablePurchase')}</th>
-                <th>{t(language, 'stocks.purchaseDate')}</th>
-                <th>{t(language, 'stocks.tablePrice')}</th>
-                <th>{t(language, 'stocks.tableChange')}</th>
-                <th>{t(language, 'stocks.tableDivYield')}</th>
-                <th>{t(language, 'stocks.tableActions')}</th>
-              </tr>
-            </thead>
-            <tbody>
-              {stocks.map((stock) => {
-                const dailyChange = stock.current_price && stock.previous_close 
-                  ? stock.current_price - stock.previous_close 
-                  : null
-                const dailyChangePercent = dailyChange && stock.previous_close 
-                  ? (dailyChange / stock.previous_close) * 100 
-                  : null
-                
-                return (
-                  <tr key={stock.id}>
-                    <td>
-                      <Link 
-                        to={`/stocks/${stock.ticker}`} 
-                        style={{ color: 'var(--accent-blue)', textDecoration: 'none', fontWeight: '600', display: 'flex', alignItems: 'center', gap: '8px' }}
-                      >
-                        {stock.logo && !failedLogos[stock.ticker] ? (
-                          <img
-                            src={stock.logo}
-                            alt={stock.name || stock.ticker}
-                            style={{
-                              width: 24,
-                              height: 24,
-                              borderRadius: 4,
-                              objectFit: 'contain',
-                              background: 'var(--bg-secondary)',
-                              padding: 2,
-                            }}
-                            onError={() => setFailedLogos((prev) => ({ ...prev, [stock.ticker]: true }))}
-                          />
-                        ) : (
-                          <span
-                            style={{
-                              width: 24,
-                              height: 24,
-                              borderRadius: 4,
-                              display: 'inline-flex',
-                              alignItems: 'center',
-                              justifyContent: 'center',
-                              fontSize: '12px',
-                              fontWeight: '700',
-                              color: 'var(--text-secondary)',
-                              background: 'var(--bg-secondary)',
-                            }}
-                          >
-                            {(stock.name || stock.ticker || '?').charAt(0).toUpperCase()}
-                          </span>
-                        )}
-                        {stock.ticker}
-                      </Link>
-                    </td>
-                    <td>{stock.name || '-'}</td>
-                    <td>{stock.quantity}</td>
-                    <td>{stock.currency}</td>
-                    <td>{formatCurrency(stock.purchase_price, locale, stock.currency)}</td>
-                    <td>{formatPurchaseDate(stock.purchase_date, locale)}</td>
-                    <td>{formatCurrency(stock.current_price, locale, stock.currency)}</td>
-                    <td className={dailyChange && dailyChange >= 0 ? 'positive' : 'negative'}>
-                      {dailyChangePercent !== null ? `${dailyChangePercent >= 0 ? '+' : ''}${dailyChangePercent.toFixed(2)}%` : '-'}
-                    </td>
-                    <td>{stock.dividend_yield ? `${stock.dividend_yield.toFixed(2)}%` : '-'}</td>
-                    <td>
-                       <div style={{ display: 'flex', gap: '8px' }}>
-                         <button 
-                           className="btn btn-secondary" 
-                           style={{ padding: '6px 12px', fontSize: '12px' }}
-                           onClick={() => openEditModal(stock)}
-                         >
-                           {t(language, 'stocks.edit')}
-                         </button>
-                         <button 
-                           className="btn btn-danger" 
-                           style={{ padding: '6px 12px', fontSize: '12px' }}
-                           onClick={() => handleDeleteStock(stock.ticker)}
-                         >
-                           {t(language, 'stocks.delete')}
-                         </button>
-                       </div>
-                     </td>
-                  </tr>
-                )
-              })}
-            </tbody>
-          </table>
-         )}
-       </div>
-
-       {editStock && (
-         <div 
-           style={{
-             position: 'fixed',
-             top: 0,
-             left: 0,
-             right: 0,
-             bottom: 0,
-             background: 'rgba(0, 0, 0, 0.7)',
-             display: 'flex',
-             alignItems: 'center',
-             justifyContent: 'center',
-             zIndex: 1000,
-           }}
-           onClick={() => setEditStock(null)}
-         >
-           <div 
-             className="card" 
-             style={{ width: '400px', maxWidth: '90%' }}
-             onClick={(e) => e.stopPropagation()}
-           >
-             <h3 style={{ marginBottom: '20px' }}>{t(language, 'stocks.editTitle', { ticker: editStock.ticker })}</h3>
-             <div style={{ marginBottom: '16px' }}>
-               <label style={{ display: 'block', marginBottom: '8px', color: 'var(--text-secondary)', fontSize: '14px' }}>
-                 {t(language, 'stocks.quantity')}
-               </label>
-               <input
-                 type="number"
-                 step="0.01"
-                 value={editQuantity}
-                 onChange={(e) => setEditQuantity(e.target.value)}
-                 style={{ width: '100%' }}
-               />
-             </div>
-              <div style={{ marginBottom: '24px' }}>
-                <label style={{ display: 'block', marginBottom: '8px', color: 'var(--text-secondary)', fontSize: '14px' }}>
-                  {t(language, 'stocks.purchasePrice')} ({editStock.currency})
-               </label>
-               <input
-                 type="number"
-                 step="0.01"
-                 value={editPurchasePrice}
-                 onChange={(e) => setEditPurchasePrice(e.target.value)}
-                 style={{ width: '100%' }}
-                  placeholder={t(language, 'stocks.placeholderPrice')}
-                />
-              </div>
-              <div style={{ marginBottom: '24px' }}>
-                <label style={{ display: 'block', marginBottom: '8px', color: 'var(--text-secondary)', fontSize: '14px' }}>
-                  {t(language, 'stocks.purchaseDate')}
-                </label>
-                <input
-                  type="date"
-                  value={editPurchaseDate}
-                  onChange={(e) => setEditPurchaseDate(e.target.value)}
-                  max={maxPurchaseDate}
-                  style={{ width: '100%' }}
-                />
-              </div>
-             <div style={{ display: 'flex', gap: '12px', justifyContent: 'flex-end' }}>
-               <button className="btn btn-secondary" onClick={() => setEditStock(null)}>
-                 {t(language, 'stocks.cancel')}
-               </button>
-               <button className="btn btn-primary" onClick={handleSaveEdit} disabled={saving}>
-                 {saving ? t(language, 'stocks.saving') : t(language, 'stocks.save')}
-               </button>
-             </div>
-           </div>
-         </div>
-       )}
-     </div>
-   )
- }
+    </div>
+  )
+}

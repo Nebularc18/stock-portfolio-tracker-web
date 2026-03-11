@@ -151,114 +151,119 @@ export default function Markets() {
   }
 
   if (isLoading && !indices.length) {
-    return <div style={{ textAlign: 'center', padding: '40px' }}>{t(language, 'markets.loadingData')}</div>
+    return <div className="loading-state">{t(language, 'markets.loadingData')}</div>
   }
+
+  const secLabel = { fontSize: 9, fontWeight: 700, letterSpacing: '0.18em', textTransform: 'uppercase' as const, color: 'var(--muted)' }
 
   return (
     <div>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '24px' }}>
+      {/* Page header */}
+      <div style={{
+        background: 'linear-gradient(115deg, #12141c 0%, var(--bg) 55%)',
+        border: '1px solid var(--border)',
+        borderRadius: 10,
+        padding: '22px 24px',
+        marginBottom: 20,
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'space-between',
+        position: 'relative',
+        overflow: 'hidden',
+      }}>
+        <div style={{ position: 'absolute', top: -50, right: -50, width: 220, height: 220, background: 'radial-gradient(circle, rgba(129,140,248,0.07) 0%, transparent 70%)', pointerEvents: 'none' }} />
         <div>
-          <h2 style={{ fontSize: '24px', fontWeight: '600' }}>{t(language, 'markets.title')}</h2>
+          <h2 style={{ fontSize: 22, fontWeight: 700, letterSpacing: '-0.02em', marginBottom: 4 }}>{t(language, 'markets.title')}</h2>
           {lastUpdated && (
-            <p style={{ color: 'var(--text-secondary)', fontSize: '12px', marginTop: '4px' }}>
+            <p style={{ color: 'var(--muted)', fontSize: 11 }}>
               {t(language, 'common.lastUpdated')}: {formatTimeInTimezone(lastUpdated, timezone, locale)}
               {nextRefreshAt && <span> · {t(language, 'common.next')}: {formatTimeInTimezone(nextRefreshAt, timezone, locale)}</span>}
             </p>
           )}
         </div>
-        <button className="btn btn-primary" onClick={handleRefresh} disabled={isLoading}>
+        <button className="btn btn-secondary" onClick={handleRefresh} disabled={isLoading} style={{ flexShrink: 0 }}>
           {isLoading ? t(language, 'common.refreshing') : t(language, 'common.refresh')}
         </button>
       </div>
 
       {error && (
-        <div className="card" style={{ background: 'rgba(248, 81, 73, 0.1)', marginBottom: '20px' }}>
-          <p style={{ color: 'var(--accent-red)' }}>{error}</p>
+        <div style={{ background: 'rgba(248,113,113,0.08)', border: '1px solid rgba(248,113,113,0.25)', borderRadius: 8, padding: '12px 16px', marginBottom: 16 }}>
+          <p style={{ color: 'var(--red)', fontSize: 13 }}>{error}</p>
         </div>
       )}
 
-      <div className="card" style={{ marginBottom: '24px' }}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
-          <h3>{t(language, 'layout.marketHours')}</h3>
-          <Link to="/settings" style={{ color: 'var(--accent-blue)', fontSize: '12px', textDecoration: 'none' }}>
-            {t(language, 'layout.changeTimezone')}
-          </Link>
+      {/* Market hours */}
+      <div style={{ background: 'var(--bg2)', border: '1px solid var(--border)', borderRadius: 8, marginBottom: 20 }}>
+        <div className="sec-row" style={{ padding: '12px 16px', borderBottom: '1px solid var(--border)' }}>
+          <span className="sec-title">{t(language, 'layout.marketHours')}</span>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
+            <span style={{ color: 'var(--muted)', fontSize: 11 }}>
+              {t(language, 'layout.timesInTimezone')} ({marketHours[0]?.timezone || fallbackTimezone})
+            </span>
+            <Link to="/settings" style={{ color: 'var(--v2)', fontSize: 11, textDecoration: 'none' }}>
+              {t(language, 'layout.changeTimezone')}
+            </Link>
+          </div>
         </div>
-        <p style={{ color: 'var(--text-secondary)', fontSize: '12px', marginBottom: '12px' }}>
-          {t(language, 'layout.timesInTimezone')} ({marketHours[0]?.timezone || fallbackTimezone})
-        </p>
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '16px' }}>
+        <div style={{ padding: '16px', display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 12 }}>
           {marketHours.map((market) => (
-            <div 
-              key={market.market} 
-              style={{ 
-                padding: '16px',
-                background: 'var(--bg-tertiary)',
-                borderRadius: '8px',
-                borderLeft: `4px solid ${market.is_open ? 'var(--accent-green)' : 'var(--accent-red)'}`
+            <div
+              key={market.market}
+              style={{
+                padding: '14px 16px',
+                background: 'var(--bg3)',
+                border: '1px solid var(--border)',
+                borderLeft: `3px solid ${market.is_open ? 'var(--green2)' : 'var(--red)'}`,
+                borderRadius: 6,
               }}
             >
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
-                <p style={{ fontWeight: '600' }}>{market.name}</p>
-                <span 
-                  style={{ 
-                    fontSize: '12px',
-                    padding: '4px 8px',
-                    borderRadius: '4px',
-                    background: market.is_open ? 'rgba(63, 185, 80, 0.2)' : 'rgba(139, 148, 158, 0.2)',
-                    color: market.is_open ? 'var(--accent-green)' : 'var(--text-secondary)'
-                  }}
-                >
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+                <span style={{ fontWeight: 600, fontSize: 14 }}>{market.name}</span>
+                <span className={`badge ${market.is_open ? 'badge-green' : 'badge-red'}`}>
                   {market.status}
                 </span>
               </div>
-              <p style={{ color: 'var(--text-secondary)', fontSize: '12px' }}>
-                {market.open_time} - {market.close_time} ({market.timezone})
-              </p>
+              <div style={{ color: 'var(--muted)', fontSize: 11 }}>
+                {market.open_time} – {market.close_time} ({market.timezone})
+              </div>
               {market.local_time && (
-                <p style={{ color: 'var(--text-primary)', fontSize: '12px', marginTop: '4px' }}>
+                <div className="mono" style={{ color: 'var(--text2)', fontSize: 12, marginTop: 4 }}>
                   {t(language, 'layout.localTime')}: {market.local_time}
-                </p>
+                </div>
               )}
             </div>
           ))}
         </div>
       </div>
 
-      <h3 style={{ marginBottom: '16px' }}>{t(language, 'layout.marketIndices')}</h3>
+      {/* Indices grid */}
+      <div style={{ ...secLabel, marginBottom: 12 }}>{t(language, 'layout.marketIndices')}</div>
       <div className="grid grid-2">
         {indices.map((index) => {
           const isPositive = index.change >= 0
-          const changeClass = isPositive ? 'positive' : 'negative'
           const sparkline = sparklines[index.symbol]
-          
+
           return (
-            <div key={index.symbol} className="card">
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+            <div key={index.symbol} style={{ background: 'var(--bg2)', border: '1px solid var(--border)', borderRadius: 8, padding: '16px 20px' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 12 }}>
                 <div>
-                  <p style={{ color: 'var(--text-secondary)', fontSize: '12px', marginBottom: '4px' }}>
-                    {index.symbol}
-                  </p>
-                  <p style={{ fontSize: '16px', fontWeight: '600', marginBottom: '8px' }}>
-                    {index.name}
-                  </p>
+                  <div style={{ ...secLabel, marginBottom: 4 }}>{index.symbol}</div>
+                  <div style={{ fontSize: 15, fontWeight: 600 }}>{index.name}</div>
                 </div>
-                <div style={{ textAlign: 'right', display: 'flex', alignItems: 'center', gap: '12px' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
                   {sparkline && (
                     <MiniSparkline data={sparkline.prices} isPositive={sparkline.is_positive} />
                   )}
-                  <div>
-                    <p style={{ fontSize: '24px', fontWeight: '600' }}>
-                      {formatNumber(index.price, locale)}
-                    </p>
+                  <div className="mono" style={{ fontSize: 22, fontWeight: 700, textAlign: 'right' }}>
+                    {formatNumber(index.price, locale)}
                   </div>
                 </div>
               </div>
-              <div style={{ display: 'flex', gap: '16px', marginTop: '12px' }}>
-                <span className={changeClass}>
+              <div style={{ display: 'flex', gap: 16 }}>
+                <span className={`mono ${isPositive ? 'up' : 'dn'}`} style={{ fontSize: 13 }}>
                   {isPositive ? '+' : ''}{formatNumber(index.change, locale)}
                 </span>
-                <span className={changeClass}>
+                <span className={`mono ${isPositive ? 'up' : 'dn'}`} style={{ fontSize: 13 }}>
                   {isPositive ? '+' : ''}{formatNumber(index.change_percent, locale)}%
                 </span>
               </div>

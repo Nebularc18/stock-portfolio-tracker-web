@@ -57,12 +57,6 @@ function formatMonthLabel(monthKey: string, locale: string): string {
   return date.toLocaleDateString(locale, { year: 'numeric', month: 'long', timeZone: 'UTC' })
 }
 
-function getDaysInYear(year: number): number {
-  const start = Date.UTC(year, 0, 1)
-  const end = Date.UTC(year + 1, 0, 1)
-  return Math.round((end - start) / (1000 * 60 * 60 * 24))
-}
-
 /**
  * Displays the current year's dividend payments for the user's portfolio.
  *
@@ -127,16 +121,18 @@ export default function UpcomingDividends() {
   }, [fetchData])
 
   if (loading) {
-    return <div style={{ textAlign: 'center', padding: '40px' }}>{t(language, 'upcoming.loading')}</div>
+    return <div className="loading-state">{t(language, 'upcoming.loading')}</div>
   }
 
   if (error) {
     return (
-      <div className="card" style={{ textAlign: 'center', padding: '40px' }}>
-        <p style={{ color: 'var(--text-secondary)' }}>{error}</p>
-        <button className="btn btn-primary" onClick={() => fetchData(true)} style={{ marginTop: '16px' }}>
-          {t(language, 'common.retry')}
-        </button>
+      <div style={{ padding: 28 }}>
+        <div style={{ background: 'var(--bg2)', border: '1px solid var(--border)', borderRadius: 8, padding: '32px', textAlign: 'center' }}>
+          <p style={{ color: 'var(--muted)', marginBottom: 16 }}>{error}</p>
+          <button className="btn btn-primary" onClick={() => fetchData(true)}>
+            {t(language, 'common.retry')}
+          </button>
+        </div>
       </div>
     )
   }
@@ -181,181 +177,165 @@ export default function UpcomingDividends() {
         : items.reduce((acc, item) => acc + (getDisplayedDividendTotal(item) ?? 0), 0),
     }))
 
-  const daysInYear = getDaysInYear(currentYear)
-  const averagePerQuarterThisYear = totalExpected / 4
   const averagePerMonthThisYear = totalExpected / 12
-  const averagePerDayThisYear = totalExpected / daysInYear
 
   return (
     <div>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '24px' }}>
-         <h2 style={{ fontSize: '24px', fontWeight: '600' }}>{t(language, 'upcoming.titleWithYear', { year: currentYear })}</h2>
-        <div style={{ display: 'flex', gap: '12px', alignItems: 'center' }}>
-           <Link to="/dividends/history" style={{ color: 'var(--accent-blue)', textDecoration: 'none', fontSize: '14px' }}>
-             {t(language, 'upcoming.viewHistory')} →
-           </Link>
-          <button className="btn btn-primary" onClick={() => fetchData(false)} disabled={refreshing}>
-            {refreshing ? t(language, 'common.refreshing') : t(language, 'common.refresh')}
-          </button>
-        </div>
+      {/* ── HERO STATS ── */}
+      <div style={{
+        display: 'grid',
+        gridTemplateColumns: 'repeat(4, 1fr)',
+        borderBottom: '1px solid var(--border)',
+        background: 'linear-gradient(115deg, #12141c 0%, var(--bg) 55%)',
+      }}>
+        {[
+          { label: t(language, 'upcoming.totalExpected'), value: formatCurrency(totalExpected, locale, displayCurrency), color: 'var(--text)', accent: true },
+          { label: t(language, 'dashboard.received'), value: formatCurrency(totalReceived, locale, displayCurrency), color: 'var(--green)' },
+          { label: t(language, 'dashboard.remaining'), value: formatCurrency(totalRemaining, locale, displayCurrency), color: 'var(--v2)' },
+          { label: `${t(language, 'upcoming.perMonth')} (${t(language, 'upcoming.averageThisYear')})`, value: formatCurrency(averagePerMonthThisYear, locale, displayCurrency), color: 'var(--text2)' },
+        ].map((stat, i, arr) => (
+          <div key={stat.label} style={{
+            padding: '26px 28px',
+            borderRight: i < arr.length - 1 ? '1px solid var(--border)' : 'none',
+            borderLeft: i === 0 ? '2px solid var(--v)' : 'none',
+          }}>
+            <div style={{ fontSize: 9, fontWeight: 700, letterSpacing: '0.2em', textTransform: 'uppercase', color: 'var(--muted)', marginBottom: 10 }}>
+              {stat.label}
+            </div>
+            <div style={{ fontSize: 22, fontWeight: 800, letterSpacing: '-0.02em', lineHeight: 1, color: stat.color, fontFamily: "'Fira Code', monospace" }}>
+              {stat.value}
+            </div>
+          </div>
+        ))}
       </div>
 
-      {refreshError && (
-        <div className="card" style={{ marginBottom: '16px', borderLeft: '4px solid var(--accent-orange)' }}>
-          <p style={{ margin: 0, color: 'var(--text-secondary)' }}>{refreshError}</p>
-        </div>
-      )}
+      <div style={{ padding: '0 28px 28px' }}>
 
-      {unmappedStocks.length > 0 && (
-        <div className="card" style={{ marginBottom: '24px', borderLeft: '4px solid var(--accent-orange)' }}>
-          <h3 style={{ fontSize: '16px', marginBottom: '12px', color: 'var(--accent-orange)' }}>
-            {t(language, 'upcoming.unmappedTitle', { count: unmappedStocks.length })}
-          </h3>
-          <p style={{ fontSize: '14px', color: 'var(--text-secondary)', marginBottom: '12px' }}>
-            {t(language, 'upcoming.unmappedDescription')}
-          </p>
-          <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px', alignItems: 'center' }}>
-            {unmappedStocks.slice(0, 5).map((stock) => (
-              <span
-                key={stock.ticker}
-                style={{
-                  padding: '6px 12px',
-                  fontSize: '13px',
-                  background: 'var(--bg-tertiary)',
-                  border: '1px solid var(--border-color)',
-                  borderRadius: '4px',
-                }}
-              >
-                {stock.name || stock.ticker}
-              </span>
-            ))}
-            {unmappedStocks.length > 5 && (
-              <span style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>
-                +{unmappedStocks.length - 5} {t(language, 'upcoming.more')}
-              </span>
-            )}
-            <Link 
-              to="/settings" 
-              style={{ 
-                marginLeft: '8px',
-                fontSize: '14px',
-                color: 'var(--accent-blue)',
-                textDecoration: 'underline'
-              }}
-            >
-              {t(language, 'upcoming.mapInSettings')}
+        {/* ── PAGE HEADER ── */}
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '20px 0 14px' }}>
+          <h2 style={{ fontSize: 16, fontWeight: 800, letterSpacing: '-0.01em' }}>
+            {t(language, 'upcoming.titleWithYear', { year: currentYear })}
+          </h2>
+          <div style={{ display: 'flex', gap: 12, alignItems: 'center' }}>
+            <Link to="/dividends/history" style={{ color: 'var(--v2)', textDecoration: 'none', fontSize: 13, fontWeight: 600 }}>
+              {t(language, 'upcoming.viewHistory')} →
             </Link>
+            <button className="btn btn-secondary" onClick={() => fetchData(false)} disabled={refreshing}>
+              {refreshing ? t(language, 'common.refreshing') : t(language, 'common.refresh')}
+            </button>
           </div>
         </div>
-      )}
 
-      {dividends.length === 0 ? (
-        <div className="card" style={{ textAlign: 'center', padding: '40px' }}>
-          <p style={{ color: 'var(--text-secondary)' }}>{t(language, 'upcoming.noneFound')}</p>
-        </div>
-      ) : (
-        <>
-          <div className="card">
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '16px' }}>
-              <div>
-                <h3 style={{ margin: 0 }}>{t(language, 'upcoming.totalExpected')}</h3>
-                <div style={{ display: 'flex', gap: '20px', marginTop: '12px', fontSize: '13px', flexWrap: 'wrap' }}>
-                  <span style={{ color: 'var(--text-secondary)' }}>
-                    {t(language, 'dashboard.received')}: <strong style={{ color: 'var(--accent-green)' }}>{formatCurrency(totalReceived, locale, displayCurrency)}</strong>
-                  </span>
-                  <span style={{ color: 'var(--text-secondary)' }}>
-                    {t(language, 'dashboard.remaining')}: <strong style={{ color: 'var(--accent-blue)' }}>{formatCurrency(totalRemaining, locale, displayCurrency)}</strong>
-                  </span>
-                  <span style={{ color: 'var(--text-secondary)' }}>
-                    {t(language, 'upcoming.perQuarter')} ({t(language, 'upcoming.averageThisYear')}): <strong style={{ color: 'var(--text-primary)' }}>{formatCurrency(averagePerQuarterThisYear, locale, displayCurrency)}</strong>
-                  </span>
-                  <span style={{ color: 'var(--text-secondary)' }}>
-                    {t(language, 'upcoming.perMonth')} ({t(language, 'upcoming.averageThisYear')}): <strong style={{ color: 'var(--text-primary)' }}>{formatCurrency(averagePerMonthThisYear, locale, displayCurrency)}</strong>
-                  </span>
-                  <span style={{ color: 'var(--text-secondary)' }}>
-                    {t(language, 'upcoming.perDay')} ({t(language, 'upcoming.averageThisYear')}): <strong style={{ color: 'var(--text-primary)' }}>{formatCurrency(averagePerDayThisYear, locale, displayCurrency)}</strong>
-                  </span>
-                </div>
-              </div>
-              <span style={{ color: 'var(--accent-green)', fontWeight: '600', fontSize: '18px' }}>
-                {formatCurrency(totalExpected, locale, displayCurrency)}
-              </span>
+        {refreshError && (
+          <div style={{ marginBottom: 14, padding: '10px 16px', background: 'rgba(251,191,36,0.08)', border: '1px solid rgba(251,191,36,0.2)', borderRadius: 6 }}>
+            <p style={{ margin: 0, color: 'var(--amber)', fontSize: 13 }}>{refreshError}</p>
+          </div>
+        )}
+
+        {unmappedStocks.length > 0 && (
+          <div style={{ marginBottom: 20, padding: '14px 18px', background: 'rgba(251,191,36,0.06)', border: '1px solid rgba(251,191,36,0.18)', borderRadius: 8, borderLeft: '3px solid var(--amber)' }}>
+            <h3 style={{ fontSize: 13, fontWeight: 700, marginBottom: 8, color: 'var(--amber)' }}>
+              {t(language, 'upcoming.unmappedTitle', { count: unmappedStocks.length })}
+            </h3>
+            <p style={{ fontSize: 12, color: 'var(--muted)', marginBottom: 10 }}>
+              {t(language, 'upcoming.unmappedDescription')}
+            </p>
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, alignItems: 'center' }}>
+              {unmappedStocks.slice(0, 5).map((stock) => (
+                <span key={stock.ticker} className="badge badge-muted">
+                  {stock.name || stock.ticker}
+                </span>
+              ))}
+              {unmappedStocks.length > 5 && (
+                <span style={{ fontSize: 12, color: 'var(--muted)' }}>
+                  +{unmappedStocks.length - 5} {t(language, 'upcoming.more')}
+                </span>
+              )}
+              <Link to="/settings" style={{ marginLeft: 8, fontSize: 13, color: 'var(--v2)', textDecoration: 'underline' }}>
+                {t(language, 'upcoming.mapInSettings')}
+              </Link>
             </div>
+          </div>
+        )}
 
+        {dividends.length === 0 ? (
+          <div className="empty-state" style={{ paddingTop: 60 }}>{t(language, 'upcoming.noneFound')}</div>
+        ) : (
+          <>
             {monthlyGroups.map((group) => (
-              <div key={group.monthKey} style={{ marginBottom: '24px' }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
-                  <h4 style={{ margin: 0, color: 'var(--text-secondary)', fontSize: '14px' }}>{formatMonthLabel(group.monthKey, locale)}</h4>
-                  <span style={{ color: 'var(--accent-green)', fontWeight: '600' }}>
+              <div key={group.monthKey} style={{ marginTop: 20 }}>
+                {/* ── MONTH SECTION HEADER ── */}
+                <div className="sec-row">
+                  <span className="sec-title">{formatMonthLabel(group.monthKey, locale)}</span>
+                  <span style={{ fontFamily: "'Fira Code', monospace", fontSize: 13, fontWeight: 700, color: 'var(--green)' }}>
                     {group.subtotal !== null ? formatCurrency(group.subtotal, locale, displayCurrency) : '-'}
                   </span>
                 </div>
 
-                <table style={{ width: '100%', tableLayout: 'fixed' }}>
-                  <thead>
-                    <tr>
-                      <th style={{ width: '24%' }}>{t(language, 'performance.name')}</th>
-                      <th style={{ width: '16%' }}>{t(language, 'dashboard.exDate')}</th>
-                      <th style={{ width: '18%' }}>{t(language, 'dashboard.dividendDate')}</th>
-                      <th style={{ width: '16%', textAlign: 'right' }}>{t(language, 'dashboard.perShare')}</th>
-                      <th style={{ width: '14%', textAlign: 'right' }}>{t(language, 'dashboard.total')}</th>
-                      <th style={{ width: '12%' }}>{t(language, 'dashboard.source')}</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {group.items.map((div, i) => {
-                      const displayedTotal = getDisplayedDividendTotal(div)
-                      const payoutDisplayDate = div.payout_date ?? div.payment_date ?? div.ex_date
+                <div style={{ background: 'var(--bg2)', border: '1px solid var(--border)', borderRadius: 8 }}>
+                  <table style={{ tableLayout: 'fixed' }}>
+                    <thead>
+                      <tr>
+                        <th style={{ width: '24%' }}>{t(language, 'performance.name')}</th>
+                        <th style={{ width: '14%' }}>{t(language, 'dashboard.exDate')}</th>
+                        <th style={{ width: '16%' }}>{t(language, 'dashboard.dividendDate')}</th>
+                        <th style={{ width: '16%', textAlign: 'right' }}>{t(language, 'dashboard.perShare')}</th>
+                        <th style={{ width: '16%', textAlign: 'right' }}>{t(language, 'dashboard.total')}</th>
+                        <th style={{ width: '14%' }}>{t(language, 'dashboard.source')}</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {group.items.map((div, i) => {
+                        const displayedTotal = getDisplayedDividendTotal(div)
+                        const payoutDisplayDate = div.payout_date ?? div.payment_date ?? div.ex_date
 
-                      return (
-                        <tr key={`${div.ticker}-${div.ex_date}-${div.payment_date ?? 'na'}-${div.dividend_type ?? 'na'}-${i}`}>
-                          <td>
-                            <Link to={`/stocks/${div.ticker}`} style={{ color: 'var(--accent-blue)', textDecoration: 'none', fontWeight: '600' }}>
-                              {div.name || div.ticker}
-                            </Link>
-                            {div.dividend_type && (
-                              <span style={{ display: 'block', color: 'var(--text-secondary)', fontSize: '11px' }}>
-                                {div.dividend_type}
+                        return (
+                          <tr key={`${div.ticker}-${div.ex_date}-${div.payment_date ?? 'na'}-${div.dividend_type ?? 'na'}-${i}`}>
+                            <td>
+                              <Link to={`/stocks/${div.ticker}`} style={{ color: 'var(--v2)', textDecoration: 'none', fontWeight: 700 }}>
+                                {div.name || div.ticker}
+                              </Link>
+                              {div.dividend_type && (
+                                <span style={{ display: 'block', color: 'var(--muted)', fontSize: 11 }}>
+                                  {div.dividend_type}
+                                </span>
+                              )}
+                            </td>
+                            <td style={{ fontFamily: "'Fira Code', monospace", color: 'var(--muted)' }}>
+                              {formatDate(div.ex_date, locale, { month: 'short', day: 'numeric' })}
+                            </td>
+                            <td style={{ fontFamily: "'Fira Code', monospace" }}>
+                              {formatDate(payoutDisplayDate, locale, { month: 'short', day: 'numeric' })}
+                            </td>
+                            <td style={{ fontFamily: "'Fira Code', monospace", textAlign: 'right' }}>
+                              {formatCurrency(div.amount_per_share, locale, div.currency)}
+                            </td>
+                            <td style={{ textAlign: 'right' }}>
+                              <span style={{ color: 'var(--green)', fontWeight: 700, fontFamily: "'Fira Code', monospace" }}>
+                                {displayedTotal !== null ? formatCurrency(displayedTotal, locale, displayCurrency) : '-'}
                               </span>
-                            )}
-                          </td>
-                          <td>{formatDate(div.ex_date, locale, { month: 'short', day: 'numeric' })}</td>
-                          <td>{formatDate(payoutDisplayDate, locale, { month: 'short', day: 'numeric' })}</td>
-                          <td style={{ textAlign: 'right' }}>{formatCurrency(div.amount_per_share, locale, div.currency)}</td>
-                          <td style={{ textAlign: 'right' }}>
-                            <span style={{ color: 'var(--accent-green)', fontWeight: '600' }}>
-                              {displayedTotal !== null
-                                ? formatCurrency(displayedTotal, locale, displayCurrency)
-                                : '-'}
-                            </span>
-                            {displayedTotal !== null && div.currency !== displayCurrency && (
-                              <span style={{ display: 'block', fontSize: '11px', color: 'var(--text-secondary)' }}>
-                                {formatCurrency(div.total_amount, locale, div.currency)}
+                              {displayedTotal !== null && div.currency !== displayCurrency && (
+                                <span style={{ display: 'block', fontSize: 11, color: 'var(--muted)', fontFamily: "'Fira Code', monospace" }}>
+                                  {formatCurrency(div.total_amount, locale, div.currency)}
+                                </span>
+                              )}
+                            </td>
+                            <td>
+                              <span className={div.source === 'avanza' ? 'badge badge-green' : 'badge badge-violet'}>
+                                {div.source === 'avanza' ? 'Avanza' : 'Yahoo'}
                               </span>
-                            )}
-                          </td>
-                          <td>
-                            <span style={{
-                              padding: '2px 8px',
-                              borderRadius: '4px',
-                              fontSize: '11px',
-                              fontWeight: '600',
-                              background: div.source === 'avanza' ? 'var(--accent-green)' : 'var(--accent-blue)',
-                              color: 'white'
-                            }}>
-                              {div.source === 'avanza' ? 'Avanza' : 'Yahoo'}
-                            </span>
-                          </td>
-                        </tr>
-                      )
-                    })}
-                  </tbody>
-                </table>
+                            </td>
+                          </tr>
+                        )
+                      })}
+                    </tbody>
+                  </table>
+                </div>
               </div>
             ))}
-          </div>
-        </>
-      )}
+          </>
+        )}
+      </div>
     </div>
   )
 }

@@ -131,11 +131,32 @@ A modern web-based stock portfolio tracker built with React, FastAPI, and Postgr
 
 ### Environment Variables
 
-The application uses these environment variables (set in docker-compose.yml):
+Copy the example env file before running locally:
+
+```bash
+cp .env.example .env
+```
+
+On Windows PowerShell:
+
+```powershell
+Copy-Item .env.example .env
+```
+
+The backend now auto-loads the root `.env` file on startup, and Docker Compose also reads `.env` automatically for variable substitution.
+
+The application uses these environment variables:
 
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `DATABASE_URL` | `postgresql://portfolio:portfolio@postgres:5432/portfolio` | PostgreSQL connection string |
+| `FINNHUB_API_KEY` | - | Finnhub API key for company profile and market data |
+| `MARKETSTACK_API_KEY` | - | Marketstack API key for dividend verification and status |
+| `AUTH_TOKEN_SECRET` | - | Required signing secret for backend auth tokens |
+| `DEFAULT_USERNAME` | `admin` | Seeded default username for local setup |
+| `DEFAULT_PASSWORD` | `admin123` | Seeded default password for local setup |
+| `GUEST_USERNAME` | `guest` | Seeded guest username |
+| `GUEST_PASSWORD` | `guest-demo-password` | Seeded guest password |
 
 ### Timezone Settings
 

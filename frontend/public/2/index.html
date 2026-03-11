@@ -1,0 +1,797 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Portfolio — Obsidian</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;0,600;1,300;1,400&family=IBM+Plex+Mono:wght@300;400;500&display=swap" rel="stylesheet">
+<style>
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+:root {
+  --bg:      #0a0b0d;
+  --bg1:     #0f1013;
+  --bg2:     #141518;
+  --bg3:     #1c1d21;
+  --border:  #202126;
+  --text:    #f0ede8;
+  --muted:   #605c55;
+  --dim:     #302e2a;
+  --gold:    #c8a96e;
+  --gold2:   #e8c98e;
+  --green:   #6abf8a;
+  --red:     #c97070;
+}
+
+html, body {
+  background: var(--bg);
+  color: var(--text);
+  font-family: 'IBM Plex Mono', monospace;
+  font-size: 12px;
+  line-height: 1.6;
+  min-height: 100vh;
+}
+
+/* ── TOP STRIP ── */
+.strip {
+  border-bottom: 1px solid var(--border);
+  display: flex;
+  align-items: stretch;
+  height: 38px;
+  background: var(--bg1);
+}
+
+.strip-brand {
+  font-family: 'Cormorant Garamond', serif;
+  font-style: italic;
+  font-weight: 300;
+  font-size: 19px;
+  letter-spacing: 0.08em;
+  color: var(--gold);
+  padding: 0 28px;
+  border-right: 1px solid var(--border);
+  display: flex;
+  align-items: center;
+}
+
+.strip-indices {
+  display: flex;
+  flex: 1;
+  align-items: center;
+}
+
+.s-idx {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 20px;
+  border-right: 1px solid var(--border);
+  height: 100%;
+}
+
+.s-idx .nm { font-size: 9px; color: var(--muted); letter-spacing: 0.12em; text-transform: uppercase; }
+.s-idx .vl { font-size: 12px; font-weight: 500; }
+.s-idx .ch { font-size: 10px; }
+.up { color: var(--green); }
+.dn { color: var(--red); }
+
+.strip-time {
+  padding: 0 20px;
+  display: flex;
+  align-items: center;
+  font-size: 10px;
+  color: var(--muted);
+  letter-spacing: 0.08em;
+  border-left: 1px solid var(--border);
+  margin-left: auto;
+}
+
+/* ── NAV ── */
+.nav {
+  height: 38px;
+  display: flex;
+  align-items: center;
+  border-bottom: 1px solid var(--border);
+  padding: 0 28px;
+  gap: 0;
+}
+
+.nav a {
+  font-family: 'IBM Plex Mono', monospace;
+  font-size: 10px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  text-decoration: none;
+  color: var(--muted);
+  padding: 7px 14px;
+  transition: color 0.15s;
+  position: relative;
+}
+
+.nav a::after {
+  content: '';
+  position: absolute;
+  bottom: 0; left: 14px; right: 14px;
+  height: 1px;
+  background: var(--gold);
+  transform: scaleX(0);
+  transition: transform 0.15s;
+}
+
+.nav a:hover { color: var(--text); }
+.nav a:hover::after { transform: scaleX(1); }
+
+.nav a.active { color: var(--gold); }
+.nav a.active::after { transform: scaleX(1); }
+
+/* ── LAYOUT ── */
+/* Two-column: left = content, right = holdings sidebar */
+.page {
+  display: grid;
+  grid-template-columns: 1fr 320px;
+  min-height: calc(100vh - 76px);
+}
+
+.content { border-right: 1px solid var(--border); }
+
+/* ── HERO ── */
+.hero {
+  padding: 52px 48px 40px;
+  border-bottom: 1px solid var(--border);
+  background: linear-gradient(160deg, var(--bg1) 0%, var(--bg) 55%);
+  position: relative;
+  overflow: hidden;
+}
+
+/* Subtle decorative rule */
+.hero::before {
+  content: '';
+  position: absolute;
+  left: 48px; right: 48px;
+  bottom: 0;
+  height: 1px;
+  background: linear-gradient(90deg, var(--gold), transparent 60%);
+  opacity: 0.3;
+}
+
+.hero-kicker {
+  font-family: 'IBM Plex Mono', monospace;
+  font-size: 9px;
+  letter-spacing: 0.3em;
+  text-transform: uppercase;
+  color: var(--muted);
+  margin-bottom: 20px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.hero-kicker::before {
+  content: '';
+  display: block;
+  width: 24px;
+  height: 1px;
+  background: var(--gold);
+  opacity: 0.6;
+}
+
+.hero-amount {
+  font-family: 'Cormorant Garamond', serif;
+  font-weight: 300;
+  font-size: clamp(64px, 8vw, 108px);
+  line-height: 0.9;
+  letter-spacing: -0.01em;
+  color: var(--text);
+}
+
+.hero-amount .cur {
+  font-size: 0.22em;
+  letter-spacing: 0.1em;
+  color: var(--gold);
+  vertical-align: 0.6em;
+  margin-right: 8px;
+  font-weight: 300;
+}
+
+.hero-meta {
+  display: flex;
+  align-items: center;
+  gap: 40px;
+  margin-top: 28px;
+  padding-top: 28px;
+  border-top: 1px solid var(--border);
+}
+
+.hm-item {}
+
+.hm-label {
+  font-size: 9px;
+  letter-spacing: 0.22em;
+  text-transform: uppercase;
+  color: var(--muted);
+  margin-bottom: 6px;
+}
+
+.hm-value {
+  font-family: 'Cormorant Garamond', serif;
+  font-size: 28px;
+  font-weight: 300;
+  line-height: 1;
+}
+
+.hm-value.gold { color: var(--gold2); }
+
+.hm-sub {
+  font-size: 10px;
+  color: var(--muted);
+  margin-top: 3px;
+}
+
+.hm-sep {
+  width: 1px;
+  height: 48px;
+  background: var(--border);
+  flex-shrink: 0;
+}
+
+/* ── KPI ROW ── */
+.kpis {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  border-bottom: 1px solid var(--border);
+}
+
+.kpi {
+  padding: 20px 28px;
+  border-right: 1px solid var(--border);
+}
+
+.kpi:last-child { border-right: none; }
+
+.kpi-l {
+  font-size: 9px;
+  letter-spacing: 0.22em;
+  text-transform: uppercase;
+  color: var(--muted);
+  margin-bottom: 8px;
+}
+
+.kpi-v {
+  font-family: 'Cormorant Garamond', serif;
+  font-size: 36px;
+  font-weight: 300;
+  line-height: 1;
+}
+
+.kpi-s {
+  font-size: 10px;
+  color: var(--muted);
+  margin-top: 4px;
+}
+
+/* ── CHART ── */
+.chart-sec {
+  border-bottom: 1px solid var(--border);
+}
+
+.sec-header {
+  padding: 14px 28px 12px;
+  border-bottom: 1px solid var(--border);
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.sec-title {
+  font-family: 'IBM Plex Mono', monospace;
+  font-size: 9px;
+  letter-spacing: 0.22em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.period-btns { display: flex; gap: 0; }
+.period-btns button {
+  font-family: 'IBM Plex Mono', monospace;
+  font-size: 9px;
+  letter-spacing: 0.1em;
+  background: none;
+  border: 1px solid var(--border);
+  color: var(--muted);
+  padding: 3px 10px;
+  margin-left: -1px;
+  cursor: pointer;
+  transition: color 0.12s, background 0.12s;
+}
+
+.period-btns button:hover { color: var(--text); background: var(--bg2); }
+.period-btns button.a { color: var(--gold); background: rgba(200,169,110,0.08); border-color: rgba(200,169,110,0.3); }
+
+.chart-wrap {
+  padding: 20px 28px 16px;
+  height: 190px;
+}
+
+.chart-wrap svg { width: 100%; height: 100%; }
+
+/* ── DIVIDENDS ── */
+.div-sec {}
+
+.div-list { list-style: none; }
+
+.div-row {
+  display: grid;
+  grid-template-columns: 60px 1fr auto;
+  align-items: center;
+  gap: 14px;
+  padding: 14px 28px;
+  border-bottom: 1px solid rgba(32,33,38,0.7);
+  transition: background 0.12s;
+}
+
+.div-row:hover { background: var(--bg1); }
+.div-row:last-child { border-bottom: none; }
+
+.div-dt {
+  font-family: 'Cormorant Garamond', serif;
+  font-weight: 300;
+  font-size: 28px;
+  line-height: 1;
+  color: var(--gold);
+  text-align: center;
+}
+
+.div-dt .mo {
+  font-family: 'IBM Plex Mono', monospace;
+  font-size: 8px;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--muted);
+  display: block;
+  text-align: center;
+  margin-top: 2px;
+}
+
+.div-tk {
+  font-family: 'Cormorant Garamond', serif;
+  font-size: 20px;
+  font-weight: 400;
+  color: var(--text);
+}
+
+.div-ds { font-size: 10px; color: var(--muted); margin-top: 2px; }
+
+.div-amt {
+  font-family: 'Cormorant Garamond', serif;
+  font-size: 24px;
+  font-weight: 300;
+  text-align: right;
+  white-space: nowrap;
+}
+
+.div-ccy {
+  font-family: 'IBM Plex Mono', monospace;
+  font-size: 9px;
+  color: var(--muted);
+  margin-top: 2px;
+  text-align: right;
+}
+
+/* ── RIGHT SIDEBAR ── */
+.sidebar { display: flex; flex-direction: column; }
+
+.sidebar-hdr {
+  padding: 14px 20px 12px;
+  border-bottom: 1px solid var(--border);
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.s-title {
+  font-size: 9px;
+  letter-spacing: 0.22em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.s-count {
+  font-family: 'Cormorant Garamond', serif;
+  font-size: 13px;
+  color: var(--gold);
+  font-style: italic;
+}
+
+.h-table { width: 100%; border-collapse: collapse; }
+
+.h-table th {
+  font-size: 8px;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--muted);
+  font-weight: 400;
+  padding: 9px 16px;
+  border-bottom: 1px solid var(--border);
+  text-align: left;
+}
+
+.h-table th:last-child { text-align: right; }
+
+.h-table tbody tr {
+  border-bottom: 1px solid rgba(32,33,38,0.5);
+  transition: background 0.12s;
+}
+
+.h-table tbody tr:hover { background: var(--bg2); }
+.h-table tbody tr:last-child { border-bottom: none; }
+
+.h-table td {
+  padding: 12px 16px;
+  vertical-align: middle;
+}
+
+.h-table td:last-child { text-align: right; }
+
+.ht-tick {
+  font-family: 'Cormorant Garamond', serif;
+  font-size: 18px;
+  font-weight: 400;
+  color: var(--text);
+  letter-spacing: 0.02em;
+}
+
+.ht-name { font-size: 9px; color: var(--muted); margin-top: 2px; }
+
+.ht-val {
+  font-family: 'Cormorant Garamond', serif;
+  font-size: 18px;
+  font-weight: 300;
+}
+
+.ht-chg { font-size: 9px; margin-top: 3px; }
+
+/* Alloc */
+.alloc {
+  padding: 16px;
+  border-top: 1px solid var(--border);
+}
+
+.alloc-title {
+  font-size: 8px;
+  letter-spacing: 0.22em;
+  text-transform: uppercase;
+  color: var(--muted);
+  margin-bottom: 14px;
+}
+
+.ar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 9px;
+}
+
+.ar:last-child { margin-bottom: 0; }
+
+.ar-nm { font-size: 9px; color: var(--muted); width: 48px; flex-shrink: 0; }
+
+.ar-track {
+  flex: 1;
+  height: 2px;
+  background: var(--bg3);
+  border-radius: 1px;
+  overflow: hidden;
+}
+
+.ar-fill { height: 100%; border-radius: 1px; }
+
+.ar-pct { font-size: 9px; color: var(--muted); width: 34px; text-align: right; flex-shrink: 0; }
+
+/* Market mini */
+.mkt-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  border-top: 1px solid var(--border);
+}
+
+.mkt-cell {
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--border);
+  border-right: 1px solid var(--border);
+  transition: background 0.12s;
+}
+
+.mkt-cell:hover { background: var(--bg2); }
+.mkt-cell:nth-child(2n) { border-right: none; }
+.mkt-cell:nth-last-child(-n+2) { border-bottom: none; }
+.mkt-cell.full { grid-column: 1/3; border-right: none; border-bottom: none; }
+
+.mkt-nm { font-size: 8px; letter-spacing: 0.18em; text-transform: uppercase; color: var(--muted); margin-bottom: 4px; }
+
+.mkt-vl {
+  font-family: 'Cormorant Garamond', serif;
+  font-size: 20px;
+  font-weight: 300;
+  line-height: 1;
+}
+
+.mkt-ch { font-size: 10px; margin-top: 3px; }
+
+/* ── SWITCHER ── */
+.switcher {
+  border-top: 1px solid var(--border);
+  display: flex;
+  align-items: center;
+  padding: 12px 28px;
+  gap: 0;
+  background: var(--bg1);
+  grid-column: 1 / 3;
+}
+
+.sw-label {
+  font-size: 8px;
+  letter-spacing: 0.28em;
+  text-transform: uppercase;
+  color: var(--muted);
+  margin-right: 16px;
+}
+
+.switcher a {
+  font-family: 'IBM Plex Mono', monospace;
+  font-size: 10px;
+  color: var(--muted);
+  text-decoration: none;
+  padding: 5px 14px;
+  border: 1px solid var(--border);
+  margin-right: -1px;
+  transition: color 0.12s, background 0.12s;
+}
+
+.switcher a:hover { color: var(--text); background: var(--bg2); }
+
+.switcher a.active {
+  color: var(--gold);
+  background: rgba(200,169,110,0.07);
+  border-color: rgba(200,169,110,0.25);
+  z-index: 1;
+}
+</style>
+</head>
+<body>
+
+<!-- STRIP -->
+<div class="strip">
+  <div class="strip-brand">Portfolio</div>
+  <div class="strip-indices">
+    <div class="s-idx"><span class="nm">S&P 500</span><span class="vl">5,842.10</span><span class="ch up">+0.34%</span></div>
+    <div class="s-idx"><span class="nm">NASDAQ</span><span class="vl">18,402</span><span class="ch up">+0.51%</span></div>
+    <div class="s-idx"><span class="nm">OMX 30</span><span class="vl">2,641.80</span><span class="ch dn">-0.12%</span></div>
+    <div class="s-idx"><span class="nm">USD/SEK</span><span class="vl">10.4200</span><span class="ch dn">-0.08%</span></div>
+    <div class="s-idx"><span class="nm">EUR/SEK</span><span class="vl">10.8125</span><span class="ch up">+0.03%</span></div>
+  </div>
+  <div class="strip-time">10 MAR 2026 · 09:42 CET</div>
+</div>
+
+<!-- NAV -->
+<nav class="nav">
+  <a href="#" class="active">Dashboard</a>
+  <a href="#">Portfolio</a>
+  <a href="#">Transactions</a>
+  <a href="#">Dividends</a>
+  <a href="#">Analytics</a>
+  <a href="#">Search</a>
+  <a href="#">Alerts</a>
+  <a href="#">Account</a>
+</nav>
+
+<div class="page">
+  <div class="content">
+
+    <!-- HERO -->
+    <section class="hero">
+      <div class="hero-kicker">Total Portfolio Value — Account SPT-0042</div>
+      <div class="hero-amount"><span class="cur">SEK</span>842,341</div>
+      <div class="hero-meta">
+        <div class="hm-item">
+          <div class="hm-label">Today</div>
+          <div class="hm-value up">+2,841</div>
+          <div class="hm-sub">+0.34% · SEK</div>
+        </div>
+        <div class="hm-sep"></div>
+        <div class="hm-item">
+          <div class="hm-label">YTD Return</div>
+          <div class="hm-value up">+12.4%</div>
+          <div class="hm-sub">+93,014 SEK</div>
+        </div>
+        <div class="hm-sep"></div>
+        <div class="hm-item">
+          <div class="hm-label">Annual Yield</div>
+          <div class="hm-value gold">3.2%</div>
+          <div class="hm-sub">26,955 SEK est.</div>
+        </div>
+        <div class="hm-sep"></div>
+        <div class="hm-item">
+          <div class="hm-label">Positions</div>
+          <div class="hm-value">5</div>
+          <div class="hm-sub">3 mkts · 2 FX</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- KPIs -->
+    <div class="kpis">
+      <div class="kpi">
+        <div class="kpi-l">Daily P&amp;L</div>
+        <div class="kpi-v up">+2,841</div>
+        <div class="kpi-s">SEK</div>
+      </div>
+      <div class="kpi">
+        <div class="kpi-l">Best performer</div>
+        <div class="kpi-v" style="color:var(--text);">SAP</div>
+        <div class="kpi-s">+1.15% today</div>
+      </div>
+      <div class="kpi">
+        <div class="kpi-l">Next dividend</div>
+        <div class="kpi-v gold">5 days</div>
+        <div class="kpi-s">AAPL · Mar 15</div>
+      </div>
+    </div>
+
+    <!-- CHART -->
+    <section class="chart-sec">
+      <div class="sec-header">
+        <span class="sec-title">Performance</span>
+        <div class="period-btns">
+          <button>1W</button>
+          <button>1M</button>
+          <button class="a">3M</button>
+          <button>1Y</button>
+          <button>ALL</button>
+        </div>
+      </div>
+      <div class="chart-wrap">
+        <svg viewBox="0 0 600 155" preserveAspectRatio="none">
+          <defs>
+            <linearGradient id="og" x1="0" y1="0" x2="0" y2="1">
+              <stop offset="0%" stop-color="rgba(200,169,110,0.15)"/>
+              <stop offset="100%" stop-color="rgba(200,169,110,0)"/>
+            </linearGradient>
+          </defs>
+          <line x1="0" y1="38" x2="600" y2="38" stroke="#202126" stroke-width="1"/>
+          <line x1="0" y1="76" x2="600" y2="76" stroke="#202126" stroke-width="1"/>
+          <line x1="0" y1="114" x2="600" y2="114" stroke="#202126" stroke-width="1"/>
+          <text x="4" y="116" font-family="IBM Plex Mono" font-size="7" fill="#3a3a3a">750k</text>
+          <text x="4" y="78" font-family="IBM Plex Mono" font-size="7" fill="#3a3a3a">800k</text>
+          <text x="4" y="40" font-family="IBM Plex Mono" font-size="7" fill="#3a3a3a">840k</text>
+          <path d="M0,138 L60,133 L120,129 L180,126 L240,131 L300,119 L360,111 L420,102 L480,93 L540,80 L600,68 L600,155 L0,155 Z" fill="url(#og)"/>
+          <path d="M0,138 L60,133 L120,129 L180,126 L240,131 L300,119 L360,111 L420,102 L480,93 L540,80 L600,68" fill="none" stroke="#c8a96e" stroke-width="1.5" stroke-linejoin="round"/>
+          <circle cx="600" cy="68" r="3" fill="#0a0b0d" stroke="#c8a96e" stroke-width="1.5"/>
+          <text x="596" y="60" font-family="IBM Plex Mono" font-size="7" fill="#c8a96e" text-anchor="end">842,341</text>
+          <text x="0" y="153" font-family="IBM Plex Mono" font-size="7" fill="#3a3a3a">DEC</text>
+          <text x="200" y="153" font-family="IBM Plex Mono" font-size="7" fill="#3a3a3a" text-anchor="middle">JAN</text>
+          <text x="400" y="153" font-family="IBM Plex Mono" font-size="7" fill="#3a3a3a" text-anchor="middle">FEB</text>
+          <text x="596" y="153" font-family="IBM Plex Mono" font-size="7" fill="#3a3a3a" text-anchor="end">MAR</text>
+        </svg>
+      </div>
+    </section>
+
+    <!-- DIVIDENDS -->
+    <section class="div-sec">
+      <div class="sec-header">
+        <span class="sec-title">Upcoming Dividends</span>
+        <span style="font-size:10px;color:var(--muted);font-style:italic;font-family:'Cormorant Garamond',serif;">Next 90 days</span>
+      </div>
+      <ul class="div-list">
+        <li class="div-row">
+          <div class="div-dt">15<span class="mo">Mar</span></div>
+          <div><div class="div-tk">AAPL</div><div class="div-ds">Quarterly · 0.25 USD/share · Ex-div Mar 10</div></div>
+          <div><div class="div-amt">130</div><div class="div-ccy">SEK</div></div>
+        </li>
+        <li class="div-row">
+          <div class="div-dt">03<span class="mo">Apr</span></div>
+          <div><div class="div-tk">Volvo B</div><div class="div-ds">Annual · 8.00 SEK/share · Ex-div Mar 28</div></div>
+          <div><div class="div-amt">1,600</div><div class="div-ccy">SEK</div></div>
+        </li>
+        <li class="div-row">
+          <div class="div-dt">22<span class="mo">Apr</span></div>
+          <div><div class="div-tk">Novo Nordisk B</div><div class="div-ds">Semi-annual · 5.40 DKK/share · Ex-div Apr 17</div></div>
+          <div><div class="div-amt">2,480</div><div class="div-ccy">SEK</div></div>
+        </li>
+        <li class="div-row">
+          <div class="div-dt">18<span class="mo">May</span></div>
+          <div><div class="div-tk">SAP</div><div class="div-ds">Annual · 2.20 EUR/share · Ex-div May 13</div></div>
+          <div><div class="div-amt">357</div><div class="div-ccy">SEK</div></div>
+        </li>
+      </ul>
+    </section>
+
+    <!-- SWITCHER -->
+    <div class="switcher" style="grid-column:auto;">
+      <span class="sw-label">Design</span>
+      <a href="/1/">01</a>
+      <a href="/2/" class="active">02</a>
+      <a href="/3/">03</a>
+      <a href="/4/">04</a>
+      <a href="/5/">05</a>
+    </div>
+  </div>
+
+  <!-- SIDEBAR -->
+  <div class="sidebar">
+    <div class="sidebar-hdr">
+      <span class="s-title">Holdings</span>
+      <span class="s-count">5 positions</span>
+    </div>
+
+    <table class="h-table">
+      <thead>
+        <tr>
+          <th>Asset</th>
+          <th>Qty</th>
+          <th>SEK</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><div class="ht-tick">AAPL</div><div class="ht-name">Apple Inc.</div></td>
+          <td style="font-size:11px;color:var(--muted);">50</td>
+          <td><div class="ht-val">98,703</div><div class="ht-chg up">+0.87%</div></td>
+        </tr>
+        <tr>
+          <td><div class="ht-tick">TSLA</div><div class="ht-name">Tesla Inc.</div></td>
+          <td style="font-size:11px;color:var(--muted);">30</td>
+          <td><div class="ht-val">77,546</div><div class="ht-chg dn">-1.23%</div></td>
+        </tr>
+        <tr>
+          <td><div class="ht-tick">NOVO B</div><div class="ht-name">Novo Nordisk</div></td>
+          <td style="font-size:11px;color:var(--muted);">120</td>
+          <td><div class="ht-val">294,440</div><div class="ht-chg dn">-0.45%</div></td>
+        </tr>
+        <tr>
+          <td><div class="ht-tick">VOLV B</div><div class="ht-name">Volvo AB</div></td>
+          <td style="font-size:11px;color:var(--muted);">200</td>
+          <td><div class="ht-val">52,040</div><div class="ht-chg up">+0.22%</div></td>
+        </tr>
+        <tr>
+          <td><div class="ht-tick">SAP</div><div class="ht-name">SAP SE</div></td>
+          <td style="font-size:11px;color:var(--muted);">15</td>
+          <td><div class="ht-val">32,894</div><div class="ht-chg up">+1.15%</div></td>
+        </tr>
+      </tbody>
+    </table>
+
+    <div class="alloc">
+      <div class="alloc-title">Allocation</div>
+      <div class="ar"><span class="ar-nm">NOVO B</span><div class="ar-track"><div class="ar-fill" style="width:34.9%;background:var(--gold);"></div></div><span class="ar-pct">34.9%</span></div>
+      <div class="ar"><span class="ar-nm">AAPL</span><div class="ar-track"><div class="ar-fill" style="width:11.7%;background:var(--green);"></div></div><span class="ar-pct">11.7%</span></div>
+      <div class="ar"><span class="ar-nm">TSLA</span><div class="ar-track"><div class="ar-fill" style="width:9.2%;background:var(--red);"></div></div><span class="ar-pct">9.2%</span></div>
+      <div class="ar"><span class="ar-nm">VOLV B</span><div class="ar-track"><div class="ar-fill" style="width:6.2%;background:#7abfdf;"></div></div><span class="ar-pct">6.2%</span></div>
+      <div class="ar"><span class="ar-nm">SAP</span><div class="ar-track"><div class="ar-fill" style="width:3.9%;background:#aa88ff;"></div></div><span class="ar-pct">3.9%</span></div>
+    </div>
+
+    <!-- Market -->
+    <div style="padding:10px 16px 8px;border-top:1px solid var(--border);">
+      <div class="s-title">Markets</div>
+    </div>
+    <div class="mkt-grid">
+      <div class="mkt-cell"><div class="mkt-nm">S&amp;P 500</div><div class="mkt-vl">5,842</div><div class="mkt-ch up">+0.34%</div></div>
+      <div class="mkt-cell"><div class="mkt-nm">NASDAQ</div><div class="mkt-vl">18,402</div><div class="mkt-ch up">+0.51%</div></div>
+      <div class="mkt-cell"><div class="mkt-nm">OMX 30</div><div class="mkt-vl">2,641</div><div class="mkt-ch dn">-0.12%</div></div>
+      <div class="mkt-cell"><div class="mkt-nm">USD/SEK</div><div class="mkt-vl">10.42</div><div class="mkt-ch dn">-0.08%</div></div>
+      <div class="mkt-cell full"><div class="mkt-nm">EUR/SEK</div><div class="mkt-vl">10.8125</div><div class="mkt-ch up">+0.03%</div></div>
+    </div>
+  </div>
+</div>
+
+<script>
+  document.querySelectorAll('.period-btns button').forEach(btn => {
+    btn.addEventListener('click', function() {
+      this.closest('.period-btns').querySelectorAll('button').forEach(b => b.classList.remove('a'));
+      this.classList.add('a');
+    });
+  });
+</script>
+</body>
+</html>
