@@ -271,6 +271,7 @@ const en = {
     'stockDetail.cancel': 'Cancel',
     'stockDetail.saving': 'Saving...',
     'stockDetail.save': 'Save',
+    'stockDetail.invalidPositionValues': 'Enter valid non-negative values for quantity and purchase price.',
     'stockDetail.editDividend': 'Edit Dividend',
     'stockDetail.noteOptional': 'Note (optional)',
 
@@ -669,6 +670,7 @@ const sv: LocaleTranslations = {
     'stockDetail.cancel': 'Avbryt',
     'stockDetail.saving': 'Sparar...',
     'stockDetail.save': 'Spara',
+    'stockDetail.invalidPositionValues': 'Ange giltiga icke-negativa värden för antal och inköpspris.',
     'stockDetail.editDividend': 'Redigera utdelning',
     'stockDetail.noteOptional': 'Notering (valfritt)',
 

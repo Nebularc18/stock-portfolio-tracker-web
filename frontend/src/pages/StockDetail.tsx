@@ -237,6 +237,7 @@ export default function StockDetail() {
   const [suppressedDividends, setSuppressedDividends] = useState<ManualDividend[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
+  const [editError, setEditError] = useState<string | null>(null)
   const [activeTab, setActiveTab] = useState<'overview' | 'profile' | 'dividends' | 'analyst'>('overview')
   const [showEditModal, setShowEditModal] = useState(false)
   const [editQuantity, setEditQuantity] = useState('')
@@ -272,6 +273,9 @@ export default function StockDetail() {
   const editQuantityInputId = useId()
   const editPurchasePriceInputId = useId()
   const editPurchaseDateInputId = useId()
+  const dividendDateInputId = useId()
+  const dividendAmountInputId = useId()
+  const dividendNoteInputId = useId()
   const { timezone, language } = useSettings()
   const locale = getLocaleForLanguage(language)
   const tabs = ['overview', 'profile', 'dividends', 'analyst'] as const
@@ -616,6 +620,7 @@ export default function StockDetail() {
 
   const openEditModal = () => {
     if (stock) {
+      setEditError(null)
       setEditQuantity(stock.quantity.toString())
       setEditPurchasePrice(stock.purchase_price?.toString() || '')
       setEditPurchaseDate(stock.purchase_date || '')
@@ -625,13 +630,27 @@ export default function StockDetail() {
 
   const handleSaveEdit = async () => {
     if (!ticker || !stock) return
+    const quantityValue = editQuantity.trim()
+    const purchasePriceValue = editPurchasePrice.trim()
+    const parsedQuantity = Number(quantityValue)
+    const parsedPurchasePrice = Number(purchasePriceValue)
+    const nextQuantity = quantityValue === '' ? undefined : parsedQuantity
+    const nextPurchasePrice = purchasePriceValue === '' ? undefined : parsedPurchasePrice
+
+    if (
+      (nextQuantity !== undefined && (!Number.isFinite(nextQuantity) || nextQuantity < 0))
+      || (nextPurchasePrice !== undefined && (!Number.isFinite(nextPurchasePrice) || nextPurchasePrice < 0))
+    ) {
+      setEditError(t(language, 'stockDetail.invalidPositionValues'))
+      return
+    }
+
     try {
+      setEditError(null)
       setSaving(true)
-      const parsedQuantity = parseFloat(editQuantity)
-      const parsedPurchasePrice = parseFloat(editPurchasePrice)
       const updated = await api.stocks.update(ticker, {
-        quantity: Number.isNaN(parsedQuantity) ? undefined : parsedQuantity,
-        purchase_price: Number.isNaN(parsedPurchasePrice) ? undefined : parsedPurchasePrice,
+        quantity: nextQuantity,
+        purchase_price: nextPurchasePrice,
         purchase_date: editPurchaseDate || null,
       })
       setStock(updated)
@@ -1369,16 +1388,19 @@ export default function StockDetail() {
             <h3 id={editModalHeadingId} style={{ marginBottom: 20, fontSize: 16, fontWeight: 600 }}>{t(language, 'stockDetail.editPosition')}</h3>
             <div style={{ marginBottom: 14 }}>
               <label htmlFor={editQuantityInputId} style={{ display: 'block', marginBottom: 6, color: 'var(--muted)', fontSize: 12 }}>{t(language, 'stockDetail.quantity')}</label>
-              <input id={editQuantityInputId} type="number" step="0.01" value={editQuantity} onChange={(e) => setEditQuantity(e.target.value)} style={{ width: '100%' }} />
+              <input id={editQuantityInputId} type="number" step="0.01" min="0" value={editQuantity} onChange={(e) => setEditQuantity(e.target.value)} style={{ width: '100%' }} />
             </div>
             <div style={{ marginBottom: 14 }}>
               <label htmlFor={editPurchasePriceInputId} style={{ display: 'block', marginBottom: 6, color: 'var(--muted)', fontSize: 12 }}>{t(language, 'stockDetail.purchasePrice')} ({stock?.currency})</label>
-              <input id={editPurchasePriceInputId} type="number" step="0.01" value={editPurchasePrice} onChange={(e) => setEditPurchasePrice(e.target.value)} style={{ width: '100%' }} placeholder="e.g. 150.00" />
+              <input id={editPurchasePriceInputId} type="number" step="0.01" min="0" value={editPurchasePrice} onChange={(e) => setEditPurchasePrice(e.target.value)} style={{ width: '100%' }} placeholder="e.g. 150.00" />
             </div>
             <div style={{ marginBottom: 22 }}>
               <label htmlFor={editPurchaseDateInputId} style={{ display: 'block', marginBottom: 6, color: 'var(--muted)', fontSize: 12 }}>{t(language, 'stockDetail.purchaseDate')}</label>
               <input id={editPurchaseDateInputId} type="date" value={editPurchaseDate} onChange={(e) => setEditPurchaseDate(e.target.value)} style={{ width: '100%' }} />
             </div>
+            {editError && (
+              <p style={{ color: 'var(--red)', fontSize: 12, marginBottom: 14 }}>{editError}</p>
+            )}
             <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
               <button className="btn btn-secondary" onClick={() => setShowEditModal(false)}>{t(language, 'stockDetail.cancel')}</button>
               <button className="btn btn-primary" onClick={handleSaveEdit} disabled={saving}>
@@ -1408,16 +1430,16 @@ export default function StockDetail() {
               {editingDividend ? t(language, 'stockDetail.editDividend') : t(language, 'stockDetail.addDividend')}
             </h3>
             <div style={{ marginBottom: 14 }}>
-              <label style={{ display: 'block', marginBottom: 6, color: 'var(--muted)', fontSize: 12 }}>{t(language, 'stockDetail.date')}</label>
-              <input ref={dividendDateInputRef} type="date" value={divDate} onChange={(e) => setDivDate(e.target.value)} style={{ width: '100%' }} />
+              <label htmlFor={dividendDateInputId} style={{ display: 'block', marginBottom: 6, color: 'var(--muted)', fontSize: 12 }}>{t(language, 'stockDetail.date')}</label>
+              <input id={dividendDateInputId} ref={dividendDateInputRef} type="date" value={divDate} onChange={(e) => setDivDate(e.target.value)} style={{ width: '100%' }} />
             </div>
             <div style={{ marginBottom: 14 }}>
-              <label style={{ display: 'block', marginBottom: 6, color: 'var(--muted)', fontSize: 12 }}>{t(language, 'stockDetail.amount')} ({stock?.currency})</label>
-              <input type="number" step="0.01" value={divAmount} onChange={(e) => setDivAmount(e.target.value)} style={{ width: '100%' }} placeholder="e.g. 1.50" />
+              <label htmlFor={dividendAmountInputId} style={{ display: 'block', marginBottom: 6, color: 'var(--muted)', fontSize: 12 }}>{t(language, 'stockDetail.amount')} ({stock?.currency})</label>
+              <input id={dividendAmountInputId} type="number" step="0.01" value={divAmount} onChange={(e) => setDivAmount(e.target.value)} style={{ width: '100%' }} placeholder="e.g. 1.50" />
             </div>
             <div style={{ marginBottom: 22 }}>
-              <label style={{ display: 'block', marginBottom: 6, color: 'var(--muted)', fontSize: 12 }}>{t(language, 'stockDetail.noteOptional')}</label>
-              <input type="text" value={divNote} onChange={(e) => setDivNote(e.target.value)} style={{ width: '100%' }} placeholder="e.g. Q1 2024 dividend" />
+              <label htmlFor={dividendNoteInputId} style={{ display: 'block', marginBottom: 6, color: 'var(--muted)', fontSize: 12 }}>{t(language, 'stockDetail.noteOptional')}</label>
+              <input id={dividendNoteInputId} type="text" value={divNote} onChange={(e) => setDivNote(e.target.value)} style={{ width: '100%' }} placeholder="e.g. Q1 2024 dividend" />
             </div>
             <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
               <button className="btn btn-secondary" onClick={() => setShowDividendModal(false)}>{t(language, 'stockDetail.cancel')}</button>

@@ -158,6 +158,8 @@ The application uses these environment variables:
 | `GUEST_USERNAME` | `guest` | Seeded guest username |
 | `GUEST_PASSWORD` | `guest-demo-password` | Seeded guest password |
 
+Important: the seeded `DEFAULT_*` and `GUEST_*` credentials are for local development only. The backend auto-creates these accounts on startup when seeding is enabled, so do not keep the default values in production. Rotate or remove them and disable seeding before exposing the app publicly.
+
 ### Timezone Settings
 
 - Default timezone: Europe/Stockholm

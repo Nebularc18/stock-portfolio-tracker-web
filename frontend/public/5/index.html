@@ -768,6 +768,13 @@ html, body {
 
 .tx-filter-btn:hover { color: var(--text2); border-color: var(--border2); }
 .tx-filter-btn.a { color: var(--v2); background: rgba(129,140,248,0.1); border-color: rgba(129,140,248,0.3); }
+.tx-filter-btn:focus-visible,
+.acct-nav-item:focus-visible,
+.pbtns button:focus-visible,
+.nav button:focus-visible {
+  outline: 2px solid rgba(129,140,248,0.9);
+  outline-offset: 2px;
+}
 
 .tx-list { }
 
@@ -1059,6 +1066,110 @@ html, body {
 .acct-nav-item:hover { color: var(--text2); background: rgba(255,255,255,0.03); }
 .acct-nav-item.a { color: var(--v2); border-left-color: var(--v2); background: rgba(129,140,248,0.06); }
 
+@media (max-width: 1100px) {
+  .hero,
+  .body-grid,
+  .account-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .hero-sep,
+  .hero-fill {
+    display: none;
+  }
+
+  .hero {
+    padding-bottom: 8px;
+  }
+
+  .hero-value-block,
+  .hero-stat,
+  .left-col,
+  .acct-sidebar {
+    border-right: none;
+  }
+
+  .body-grid,
+  .account-grid {
+    min-height: auto;
+  }
+}
+
+@media (max-width: 780px) {
+  .topbar,
+  .nav {
+    overflow-x: auto;
+  }
+
+  .tb-indices,
+  .nav {
+    flex-wrap: nowrap;
+  }
+
+  .hero {
+    display: block;
+  }
+
+  .hero-value-block,
+  .hero-stat {
+    padding: 22px 20px;
+  }
+
+  .tx-filters {
+    overflow-x: auto;
+    white-space: nowrap;
+  }
+
+  .tx-item {
+    grid-template-columns: 1fr;
+    gap: 10px;
+  }
+
+  .tx-amt,
+  .tx-sub {
+    text-align: left;
+  }
+
+  .div-summary-strip,
+  .analytics-grid,
+  .pc-stats {
+    grid-template-columns: 1fr 1fr;
+  }
+
+  .an-cell,
+  .an-cell.wide,
+  .an-cell.full {
+    grid-column: auto;
+  }
+
+  .search-hero,
+  .search-results,
+  .acct-content {
+    padding-left: 20px;
+    padding-right: 20px;
+  }
+}
+
+@media (max-width: 560px) {
+  .div-summary-strip,
+  .analytics-grid,
+  .pc-stats {
+    grid-template-columns: 1fr;
+  }
+
+  .account-grid {
+    overflow-x: hidden;
+  }
+
+  .acct-sidebar {
+    padding-top: 20px;
+  }
+
+  .acct-nav-item {
+    width: 100%;
+  }
+}
+
 .acct-content { padding: 28px 32px; }
 
 .acct-section-title { font-size: 9px; font-weight: 700; letter-spacing: 0.22em; text-transform: uppercase; color: var(--muted); margin-bottom: 16px; padding-bottom: 10px; border-bottom: 1px solid var(--border); }
@@ -1169,7 +1280,7 @@ html, body {
         <div class="sec-row">
           <span class="sr-title">Performance</span>
           <div class="pbtns">
-            <button>1W</button><button>1M</button><button class="a">3M</button><button>1Y</button><button>ALL</button>
+            <button aria-pressed="false">1W</button><button aria-pressed="false">1M</button><button class="a" aria-pressed="true">3M</button><button aria-pressed="false">1Y</button><button aria-pressed="false">ALL</button>
           </div>
         </div>
         <div class="chart-container" id="chartWrap">
@@ -1563,13 +1674,13 @@ html, body {
     <div class="vh-sub">All buys, sells and dividend receipts</div>
   </div>
   <div class="tx-filters">
-    <button class="tx-filter-btn a">All</button>
-    <button class="tx-filter-btn">Buy</button>
-    <button class="tx-filter-btn">Sell</button>
-    <button class="tx-filter-btn">Dividend</button>
+    <button class="tx-filter-btn a" data-filter="all" aria-pressed="true">All</button>
+    <button class="tx-filter-btn" data-filter="buy" aria-pressed="false">Buy</button>
+    <button class="tx-filter-btn" data-filter="sell" aria-pressed="false">Sell</button>
+    <button class="tx-filter-btn" data-filter="div" aria-pressed="false">Dividend</button>
   </div>
   <div class="tx-list">
-    <div class="tx-item">
+    <div class="tx-item" data-type="buy">
       <div class="tx-date">10 MAR 2026</div>
       <div class="tx-asset">
         <div class="tx-badge" style="background:rgba(129,140,248,0.12);color:var(--v2);">AAPL</div>
@@ -1578,7 +1689,7 @@ html, body {
       <span class="tx-type buy">Buy</span>
       <div><div class="tx-amt">98,703</div><div class="tx-sub">SEK · 10.4200 FX</div></div>
     </div>
-    <div class="tx-item">
+    <div class="tx-item" data-type="div">
       <div class="tx-date">08 MAR 2026</div>
       <div class="tx-asset">
         <div class="tx-badge" style="background:rgba(251,191,36,0.1);color:var(--amber);">NOVO</div>
@@ -1587,7 +1698,7 @@ html, body {
       <span class="tx-type div">Dividend</span>
       <div><div class="tx-amt" style="color:var(--green);">+2,480</div><div class="tx-sub">SEK received</div></div>
     </div>
-    <div class="tx-item">
+    <div class="tx-item" data-type="buy">
       <div class="tx-date">01 MAR 2026</div>
       <div class="tx-asset">
         <div class="tx-badge" style="background:rgba(248,113,113,0.1);color:var(--red);">TSLA</div>
@@ -1596,7 +1707,7 @@ html, body {
       <span class="tx-type buy">Buy</span>
       <div><div class="tx-amt">77,546</div><div class="tx-sub">SEK · 10.4200 FX</div></div>
     </div>
-    <div class="tx-item">
+    <div class="tx-item" data-type="buy">
       <div class="tx-date">14 FEB 2026</div>
       <div class="tx-asset">
         <div class="tx-badge" style="background:rgba(45,212,191,0.1);color:var(--teal);">VOLV</div>
@@ -1605,7 +1716,7 @@ html, body {
       <span class="tx-type buy">Buy</span>
       <div><div class="tx-amt">51,080</div><div class="tx-sub">SEK</div></div>
     </div>
-    <div class="tx-item">
+    <div class="tx-item" data-type="buy">
       <div class="tx-date">28 JAN 2026</div>
       <div class="tx-asset">
         <div class="tx-badge" style="background:rgba(56,189,248,0.1);color:var(--sky);">SAP</div>
@@ -1614,7 +1725,7 @@ html, body {
       <span class="tx-type buy">Buy</span>
       <div><div class="tx-amt">32,148</div><div class="tx-sub">SEK · 10.8125 FX</div></div>
     </div>
-    <div class="tx-item">
+    <div class="tx-item" data-type="buy">
       <div class="tx-date">10 JAN 2026</div>
       <div class="tx-asset">
         <div class="tx-badge" style="background:rgba(251,191,36,0.1);color:var(--amber);">NOVO</div>
@@ -1623,7 +1734,7 @@ html, body {
       <span class="tx-type buy">Buy</span>
       <div><div class="tx-amt">268,920</div><div class="tx-sub">SEK converted DKK</div></div>
     </div>
-    <div class="tx-item">
+    <div class="tx-item" data-type="div">
       <div class="tx-date">05 DEC 2025</div>
       <div class="tx-asset">
         <div class="tx-badge" style="background:rgba(129,140,248,0.12);color:var(--v2);">AAPL</div>
@@ -1889,12 +2000,12 @@ html, body {
       <div class="acct-avatar">JD</div>
       <div class="acct-name">Johan Davidsson</div>
       <div class="acct-email">johan@example.com</div>
-      <div class="acct-nav-item a">Profile</div>
-      <div class="acct-nav-item">Preferences</div>
-      <div class="acct-nav-item">Connected Brokers</div>
-      <div class="acct-nav-item">Currency Settings</div>
-      <div class="acct-nav-item">Security</div>
-      <div class="acct-nav-item">Billing</div>
+      <button type="button" class="acct-nav-item a" aria-pressed="true">Profile</button>
+      <button type="button" class="acct-nav-item" aria-pressed="false">Preferences</button>
+      <button type="button" class="acct-nav-item" aria-pressed="false">Connected Brokers</button>
+      <button type="button" class="acct-nav-item" aria-pressed="false">Currency Settings</button>
+      <button type="button" class="acct-nav-item" aria-pressed="false">Security</button>
+      <button type="button" class="acct-nav-item" aria-pressed="false">Billing</button>
     </div>
     <div class="acct-content">
       <div class="acct-section-title">Profile Information</div>
@@ -1947,8 +2058,12 @@ navLinks.forEach(link => {
 document.querySelectorAll('.pbtns').forEach(group => {
   group.querySelectorAll('button').forEach(btn => {
     btn.addEventListener('click', function() {
-      group.querySelectorAll('button').forEach(b => b.classList.remove('a'));
+      group.querySelectorAll('button').forEach(b => {
+        b.classList.remove('a');
+        b.setAttribute('aria-pressed', 'false');
+      });
       this.classList.add('a');
+      this.setAttribute('aria-pressed', 'true');
     });
   });
 });
@@ -1956,8 +2071,27 @@ document.querySelectorAll('.pbtns').forEach(group => {
 // ── Transaction filters ──
 document.querySelectorAll('.tx-filter-btn').forEach(btn => {
   btn.addEventListener('click', function() {
-    document.querySelectorAll('.tx-filter-btn').forEach(b => b.classList.remove('a'));
+    const filter = this.dataset.filter || 'all';
+    document.querySelectorAll('.tx-filter-btn').forEach(b => {
+      b.classList.remove('a');
+      b.setAttribute('aria-pressed', 'false');
+    });
     this.classList.add('a');
+    this.setAttribute('aria-pressed', 'true');
+    document.querySelectorAll('.tx-item').forEach(item => {
+      item.style.display = filter === 'all' || item.dataset.type === filter ? '' : 'none';
+    });
+  });
+});
+
+document.querySelectorAll('.acct-nav-item').forEach(btn => {
+  btn.addEventListener('click', function() {
+    document.querySelectorAll('.acct-nav-item').forEach(item => {
+      item.classList.remove('a');
+      item.setAttribute('aria-pressed', 'false');
+    });
+    this.classList.add('a');
+    this.setAttribute('aria-pressed', 'true');
   });
 });
 

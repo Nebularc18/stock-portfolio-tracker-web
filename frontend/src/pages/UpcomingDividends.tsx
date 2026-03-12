@@ -52,6 +52,7 @@ function getMonthKey(dateStr: string): string {
  * @returns The month and year formatted for `locale` (e.g., `March 2026`)
  */
 function formatMonthLabel(monthKey: string, locale: string): string {
+  if (monthKey === 'tbd') return 'TBD'
   const [year, month] = monthKey.split('-').map(Number)
   const date = new Date(Date.UTC(year, month - 1, 1))
   return date.toLocaleDateString(locale, { year: 'numeric', month: 'long', timeZone: 'UTC' })
@@ -136,7 +137,8 @@ export default function UpcomingDividends() {
   }
 
   const groupedByMonth = dividends.reduce((acc, div) => {
-    const key = getMonthKey(div.payout_date ?? div.payment_date ?? div.ex_date)
+    const payoutDate = div.payout_date ?? div.payment_date
+    const key = payoutDate ? getMonthKey(payoutDate) : 'tbd'
     if (!acc[key]) {
       acc[key] = []
     }
@@ -166,7 +168,11 @@ export default function UpcomingDividends() {
   }
 
   const monthlyGroups = Object.entries(groupedByMonth)
-    .sort(([a], [b]) => a.localeCompare(b))
+    .sort(([a], [b]) => {
+      if (a === 'tbd') return 1
+      if (b === 'tbd') return -1
+      return a.localeCompare(b)
+    })
     .map(([monthKey, items]) => ({
       monthKey,
       items,
@@ -182,7 +188,7 @@ export default function UpcomingDividends() {
       {/* ── HERO STATS ── */}
       <div style={{
         display: 'grid',
-        gridTemplateColumns: 'repeat(4, 1fr)',
+        gridTemplateColumns: 'repeat(auto-fit, minmax(170px, 1fr))',
         borderBottom: '1px solid var(--border)',
         background: 'linear-gradient(115deg, #12141c 0%, var(--bg) 55%)',
       }}>
@@ -225,7 +231,7 @@ export default function UpcomingDividends() {
         </div>
 
         {refreshError && (
-          <div style={{ marginBottom: 14, padding: '10px 16px', background: 'rgba(251,191,36,0.08)', border: '1px solid rgba(251,191,36,0.2)', borderRadius: 6 }}>
+          <div role="status" aria-live="polite" aria-atomic="true" style={{ marginBottom: 14, padding: '10px 16px', background: 'rgba(251,191,36,0.08)', border: '1px solid rgba(251,191,36,0.2)', borderRadius: 6 }}>
             <p style={{ margin: 0, color: 'var(--amber)', fontSize: 13 }}>{refreshError}</p>
           </div>
         )}
@@ -271,63 +277,65 @@ export default function UpcomingDividends() {
                 </div>
 
                 <div style={{ background: 'var(--bg2)', border: '1px solid var(--border)', borderRadius: 8 }}>
-                  <table style={{ tableLayout: 'fixed' }}>
-                    <thead>
-                      <tr>
-                        <th style={{ width: '24%' }}>{t(language, 'performance.name')}</th>
-                        <th style={{ width: '14%' }}>{t(language, 'dashboard.exDate')}</th>
-                        <th style={{ width: '16%' }}>{t(language, 'dashboard.dividendDate')}</th>
-                        <th style={{ width: '16%', textAlign: 'right' }}>{t(language, 'dashboard.perShare')}</th>
-                        <th style={{ width: '16%', textAlign: 'right' }}>{t(language, 'dashboard.total')}</th>
-                        <th style={{ width: '14%' }}>{t(language, 'dashboard.source')}</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {group.items.map((div, i) => {
-                        const displayedTotal = getDisplayedDividendTotal(div)
-                        const payoutDisplayDate = div.payout_date ?? div.payment_date ?? div.ex_date
+                  <div style={{ overflowX: 'auto' }}>
+                    <table style={{ tableLayout: 'fixed', minWidth: 720, width: '100%' }}>
+                      <thead>
+                        <tr>
+                          <th style={{ width: '24%' }}>{t(language, 'performance.name')}</th>
+                          <th style={{ width: '14%' }}>{t(language, 'dashboard.exDate')}</th>
+                          <th style={{ width: '16%' }}>{t(language, 'dashboard.dividendDate')}</th>
+                          <th style={{ width: '16%', textAlign: 'right' }}>{t(language, 'dashboard.perShare')}</th>
+                          <th style={{ width: '16%', textAlign: 'right' }}>{t(language, 'dashboard.total')}</th>
+                          <th style={{ width: '14%' }}>{t(language, 'dashboard.source')}</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {group.items.map((div, i) => {
+                          const displayedTotal = getDisplayedDividendTotal(div)
+                          const payoutDisplayDate = div.payout_date ?? div.payment_date
 
-                        return (
-                          <tr key={`${div.ticker}-${div.ex_date}-${div.payment_date ?? 'na'}-${div.dividend_type ?? 'na'}-${i}`}>
-                            <td>
-                              <Link to={`/stocks/${div.ticker}`} style={{ color: 'var(--v2)', textDecoration: 'none', fontWeight: 700 }}>
-                                {div.name || div.ticker}
-                              </Link>
-                              {div.dividend_type && (
-                                <span style={{ display: 'block', color: 'var(--muted)', fontSize: 11 }}>
-                                  {div.dividend_type}
+                          return (
+                            <tr key={`${div.ticker}-${div.ex_date}-${div.payment_date ?? 'na'}-${div.dividend_type ?? 'na'}-${i}`}>
+                              <td>
+                                <Link to={`/stocks/${encodeURIComponent(div.ticker)}`} style={{ color: 'var(--v2)', textDecoration: 'none', fontWeight: 700 }}>
+                                  {div.name || div.ticker}
+                                </Link>
+                                {div.dividend_type && (
+                                  <span style={{ display: 'block', color: 'var(--muted)', fontSize: 11 }}>
+                                    {div.dividend_type}
+                                  </span>
+                                )}
+                              </td>
+                              <td style={{ fontFamily: "'Fira Code', monospace", color: 'var(--muted)' }}>
+                                {formatDate(div.ex_date, locale, { month: 'short', day: 'numeric' })}
+                              </td>
+                              <td style={{ fontFamily: "'Fira Code', monospace" }}>
+                                {payoutDisplayDate ? formatDate(payoutDisplayDate, locale, { month: 'short', day: 'numeric' }) : 'TBD'}
+                              </td>
+                              <td style={{ fontFamily: "'Fira Code', monospace", textAlign: 'right' }}>
+                                {formatCurrency(div.amount_per_share, locale, div.currency)}
+                              </td>
+                              <td style={{ textAlign: 'right' }}>
+                                <span style={{ color: 'var(--green)', fontWeight: 700, fontFamily: "'Fira Code', monospace" }}>
+                                  {displayedTotal !== null ? formatCurrency(displayedTotal, locale, displayCurrency) : '-'}
                                 </span>
-                              )}
-                            </td>
-                            <td style={{ fontFamily: "'Fira Code', monospace", color: 'var(--muted)' }}>
-                              {formatDate(div.ex_date, locale, { month: 'short', day: 'numeric' })}
-                            </td>
-                            <td style={{ fontFamily: "'Fira Code', monospace" }}>
-                              {formatDate(payoutDisplayDate, locale, { month: 'short', day: 'numeric' })}
-                            </td>
-                            <td style={{ fontFamily: "'Fira Code', monospace", textAlign: 'right' }}>
-                              {formatCurrency(div.amount_per_share, locale, div.currency)}
-                            </td>
-                            <td style={{ textAlign: 'right' }}>
-                              <span style={{ color: 'var(--green)', fontWeight: 700, fontFamily: "'Fira Code', monospace" }}>
-                                {displayedTotal !== null ? formatCurrency(displayedTotal, locale, displayCurrency) : '-'}
-                              </span>
-                              {displayedTotal !== null && div.currency !== displayCurrency && (
-                                <span style={{ display: 'block', fontSize: 11, color: 'var(--muted)', fontFamily: "'Fira Code', monospace" }}>
-                                  {formatCurrency(div.total_amount, locale, div.currency)}
+                                {displayedTotal !== null && div.currency !== displayCurrency && (
+                                  <span style={{ display: 'block', fontSize: 11, color: 'var(--muted)', fontFamily: "'Fira Code', monospace" }}>
+                                    {formatCurrency(div.total_amount, locale, div.currency)}
+                                  </span>
+                                )}
+                              </td>
+                              <td>
+                                <span className={div.source === 'avanza' ? 'badge badge-green' : 'badge badge-violet'}>
+                                  {div.source === 'avanza' ? 'Avanza' : 'Yahoo'}
                                 </span>
-                              )}
-                            </td>
-                            <td>
-                              <span className={div.source === 'avanza' ? 'badge badge-green' : 'badge badge-violet'}>
-                                {div.source === 'avanza' ? 'Avanza' : 'Yahoo'}
-                              </span>
-                            </td>
-                          </tr>
-                        )
-                      })}
-                    </tbody>
-                  </table>
+                              </td>
+                            </tr>
+                          )
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
                 </div>
               </div>
             ))}

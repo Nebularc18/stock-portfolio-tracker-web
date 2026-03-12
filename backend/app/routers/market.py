@@ -21,7 +21,6 @@ from app.services.market_data_service import get_header_market_data, HEADER_INDI
 router = APIRouter()
 logger = logging.getLogger(__name__)
 
-_session = None
 _CACHE_DIR = os.path.join(os.path.dirname(__file__), '..', '..', 'data', 'cache')
 _DEFAULT_SUPPORTED_EXCHANGE_CURRENCIES = ('SEK', 'USD', 'GBP', 'EUR')
 _SUPPORTED_EXCHANGES_PATH = os.getenv(
@@ -117,6 +116,27 @@ def _store_exchange_rate(rates: dict[str, float | None], key: str, rate: float):
 
 def _has_resolved_rates(rates: dict[str, float | None]) -> bool:
     return any(value is not None for value in rates.values())
+
+
+def _has_complete_rates(rates: dict[str, float | None]) -> bool:
+    return all(value is not None for value in rates.values())
+
+
+def _merge_rates_with_stale_cache(
+    cache_key: str,
+    ttl: int,
+    rates: dict[str, float | None],
+) -> dict[str, float | None]:
+    cached_snapshot = _load_json_cache(cache_key, ttl, allow_stale=True)
+    if cached_snapshot is None:
+        return dict(rates)
+
+    merged_rates = dict(rates)
+    for key, value in cached_snapshot.items():
+        if merged_rates.get(key) is None and value is not None:
+            merged_rates[key] = value
+
+    return merged_rates
 
 
 def _group_consecutive_dates(values: list[tuple[str, date]]) -> list[list[tuple[str, date]]]:
@@ -374,8 +394,14 @@ def _fetch_latest_exchange_rates() -> dict[str, float | None]:
                 logger.exception("Failed to fetch exchange rate for %s (%s)", key, symbol)
 
     if _has_resolved_rates(rates):
-        _save_json_cache(_latest_exchange_rates_cache_key(), rates)
-        return rates
+        merged_rates = _merge_rates_with_stale_cache(
+            _latest_exchange_rates_cache_key(),
+            EXCHANGE_RATES_CACHE_TTL,
+            rates,
+        )
+        if _has_complete_rates(merged_rates):
+            _save_json_cache(_latest_exchange_rates_cache_key(), merged_rates)
+        return merged_rates
 
     cached_snapshot = _load_json_cache(_latest_exchange_rates_cache_key(), EXCHANGE_RATES_CACHE_TTL, allow_stale=True)
     return cached_snapshot if cached_snapshot is not None else rates
@@ -427,7 +453,7 @@ def _fetch_exchange_rates_for_range(start_date: date, end_date: date) -> dict[da
     return rates_by_date
 
 
-def _fetch_exchange_rates_for_date(target_date: date | None) -> dict[str, float | None]:
+def _fetch_exchange_rates_for_date(target_date: date | None, allow_stale: bool = False) -> dict[str, float | None]:
     """
     Retrieve exchange rates for a specific date, or the latest rates when no date is provided.
     
@@ -443,6 +469,7 @@ def _fetch_exchange_rates_for_date(target_date: date | None) -> dict[str, float 
     cached = _load_json_cache(
         _historical_exchange_rates_cache_key(target_date),
         HISTORICAL_EXCHANGE_RATES_CACHE_TTL,
+        allow_stale=allow_stale,
     )
     if cached is not None:
         return cached
@@ -452,27 +479,31 @@ def _fetch_exchange_rates_for_date(target_date: date | None) -> dict[str, float 
         _empty_rate_map(),
     )
     if _has_resolved_rates(rates):
-        _save_json_cache(_historical_exchange_rates_cache_key(target_date), rates)
-    else:
-        cached_snapshot = _load_json_cache(
+        merged_rates = _merge_rates_with_stale_cache(
             _historical_exchange_rates_cache_key(target_date),
             HISTORICAL_EXCHANGE_RATES_CACHE_TTL,
-            allow_stale=True,
+            rates,
         )
-        if cached_snapshot is not None:
-            return cached_snapshot
+        if _has_complete_rates(merged_rates):
+            _save_json_cache(_historical_exchange_rates_cache_key(target_date), merged_rates)
+        return merged_rates
+
+    cached_snapshot = _load_json_cache(
+        _historical_exchange_rates_cache_key(target_date),
+        HISTORICAL_EXCHANGE_RATES_CACHE_TTL,
+        allow_stale=True,
+    )
+    if cached_snapshot is not None:
+        return cached_snapshot
     return rates
 
 def get_session():
-    """Get or create a shared requests session with default headers.
+    """Create a requests session with default headers.
     
     Returns:
         requests.Session: Session with User-Agent and Accept headers configured.
     """
-    global _session
-    if _session is None:
-        _session = _build_session()
-    return _session
+    return _build_session()
 
 
 def _load_indices_cache() -> dict | None:
@@ -525,7 +556,7 @@ def _save_indices_cache(data: dict):
         logger.warning(f"Failed to save indices cache: {e}")
 
 
-def fetch_index_data(symbol: str) -> dict | None:
+def fetch_index_data(symbol: str, session: requests.Session) -> dict | None:
     """
     Retrieve the latest price and percentage change for a market index from Yahoo Finance.
     
@@ -536,8 +567,6 @@ def fetch_index_data(symbol: str) -> dict | None:
         dict: Mapping with keys 'symbol' (str), 'price' (number), 'change' (number), and 'change_percent' (number).
         None: If the data could not be fetched or parsed.
     """
-    session = get_session()
-    
     try:
         url = f"https://query1.finance.yahoo.com/v8/finance/chart/{symbol}?interval=1d&range=5d"
         response = session.get(url, timeout=10)
@@ -640,14 +669,17 @@ def get_market_indices():
     
     # Fetch fresh data
     results = []
-    
-    for symbol, name in HEADER_INDICES.items():
-        data = fetch_index_data(symbol)
-        if data:
-            results.append({
-                **data,
-                "name": name,
-            })
+    session = get_session()
+    try:
+        for symbol, name in HEADER_INDICES.items():
+            data = fetch_index_data(symbol, session)
+            if data:
+                results.append({
+                    **data,
+                    "name": name,
+                })
+    finally:
+        session.close()
     
     now = datetime.now(timezone.utc)
     next_refresh = now + timedelta(seconds=INDICES_CACHE_TTL)
@@ -746,10 +778,22 @@ def get_exchange_rates_batch(dates: List[str] = Body(..., embed=True)):
         range_rates = _fetch_exchange_rates_for_range(start_date, end_date)
 
         for original_value, target_date in group:
+            cache_key = _historical_exchange_rates_cache_key(target_date)
             daily_rates = range_rates.get(target_date, _empty_rate_map())
-            rates_by_date[original_value] = daily_rates
             if _has_resolved_rates(daily_rates):
-                _save_json_cache(_historical_exchange_rates_cache_key(target_date), daily_rates)
+                daily_rates = _merge_rates_with_stale_cache(
+                    cache_key,
+                    HISTORICAL_EXCHANGE_RATES_CACHE_TTL,
+                    daily_rates,
+                )
+                if _has_complete_rates(daily_rates):
+                    _save_json_cache(cache_key, daily_rates)
+            else:
+                stale_rates = _fetch_exchange_rates_for_date(target_date, allow_stale=True)
+                if _has_resolved_rates(stale_rates):
+                    daily_rates = stale_rates
+
+            rates_by_date[original_value] = daily_rates
 
     return rates_by_date
 
@@ -794,47 +838,50 @@ def get_index_sparklines():
     session = get_session()
     sparklines = {}
     
-    for symbol in HEADER_INDICES.keys():
-        try:
-            url = f"https://query1.finance.yahoo.com/v8/finance/chart/{symbol}?interval=1d&range=30d"
-            response = session.get(url, timeout=10)
-            
-            if response.status_code != 200:
-                continue
-            
-            data = response.json()
-            
-            if 'chart' not in data or 'result' not in data['chart'] or not data['chart']['result']:
-                continue
-            
-            result = data['chart']['result'][0]
-            quote = result.get('indicators', {}).get('quote', [{}])[0]
-            timestamps = result.get('timestamp', [])
-            closes = quote.get('close', [])
-            
-            prices = []
-            dates = []
-            for i, (ts, price) in enumerate(zip(timestamps, closes)):
-                if price is not None:
-                    prices.append(price)
-                    dates.append(datetime.fromtimestamp(ts, tz=timezone.utc).strftime('%Y-%m-%d'))
-            
-            if len(prices) >= 2:
-                start_price = prices[0]
-                end_price = prices[-1]
-                change_percent = ((end_price - start_price) / start_price) * 100 if start_price else 0
+    try:
+        for symbol in HEADER_INDICES.keys():
+            try:
+                url = f"https://query1.finance.yahoo.com/v8/finance/chart/{symbol}?interval=1d&range=30d"
+                response = session.get(url, timeout=10)
                 
-                sparklines[symbol] = {
-                    "prices": prices,
-                    "dates": dates,
-                    "is_positive": end_price >= start_price,
-                    "start_value": start_price,
-                    "end_value": end_price,
-                    "change_percent": change_percent,
-                }
-        except Exception as e:
-            logger.error(f"Error fetching sparkline for {symbol}: {e}")
-            continue
+                if response.status_code != 200:
+                    continue
+                
+                data = response.json()
+                
+                if 'chart' not in data or 'result' not in data['chart'] or not data['chart']['result']:
+                    continue
+                
+                result = data['chart']['result'][0]
+                quote = result.get('indicators', {}).get('quote', [{}])[0]
+                timestamps = result.get('timestamp', [])
+                closes = quote.get('close', [])
+                
+                prices = []
+                dates = []
+                for ts, price in zip(timestamps, closes):
+                    if price is not None:
+                        prices.append(price)
+                        dates.append(datetime.fromtimestamp(ts, tz=timezone.utc).strftime('%Y-%m-%d'))
+                
+                if len(prices) >= 2:
+                    start_price = prices[0]
+                    end_price = prices[-1]
+                    change_percent = ((end_price - start_price) / start_price) * 100 if start_price else 0
+                    
+                    sparklines[symbol] = {
+                        "prices": prices,
+                        "dates": dates,
+                        "is_positive": end_price >= start_price,
+                        "start_value": start_price,
+                        "end_value": end_price,
+                        "change_percent": change_percent,
+                    }
+            except Exception as e:
+                logger.error(f"Error fetching sparkline for {symbol}: {e}")
+                continue
+    finally:
+        session.close()
     
     return {
         "sparklines": sparklines,

@@ -355,7 +355,7 @@ function getLocalDateInputValue(value: Date = new Date()): string {
                     <tr key={stock.id}>
                       <td>
                         <Link
-                          to={`/stocks/${stock.ticker}`}
+                          to={`/stocks/${encodeURIComponent(stock.ticker)}`}
                           style={{ color: 'var(--v2)', textDecoration: 'none', fontWeight: 700, display: 'flex', alignItems: 'center', gap: 8 }}
                         >
                           {logoUrl && !failedLogos[stock.ticker] ? (
@@ -387,7 +387,7 @@ function getLocalDateInputValue(value: Date = new Date()): string {
                         {dailyChangePercent !== null ? `${dailyChangePercent >= 0 ? '+' : ''}${dailyChangePercent.toFixed(2)}%` : '-'}
                       </td>
                       <td style={{ fontFamily: "'Fira Code', monospace", textAlign: 'right' }}>
-                        {stock.dividend_yield ? `${stock.dividend_yield.toFixed(2)}%` : '-'}
+                        {stock.dividend_yield !== null ? `${stock.dividend_yield.toFixed(2)}%` : '-'}
                       </td>
                       <td>
                         <div style={{ display: 'flex', gap: 6 }}>

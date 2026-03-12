@@ -11,7 +11,6 @@ from typing import Optional
 import uuid
 import logging
 import time
-import requests
 from datetime import date, datetime
 
 from app.main import get_db, get_current_user, User, Stock, StockCreate, StockUpdate, StockResponse, StockPriceHistory

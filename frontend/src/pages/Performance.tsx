@@ -110,20 +110,24 @@ function SortHeader({
   const ariaSort = isActive ? (sortOrder === 'asc' ? 'ascending' : 'descending') : 'none'
 
   return (
-    <th
-      onClick={() => onSort(field)}
-      onKeyDown={(event) => {
-        if (event.key === 'Enter' || event.key === ' ') {
-          event.preventDefault()
-          onSort(field)
-        }
-      }}
-      tabIndex={0}
-      role="button"
-      aria-sort={ariaSort}
-      style={{ cursor: 'pointer', userSelect: 'none' }}
-    >
-      {label} {isActive ? (sortOrder === 'asc' ? '↑' : '↓') : ''}
+    <th aria-sort={ariaSort} scope="col">
+      <button
+        type="button"
+        onClick={() => onSort(field)}
+        style={{
+          cursor: 'pointer',
+          userSelect: 'none',
+          background: 'none',
+          border: 0,
+          color: 'inherit',
+          font: 'inherit',
+          padding: 0,
+          textAlign: 'left',
+          width: '100%',
+        }}
+      >
+        {label} {isActive ? (sortOrder === 'asc' ? '↑' : '↓') : ''}
+      </button>
     </th>
   )
 }
@@ -390,7 +394,7 @@ export default function Performance() {
                 <div style={{ padding: '8px 18px' }}>
                     {bestPerformers.map((stock, index) => (
                      <div key={stock.ticker} style={{ display: 'flex', justifyContent: 'space-between', padding: '9px 0', borderBottom: index < bestPerformers.length - 1 ? '1px solid var(--border)' : 'none' }}>
-                      <Link to={`/stocks/${stock.ticker}`} style={{ color: 'var(--v2)', textDecoration: 'none', fontWeight: 700, fontSize: 13 }}>
+                      <Link to={`/stocks/${encodeURIComponent(stock.ticker)}`} style={{ color: 'var(--v2)', textDecoration: 'none', fontWeight: 700, fontSize: 13 }}>
                         {stock.name || stock.ticker}
                       </Link>
                       <span className="positive" style={{ fontFamily: "'Fira Code', monospace", fontSize: 12, fontWeight: 600 }}>
@@ -411,7 +415,7 @@ export default function Performance() {
                 <div style={{ padding: '8px 18px' }}>
                     {worstPerformers.map((stock, index) => (
                      <div key={stock.ticker} style={{ display: 'flex', justifyContent: 'space-between', padding: '9px 0', borderBottom: index < worstPerformers.length - 1 ? '1px solid var(--border)' : 'none' }}>
-                      <Link to={`/stocks/${stock.ticker}`} style={{ color: 'var(--v2)', textDecoration: 'none', fontWeight: 700, fontSize: 13 }}>
+                      <Link to={`/stocks/${encodeURIComponent(stock.ticker)}`} style={{ color: 'var(--v2)', textDecoration: 'none', fontWeight: 700, fontSize: 13 }}>
                         {stock.name || stock.ticker}
                       </Link>
                       <span className="negative" style={{ fontFamily: "'Fira Code', monospace", fontSize: 12, fontWeight: 600 }}>
@@ -451,7 +455,7 @@ export default function Performance() {
               {sortedData.map((stock) => (
                 <tr key={stock.ticker}>
                   <td>
-                    <Link to={`/stocks/${stock.ticker}`} style={{ color: 'var(--v2)', textDecoration: 'none', fontWeight: 700 }}>
+                    <Link to={`/stocks/${encodeURIComponent(stock.ticker)}`} style={{ color: 'var(--v2)', textDecoration: 'none', fontWeight: 700 }}>
                       {stock.name || stock.ticker}
                     </Link>
                   </td>

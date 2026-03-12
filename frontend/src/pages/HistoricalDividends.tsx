@@ -67,7 +67,7 @@ export default function HistoricalDividends() {
   const { language } = useSettings()
   const locale = getLocaleForLanguage(language)
   const [stocks, setStocks] = useState<Stock[]>([])
-  const [exchangeRates, setExchangeRates] = useState<Record<string, number | null>>({})
+  const [exchangeRatesByDate, setExchangeRatesByDate] = useState<Record<string, Record<string, number | null>>>({})
   const [loading, setLoading] = useState(true)
   const [selectedYear, setSelectedYear] = useState<number>(new Date().getFullYear() - 1)
   const [dividendsByYear, setDividendsByYear] = useState<Record<number, YearlyData>>({})
@@ -79,12 +79,8 @@ export default function HistoricalDividends() {
     const fetchData = async () => {
       try {
         setLoading(true)
-        const [stocksData, ratesData] = await Promise.all([
-          api.stocks.list(),
-          api.market.exchangeRates(),
-        ])
+        const stocksData = await api.stocks.list()
         setStocks(stocksData)
-        setExchangeRates(ratesData)
       } catch (err) {
         console.error('Failed to load data:', err)
       } finally {
@@ -112,19 +108,38 @@ export default function HistoricalDividends() {
         }, currentYear)
         const yearsToFetch = Math.max(1, currentYear - earliestPurchaseYear + 1)
 
-        const dividendsByTicker = stocks.length > 0
-          ? Object.assign({}, ...(await Promise.all(
-            Array.from({ length: Math.ceil(stocks.length / DIVIDEND_BATCH_SIZE) }, (_, index) => {
-              const batch = stocks.slice(index * DIVIDEND_BATCH_SIZE, (index + 1) * DIVIDEND_BATCH_SIZE)
-              return api.stocks.dividendsForTickers(batch.map((stock) => stock.ticker), Math.min(yearsToFetch, 10))
-                .catch((err) => {
-                  console.error('Failed to fetch dividend history batch:', err)
-                  setDividendsPartialLoad(true)
-                  return {}
-                })
-            })
-          )))
-          : {}
+        const dividendBatchResults = stocks.length > 0
+          ? await Promise.allSettled(
+              Array.from({ length: Math.ceil(stocks.length / DIVIDEND_BATCH_SIZE) }, (_, index) => {
+                const batch = stocks.slice(index * DIVIDEND_BATCH_SIZE, (index + 1) * DIVIDEND_BATCH_SIZE)
+                return api.stocks.dividendsForTickers(batch.map((stock) => stock.ticker), Math.min(yearsToFetch, 10))
+              })
+            )
+          : []
+
+        const successfulDividendBatches = dividendBatchResults.filter(
+          (result): result is PromiseFulfilledResult<Record<string, Dividend[]>> => result.status === 'fulfilled'
+        )
+        const failedDividendBatches = dividendBatchResults.length - successfulDividendBatches.length
+
+        if (failedDividendBatches > 0) {
+          setDividendsPartialLoad(true)
+          dividendBatchResults.forEach((result) => {
+            if (result.status === 'rejected') {
+              console.error('Failed to fetch dividend history batch:', result.reason)
+            }
+          })
+        }
+
+        if (dividendBatchResults.length > 0 && successfulDividendBatches.length === 0) {
+          setDividendsLoadFailed(true)
+          setDividendsByYear({})
+          setAvailableYears([])
+          setExchangeRatesByDate({})
+          return
+        }
+
+        const dividendsByTicker = Object.assign({}, ...successfulDividendBatches.map((result) => result.value))
 
         const allDividends: DividendWithStock[] = stocks.flatMap((stock) => {
           const stockDividends = (dividendsByTicker[stock.ticker] || []) as Dividend[]
@@ -162,6 +177,25 @@ export default function HistoricalDividends() {
           }
         }
 
+        const payoutDates = Array.from(new Set(
+          Array.from(uniqueDividendMap.values())
+            .map((div) => div.date)
+            .filter(Boolean)
+        ))
+
+        if (payoutDates.length > 0) {
+          try {
+            const ratesByDate = await api.market.exchangeRatesBatch(payoutDates)
+            setExchangeRatesByDate(ratesByDate)
+          } catch (err) {
+            console.error('Failed to fetch historical dividend FX rates:', err)
+            setExchangeRatesByDate({})
+            setDividendsPartialLoad(true)
+          }
+        } else {
+          setExchangeRatesByDate({})
+        }
+
         for (const div of uniqueDividendMap.values()) {
           if (!div.date || div.date > todayIso) {
             continue
@@ -196,9 +230,9 @@ export default function HistoricalDividends() {
     fetchDividends()
   }, [stocks])
 
-  const convertToSEK = (amount: number, currency: string): number | null => {
+  const convertToSEK = (amount: number, currency: string, date: string): number | null => {
     if (currency === 'SEK') return amount
-    const rate = exchangeRates[`${currency}_SEK`]
+    const rate = exchangeRatesByDate[date]?.[`${currency}_SEK`]
     if (rate != null) return amount * rate
     return null
   }
@@ -214,7 +248,7 @@ export default function HistoricalDividends() {
   if (yearData) {
     for (const monthDivs of Object.values(yearData.months)) {
       for (const div of monthDivs) {
-        const converted = convertToSEK(div.amount * div.quantity, div.dividendCurrency)
+        const converted = convertToSEK(div.amount * div.quantity, div.dividendCurrency, div.date)
         if (converted === null) {
           yearMissingCurrencies.add(div.dividendCurrency)
           continue
@@ -301,7 +335,7 @@ export default function HistoricalDividends() {
               let monthTotal = 0
               const monthMissingCurrencies = new Set<string>()
               for (const div of monthDivs) {
-                const converted = convertToSEK(div.amount * div.quantity, div.dividendCurrency)
+                const converted = convertToSEK(div.amount * div.quantity, div.dividendCurrency, div.date)
                 if (converted === null) {
                   monthMissingCurrencies.add(div.dividendCurrency)
                   continue
@@ -340,13 +374,13 @@ export default function HistoricalDividends() {
                         {[...monthDivs]
                           .sort((a, b) => a.date.localeCompare(b.date))
                           .map((div, i) => {
-                            const totalSEK = convertToSEK(div.amount * div.quantity, div.dividendCurrency)
+                            const totalSEK = convertToSEK(div.amount * div.quantity, div.dividendCurrency, div.date)
                             return (
                               <tr key={`${div.ticker}-${i}`}>
                                  <td>
-                                   <Link to={`/stocks/${div.ticker}`} style={{ color: 'var(--v2)', textDecoration: 'none', fontWeight: 700 }}>
-                                     {div.name || div.ticker}
-                                   </Link>
+                                    <Link to={`/stocks/${encodeURIComponent(div.ticker)}`} style={{ color: 'var(--v2)', textDecoration: 'none', fontWeight: 700 }}>
+                                      {div.name || div.ticker}
+                                    </Link>
                                    {div.dividendType && (
                                      <span className="badge badge-muted" style={{ marginLeft: 8 }}>
                                        {div.dividendType}

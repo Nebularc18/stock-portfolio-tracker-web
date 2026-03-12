@@ -15,13 +15,23 @@ import { useAuth } from '../AuthContext'
  */
 function formatClock(d: Date, locale: string, timezone?: string) {
   const tz = timezone || Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC'
-  return d.toLocaleTimeString(locale, {
-    hour: '2-digit',
-    minute: '2-digit',
-    second: '2-digit',
-    hour12: false,
-    timeZone: tz,
-  })
+  try {
+    return d.toLocaleTimeString(locale, {
+      hour: '2-digit',
+      minute: '2-digit',
+      second: '2-digit',
+      hour12: false,
+      timeZone: tz,
+    })
+  } catch {
+    return d.toLocaleTimeString(locale, {
+      hour: '2-digit',
+      minute: '2-digit',
+      second: '2-digit',
+      hour12: false,
+      timeZone: 'UTC',
+    })
+  }
 }
 
 /**

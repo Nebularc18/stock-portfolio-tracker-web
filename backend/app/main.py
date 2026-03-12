@@ -5,6 +5,7 @@ schemas, and API routing configuration for the stock portfolio tracker.
 """
 
 import os
+import math
 import base64
 import binascii
 import hashlib
@@ -34,7 +35,28 @@ ROOT_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..'))
 load_dotenv(os.path.join(ROOT_DIR, '.env'))
 
 logger = logging.getLogger(__name__)
-REQUEST_TIMING_WARN_MS = float(os.getenv("REQUEST_TIMING_WARN_MS", "800"))
+
+
+def _get_request_timing_warn_ms() -> float:
+    default_value = 800.0
+    raw_value = os.getenv("REQUEST_TIMING_WARN_MS")
+    if raw_value is None:
+        return default_value
+
+    try:
+        parsed_value = float(raw_value)
+    except (TypeError, ValueError):
+        logger.warning("Invalid REQUEST_TIMING_WARN_MS=%r; using default %.1f", raw_value, default_value)
+        return default_value
+
+    if not math.isfinite(parsed_value):
+        logger.warning("Non-finite REQUEST_TIMING_WARN_MS=%r; using default %.1f", raw_value, default_value)
+        return default_value
+
+    return parsed_value
+
+
+REQUEST_TIMING_WARN_MS = _get_request_timing_warn_ms()
 
 ALLOWED_USER_FK_CONSTRAINTS = {
     "stocks": "fk_stocks_user_id_users",
@@ -606,10 +628,22 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(title="Stock Portfolio API", lifespan=lifespan)
-STATIC_DIR = os.path.join(os.path.dirname(__file__), '..', 'data', 'static')
-os.makedirs(STATIC_DIR, exist_ok=True)
-app.mount('/static', StaticFiles(directory=STATIC_DIR), name='static')
-app.mount('/api/static', StaticFiles(directory=STATIC_DIR), name='api-static')
+DEFAULT_STATIC_DIR = os.path.join(os.path.dirname(__file__), '..', 'data', 'static')
+STATIC_DIR = os.getenv('BACKEND_STATIC_DIR') or os.getenv('STATIC_DIR') or DEFAULT_STATIC_DIR
+STATIC_DIR_READY = os.path.isdir(STATIC_DIR)
+
+if not STATIC_DIR_READY:
+    try:
+        os.makedirs(STATIC_DIR, exist_ok=True)
+        STATIC_DIR_READY = True
+    except OSError as exc:
+        logger.warning("Unable to create static directory %s: %s. Static mounts disabled.", STATIC_DIR, exc)
+
+if STATIC_DIR_READY:
+    app.mount('/static', StaticFiles(directory=STATIC_DIR), name='static')
+    app.mount('/api/static', StaticFiles(directory=STATIC_DIR), name='api-static')
+else:
+    logger.warning("Static directory unavailable at %s; skipping static file mounts", STATIC_DIR)
 
 
 @app.middleware("http")
@@ -627,26 +661,30 @@ async def log_request_timing(request: Request, call_next):
         Response: The HTTP response produced by the next request handler.
     """
     start = time.perf_counter()
-    response = await call_next(request)
-    duration_ms = (time.perf_counter() - start) * 1000
-    path = request.url.path
-    is_api_request = path.startswith("/api/")
-    is_tracked_endpoint = (
-        path.startswith("/api/finnhub/")
-        or path.startswith("/api/marketstack/")
-        or path.endswith("/dividends")
-        or path.endswith("/upcoming-dividends")
-        or path.endswith("/analyst")
-    )
+    status_code = 500
 
-    if is_api_request:
-        log_message = "API timing method=%s path=%s status=%s duration_ms=%.1f"
-        if duration_ms >= REQUEST_TIMING_WARN_MS:
-            logger.warning(log_message, request.method, path, response.status_code, duration_ms)
-        elif is_tracked_endpoint:
-            logger.info(log_message, request.method, path, response.status_code, duration_ms)
+    try:
+        response = await call_next(request)
+        status_code = response.status_code
+        return response
+    finally:
+        duration_ms = (time.perf_counter() - start) * 1000
+        path = request.url.path
+        is_api_request = path.startswith("/api/")
+        is_tracked_endpoint = (
+            path.startswith("/api/finnhub/")
+            or path.startswith("/api/marketstack/")
+            or path.endswith("/dividends")
+            or path.endswith("/upcoming-dividends")
+            or path.endswith("/analyst")
+        )
 
-    return response
+        if is_api_request:
+            log_message = "API timing method=%s path=%s status=%s duration_ms=%.1f"
+            if duration_ms >= REQUEST_TIMING_WARN_MS:
+                logger.warning(log_message, request.method, path, status_code, duration_ms)
+            elif is_tracked_endpoint:
+                logger.info(log_message, request.method, path, status_code, duration_ms)
 
 
 class StockCreate(BaseModel):

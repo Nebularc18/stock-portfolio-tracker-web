@@ -2,6 +2,7 @@ const API_BASE = '/api'
 export const AUTH_STORAGE_KEY = 'portfolioAuthUser'
 const SLOW_API_REQUEST_MS = 800
 const API_REQUEST_TIMEOUT_MS = 15000
+const encodePathSegment = (value: string) => encodeURIComponent(value)
 // These caches only deduplicate in-flight exchange rate requests.
 const exchangeRatesRequestCache = new Map<string, Promise<Record<string, number | null>>>()
 const exchangeRatesBatchRequestCache = new Map<string, Promise<Record<string, Record<string, number | null>>>>()
@@ -419,14 +420,14 @@ export const api = {
 
   stocks: {
     list: () => fetchAPI('/stocks') as Promise<Stock[]>,
-    get: (ticker: string) => fetchAPI(`/stocks/${ticker}`) as Promise<Stock>,
+    get: (ticker: string) => fetchAPI(`/stocks/${encodePathSegment(ticker)}`) as Promise<Stock>,
     create: (data: { ticker: string; quantity: number; purchase_price?: number; purchase_date?: string }) => 
       fetchAPI('/stocks', { method: 'POST', body: JSON.stringify(data) }) as Promise<Stock>,
     update: (ticker: string, data: { quantity?: number; purchase_price?: number; purchase_date?: string | null }) =>
-      fetchAPI(`/stocks/${ticker}`, { method: 'PATCH', body: JSON.stringify(data) }) as Promise<Stock>,
-    delete: (ticker: string) => fetchAPI(`/stocks/${ticker}`, { method: 'DELETE' }),
-    refresh: (ticker: string) => fetchAPI(`/stocks/${ticker}/refresh`, { method: 'POST' }) as Promise<Stock>,
-    dividends: (ticker: string, years: number = 5) => fetchAPI(`/stocks/${ticker}/dividends?years=${years}`) as Promise<Dividend[]>,
+      fetchAPI(`/stocks/${encodePathSegment(ticker)}`, { method: 'PATCH', body: JSON.stringify(data) }) as Promise<Stock>,
+    delete: (ticker: string) => fetchAPI(`/stocks/${encodePathSegment(ticker)}`, { method: 'DELETE' }),
+    refresh: (ticker: string) => fetchAPI(`/stocks/${encodePathSegment(ticker)}/refresh`, { method: 'POST' }) as Promise<Stock>,
+    dividends: (ticker: string, years: number = 5) => fetchAPI(`/stocks/${encodePathSegment(ticker)}/dividends?years=${years}`) as Promise<Dividend[]>,
     dividendsForTickers: (tickers: string[], years: number = 5) => {
       const params = new URLSearchParams()
       for (const ticker of tickers) {
@@ -435,21 +436,21 @@ export const api = {
       params.set('years', String(years))
       return fetchAPI(`/stocks/dividends/batch?${params.toString()}`) as Promise<DividendsByTicker>
     },
-    upcomingDividends: (ticker: string) => fetchAPI(`/stocks/${ticker}/upcoming-dividends`) as Promise<StockUpcomingDividend[]>,
-    analyst: (ticker: string) => fetchAPI(`/stocks/${ticker}/analyst`) as Promise<AnalystData>,
-    validate: (ticker: string) => fetchAPI(`/stocks/validate/${ticker}`),
+    upcomingDividends: (ticker: string) => fetchAPI(`/stocks/${encodePathSegment(ticker)}/upcoming-dividends`) as Promise<StockUpcomingDividend[]>,
+    analyst: (ticker: string) => fetchAPI(`/stocks/${encodePathSegment(ticker)}/analyst`) as Promise<AnalystData>,
+    validate: (ticker: string) => fetchAPI(`/stocks/validate/${encodePathSegment(ticker)}`),
     addManualDividend: (ticker: string, data: { date: string; amount: number; currency?: string; note?: string }) =>
-      fetchAPI(`/stocks/${ticker}/manual-dividends`, { method: 'POST', body: JSON.stringify(data) }) as Promise<Stock>,
+      fetchAPI(`/stocks/${encodePathSegment(ticker)}/manual-dividends`, { method: 'POST', body: JSON.stringify(data) }) as Promise<Stock>,
     updateManualDividend: (ticker: string, dividendId: string, data: { date?: string; amount?: number; currency?: string; note?: string }) =>
-      fetchAPI(`/stocks/${ticker}/manual-dividends/${dividendId}`, { method: 'PUT', body: JSON.stringify(data) }) as Promise<Stock>,
+      fetchAPI(`/stocks/${encodePathSegment(ticker)}/manual-dividends/${encodePathSegment(dividendId)}`, { method: 'PUT', body: JSON.stringify(data) }) as Promise<Stock>,
     deleteManualDividend: (ticker: string, dividendId: string) =>
-      fetchAPI(`/stocks/${ticker}/manual-dividends/${dividendId}`, { method: 'DELETE' }),
+      fetchAPI(`/stocks/${encodePathSegment(ticker)}/manual-dividends/${encodePathSegment(dividendId)}`, { method: 'DELETE' }),
     suppressDividend: (ticker: string, data: { date: string; amount?: number; currency?: string }) =>
-      fetchAPI(`/stocks/${ticker}/suppress-dividend`, { method: 'POST', body: JSON.stringify(data) }),
+      fetchAPI(`/stocks/${encodePathSegment(ticker)}/suppress-dividend`, { method: 'POST', body: JSON.stringify(data) }),
     restoreDividend: (ticker: string, date: string) =>
-      fetchAPI(`/stocks/${ticker}/suppress-dividend/${date}`, { method: 'DELETE' }),
+      fetchAPI(`/stocks/${encodePathSegment(ticker)}/suppress-dividend/${encodePathSegment(date)}`, { method: 'DELETE' }),
     getSuppressedDividends: (ticker: string) =>
-      fetchAPI(`/stocks/${ticker}/suppressed-dividends`) as Promise<ManualDividend[]>,
+      fetchAPI(`/stocks/${encodePathSegment(ticker)}/suppressed-dividends`) as Promise<ManualDividend[]>,
   },
   
   portfolio: {

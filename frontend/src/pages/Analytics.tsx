@@ -19,6 +19,18 @@ type DistributionDatum = {
   value: number
 }
 
+function aggregateDistributionData(data: DistributionDatum[], limit: number = 4): DistributionDatum[] {
+  const sortedData = [...data].sort((a, b) => b.value - a.value)
+  if (sortedData.length <= limit) return sortedData
+
+  const topEntries = sortedData.slice(0, limit)
+  const remainingValue = sortedData.slice(limit).reduce((sum, entry) => sum + entry.value, 0)
+
+  return remainingValue > 0
+    ? [...topEntries, { name: 'Others', value: remainingValue }]
+    : topEntries
+}
+
 type PieLabelProps = {
   name: string
   percent: number
@@ -97,13 +109,8 @@ function createColoredPieLabel(colors: string[], locale: string) {
  */
 function renderDistributionLegend(data: DistributionDatum[], colors: string[], locale: string) {
   const total = data.reduce((sum, entry) => sum + entry.value, 0)
-  const topEntries = data.slice(0, 4)
-  const remainingValue = data.slice(4).reduce((sum, entry) => sum + entry.value, 0)
-  const legendEntries = remainingValue > 0
-    ? [...topEntries, { name: 'Others', value: remainingValue }]
-    : topEntries
 
-  return legendEntries.map((entry, index) => {
+  return data.map((entry, index) => {
     const share = total > 0 ? entry.value / total : 0
     return (
       <div
@@ -284,20 +291,25 @@ export default function Analytics() {
     fetchData()
   }, [fetchData])
 
-  const sectorData = distribution?.by_sector 
+  const rawSectorData = distribution?.by_sector
     ? Object.entries(distribution.by_sector).map(([name, value]) => ({ name, value }))
     : []
 
-  const countryData = distribution?.by_country
+  const rawCountryData = distribution?.by_country
     ? Object.entries(distribution.by_country).map(([name, value]) => ({ name, value }))
     : []
-  
-  const stockData = distribution?.by_stock
+
+  const rawStockData = distribution?.by_stock
     ? Object.entries(distribution.by_stock).map(([ticker, value]) => {
         const label = stockNamesByTicker[ticker] || ticker
-        return { name: `${label} (${ticker})`, value }
+        const shouldAppendTicker = label.trim().toUpperCase() !== ticker.trim().toUpperCase()
+        return { name: shouldAppendTicker ? `${label} (${ticker})` : ticker, value }
       })
     : []
+
+  const sectorData = aggregateDistributionData(rawSectorData)
+  const countryData = aggregateDistributionData(rawCountryData)
+  const stockData = aggregateDistributionData(rawStockData)
 
   const handleToggleComparisonYear = (year: number) => {
     setSelectedComparisonYears((currentYears) => {
