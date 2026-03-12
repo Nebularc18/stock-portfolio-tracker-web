@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useMemo } from 'react'
+import { useState, useEffect, useCallback, useMemo, useRef } from 'react'
 import { Link } from 'react-router-dom'
 import { api, Stock } from '../services/api'
 import { getLocaleForLanguage, t } from '../i18n'
@@ -146,39 +146,52 @@ export default function Performance() {
   const [sortOrder, setSortOrder] = useState<SortOrder>('desc')
   const { language } = useSettings()
   const locale = getLocaleForLanguage(language)
+  const latestFetchIdRef = useRef(0)
 
   const fetchData = useCallback(async () => {
+    const fetchId = latestFetchIdRef.current + 1
+    latestFetchIdRef.current = fetchId
     try {
+      if (latestFetchIdRef.current !== fetchId) return
       setLoadError(null)
       setLoading(true)
       const stocksData = await api.stocks.list()
+      if (latestFetchIdRef.current !== fetchId) return
       setStocks(stocksData)
       try {
         const ratesData = await api.market.exchangeRates()
+        if (latestFetchIdRef.current !== fetchId) return
         setExchangeRates(ratesData)
       } catch (ratesError) {
+        if (latestFetchIdRef.current !== fetchId) return
         console.error('Failed to load exchange rates:', ratesError)
         setExchangeRates({})
       }
     } catch (err) {
+      if (latestFetchIdRef.current !== fetchId) return
       console.error('Failed to load data:', err)
       setLoadError(err instanceof Error ? err : new Error(String(err)))
     } finally {
-      setLoading(false)
+      if (latestFetchIdRef.current === fetchId) {
+        setLoading(false)
+      }
     }
   }, [])
 
   useEffect(() => {
     fetchData()
+    return () => {
+      latestFetchIdRef.current += 1
+    }
   }, [fetchData])
 
   const convertToSEK = useCallback((amount: number, currency: string): number | null => {
     if (amount === 0) return 0
     if (currency === 'SEK') return amount
     const rate = exchangeRates[`${currency}_SEK`]
-    if (rate != null && rate !== 0) return amount * rate
+    if (Number.isFinite(rate) && rate !== 0) return amount * rate
     const inverseRate = exchangeRates[`SEK_${currency}`]
-    if (inverseRate != null && inverseRate !== 0) return amount / inverseRate
+    if (Number.isFinite(inverseRate) && inverseRate !== 0) return amount / inverseRate
     return null
   }, [exchangeRates])
 

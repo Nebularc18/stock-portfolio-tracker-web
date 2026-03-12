@@ -128,11 +128,18 @@ function formatMonthLabel(monthKey: string, locale: string): string {
  * @returns The corresponding Date in UTC
  */
 function parseHistoryDate(value: string): Date {
-  if (value.includes('T')) {
-    const hasTimezone = /([zZ]|[+-]\d{2}:\d{2})$/.test(value)
-    return new Date(hasTimezone ? value : `${value}Z`)
+  const trimmed = value.trim()
+  if (/^-?\d+(\.\d+)?$/.test(trimmed)) {
+    const numeric = Number(trimmed)
+    if (!Number.isFinite(numeric)) return new Date(Number.NaN)
+    const epochMilliseconds = Math.abs(numeric) < 1e12 ? numeric * 1000 : numeric
+    return new Date(epochMilliseconds)
   }
-  return new Date(`${value}T00:00:00Z`)
+  if (trimmed.includes('T')) {
+    const hasTimezone = /([zZ]|[+-]\d{2}:\d{2})$/.test(trimmed)
+    return new Date(hasTimezone ? trimmed : `${trimmed}Z`)
+  }
+  return new Date(`${trimmed}T00:00:00Z`)
 }
 
 /**

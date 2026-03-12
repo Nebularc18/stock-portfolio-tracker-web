@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from 'react'
+import { useState, useEffect, useMemo, useCallback } from 'react'
 import { Link } from 'react-router-dom'
 import { api, Dividend, Stock } from '../services/api'
 import { getLocaleForLanguage, t } from '../i18n'
@@ -75,21 +75,25 @@ export default function HistoricalDividends() {
   const [dividendsPartialLoad, setDividendsPartialLoad] = useState(false)
   const [dividendsLoadFailed, setDividendsLoadFailed] = useState(false)
   const [showDividendRangeWarning, setShowDividendRangeWarning] = useState(false)
+  const [fetchError, setFetchError] = useState<string | null>(null)
+
+  const loadStocks = useCallback(async () => {
+    try {
+      setFetchError(null)
+      setLoading(true)
+      const stocksData = await api.stocks.list()
+      setStocks(stocksData)
+    } catch (err) {
+      console.error('Failed to load data:', err)
+      setFetchError(t(language, 'history.failedLoadData'))
+    } finally {
+      setLoading(false)
+    }
+  }, [language])
 
   useEffect(() => {
-    const fetchData = async () => {
-      try {
-        setLoading(true)
-        const stocksData = await api.stocks.list()
-        setStocks(stocksData)
-      } catch (err) {
-        console.error('Failed to load data:', err)
-      } finally {
-        setLoading(false)
-      }
-    }
-    fetchData()
-  }, [])
+    loadStocks()
+  }, [loadStocks])
 
   useEffect(() => {
     if (stocks.length === 0) {
@@ -210,11 +214,15 @@ export default function HistoricalDividends() {
           if (!div.date || div.date > todayIso) {
             continue
           }
-          const year = parseInt(div.date.split('-')[0])
+          const [yearPart, monthPart] = div.date.split('-')
+          const year = Number(yearPart)
+          const month = Number(monthPart)
+          if (!Number.isInteger(year) || !Number.isInteger(month) || month < 1 || month > 12) {
+            continue
+          }
           if (!byYear[year]) {
             byYear[year] = { total: 0, months: {} }
           }
-          const month = parseInt(div.date.split('-')[1])
           if (!byYear[year].months[month]) {
             byYear[year].months[month] = []
           }
@@ -272,6 +280,19 @@ export default function HistoricalDividends() {
     return <div className="loading-state">{t(language, 'history.loading')}</div>
   }
 
+  if (fetchError && stocks.length === 0) {
+    return (
+      <div style={{ padding: 28 }}>
+        <div style={{ background: 'var(--bg2)', border: '1px solid var(--border)', borderRadius: 8, padding: '32px', textAlign: 'center' }}>
+          <p role="alert" aria-live="assertive" aria-atomic="true" style={{ color: 'var(--red)', marginBottom: 16 }}>{fetchError}</p>
+          <button className="btn btn-primary" onClick={loadStocks}>
+            {t(language, 'common.retry')}
+          </button>
+        </div>
+      </div>
+    )
+  }
+
   return (
     <div>
       {/* ── HERO HEADER ── */}
@@ -318,6 +339,12 @@ export default function HistoricalDividends() {
       </div>
 
       <div style={{ padding: '0 28px 28px' }}>
+        {fetchError && (
+          <div style={{ background: 'rgba(248,113,113,0.08)', border: '1px solid rgba(248,113,113,0.25)', borderRadius: 8, padding: '12px 16px', marginTop: 20, display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12 }}>
+            <p role="alert" aria-live="assertive" aria-atomic="true" style={{ color: 'var(--red)', fontSize: 13, margin: 0 }}>{fetchError}</p>
+            <button className="btn btn-primary" onClick={loadStocks}>{t(language, 'common.retry')}</button>
+          </div>
+        )}
         {dividendsLoadFailed && (
           <div style={{ background: 'rgba(248,113,113,0.08)', border: '1px solid rgba(248,113,113,0.25)', borderRadius: 8, padding: '12px 16px', marginTop: 20 }}>
             <p style={{ color: 'var(--red)', fontSize: 13 }}>{t(language, 'history.failedLoadData')}</p>

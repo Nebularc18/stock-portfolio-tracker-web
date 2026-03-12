@@ -1272,10 +1272,15 @@ export default function StockDetail() {
                   </tr>
                 </thead>
                 <tbody>
-                  {dividends.slice(0, 20).map((div, i) => {
+                  {dividends.slice(0, 20).map((div) => {
                     const suppressed = isDividendSuppressed(div.date)
+                    const rowKey = [
+                      div.date,
+                      div.amount,
+                      div.currency || stock.currency,
+                    ].join('|')
                     return (
-                      <tr key={i} style={{ opacity: suppressed ? 0.45 : 1 }}>
+                      <tr key={rowKey} style={{ opacity: suppressed ? 0.45 : 1 }}>
                         <td className="mono">{formatDate(div.date, locale)}</td>
                         <td className="mono" style={{ color: suppressed ? 'var(--muted)' : 'var(--green)' }}>
                           {formatCurrency(div.amount, locale, div.currency || stock.currency)}

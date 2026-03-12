@@ -130,7 +130,7 @@ a:hover { color: var(--v3); }
 }
 
 .sec-title {
-  font-size: 9px;
+  font-size: 11px;
   font-weight: 700;
   letter-spacing: 0.2em;
   text-transform: uppercase;
@@ -155,7 +155,7 @@ a:hover { color: var(--v3); }
   color: var(--text2);
 }
 
-.btn:hover {
+.btn:not(:disabled):hover {
   background: var(--bg3);
   color: var(--text);
   border-color: var(--muted);
@@ -172,7 +172,7 @@ a:hover { color: var(--v3); }
   border-color: var(--v);
 }
 
-.btn-primary:hover {
+.btn-primary:not(:disabled):hover {
   background: var(--v2);
   border-color: var(--v2);
   color: #fff;
@@ -184,7 +184,7 @@ a:hover { color: var(--v3); }
   border-color: var(--red);
 }
 
-.btn-danger:hover {
+.btn-danger:not(:disabled):hover {
   background: var(--red-light);
   border-color: var(--red-light);
   color: var(--text-dark);
@@ -196,7 +196,7 @@ a:hover { color: var(--v3); }
   border-color: var(--border2);
 }
 
-.btn-secondary:hover {
+.btn-secondary:not(:disabled):hover {
   background: var(--bg4);
   color: var(--text);
 }
@@ -253,7 +253,7 @@ th {
   text-align: left;
   padding: 10px 12px;
   border-bottom: 1px solid var(--border);
-  font-size: 9.5px;
+  font-size: 11px;
   font-weight: 700;
   letter-spacing: 0.14em;
   text-transform: uppercase;
@@ -320,7 +320,7 @@ tbody tr:hover td {
 }
 
 .stat-label {
-  font-size: 9.5px;
+  font-size: 11px;
   font-weight: 700;
   letter-spacing: 0.18em;
   text-transform: uppercase;
@@ -468,7 +468,7 @@ tbody tr:hover td {
 .tb-idx:hover { background: rgba(255,255,255,0.025); }
 
 .ti-nm {
-  font-size: 9px;
+  font-size: 11px;
   font-weight: 700;
   letter-spacing: 0.14em;
   text-transform: uppercase;
@@ -516,6 +516,12 @@ tbody tr:hover td {
   background: var(--green2);
   box-shadow: 0 0 6px rgba(34,197,94,0.7);
   animation: pulse-live 2s ease-in-out infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .live-dot {
+    animation: none;
+  }
 }
 
 /* ── APPNAV ── */
@@ -571,3 +577,4 @@ tbody tr:hover td {
     white-space: nowrap;
   }
 }
+
