@@ -383,8 +383,7 @@ export default function StockDetail() {
             const totalAmount = amountPerShare * stockData.quantity
             const divCurrency = div.currency || stockData.currency
             const totalConverted = convertToSEKValue(totalAmount, divCurrency, safeRates)
-            const payoutDate = div.payment_date || div.ex_date
-            const payoutDateParsed = normalizeToDay(payoutDate)
+            const payoutDateParsed = div.payment_date ? normalizeToDay(div.payment_date) : null
             const status = payoutDateParsed && payoutDateParsed.getTime() <= todayDate.getTime() ? 'paid' : 'upcoming'
 
             return {
@@ -648,6 +647,22 @@ export default function StockDetail() {
     ) {
       setEditError(t(language, 'stockDetail.invalidPositionValues'))
       return
+    }
+
+    if (editPurchaseDate) {
+      const [year, month, day] = editPurchaseDate.split('-').map(Number)
+      const parsedDate = Number.isFinite(year) && Number.isFinite(month) && Number.isFinite(day)
+        ? new Date(year, month - 1, day)
+        : null
+      if (parsedDate) {
+        parsedDate.setHours(0, 0, 0, 0)
+        const today = new Date()
+        today.setHours(0, 0, 0, 0)
+        if (parsedDate.getTime() > today.getTime()) {
+          setEditError(t(language, 'stockDetail.invalidPurchaseDate'))
+          return
+        }
+      }
     }
 
     try {
@@ -1381,7 +1396,7 @@ export default function StockDetail() {
                 currency={stock?.currency || 'USD'}
                 currentPrice={stock?.current_price ?? null}
               />
-              {!analystData?.price_targets && !analystData?.recommendations?.length && !analystData?.finnhub_recommendations?.length && !finnhubLoading && !analystDataLoading && analystDataLoaded && (
+              {!analystData?.price_targets && !analystData?.recommendations?.length && !analystData?.finnhub_recommendations?.length && !analystDataLoading && analystDataLoaded && (
                 <div className="empty-state">{t(language, 'stockDetail.noAnalyst')}</div>
               )}
             </>

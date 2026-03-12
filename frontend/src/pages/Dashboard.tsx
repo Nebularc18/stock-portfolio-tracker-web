@@ -111,7 +111,9 @@ function getMonthKey(dateStr: string): string {
  * @returns A localized month and year string (for example, `January 2026`)
  */
 function formatMonthLabel(monthKey: string, locale: string): string {
+  if (monthKey === 'tbd') return 'TBD'
   const [year, month] = monthKey.split('-').map(Number)
+  if (!Number.isFinite(year) || !Number.isFinite(month)) return monthKey
   return new Date(Date.UTC(year, month - 1, 1))
     .toLocaleDateString(locale, { month: 'long', year: 'numeric', timeZone: 'UTC' })
 }
@@ -254,6 +256,7 @@ export default function Dashboard() {
   const [failedLogos, setFailedLogos] = useState<Record<string, boolean>>({})
   const [loading, setLoading] = useState(true)
   const [historyLoading, setHistoryLoading] = useState(true)
+  const [historyError, setHistoryError] = useState<Error | null>(null)
   const [error, setError] = useState<string | null>(null)
   const historyRequestIdRef = useRef(0)
   const dataRequestIdRef = useRef(0)
@@ -264,6 +267,8 @@ export default function Dashboard() {
     const requestId = historyRequestIdRef.current + 1
     historyRequestIdRef.current = requestId
     setHistoryLoading(true)
+    setHistoryError(null)
+    setPortfolioHistory([])
     const rangeQuery = HISTORY_RANGE_OPTIONS.find((o) => o.key === range)?.query || '1m'
     try {
       const historyData = await api.portfolio.history({ range: rangeQuery })
@@ -272,6 +277,8 @@ export default function Dashboard() {
     } catch (error) {
       if (requestId !== historyRequestIdRef.current) return
       console.error('Failed to load portfolio history:', error)
+      setHistoryError(error instanceof Error ? error : new Error(String(error)))
+      setPortfolioHistory([])
     } finally {
       if (requestId === historyRequestIdRef.current) setHistoryLoading(false)
     }
@@ -409,8 +416,7 @@ export default function Dashboard() {
   const groupedDividends = upcomingDividends
     .filter((div) => div.status !== 'paid')
     .reduce((acc, div) => {
-      const payoutDate = div.payment_date || div.ex_date
-      const key = getMonthKey(payoutDate)
+      const key = div.payment_date ? getMonthKey(div.payment_date) : 'tbd'
       if (!acc[key]) acc[key] = []
       acc[key].push(div)
       return acc
@@ -431,7 +437,11 @@ export default function Dashboard() {
   }
 
   const monthlyUpcoming = Object.entries(groupedDividends)
-    .sort(([a], [b]) => a.localeCompare(b))
+    .sort(([a], [b]) => {
+      if (a === 'tbd') return 1
+      if (b === 'tbd') return -1
+      return a.localeCompare(b)
+    })
     .map(([monthKey, items]) => ({
       monthKey, items,
       subtotalsByCurrency: items.reduce((acc, item) => {
@@ -577,6 +587,13 @@ export default function Dashboard() {
             {historyLoading ? (
               <div style={{ height: 280, display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--muted)' }}>
                 {t(language, 'common.loading')}
+              </div>
+            ) : historyError ? (
+              <div style={{ height: 280, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 12, color: 'var(--muted)' }}>
+                <span>{t(language, 'dashboard.failedHistoryLoad')}</span>
+                <button className="btn btn-primary" onClick={() => fetchHistory(historyRange)}>
+                  {t(language, 'common.retry')}
+                </button>
               </div>
             ) : hasChartData ? (
               <div style={{ height: 280 }}>
@@ -762,16 +779,17 @@ export default function Dashboard() {
                     <tbody>
                       {group.items.map((div, i) => {
                         const displayed = getDisplayedDividendAmount(div)
-                        const payoutDisplayDate = div.payment_date || div.ex_date
+                        const payoutDisplayDate = div.payment_date
+                        const payoutKey = payoutDisplayDate || 'tbd'
                         return (
-                          <tr key={`${div.ticker}-${div.ex_date}-${payoutDisplayDate ?? 'na'}-${div.dividend_type ?? 'na'}-${i}`}>
+                          <tr key={`${div.ticker}-${div.ex_date}-${payoutKey}-${div.dividend_type ?? 'na'}-${i}`}>
                             <td>
                               <Link to={`/stocks/${div.ticker}`} style={{ color: 'var(--v2)', textDecoration: 'none', fontWeight: 700 }}>
                                 {div.name || div.ticker}
                               </Link>
                             </td>
                             <td style={{ fontFamily: "'Fira Code', monospace", color: 'var(--text2)' }}>{formatDate(div.ex_date, locale)}</td>
-                            <td style={{ fontFamily: "'Fira Code', monospace", color: 'var(--text2)' }}>{payoutDisplayDate ? formatDate(payoutDisplayDate, locale) : '-'}</td>
+                            <td style={{ fontFamily: "'Fira Code', monospace", color: 'var(--text2)' }}>{payoutDisplayDate ? formatDate(payoutDisplayDate, locale) : 'TBD'}</td>
                             <td style={{ textAlign: 'right', fontFamily: "'Fira Code', monospace", color: 'var(--text2)' }}>{formatCurrency(div.amount_per_share, locale, div.currency)}</td>
                             <td style={{ textAlign: 'right', fontFamily: "'Fira Code', monospace", color: 'var(--green)' }}>
                               {formatCurrency(displayed.amount, locale, displayed.currency)}

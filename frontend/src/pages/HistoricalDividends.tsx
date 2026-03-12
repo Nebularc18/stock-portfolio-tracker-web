@@ -109,8 +109,11 @@ export default function HistoricalDividends() {
           const parsedYear = Number(stock.purchase_date.slice(0, 4))
           if (!Number.isFinite(parsedYear)) return minYear
           return Math.min(minYear, parsedYear)
-        }, currentYear)
-        const yearsToFetch = Math.max(1, currentYear - earliestPurchaseYear + 1)
+        }, Number.POSITIVE_INFINITY)
+        const resolvedEarliestPurchaseYear = earliestPurchaseYear === Number.POSITIVE_INFINITY
+          ? currentYear - (MAX_DIVIDEND_YEARS - 1)
+          : earliestPurchaseYear
+        const yearsToFetch = Math.max(1, currentYear - resolvedEarliestPurchaseYear + 1)
         setShowDividendRangeWarning(yearsToFetch > MAX_DIVIDEND_YEARS)
 
         const dividendBatchResults = stocks.length > 0

@@ -211,6 +211,7 @@ export default function InfographicLayout() {
           <button
             onClick={() => void handleLogout()}
             disabled={isLoggingOut}
+            className="logout-btn"
             style={{
               background: 'transparent',
               border: '1px solid var(--border2)',
@@ -224,8 +225,6 @@ export default function InfographicLayout() {
               letterSpacing: '0.05em',
               transition: 'border-color 0.15s, color 0.15s',
             }}
-            onMouseEnter={e => { (e.currentTarget as HTMLButtonElement).style.borderColor = 'var(--red)'; (e.currentTarget as HTMLButtonElement).style.color = 'var(--red)' }}
-            onMouseLeave={e => { (e.currentTarget as HTMLButtonElement).style.borderColor = 'var(--border2)'; (e.currentTarget as HTMLButtonElement).style.color = 'var(--muted)' }}
           >
             {isLoggingOut ? '...' : t(language, 'layout.logout')}
           </button>

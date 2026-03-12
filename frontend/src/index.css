@@ -498,6 +498,11 @@ tbody tr:hover td {
   white-space: nowrap;
 }
 
+.logout-btn:hover {
+  border-color: var(--red);
+  color: var(--red);
+}
+
 .live-dot {
   width: 5px; height: 5px;
   border-radius: 50%;

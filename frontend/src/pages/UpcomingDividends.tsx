@@ -137,7 +137,7 @@ export default function UpcomingDividends() {
   }
 
   const groupedByMonth = dividends.reduce((acc, div) => {
-    const payoutDate = div.payment_date ?? div.ex_date
+    const payoutDate = div.payment_date
     const key = payoutDate ? getMonthKey(payoutDate) : 'tbd'
     if (!acc[key]) {
       acc[key] = []
@@ -292,10 +292,10 @@ export default function UpcomingDividends() {
                       <tbody>
                         {group.items.map((div, i) => {
                           const displayedTotal = getDisplayedDividendTotal(div)
-                          const payoutDisplayDate = div.payment_date ?? div.ex_date
+                          const payoutDisplayDate = div.payment_date
 
                           return (
-                            <tr key={`${div.ticker}-${div.ex_date}-${div.payment_date ?? 'na'}-${div.dividend_type ?? 'na'}-${i}`}>
+                            <tr key={`${div.ticker}-${div.ex_date}-${div.payment_date ?? 'tbd'}-${div.dividend_type ?? 'na'}-${i}`}>
                               <td>
                                 <Link to={`/stocks/${encodeURIComponent(div.ticker)}`} style={{ color: 'var(--v2)', textDecoration: 'none', fontWeight: 700 }}>
                                   {div.name || div.ticker}

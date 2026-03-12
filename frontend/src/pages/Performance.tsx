@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import { Link } from 'react-router-dom'
 import { api, Stock } from '../services/api'
 import { getLocaleForLanguage, t } from '../i18n'
@@ -141,38 +141,44 @@ export default function Performance() {
   const [stocks, setStocks] = useState<Stock[]>([])
   const [exchangeRates, setExchangeRates] = useState<Record<string, number | null>>({})
   const [loading, setLoading] = useState(true)
+  const [loadError, setLoadError] = useState<Error | null>(null)
   const [sortField, setSortField] = useState<SortField>('gainPercent')
   const [sortOrder, setSortOrder] = useState<SortOrder>('desc')
   const { language } = useSettings()
   const locale = getLocaleForLanguage(language)
 
-  useEffect(() => {
-    const fetchData = async () => {
+  const fetchData = useCallback(async () => {
+    try {
+      setLoadError(null)
+      setLoading(true)
+      const stocksData = await api.stocks.list()
+      setStocks(stocksData)
       try {
-        setLoading(true)
-        const stocksData = await api.stocks.list()
-        setStocks(stocksData)
-        try {
-          const ratesData = await api.market.exchangeRates()
-          setExchangeRates(ratesData)
-        } catch (ratesError) {
-          console.error('Failed to load exchange rates:', ratesError)
-          setExchangeRates({})
-        }
-      } catch (err) {
-        console.error('Failed to load data:', err)
-      } finally {
-        setLoading(false)
+        const ratesData = await api.market.exchangeRates()
+        setExchangeRates(ratesData)
+      } catch (ratesError) {
+        console.error('Failed to load exchange rates:', ratesError)
+        setExchangeRates({})
       }
+    } catch (err) {
+      console.error('Failed to load data:', err)
+      setLoadError(err instanceof Error ? err : new Error(String(err)))
+    } finally {
+      setLoading(false)
     }
-    fetchData()
   }, [])
+
+  useEffect(() => {
+    fetchData()
+  }, [fetchData])
 
   const convertToSEK = (amount: number, currency: string): number | null => {
     if (amount === 0) return 0
     if (currency === 'SEK') return amount
     const rate = exchangeRates[`${currency}_SEK`]
-    if (rate != null) return amount * rate
+    if (rate != null && rate !== 0) return amount * rate
+    const inverseRate = exchangeRates[`SEK_${currency}`]
+    if (inverseRate != null && inverseRate !== 0) return amount / inverseRate
     return null
   }
 
@@ -327,6 +333,21 @@ export default function Performance() {
 
   if (loading) {
     return <div className="loading-state">{t(language, 'common.loading')}</div>
+  }
+
+  if (loadError) {
+    return (
+      <div style={{ padding: 28 }}>
+        <div style={{ background: 'var(--bg2)', border: '1px solid var(--border)', borderRadius: 8, padding: '32px', textAlign: 'center' }}>
+          <p role="alert" aria-live="assertive" aria-atomic="true" style={{ color: 'var(--red)', marginBottom: 16 }}>
+            {t(language, 'performance.failedLoad')}
+          </p>
+          <button className="btn btn-primary" onClick={fetchData}>
+            {t(language, 'common.retry')}
+          </button>
+        </div>
+      </div>
+    )
   }
 
   if (stocks.length === 0) {
