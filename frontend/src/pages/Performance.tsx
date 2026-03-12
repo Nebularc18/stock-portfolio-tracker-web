@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useMemo } from 'react'
 import { Link } from 'react-router-dom'
 import { api, Stock } from '../services/api'
 import { getLocaleForLanguage, t } from '../i18n'
@@ -172,7 +172,7 @@ export default function Performance() {
     fetchData()
   }, [fetchData])
 
-  const convertToSEK = (amount: number, currency: string): number | null => {
+  const convertToSEK = useCallback((amount: number, currency: string): number | null => {
     if (amount === 0) return 0
     if (currency === 'SEK') return amount
     const rate = exchangeRates[`${currency}_SEK`]
@@ -180,92 +180,96 @@ export default function Performance() {
     const inverseRate = exchangeRates[`SEK_${currency}`]
     if (inverseRate != null && inverseRate !== 0) return amount / inverseRate
     return null
-  }
+  }, [exchangeRates])
 
-  const performanceData: PerformanceData[] = stocks.map(stock => {
-    const value = stock.current_price != null ? stock.current_price * stock.quantity : null
-    const cost = stock.purchase_price != null ? stock.purchase_price * stock.quantity : null
-    const gain = value != null && cost != null ? value - cost : null
-    const gainPercent = gain != null && cost != null && cost !== 0 ? (gain / cost) * 100 : null
-    const dailyChange = stock.current_price != null && stock.previous_close != null
-      ? (stock.current_price - stock.previous_close) * stock.quantity
-      : null
-    const dailyChangePercent = stock.current_price != null && stock.previous_close != null && stock.previous_close !== 0
-      ? ((stock.current_price - stock.previous_close) / stock.previous_close) * 100
-      : null
+  const performanceData: PerformanceData[] = useMemo(() => (
+    stocks.map(stock => {
+      const value = stock.current_price != null ? stock.current_price * stock.quantity : null
+      const cost = stock.purchase_price != null ? stock.purchase_price * stock.quantity : null
+      const gain = value != null && cost != null ? value - cost : null
+      const gainPercent = gain != null && cost != null && cost !== 0 ? (gain / cost) * 100 : null
+      const dailyChange = stock.current_price != null && stock.previous_close != null
+        ? (stock.current_price - stock.previous_close) * stock.quantity
+        : null
+      const dailyChangePercent = stock.current_price != null && stock.previous_close != null && stock.previous_close !== 0
+        ? ((stock.current_price - stock.previous_close) / stock.previous_close) * 100
+        : null
 
-    const valueSEK = value != null ? convertToSEK(value, stock.currency) : null
-    const costSEK = cost != null ? convertToSEK(cost, stock.currency) : null
+      const valueSEK = value != null ? convertToSEK(value, stock.currency) : null
+      const costSEK = cost != null ? convertToSEK(cost, stock.currency) : null
 
-    return {
-      ticker: stock.ticker,
-      name: stock.name,
-      quantity: stock.quantity,
-      currency: stock.currency,
-      purchasePrice: stock.purchase_price,
-      currentPrice: stock.current_price,
-      previousClose: stock.previous_close,
-      value,
-      cost,
-      gain,
-      gainPercent,
-      dailyChange,
-      dailyChangePercent,
-      valueSEK,
-      costSEK,
-      gainSEK: valueSEK !== null && costSEK !== null ? valueSEK - costSEK : null,
-      dailyChangeSEK: dailyChange != null ? convertToSEK(dailyChange, stock.currency) : null,
-    }
-  })
+      return {
+        ticker: stock.ticker,
+        name: stock.name,
+        quantity: stock.quantity,
+        currency: stock.currency,
+        purchasePrice: stock.purchase_price,
+        currentPrice: stock.current_price,
+        previousClose: stock.previous_close,
+        value,
+        cost,
+        gain,
+        gainPercent,
+        dailyChange,
+        dailyChangePercent,
+        valueSEK,
+        costSEK,
+        gainSEK: valueSEK !== null && costSEK !== null ? valueSEK - costSEK : null,
+        dailyChangeSEK: dailyChange != null ? convertToSEK(dailyChange, stock.currency) : null,
+      }
+    })
+  ), [stocks, convertToSEK])
 
-  const sortedData = [...performanceData].sort((a, b) => {
-    let aVal: number | string | null = 0
-    let bVal: number | string | null = 0
+  const sortedData = useMemo(() => (
+    [...performanceData].sort((a, b) => {
+      let aVal: number | string | null = 0
+      let bVal: number | string | null = 0
 
-    switch (sortField) {
-      case 'ticker':
-        aVal = a.ticker
-        bVal = b.ticker
-        break
-      case 'name':
-        aVal = a.name || a.ticker || ''
-        bVal = b.name || b.ticker || ''
-        break
-      case 'value':
-        aVal = a.valueSEK
-        bVal = b.valueSEK
-        break
-      case 'cost':
-        aVal = a.costSEK
-        bVal = b.costSEK
-        break
-      case 'gain':
-        aVal = a.gainSEK
-        bVal = b.gainSEK
-        break
-      case 'gainPercent':
-        aVal = a.gainPercent
-        bVal = b.gainPercent
-        break
-      case 'dailyChange':
-        aVal = a.dailyChangeSEK
-        bVal = b.dailyChangeSEK
-        break
-      case 'dailyChangePercent':
-        aVal = a.dailyChangePercent ?? null
-        bVal = b.dailyChangePercent ?? null
-        break
-    }
+      switch (sortField) {
+        case 'ticker':
+          aVal = a.ticker
+          bVal = b.ticker
+          break
+        case 'name':
+          aVal = a.name || a.ticker || ''
+          bVal = b.name || b.ticker || ''
+          break
+        case 'value':
+          aVal = a.valueSEK
+          bVal = b.valueSEK
+          break
+        case 'cost':
+          aVal = a.costSEK
+          bVal = b.costSEK
+          break
+        case 'gain':
+          aVal = a.gainSEK
+          bVal = b.gainSEK
+          break
+        case 'gainPercent':
+          aVal = a.gainPercent
+          bVal = b.gainPercent
+          break
+        case 'dailyChange':
+          aVal = a.dailyChangeSEK
+          bVal = b.dailyChangeSEK
+          break
+        case 'dailyChangePercent':
+          aVal = a.dailyChangePercent ?? null
+          bVal = b.dailyChangePercent ?? null
+          break
+      }
 
-    if (typeof aVal === 'string' && typeof bVal === 'string') {
-      return sortOrder === 'asc' ? aVal.localeCompare(bVal) : bVal.localeCompare(aVal)
-    }
-    if (aVal === null && bVal === null) return 0
-    if (aVal === null) return 1
-    if (bVal === null) return -1
+      if (typeof aVal === 'string' && typeof bVal === 'string') {
+        return sortOrder === 'asc' ? aVal.localeCompare(bVal) : bVal.localeCompare(aVal)
+      }
+      if (aVal === null && bVal === null) return 0
+      if (aVal === null) return 1
+      if (bVal === null) return -1
 
-    return sortOrder === 'asc' ? (aVal as number) - (bVal as number) : (bVal as number) - (aVal as number)
-  })
+      return sortOrder === 'asc' ? (aVal as number) - (bVal as number) : (bVal as number) - (aVal as number)
+    })
+  ), [performanceData, sortField, sortOrder])
 
   const handleSort = (field: SortField) => {
     if (sortField === field) {
@@ -276,32 +280,54 @@ export default function Performance() {
     }
   }
 
-  const comparablePerformance = performanceData.filter((stock) => stock.gainPercent !== null)
-  const bestPerformers = [...comparablePerformance]
-    .sort((a, b) => (b.gainPercent ?? -Infinity) - (a.gainPercent ?? -Infinity))
-    .slice(0, 3)
-  const bestPerformerTickers = new Set(bestPerformers.map((stock) => stock.ticker))
-  const worstPerformers = comparablePerformance
-    .filter((stock) => !bestPerformerTickers.has(stock.ticker))
-    .sort((a, b) => (a.gainPercent ?? Infinity) - (b.gainPercent ?? Infinity))
-    .slice(0, 3)
+  const { bestPerformers, worstPerformers } = useMemo(() => {
+    const comparable = performanceData.filter((stock) => stock.gainPercent !== null)
+    const best = [...comparable]
+      .sort((a, b) => (b.gainPercent ?? -Infinity) - (a.gainPercent ?? -Infinity))
+      .slice(0, 3)
+    const bestTickers = new Set(best.map((stock) => stock.ticker))
+    const worst = comparable
+      .filter((stock) => !bestTickers.has(stock.ticker))
+      .sort((a, b) => (a.gainPercent ?? Infinity) - (b.gainPercent ?? Infinity))
+      .slice(0, 3)
+    return { bestPerformers: best, worstPerformers: worst }
+  }, [performanceData])
 
-  const missingRateStocks = performanceData.filter((stock) => {
-    if (stock.currency === 'SEK') return false
-    const valueRateMissing = stock.value !== null && stock.valueSEK === null
-    const costRateMissing = stock.cost !== null && stock.costSEK === null
-    const gainRateMissing = stock.gain !== null && stock.gainSEK === null
-    const dailyChangeRateMissing = stock.dailyChange !== null && stock.dailyChangeSEK === null
-    return valueRateMissing || costRateMissing || gainRateMissing || dailyChangeRateMissing
-  })
-  const hasMissing = missingRateStocks.length > 0
-  const hasMissingDailyChange = performanceData.some((stock) => stock.dailyChange === null || (stock.dailyChange !== null && stock.dailyChangeSEK === null))
-
-  const totalValue = performanceData.reduce((sum, s) => sum + (s.valueSEK ?? 0), 0)
-  const totalCost = performanceData.reduce((sum, s) => sum + (s.costSEK ?? 0), 0)
-  const totalGain = totalValue - totalCost
-  const totalGainPercent = totalCost > 0 ? (totalGain / totalCost) * 100 : 0
-  const totalDailyChange = performanceData.reduce((sum, s) => sum + (s.dailyChangeSEK ?? 0), 0)
+  const {
+    missingRateStocks,
+    hasMissing,
+    hasMissingDailyChange,
+    totalValue,
+    totalCost,
+    totalGain,
+    totalGainPercent,
+    totalDailyChange,
+  } = useMemo(() => {
+    const missing = performanceData.filter((stock) => {
+      if (stock.currency === 'SEK') return false
+      const valueRateMissing = stock.value !== null && stock.valueSEK === null
+      const costRateMissing = stock.cost !== null && stock.costSEK === null
+      const gainRateMissing = stock.gain !== null && stock.gainSEK === null
+      const dailyChangeRateMissing = stock.dailyChange !== null && stock.dailyChangeSEK === null
+      return valueRateMissing || costRateMissing || gainRateMissing || dailyChangeRateMissing
+    })
+    const totalVal = performanceData.reduce((sum, s) => sum + (s.valueSEK ?? 0), 0)
+    const totalCostLocal = performanceData.reduce((sum, s) => sum + (s.costSEK ?? 0), 0)
+    const totalGainLocal = totalVal - totalCostLocal
+    const totalGainPercentLocal = totalCostLocal > 0 ? (totalGainLocal / totalCostLocal) * 100 : 0
+    const totalDailyChangeLocal = performanceData.reduce((sum, s) => sum + (s.dailyChangeSEK ?? 0), 0)
+    const missingDailyChange = performanceData.some((stock) => stock.dailyChange === null || (stock.dailyChange !== null && stock.dailyChangeSEK === null))
+    return {
+      missingRateStocks: missing,
+      hasMissing: missing.length > 0,
+      hasMissingDailyChange: missingDailyChange,
+      totalValue: totalVal,
+      totalCost: totalCostLocal,
+      totalGain: totalGainLocal,
+      totalGainPercent: totalGainPercentLocal,
+      totalDailyChange: totalDailyChangeLocal,
+    }
+  }, [performanceData])
 
   const exportToCSV = () => {
     const headers = ['Ticker', 'Name', 'Quantity', 'Currency', 'Purchase Price', 'Current Price', 'Value', 'Cost', 'Gain', 'Gain %', 'Daily Change', 'Daily Change %']

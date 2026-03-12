@@ -23,9 +23,11 @@
   --green:   #4ade80;
   --green2:  #22c55e;
   --red:     #f87171;
+  --red-light: #fca5a5;
   --amber:   #fbbf24;
   --teal:    #2dd4bf;
   --sky:     #38bdf8;
+  --text-dark: #111;
 
   /* Legacy variable aliases for components that still use old names */
   --bg-primary:    var(--bg1);
@@ -58,6 +60,11 @@ html, body {
 }
 
 /* ── SCROLLBAR ── */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--border2) var(--bg);
+}
+
 ::-webkit-scrollbar { width: 6px; height: 6px; }
 ::-webkit-scrollbar-track { background: var(--bg); }
 ::-webkit-scrollbar-thumb { background: var(--border2); border-radius: 3px; }
@@ -178,9 +185,9 @@ a:hover { color: var(--v3); }
 }
 
 .btn-danger:hover {
-  background: #fca5a5;
-  border-color: #fca5a5;
-  color: #111;
+  background: var(--red-light);
+  border-color: var(--red-light);
+  color: var(--text-dark);
 }
 
 .btn-secondary {
@@ -342,7 +349,7 @@ tbody tr:hover td {
 }
 
 .theme-card:hover {
-  border-color: var(--border2) !important;
+  border-color: var(--border2);
 }
 
 .theme-card.active {

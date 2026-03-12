@@ -692,12 +692,12 @@ export default function Dashboard() {
                   const logoUrl = resolveBackendAssetUrl(stock.logo)
                   return <tr
                     key={stock.ticker}
-                    onClick={() => navigate(`/stocks/${stock.ticker}`)}
+                    onClick={() => navigate(`/stocks/${encodeURIComponent(stock.ticker)}`)}
                     style={{ cursor: 'pointer' }}
                   >
                     <td>
                       <Link
-                        to={`/stocks/${stock.ticker}`}
+                        to={`/stocks/${encodeURIComponent(stock.ticker)}`}
                         style={{ color: 'var(--v2)', textDecoration: 'none', fontWeight: 700, display: 'flex', alignItems: 'center', gap: 8 }}
                         onClick={(e) => e.stopPropagation()}
                       >
@@ -784,7 +784,7 @@ export default function Dashboard() {
                         return (
                           <tr key={`${div.ticker}-${div.ex_date}-${payoutKey}-${div.dividend_type ?? 'na'}-${i}`}>
                             <td>
-                              <Link to={`/stocks/${div.ticker}`} style={{ color: 'var(--v2)', textDecoration: 'none', fontWeight: 700 }}>
+                              <Link to={`/stocks/${encodeURIComponent(div.ticker)}`} style={{ color: 'var(--v2)', textDecoration: 'none', fontWeight: 700 }}>
                                 {div.name || div.ticker}
                               </Link>
                             </td>

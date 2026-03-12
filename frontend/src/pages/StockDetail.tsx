@@ -1,4 +1,5 @@
 import { useState, useEffect, useId, useRef, useCallback } from 'react'
+import type { KeyboardEvent as ReactKeyboardEvent } from 'react'
 import { useParams, Link, useNavigate } from 'react-router-dom'
 import { api, Stock, Dividend, StockUpcomingDividend, UpcomingDividend, AnalystData, ManualDividend, CompanyProfile, FinancialMetrics, VerificationResult, MarketstackUsage } from '../services/api'
 import CompanyProfileComponent from '../components/CompanyProfile'
@@ -287,6 +288,33 @@ export default function StockDetail() {
     analyst: t(language, 'stockDetail.tabAnalyst'),
   }
 
+  const handleTabKeyDown = (event: ReactKeyboardEvent<HTMLDivElement>) => {
+    const { key } = event
+    if (key !== 'ArrowLeft' && key !== 'ArrowRight' && key !== 'Home' && key !== 'End') return
+    event.preventDefault()
+
+    const currentIndex = tabs.indexOf(activeTab)
+    if (currentIndex === -1) return
+
+    let nextIndex = currentIndex
+    if (key === 'ArrowLeft') {
+      nextIndex = (currentIndex - 1 + tabs.length) % tabs.length
+    } else if (key === 'ArrowRight') {
+      nextIndex = (currentIndex + 1) % tabs.length
+    } else if (key === 'Home') {
+      nextIndex = 0
+    } else if (key === 'End') {
+      nextIndex = tabs.length - 1
+    }
+
+    const nextTab = tabs[nextIndex]
+    setActiveTab(nextTab)
+    window.requestAnimationFrame(() => {
+      const nextButton = event.currentTarget.querySelector<HTMLButtonElement>(`#tab-${nextTab}`)
+      nextButton?.focus()
+    })
+  }
+
   const closeEditModal = useCallback(() => {
     setShowEditModal(false)
     setEditError(null)
@@ -480,6 +508,8 @@ export default function StockDetail() {
   }, [ticker])
 
   useEffect(() => {
+    setStock(null)
+    setError(null)
     setCompanyProfile(null)
     setFinancialMetrics(null)
     setPeers([])
@@ -501,15 +531,28 @@ export default function StockDetail() {
     const activeTicker = ticker
     setFinnhubLoading(true)
 
-    const request = Promise.all([
+    const request = Promise.allSettled([
       api.finnhub.profile(activeTicker),
       api.finnhub.metrics(activeTicker),
       api.finnhub.peers(activeTicker),
-    ]).then(([profile, metrics, peersData]) => {
+    ]).then((results) => {
       if (tickerRef.current !== activeTicker) return
-      setCompanyProfile(profile)
-      setFinancialMetrics(metrics)
-      setPeers(peersData)
+      const [profileResult, metricsResult, peersResult] = results
+      if (profileResult.status === 'fulfilled') {
+        setCompanyProfile(profileResult.value)
+      } else {
+        console.error('Failed to load Finnhub profile', profileResult.reason)
+      }
+      if (metricsResult.status === 'fulfilled') {
+        setFinancialMetrics(metricsResult.value)
+      } else {
+        console.error('Failed to load Finnhub metrics', metricsResult.reason)
+      }
+      if (peersResult.status === 'fulfilled') {
+        setPeers(peersResult.value)
+      } else {
+        console.error('Failed to load Finnhub peers', peersResult.reason)
+      }
       setFinnhubDataLoaded(true)
     }).catch((err) => {
       if (tickerRef.current === activeTicker) {
@@ -997,7 +1040,7 @@ export default function StockDetail() {
 
       {/* Tab bar */}
       <div style={{ marginBottom: 20, borderBottom: '1px solid var(--border)' }}>
-        <div style={{ display: 'flex', gap: 4 }} role="tablist">
+        <div style={{ display: 'flex', gap: 4 }} role="tablist" onKeyDown={handleTabKeyDown}>
           {tabs.map((tab) => (
             <button
               key={tab}

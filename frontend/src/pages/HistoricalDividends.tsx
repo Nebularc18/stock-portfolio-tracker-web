@@ -390,10 +390,18 @@ export default function HistoricalDividends() {
                       <tbody>
                         {[...monthDivs]
                           .sort((a, b) => a.date.localeCompare(b.date))
-                          .map((div, i) => {
+                          .map((div) => {
                             const totalSEK = convertToSEK(div.amount * div.quantity, div.dividendCurrency, div.paymentDate)
+                            const rowKey = [
+                              div.ticker,
+                              div.date,
+                              div.paymentDate,
+                              div.amount,
+                              div.dividendCurrency,
+                              div.dividendType ?? 'none',
+                            ].join('|')
                             return (
-                              <tr key={`${div.ticker}-${i}`}>
+                              <tr key={rowKey}>
                                  <td>
                                     <Link to={`/stocks/${encodeURIComponent(div.ticker)}`} style={{ color: 'var(--v2)', textDecoration: 'none', fontWeight: 700 }}>
                                       {div.name || div.ticker}
