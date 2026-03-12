@@ -284,7 +284,9 @@ export default function HistoricalDividends() {
             <p style={{ color: 'var(--amber)', fontSize: 13 }}>{t(language, 'history.partialLoadWarning')}</p>
           </div>
         )}
-        {!hasStocks ? (
+        {loading ? (
+          <div className="loading-state" style={{ paddingTop: 60 }}>{t(language, 'history.loading')}</div>
+        ) : !hasStocks ? (
           <div className="empty-state" style={{ paddingTop: 60 }}>{t(language, 'history.noStocks')}</div>
         ) : dividendsLoadFailed ? (
           <div className="empty-state" style={{ paddingTop: 60 }}>{t(language, 'history.failedLoadData')}</div>
@@ -335,7 +337,7 @@ export default function HistoricalDividends() {
                         </tr>
                       </thead>
                       <tbody>
-                        {monthDivs
+                        {[...monthDivs]
                           .sort((a, b) => a.date.localeCompare(b.date))
                           .map((div, i) => {
                             const totalSEK = convertToSEK(div.amount * div.quantity, div.dividendCurrency)

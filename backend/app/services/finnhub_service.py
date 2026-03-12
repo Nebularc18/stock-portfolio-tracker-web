@@ -139,6 +139,7 @@ class FinnhubService:
             response = requests.get(url, params=params, timeout=10)
             
             if response.status_code != 200:
+                request_error = f"status_code={response.status_code}"
                 return None
             
             return response.json()

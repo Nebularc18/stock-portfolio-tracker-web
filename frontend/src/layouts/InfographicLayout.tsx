@@ -128,7 +128,11 @@ export default function InfographicLayout() {
               ? Number(idx.change) : null
             const safeChangePct = idx.change_percent != null && Number.isFinite(Number(idx.change_percent))
               ? Number(idx.change_percent) : null
-            const isPos = safeChange !== null && safeChange >= 0
+            const isPos = safeChange !== null
+              ? safeChange >= 0
+              : safeChangePct !== null
+                ? safeChangePct >= 0
+                : false
             return (
               <div key={idx.symbol} className="tb-idx">
                 <span className="ti-nm">{shortLabel(idx.symbol, idx.name)}</span>

@@ -73,6 +73,9 @@ function getLocalDateInputValue(value: Date = new Date()): string {
   const editModalRef = useRef<HTMLDivElement | null>(null)
   const editQuantityInputRef = useRef<HTMLInputElement | null>(null)
   const editModalHeadingId = useId()
+  const editQuantityInputId = useId()
+  const editPurchasePriceInputId = useId()
+  const editPurchaseDateInputId = useId()
   const { timezone, language } = useSettings()
   const locale = getLocaleForLanguage(language)
   const maxPurchaseDate = getLocalDateInputValue()
@@ -237,7 +240,7 @@ function getLocalDateInputValue(value: Date = new Date()): string {
               </span>
             </div>
             <form onSubmit={handleAddStock} style={{ padding: '18px' }}>
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(6, 1fr)', gap: 16 }}>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: 16 }}>
                 <div>
                   <label style={{ display: 'block', marginBottom: 6, color: 'var(--muted)', fontSize: 11, fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase' }}>
                     {t(language, 'stocks.exchange')}
@@ -340,10 +343,11 @@ function getLocalDateInputValue(value: Date = new Date()): string {
               </thead>
               <tbody>
                 {stocks.map((stock) => {
-                  const dailyChange = stock.current_price && stock.previous_close
+                  const logoUrl = resolveBackendAssetUrl(stock.logo)
+                  const dailyChange = stock.current_price !== null && stock.previous_close !== null
                     ? stock.current_price - stock.previous_close
                     : null
-                  const dailyChangePercent = dailyChange && stock.previous_close
+                  const dailyChangePercent = dailyChange !== null && stock.previous_close !== null && stock.previous_close !== 0
                     ? (dailyChange / stock.previous_close) * 100
                     : null
 
@@ -354,9 +358,9 @@ function getLocalDateInputValue(value: Date = new Date()): string {
                           to={`/stocks/${stock.ticker}`}
                           style={{ color: 'var(--v2)', textDecoration: 'none', fontWeight: 700, display: 'flex', alignItems: 'center', gap: 8 }}
                         >
-                          {resolveBackendAssetUrl(stock.logo) && !failedLogos[stock.ticker] ? (
+                          {logoUrl && !failedLogos[stock.ticker] ? (
                             <img
-                              src={resolveBackendAssetUrl(stock.logo) || undefined}
+                              src={logoUrl}
                               alt={stock.name || stock.ticker}
                               style={{ width: 22, height: 22, borderRadius: 4, objectFit: 'contain', background: 'var(--bg3)', padding: 2 }}
                               onError={() => setFailedLogos((prev) => ({ ...prev, [stock.ticker]: true }))}
@@ -379,7 +383,7 @@ function getLocalDateInputValue(value: Date = new Date()): string {
                       <td style={{ fontFamily: "'Fira Code', monospace", textAlign: 'right' }}>{formatCurrency(stock.purchase_price, locale, stock.currency)}</td>
                       <td style={{ fontFamily: "'Fira Code', monospace", color: 'var(--muted)' }}>{formatPurchaseDate(stock.purchase_date, locale)}</td>
                       <td style={{ fontFamily: "'Fira Code', monospace", textAlign: 'right' }}>{formatCurrency(stock.current_price, locale, stock.currency)}</td>
-                      <td className={dailyChange && dailyChange >= 0 ? 'positive' : 'negative'} style={{ fontFamily: "'Fira Code', monospace", textAlign: 'right' }}>
+                      <td className={dailyChange !== null ? (dailyChange >= 0 ? 'positive' : 'negative') : ''} style={{ fontFamily: "'Fira Code', monospace", textAlign: 'right' }}>
                         {dailyChangePercent !== null ? `${dailyChangePercent >= 0 ? '+' : ''}${dailyChangePercent.toFixed(2)}%` : '-'}
                       </td>
                       <td style={{ fontFamily: "'Fira Code', monospace", textAlign: 'right' }}>
@@ -420,12 +424,6 @@ function getLocalDateInputValue(value: Date = new Date()): string {
             background: 'rgba(0,0,0,0.7)', backdropFilter: 'blur(4px)',
             display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000,
           }}
-          onKeyDown={(event) => {
-            if (event.key === 'Escape') {
-              event.stopPropagation()
-              setEditStock(null)
-            }
-          }}
           onClick={() => setEditStock(null)}
         >
           <div
@@ -441,26 +439,26 @@ function getLocalDateInputValue(value: Date = new Date()): string {
               <span id={editModalHeadingId} style={{ fontSize: 9, fontWeight: 700, letterSpacing: '0.18em', textTransform: 'uppercase', color: 'var(--v2)' }}>
                 {t(language, 'stocks.editTitle', { ticker: editStock.ticker })}
               </span>
-              <button type="button" style={{ background: 'none', border: 'none', color: 'var(--muted)', cursor: 'pointer', fontSize: 18, lineHeight: 1 }} onClick={() => setEditStock(null)}>×</button>
+              <button type="button" aria-label="Close" style={{ background: 'none', border: 'none', color: 'var(--muted)', cursor: 'pointer', fontSize: 18, lineHeight: 1 }} onClick={() => setEditStock(null)}>×</button>
             </div>
             <div style={{ padding: '20px' }}>
               <div style={{ marginBottom: 16 }}>
-                <label style={{ display: 'block', marginBottom: 6, color: 'var(--muted)', fontSize: 11, fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase' }}>
+                <label htmlFor={editQuantityInputId} style={{ display: 'block', marginBottom: 6, color: 'var(--muted)', fontSize: 11, fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase' }}>
                   {t(language, 'stocks.quantity')}
                 </label>
-                <input ref={editQuantityInputRef} type="number" step="0.01" value={editQuantity} onChange={(e) => setEditQuantity(e.target.value)} style={{ width: '100%' }} />
+                <input id={editQuantityInputId} ref={editQuantityInputRef} type="number" step="0.01" min="0" value={editQuantity} onChange={(e) => setEditQuantity(e.target.value)} style={{ width: '100%' }} />
               </div>
               <div style={{ marginBottom: 16 }}>
-                <label style={{ display: 'block', marginBottom: 6, color: 'var(--muted)', fontSize: 11, fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase' }}>
+                <label htmlFor={editPurchasePriceInputId} style={{ display: 'block', marginBottom: 6, color: 'var(--muted)', fontSize: 11, fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase' }}>
                   {t(language, 'stocks.purchasePrice')} ({editStock.currency})
                 </label>
-                <input type="number" step="0.01" value={editPurchasePrice} onChange={(e) => setEditPurchasePrice(e.target.value)} placeholder={t(language, 'stocks.placeholderPrice')} style={{ width: '100%' }} />
+                <input id={editPurchasePriceInputId} type="number" step="0.01" min="0" value={editPurchasePrice} onChange={(e) => setEditPurchasePrice(e.target.value)} placeholder={t(language, 'stocks.placeholderPrice')} style={{ width: '100%' }} />
               </div>
               <div style={{ marginBottom: 24 }}>
-                <label style={{ display: 'block', marginBottom: 6, color: 'var(--muted)', fontSize: 11, fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase' }}>
+                <label htmlFor={editPurchaseDateInputId} style={{ display: 'block', marginBottom: 6, color: 'var(--muted)', fontSize: 11, fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase' }}>
                   {t(language, 'stocks.purchaseDate')}
                 </label>
-                <input type="date" value={editPurchaseDate} onChange={(e) => setEditPurchaseDate(e.target.value)} max={maxPurchaseDate} style={{ width: '100%' }} />
+                <input id={editPurchaseDateInputId} type="date" value={editPurchaseDate} onChange={(e) => setEditPurchaseDate(e.target.value)} max={maxPurchaseDate} style={{ width: '100%' }} />
               </div>
               <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
                 <button type="button" className="btn btn-secondary" onClick={() => setEditStock(null)}>

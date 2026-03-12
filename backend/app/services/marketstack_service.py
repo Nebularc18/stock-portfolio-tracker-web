@@ -282,29 +282,12 @@ class MarketstackService:
         
         params = params or {}
         params['access_key'] = self.api_key
+        response = None
+        started_at = time.perf_counter()
         
         try:
             url = f"{self.base_url}/{endpoint}"
-            started_at = time.perf_counter()
             response = requests.get(url, params=params, timeout=15)
-            duration_ms = (time.perf_counter() - started_at) * 1000
-
-            if duration_ms >= SLOW_MARKETSTACK_REQUEST_MS:
-                logger.warning(
-                    "Marketstack request slow endpoint=%s symbols=%s status=%s duration_ms=%.1f",
-                    endpoint,
-                    params.get('symbols'),
-                    response.status_code,
-                    duration_ms,
-                )
-            else:
-                logger.info(
-                    "Marketstack request endpoint=%s symbols=%s status=%s duration_ms=%.1f",
-                    endpoint,
-                    params.get('symbols'),
-                    response.status_code,
-                    duration_ms,
-                )
             
             if response.status_code == 429:
                 raise FetchError("Marketstack rate limit reached", 429)
@@ -324,6 +307,25 @@ class MarketstackService:
         except Exception as e:
             _decrement_usage()
             raise FetchError(f"Marketstack request failed: {e}", 502) from e
+        finally:
+            duration_ms = (time.perf_counter() - started_at) * 1000
+            status = response.status_code if response is not None else 'no-response'
+            if duration_ms >= SLOW_MARKETSTACK_REQUEST_MS:
+                logger.warning(
+                    "Marketstack request slow endpoint=%s symbols=%s status=%s duration_ms=%.1f",
+                    endpoint,
+                    params.get('symbols'),
+                    status,
+                    duration_ms,
+                )
+            else:
+                logger.info(
+                    "Marketstack request endpoint=%s symbols=%s status=%s duration_ms=%.1f",
+                    endpoint,
+                    params.get('symbols'),
+                    status,
+                    duration_ms,
+                )
     
     def fetch_dividends(
         self, 

@@ -19,6 +19,10 @@ import requests
 
 logger = logging.getLogger(__name__)
 
+
+class LogoDownloadTransientError(Exception):
+    """Raised when logo download fails transiently and should not null-cache."""
+
 CACHE_DIR = os.path.join(os.path.dirname(__file__), '..', '..', 'data', 'cache')
 LOGO_DIR = os.path.join(os.path.dirname(__file__), '..', '..', 'data', 'static', 'logos')
 os.makedirs(CACHE_DIR, exist_ok=True)
@@ -256,6 +260,15 @@ class BrandfetchService:
         response: Optional[requests.Response] = None
         try:
             response = session.get(logo_url, timeout=10, stream=True)
+
+            redirect_chain = [redirect.url for redirect in response.history] + [response.url]
+            if any(not self._is_allowed_remote_logo_url(url) for url in redirect_chain if url):
+                return None
+
+            if response.status_code in (204, 404, 410):
+                return None
+            if response.status_code == 429 or response.status_code >= 500:
+                raise LogoDownloadTransientError(f"upstream status {response.status_code}")
             if response.status_code != 200:
                 return None
 
@@ -292,14 +305,22 @@ class BrandfetchService:
             temp_path = None
 
             return self._logo_public_path(filename)
-        except (requests.RequestException, OSError) as exc:
+        except requests.RequestException as exc:
             if temp_path and os.path.exists(temp_path):
                 try:
                     os.remove(temp_path)
                 except OSError:
                     pass
             logger.warning("Failed to persist logo for %s from %s: %s", ticker, logo_url, exc)
-            return None
+            raise LogoDownloadTransientError(str(exc)) from exc
+        except OSError as exc:
+            if temp_path and os.path.exists(temp_path):
+                try:
+                    os.remove(temp_path)
+                except OSError:
+                    pass
+            logger.warning("Failed to persist logo for %s from %s: %s", ticker, logo_url, exc)
+            raise LogoDownloadTransientError(str(exc)) from exc
         finally:
             if response is not None:
                 response.close()
@@ -366,6 +387,15 @@ class BrandfetchService:
             return True
         local_path = os.path.join(LOGO_DIR, value.replace('/static/logos/', '', 1))
         return not os.path.exists(local_path)
+
+    def _discard_cached_logo(self, ticker_upper: str, cache_file: str) -> None:
+        _LOGO_CACHE.pop(ticker_upper, None)
+        filepath = _resolve_cache_path(cache_file)
+        try:
+            if os.path.exists(filepath):
+                os.remove(filepath)
+        except OSError as exc:
+            logger.warning("Failed to discard stale logo cache for %s: %s", ticker_upper, exc)
 
     def _root_domain_token(self, domain: str) -> str:
         """
@@ -660,11 +690,17 @@ class BrandfetchService:
         if existing_logo and self._is_legacy_remote_logo_url(existing_logo):
             force_refresh = True
 
-        if existing_logo and self._is_local_logo_url(existing_logo) and not force_refresh:
+        if existing_logo and self._is_local_logo_url(existing_logo) and not force_refresh and not self.should_refresh_logo(existing_logo):
             return existing_logo
+        if existing_logo and self._is_local_logo_url(existing_logo) and self.should_refresh_logo(existing_logo):
+            existing_logo = None
+            self._discard_cached_logo(ticker_upper, cache_file)
 
         if existing_logo and self._is_remote_logo_url(existing_logo):
-            persisted_existing_logo = self._download_logo_to_local(existing_logo, ticker_upper)
+            try:
+                persisted_existing_logo = self._download_logo_to_local(existing_logo, ticker_upper)
+            except LogoDownloadTransientError:
+                return existing_logo
             if persisted_existing_logo:
                 _LOGO_CACHE[ticker_upper] = (persisted_existing_logo, datetime.now().timestamp())
                 _save_file_cache(cache_file, persisted_existing_logo)
@@ -673,15 +709,24 @@ class BrandfetchService:
         if not force_refresh and ticker_upper in _LOGO_CACHE:
             cached_logo, timestamp = _LOGO_CACHE[ticker_upper]
             if datetime.now().timestamp() - timestamp < _LOGO_CACHE_TTL:
-                if self._is_local_logo_url(cached_logo) or cached_logo is None:
+                if cached_logo is None:
                     return cached_logo
+                if self._is_local_logo_url(cached_logo) and not self.should_refresh_logo(cached_logo):
+                    return cached_logo
+                if self._is_local_logo_url(cached_logo):
+                    self._discard_cached_logo(ticker_upper, cache_file)
 
         if not force_refresh:
             cache_hit, cached_logo = _load_file_cache(cache_file)
             if cache_hit:
-                if self._is_local_logo_url(cached_logo) or cached_logo is None:
+                if cached_logo is None:
                     _LOGO_CACHE[ticker_upper] = (cached_logo, datetime.now().timestamp())
                     return cached_logo
+                if self._is_local_logo_url(cached_logo) and not self.should_refresh_logo(cached_logo):
+                    _LOGO_CACHE[ticker_upper] = (cached_logo, datetime.now().timestamp())
+                    return cached_logo
+                if self._is_local_logo_url(cached_logo):
+                    self._discard_cached_logo(ticker_upper, cache_file)
 
         if force_refresh:
             _LOGO_CACHE.pop(ticker_upper, None)
@@ -697,7 +742,10 @@ class BrandfetchService:
         logo_url = None
         for query in candidates:
             candidate = self._search_logo(query, ticker_upper, company_name)
-            logo_url = self._persist_candidate_logo(candidate, ticker_upper) if candidate else None
+            try:
+                logo_url = self._persist_candidate_logo(candidate, ticker_upper) if candidate else None
+            except LogoDownloadTransientError:
+                return existing_logo if existing_logo and not self.should_refresh_logo(existing_logo) else None
             if logo_url:
                 break
 

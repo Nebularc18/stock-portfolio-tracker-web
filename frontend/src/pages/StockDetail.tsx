@@ -269,6 +269,9 @@ export default function StockDetail() {
   const marketstackRequestRef = useRef<Promise<void> | null>(null)
   const editModalHeadingId = useId()
   const dividendModalHeadingId = useId()
+  const editQuantityInputId = useId()
+  const editPurchasePriceInputId = useId()
+  const editPurchaseDateInputId = useId()
   const { timezone, language } = useSettings()
   const locale = getLocaleForLanguage(language)
   const tabs = ['overview', 'profile', 'dividends', 'analyst'] as const
@@ -505,7 +508,9 @@ export default function StockDetail() {
         console.error('Failed to load Finnhub data', err)
       }
     }).finally(() => {
-      finnhubRequestRef.current = null
+      if (finnhubRequestRef.current === request) {
+        finnhubRequestRef.current = null
+      }
       if (tickerRef.current === activeTicker) {
         setFinnhubLoading(false)
       }
@@ -534,7 +539,9 @@ export default function StockDetail() {
         }
       })
       .finally(() => {
-        analystRequestRef.current = null
+        if (analystRequestRef.current === request) {
+          analystRequestRef.current = null
+        }
         if (tickerRef.current === activeTicker) {
           setAnalystDataLoading(false)
         }
@@ -555,7 +562,9 @@ export default function StockDetail() {
       })
       .catch(() => undefined)
       .finally(() => {
-        marketstackRequestRef.current = null
+        if (marketstackRequestRef.current === request) {
+          marketstackRequestRef.current = null
+        }
       })
 
     marketstackRequestRef.current = request
@@ -735,7 +744,7 @@ export default function StockDetail() {
     return suppressedDividends.some(s => s.date === date)
   }
 
-  if (loading) {
+  if (loading || (ticker && stock && stock.ticker !== ticker.toUpperCase())) {
     return <div className="loading-state">{t(language, 'common.loading')}</div>
   }
 
@@ -1359,16 +1368,16 @@ export default function StockDetail() {
           >
             <h3 id={editModalHeadingId} style={{ marginBottom: 20, fontSize: 16, fontWeight: 600 }}>{t(language, 'stockDetail.editPosition')}</h3>
             <div style={{ marginBottom: 14 }}>
-              <label style={{ display: 'block', marginBottom: 6, color: 'var(--muted)', fontSize: 12 }}>{t(language, 'stockDetail.quantity')}</label>
-              <input type="number" step="0.01" value={editQuantity} onChange={(e) => setEditQuantity(e.target.value)} style={{ width: '100%' }} />
+              <label htmlFor={editQuantityInputId} style={{ display: 'block', marginBottom: 6, color: 'var(--muted)', fontSize: 12 }}>{t(language, 'stockDetail.quantity')}</label>
+              <input id={editQuantityInputId} type="number" step="0.01" value={editQuantity} onChange={(e) => setEditQuantity(e.target.value)} style={{ width: '100%' }} />
             </div>
             <div style={{ marginBottom: 14 }}>
-              <label style={{ display: 'block', marginBottom: 6, color: 'var(--muted)', fontSize: 12 }}>{t(language, 'stockDetail.purchasePrice')} ({stock?.currency})</label>
-              <input type="number" step="0.01" value={editPurchasePrice} onChange={(e) => setEditPurchasePrice(e.target.value)} style={{ width: '100%' }} placeholder="e.g. 150.00" />
+              <label htmlFor={editPurchasePriceInputId} style={{ display: 'block', marginBottom: 6, color: 'var(--muted)', fontSize: 12 }}>{t(language, 'stockDetail.purchasePrice')} ({stock?.currency})</label>
+              <input id={editPurchasePriceInputId} type="number" step="0.01" value={editPurchasePrice} onChange={(e) => setEditPurchasePrice(e.target.value)} style={{ width: '100%' }} placeholder="e.g. 150.00" />
             </div>
             <div style={{ marginBottom: 22 }}>
-              <label style={{ display: 'block', marginBottom: 6, color: 'var(--muted)', fontSize: 12 }}>{t(language, 'stockDetail.purchaseDate')}</label>
-              <input type="date" value={editPurchaseDate} onChange={(e) => setEditPurchaseDate(e.target.value)} style={{ width: '100%' }} />
+              <label htmlFor={editPurchaseDateInputId} style={{ display: 'block', marginBottom: 6, color: 'var(--muted)', fontSize: 12 }}>{t(language, 'stockDetail.purchaseDate')}</label>
+              <input id={editPurchaseDateInputId} type="date" value={editPurchaseDate} onChange={(e) => setEditPurchaseDate(e.target.value)} style={{ width: '100%' }} />
             </div>
             <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
               <button className="btn btn-secondary" onClick={() => setShowEditModal(false)}>{t(language, 'stockDetail.cancel')}</button>

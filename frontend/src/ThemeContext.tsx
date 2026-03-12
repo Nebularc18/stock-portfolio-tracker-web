@@ -24,6 +24,7 @@ export const THEMES: Record<ThemeName, Theme> = {
       '--bg2': '#16181e',
       '--bg3': '#1c1f27',
       '--bg4': '#222532',
+      '--bg-dark': '#12141c',
       '--bg-primary': '#0d1117',
       '--bg-secondary': '#161b22',
       '--bg-tertiary': '#21262d',
@@ -70,6 +71,7 @@ export const THEMES: Record<ThemeName, Theme> = {
       '--bg2': '#f6f8fa',
       '--bg3': '#eef2f7',
       '--bg4': '#e5e7eb',
+      '--bg-dark': '#d7dce5',
       '--bg-primary': '#f6f8fa',
       '--bg-secondary': '#ffffff',
       '--bg-tertiary': '#f3f4f6',
@@ -146,7 +148,11 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
     Object.entries(theme.vars).forEach(([key, value]) => {
       document.documentElement.style.setProperty(key, value)
     })
-    localStorage.setItem('theme', themeName)
+    try {
+      localStorage.setItem('theme', themeName)
+    } catch {
+      // Ignore storage write failures.
+    }
   }, [themeName])
 
   const setTheme = (name: ThemeName) => {

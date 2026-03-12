@@ -69,7 +69,7 @@ function formatPercent(value: number, locale: string): string {
  * @param colors - Array of CSS color strings used cyclically to color labels
  * @returns A React component suitable for use as a Pie label renderer that returns an SVG <text> element or `null`
  */
-function createColoredPieLabel(colors: string[]) {
+function createColoredPieLabel(colors: string[], locale: string) {
   return function ColoredPieLabel({ name, percent, index = 0, x = 0, y = 0, cx = 0 }: PieLabelProps) {
     if (percent < 0.05) return null
     return (
@@ -81,7 +81,7 @@ function createColoredPieLabel(colors: string[]) {
         dominantBaseline="central"
         style={{ fontSize: 12, fontWeight: 700 }}
       >
-        {`${name} (${(percent * 100).toFixed(0)}%)`}
+        {`${name} (${new Intl.NumberFormat(locale, { style: 'percent', maximumFractionDigits: 0 }).format(percent)})`}
       </text>
     )
   }
@@ -97,7 +97,13 @@ function createColoredPieLabel(colors: string[]) {
  */
 function renderDistributionLegend(data: DistributionDatum[], colors: string[], locale: string) {
   const total = data.reduce((sum, entry) => sum + entry.value, 0)
-  return data.slice(0, 4).map((entry, index) => {
+  const topEntries = data.slice(0, 4)
+  const remainingValue = data.slice(4).reduce((sum, entry) => sum + entry.value, 0)
+  const legendEntries = remainingValue > 0
+    ? [...topEntries, { name: 'Others', value: remainingValue }]
+    : topEntries
+
+  return legendEntries.map((entry, index) => {
     const share = total > 0 ? entry.value / total : 0
     return (
       <div
@@ -169,9 +175,9 @@ export default function Analytics() {
   const { displayCurrency, language } = useSettings()
   const locale = getLocaleForLanguage(language)
   const chartCurrency = distribution?.display_currency || displayCurrency
-  const stockPieLabel = createColoredPieLabel(STOCK_COLORS)
-  const sectorPieLabel = createColoredPieLabel(SECTOR_COLORS)
-  const countryPieLabel = createColoredPieLabel(COUNTRY_COLORS)
+  const stockPieLabel = createColoredPieLabel(STOCK_COLORS, locale)
+  const sectorPieLabel = createColoredPieLabel(SECTOR_COLORS, locale)
+  const countryPieLabel = createColoredPieLabel(COUNTRY_COLORS, locale)
 
   const fetchData = useCallback(async () => {
     const fetchId = latestFetchId.current + 1
@@ -306,6 +312,10 @@ export default function Analytics() {
       return nextYears.sort((a, b) => a - b)
     })
   }
+
+  const hasDividendComparisonData = dividendComparisonData.some((row) => (
+    selectedComparisonYears.some((year) => Number(row[String(year)] || 0) > 0)
+  ))
 
   if (loading) {
     return <div className="loading-state">{t(language, 'common.loading')}</div>
@@ -467,7 +477,7 @@ export default function Analytics() {
             </div>
 
             {/* ── DIVIDEND COMPARISON ── */}
-            {dividendComparisonData.length > 0 && (
+            {hasDividendComparisonData && (
               <div style={{ background: 'var(--bg2)', border: '1px solid var(--border)', borderRadius: 8 }}>
                 <div style={{ padding: '12px 18px 12px', borderBottom: '1px solid var(--border)', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 12 }}>
                   <div>

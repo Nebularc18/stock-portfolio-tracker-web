@@ -163,7 +163,7 @@ def _log_non_200_yahoo_response(url: str, response: requests.Response, context: 
     )
 
 
-def _load_json_cache(filename: str, ttl: int) -> dict | None:
+def _load_json_cache(filename: str, ttl: int, allow_stale: bool = False) -> dict | None:
     """
     Load a JSON cache file from the module cache directory and return its stored value if not expired.
     
@@ -185,7 +185,7 @@ def _load_json_cache(filename: str, ttl: int) -> dict | None:
             except json.JSONDecodeError:
                 return None
         cached_at = payload.get('cached_at', 0)
-        if datetime.now(timezone.utc).timestamp() - cached_at >= ttl:
+        if not allow_stale and datetime.now(timezone.utc).timestamp() - cached_at >= ttl:
             return None
         return payload.get('value')
     except Exception:
@@ -377,7 +377,7 @@ def _fetch_latest_exchange_rates() -> dict[str, float | None]:
         _save_json_cache(_latest_exchange_rates_cache_key(), rates)
         return rates
 
-    cached_snapshot = _load_json_cache(_latest_exchange_rates_cache_key(), EXCHANGE_RATES_CACHE_TTL)
+    cached_snapshot = _load_json_cache(_latest_exchange_rates_cache_key(), EXCHANGE_RATES_CACHE_TTL, allow_stale=True)
     return cached_snapshot if cached_snapshot is not None else rates
 
 
@@ -457,6 +457,7 @@ def _fetch_exchange_rates_for_date(target_date: date | None) -> dict[str, float 
         cached_snapshot = _load_json_cache(
             _historical_exchange_rates_cache_key(target_date),
             HISTORICAL_EXCHANGE_RATES_CACHE_TTL,
+            allow_stale=True,
         )
         if cached_snapshot is not None:
             return cached_snapshot

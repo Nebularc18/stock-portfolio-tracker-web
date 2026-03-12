@@ -240,8 +240,12 @@ export default function Markets() {
       <div style={{ ...secLabel, marginBottom: 12 }}>{t(language, 'layout.marketIndices')}</div>
       <div className="grid grid-2">
         {indices.map((index) => {
-          const isPositive = index.change >= 0
+          const safePrice = Number.isFinite(index.price) ? index.price : null
+          const safeChange = Number.isFinite(index.change) ? index.change : null
+          const safeChangePercent = Number.isFinite(index.change_percent) ? index.change_percent : null
           const sparkline = sparklines[index.symbol]
+          const sparklinePrices = Array.isArray(sparkline?.prices) ? sparkline.prices : null
+          const isPositive = safeChange !== null ? safeChange >= 0 : false
 
           return (
             <div key={index.symbol} style={{ background: 'var(--bg2)', border: '1px solid var(--border)', borderRadius: 8, padding: '16px 20px' }}>
@@ -251,20 +255,20 @@ export default function Markets() {
                   <div style={{ fontSize: 15, fontWeight: 600 }}>{index.name}</div>
                 </div>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
-                  {sparkline && (
-                    <MiniSparkline data={sparkline.prices} isPositive={sparkline.is_positive} />
+                  {sparklinePrices && (
+                    <MiniSparkline data={sparklinePrices} isPositive={sparkline.is_positive} />
                   )}
                   <div className="mono" style={{ fontSize: 22, fontWeight: 700, textAlign: 'right' }}>
-                    {formatNumber(index.price, locale)}
+                    {safePrice !== null ? formatNumber(safePrice, locale) : '-'}
                   </div>
                 </div>
               </div>
               <div style={{ display: 'flex', gap: 16 }}>
                 <span className={`mono ${isPositive ? 'up' : 'dn'}`} style={{ fontSize: 13 }}>
-                  {isPositive ? '+' : ''}{formatNumber(index.change, locale)}
+                  {safeChange !== null ? `${isPositive ? '+' : ''}${formatNumber(safeChange, locale)}` : '-'}
                 </span>
                 <span className={`mono ${isPositive ? 'up' : 'dn'}`} style={{ fontSize: 13 }}>
-                  {isPositive ? '+' : ''}{formatNumber(index.change_percent, locale)}%
+                  {safeChangePercent !== null ? `${isPositive ? '+' : ''}${formatNumber(safeChangePercent, locale)}%` : '-'}
                 </span>
               </div>
             </div>

@@ -278,6 +278,7 @@ export default function Performance() {
       || (stock.dailyChange !== null && stock.dailyChangeSEK === null)
     )
   ))
+  const hasMissing = missingRateStocks.length > 0
 
   const totalValue = performanceData.reduce((sum, s) => sum + (s.valueSEK ?? 0), 0)
   const totalCost = performanceData.reduce((sum, s) => sum + (s.costSEK ?? 0), 0)
@@ -334,7 +335,7 @@ export default function Performance() {
         display: 'grid',
         gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))',
         borderBottom: '1px solid var(--border)',
-        background: 'linear-gradient(115deg, #12141c 0%, var(--bg) 55%)',
+        background: 'linear-gradient(115deg, var(--bg-dark, #12141c) 0%, var(--bg) 55%)',
       }}>
         {[
           { label: t(language, 'performance.totalValue'), value: formatCurrency(totalValue, locale, 'SEK'), color: 'var(--text)' },
@@ -350,7 +351,7 @@ export default function Performance() {
               {stat.label}
             </div>
             <div style={{ fontSize: 24, fontWeight: 800, letterSpacing: '-0.02em', lineHeight: 1, color: stat.color }}>
-              {stat.value}
+              {stat.value}{hasMissing ? ' *' : ''}
             </div>
             {stat.sub && (
               <div style={{ fontSize: 12, fontWeight: 600, marginTop: 4, color: stat.color, fontFamily: "'Fira Code', monospace" }}>{stat.sub}</div>
@@ -387,8 +388,8 @@ export default function Performance() {
                   </span>
                 </div>
                 <div style={{ padding: '8px 18px' }}>
-                  {bestPerformers.map((stock) => (
-                    <div key={stock.ticker} style={{ display: 'flex', justifyContent: 'space-between', padding: '9px 0', borderBottom: '1px solid var(--border)' }}>
+                    {bestPerformers.map((stock, index) => (
+                     <div key={stock.ticker} style={{ display: 'flex', justifyContent: 'space-between', padding: '9px 0', borderBottom: index < bestPerformers.length - 1 ? '1px solid var(--border)' : 'none' }}>
                       <Link to={`/stocks/${stock.ticker}`} style={{ color: 'var(--v2)', textDecoration: 'none', fontWeight: 700, fontSize: 13 }}>
                         {stock.name || stock.ticker}
                       </Link>
@@ -408,8 +409,8 @@ export default function Performance() {
                   </span>
                 </div>
                 <div style={{ padding: '8px 18px' }}>
-                  {worstPerformers.map((stock) => (
-                    <div key={stock.ticker} style={{ display: 'flex', justifyContent: 'space-between', padding: '9px 0', borderBottom: '1px solid var(--border)' }}>
+                    {worstPerformers.map((stock, index) => (
+                     <div key={stock.ticker} style={{ display: 'flex', justifyContent: 'space-between', padding: '9px 0', borderBottom: index < worstPerformers.length - 1 ? '1px solid var(--border)' : 'none' }}>
                       <Link to={`/stocks/${stock.ticker}`} style={{ color: 'var(--v2)', textDecoration: 'none', fontWeight: 700, fontSize: 13 }}>
                         {stock.name || stock.ticker}
                       </Link>
@@ -436,8 +437,8 @@ export default function Performance() {
               <tr>
                 <SortHeader field="name" label={t(language, 'performance.name')} sortField={sortField} sortOrder={sortOrder} onSort={handleSort} />
                 <SortHeader field="ticker" label={t(language, 'performance.ticker')} sortField={sortField} sortOrder={sortOrder} onSort={handleSort} />
-                <th>{t(language, 'performance.qty')}</th>
-                <th>{t(language, 'performance.currency')}</th>
+                <th scope="col">{t(language, 'performance.qty')}</th>
+                <th scope="col">{t(language, 'performance.currency')}</th>
                 <SortHeader field="cost" label={t(language, 'performance.costSek')} sortField={sortField} sortOrder={sortOrder} onSort={handleSort} />
                 <SortHeader field="value" label={t(language, 'performance.valueSek')} sortField={sortField} sortOrder={sortOrder} onSort={handleSort} />
                 <SortHeader field="gain" label={t(language, 'performance.gainLoss')} sortField={sortField} sortOrder={sortOrder} onSort={handleSort} />
@@ -459,16 +460,16 @@ export default function Performance() {
                   <td><span className="badge badge-muted">{stock.currency}</span></td>
                   <td style={{ fontFamily: "'Fira Code', monospace" }}>{stock.costSEK !== null ? formatCurrency(stock.costSEK, locale, 'SEK') : t(language, 'performance.rateMissing')}</td>
                   <td style={{ fontFamily: "'Fira Code', monospace" }}>{stock.valueSEK !== null ? formatCurrency(stock.valueSEK, locale, 'SEK') : t(language, 'performance.rateMissing')}</td>
-                  <td className={stock.gainSEK != null ? (stock.gainSEK >= 0 ? 'positive' : 'negative') : ''} style={{ fontFamily: "'Fira Code', monospace" }}>
+                   <td className={stock.gainSEK !== null ? (stock.gainSEK >= 0 ? 'positive' : 'negative') : ''} style={{ fontFamily: "'Fira Code', monospace" }}>
                     {stock.gainSEK !== null ? formatCurrency(stock.gainSEK, locale, 'SEK') : t(language, 'performance.rateMissing')}
                   </td>
                   <td className={stock.gainPercent >= 0 ? 'positive' : 'negative'} style={{ fontFamily: "'Fira Code', monospace", fontWeight: 700 }}>
                     {formatPercent(stock.gainPercent, locale)}
                   </td>
-                  <td className={stock.dailyChangeSEK != null ? (stock.dailyChangeSEK >= 0 ? 'positive' : 'negative') : ''} style={{ fontFamily: "'Fira Code', monospace" }}>
+                   <td className={stock.dailyChangeSEK !== null ? (stock.dailyChangeSEK >= 0 ? 'positive' : 'negative') : ''} style={{ fontFamily: "'Fira Code', monospace" }}>
                     {stock.dailyChangeSEK !== null ? formatCurrency(stock.dailyChangeSEK, locale, 'SEK') : (stock.dailyChange !== null ? t(language, 'performance.rateMissing') : '-')}
                   </td>
-                  <td className={stock.dailyChangePercent != null ? (stock.dailyChangePercent >= 0 ? 'positive' : 'negative') : ''} style={{ fontFamily: "'Fira Code', monospace" }}>
+                   <td className={stock.dailyChangePercent !== null ? (stock.dailyChangePercent >= 0 ? 'positive' : 'negative') : ''} style={{ fontFamily: "'Fira Code', monospace" }}>
                     {formatPercent(stock.dailyChangePercent, locale)}
                   </td>
                 </tr>

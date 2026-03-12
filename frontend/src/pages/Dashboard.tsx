@@ -264,12 +264,14 @@ export default function Dashboard() {
     const requestId = historyRequestIdRef.current + 1
     historyRequestIdRef.current = requestId
     setHistoryLoading(true)
-    setPortfolioHistory([])
     const rangeQuery = HISTORY_RANGE_OPTIONS.find((o) => o.key === range)?.query || '1m'
     try {
-      const historyData = await api.portfolio.history({ range: rangeQuery }).catch(() => [])
+      const historyData = await api.portfolio.history({ range: rangeQuery })
       if (requestId !== historyRequestIdRef.current) return
       setPortfolioHistory(historyData)
+    } catch (error) {
+      if (requestId !== historyRequestIdRef.current) return
+      console.error('Failed to load portfolio history:', error)
     } finally {
       if (requestId === historyRequestIdRef.current) setHistoryLoading(false)
     }
@@ -481,7 +483,7 @@ export default function Dashboard() {
         display: 'grid',
         gridTemplateColumns: `repeat(${heroStats.length}, 1fr)`,
         borderBottom: '1px solid var(--border)',
-        background: 'linear-gradient(115deg, #12141c 0%, var(--bg) 55%)',
+        background: 'linear-gradient(115deg, var(--bg-dark, #12141c) 0%, var(--bg) 55%)',
         position: 'relative',
         overflow: 'hidden',
       }}>
@@ -494,15 +496,12 @@ export default function Dashboard() {
         }} />
 
         {heroStats.map((stat, i) => (
-          <div key={stat.label} style={{
+          <div key={stat.label} className="hero-stat" style={{
             padding: '26px 28px',
             borderRight: i < heroStats.length - 1 ? '1px solid var(--border)' : 'none',
             position: 'relative',
             transition: 'background 0.15s',
-          }}
-            onMouseEnter={e => { (e.currentTarget as HTMLDivElement).style.background = 'rgba(255,255,255,0.018)' }}
-            onMouseLeave={e => { (e.currentTarget as HTMLDivElement).style.background = 'transparent' }}
-          >
+          }}>
             {i === 0 && (
               <div style={{
                 position: 'absolute', left: 0, top: '20%', bottom: '20%',
@@ -672,8 +671,9 @@ export default function Dashboard() {
                 </tr>
               </thead>
               <tbody>
-                {summary?.stocks?.map((stock) => (
-                  <tr
+                {summary?.stocks?.map((stock) => {
+                  const logoUrl = resolveBackendAssetUrl(stock.logo)
+                  return <tr
                     key={stock.ticker}
                     onClick={() => navigate(`/stocks/${stock.ticker}`)}
                     style={{ cursor: 'pointer' }}
@@ -684,9 +684,9 @@ export default function Dashboard() {
                         style={{ color: 'var(--v2)', textDecoration: 'none', fontWeight: 700, display: 'flex', alignItems: 'center', gap: 8 }}
                         onClick={(e) => e.stopPropagation()}
                       >
-                        {resolveBackendAssetUrl(stock.logo) && !failedLogos[stock.ticker] ? (
+                        {logoUrl && !failedLogos[stock.ticker] ? (
                           <img
-                            src={resolveBackendAssetUrl(stock.logo) || undefined}
+                            src={logoUrl}
                             alt={stock.name || stock.ticker}
                             style={{ width: 22, height: 22, borderRadius: 4, objectFit: 'contain', background: 'var(--bg3)', padding: 2 }}
                             onError={(e) => {
@@ -717,7 +717,7 @@ export default function Dashboard() {
                       {stock.gain_loss_percent !== null ? formatPercent(stock.gain_loss_percent, locale) : '-'}
                     </td>
                   </tr>
-                ))}
+                })}
               </tbody>
             </table>
           )}

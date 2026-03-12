@@ -490,6 +490,43 @@ html, body {
 
 .switcher a:hover { color: var(--text); background: var(--bg2); }
 .switcher a.active { color: var(--teal); background: rgba(45,212,191,0.07); border-color: rgba(45,212,191,0.3); z-index: 1; }
+
+@media (max-width: 1100px) {
+  .page {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .left {
+    border-right: none;
+    border-bottom: 1px solid var(--border);
+  }
+}
+
+@media (max-width: 768px) {
+  .header,
+  .nav,
+  .r-hero-bottom,
+  .switcher,
+  .r-market {
+    overflow-x: auto;
+  }
+
+  .header {
+    grid-template-columns: auto minmax(0, 1fr);
+    height: auto;
+  }
+
+  .header-time {
+    grid-column: 1 / -1;
+    border-left: none;
+    border-top: 1px solid var(--border);
+    padding: 10px 24px;
+  }
+
+  .r-market {
+    grid-template-columns: repeat(5, minmax(140px, 1fr));
+  }
+}
 </style>
 </head>
 <body>
@@ -611,7 +648,7 @@ html, body {
       <div class="r-sec-hdr">
         <span class="r-sec-title">Performance</span>
         <div class="r-period">
-          <button>1W</button><button>1M</button><button class="a">3M</button><button>1Y</button><button>ALL</button>
+          <button aria-pressed="false">1W</button><button aria-pressed="false">1M</button><button class="a" aria-pressed="true">3M</button><button aria-pressed="false">1Y</button><button aria-pressed="false">ALL</button>
         </div>
       </div>
       <div class="chart-box">
@@ -692,10 +729,21 @@ html, body {
 </div>
 
 <script>
-  document.querySelectorAll('.r-period button').forEach(btn => {
-    btn.addEventListener('click', function() {
-      this.closest('.r-period').querySelectorAll('button').forEach(b => b.classList.remove('a'));
-      this.classList.add('a');
+  document.querySelectorAll('.r-period').forEach(group => {
+    const buttons = group.querySelectorAll('button');
+    buttons.forEach(button => {
+      button.setAttribute('aria-pressed', button.classList.contains('a') ? 'true' : 'false');
+    });
+
+    group.addEventListener('click', function(event) {
+      const button = event.target.closest('button');
+      if (!button) return;
+      buttons.forEach(item => {
+        item.classList.remove('a');
+        item.setAttribute('aria-pressed', 'false');
+      });
+      button.classList.add('a');
+      button.setAttribute('aria-pressed', 'true');
     });
   });
 </script>

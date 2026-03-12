@@ -520,6 +520,10 @@ tbody tr:hover td {
   z-index: 99;
 }
 
+.hero-stat:hover {
+  background: rgba(255,255,255,0.018);
+}
+
 /* ── MONO / NUMERIC ── */
 .mono {
   font-family: 'Fira Code', monospace;
@@ -532,4 +536,26 @@ tbody tr:hover td {
   }
 
   .container { padding: 16px; }
+
+  .topbar {
+    overflow-x: auto;
+  }
+
+  .tb-indices,
+  .appnav {
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: none;
+  }
+
+  .tb-indices::-webkit-scrollbar,
+  .appnav::-webkit-scrollbar {
+    display: none;
+  }
+
+  .tb-idx,
+  .nav-link {
+    flex: 0 0 auto;
+    white-space: nowrap;
+  }
 }
