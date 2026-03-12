@@ -71,10 +71,10 @@ interface PerformanceData {
   purchasePrice: number | null
   currentPrice: number | null
   previousClose: number | null
-  value: number
-  cost: number
-  gain: number
-  gainPercent: number
+  value: number | null
+  cost: number | null
+  gain: number | null
+  gainPercent: number | null
   dailyChange: number | null
   dailyChangePercent: number | null
   valueSEK: number | null
@@ -177,10 +177,10 @@ export default function Performance() {
   }
 
   const performanceData: PerformanceData[] = stocks.map(stock => {
-    const value = (stock.current_price || 0) * stock.quantity
-    const cost = (stock.purchase_price || 0) * stock.quantity
-    const gain = value - cost
-    const gainPercent = cost > 0 ? (gain / cost) * 100 : 0
+    const value = stock.current_price != null ? stock.current_price * stock.quantity : null
+    const cost = stock.purchase_price != null ? stock.purchase_price * stock.quantity : null
+    const gain = value != null && cost != null ? value - cost : null
+    const gainPercent = gain != null && cost != null && cost !== 0 ? (gain / cost) * 100 : null
     const dailyChange = stock.current_price != null && stock.previous_close != null
       ? (stock.current_price - stock.previous_close) * stock.quantity
       : null
@@ -188,8 +188,8 @@ export default function Performance() {
       ? ((stock.current_price - stock.previous_close) / stock.previous_close) * 100
       : null
 
-    const valueSEK = convertToSEK(value, stock.currency)
-    const costSEK = convertToSEK(cost, stock.currency)
+    const valueSEK = value != null ? convertToSEK(value, stock.currency) : null
+    const costSEK = cost != null ? convertToSEK(cost, stock.currency) : null
 
     return {
       ticker: stock.ticker,
@@ -255,8 +255,8 @@ export default function Performance() {
       return sortOrder === 'asc' ? aVal.localeCompare(bVal) : bVal.localeCompare(aVal)
     }
     if (aVal === null && bVal === null) return 0
-    if (aVal === null) return sortOrder === 'asc' ? -1 : 1
-    if (bVal === null) return sortOrder === 'asc' ? 1 : -1
+    if (aVal === null) return 1
+    if (bVal === null) return -1
 
     return sortOrder === 'asc' ? (aVal as number) - (bVal as number) : (bVal as number) - (aVal as number)
   })
@@ -270,23 +270,26 @@ export default function Performance() {
     }
   }
 
-  const bestPerformers = [...performanceData].sort((a, b) => b.gainPercent - a.gainPercent).slice(0, 3)
+  const comparablePerformance = performanceData.filter((stock) => stock.gainPercent !== null)
+  const bestPerformers = [...comparablePerformance]
+    .sort((a, b) => (b.gainPercent ?? -Infinity) - (a.gainPercent ?? -Infinity))
+    .slice(0, 3)
   const bestPerformerTickers = new Set(bestPerformers.map((stock) => stock.ticker))
-  const worstPerformers = performanceData
+  const worstPerformers = comparablePerformance
     .filter((stock) => !bestPerformerTickers.has(stock.ticker))
-    .sort((a, b) => a.gainPercent - b.gainPercent)
+    .sort((a, b) => (a.gainPercent ?? Infinity) - (b.gainPercent ?? Infinity))
     .slice(0, 3)
 
-  const missingRateStocks = performanceData.filter((stock) => (
-    stock.currency !== 'SEK' && (
-      stock.valueSEK === null
-      || stock.costSEK === null
-      || stock.gainSEK === null
-      || (stock.dailyChange !== null && stock.dailyChangeSEK === null)
-    )
-  ))
+  const missingRateStocks = performanceData.filter((stock) => {
+    if (stock.currency === 'SEK') return false
+    const valueRateMissing = stock.value !== null && stock.valueSEK === null
+    const costRateMissing = stock.cost !== null && stock.costSEK === null
+    const gainRateMissing = stock.gain !== null && stock.gainSEK === null
+    const dailyChangeRateMissing = stock.dailyChange !== null && stock.dailyChangeSEK === null
+    return valueRateMissing || costRateMissing || gainRateMissing || dailyChangeRateMissing
+  })
   const hasMissing = missingRateStocks.length > 0
-  const hasMissingDailyChange = performanceData.some((stock) => stock.dailyChange === null || stock.dailyChangeSEK === null)
+  const hasMissingDailyChange = performanceData.some((stock) => stock.dailyChange === null || (stock.dailyChange !== null && stock.dailyChangeSEK === null))
 
   const totalValue = performanceData.reduce((sum, s) => sum + (s.valueSEK ?? 0), 0)
   const totalCost = performanceData.reduce((sum, s) => sum + (s.costSEK ?? 0), 0)
@@ -303,11 +306,11 @@ export default function Performance() {
       sanitizeCsvCell(s.currency),
       sanitizeCsvCell(s.purchasePrice?.toFixed(2)),
       sanitizeCsvCell(s.currentPrice?.toFixed(2)),
-      sanitizeCsvCell(s.value.toFixed(2)),
-      sanitizeCsvCell(s.cost.toFixed(2)),
-      sanitizeCsvCell(s.gain.toFixed(2)),
-      sanitizeCsvCell(s.gainPercent.toFixed(2) + '%'),
-      sanitizeCsvCell(s.dailyChange?.toFixed(2)),
+      sanitizeCsvCell(s.value !== null ? s.value.toFixed(2) : ''),
+      sanitizeCsvCell(s.cost !== null ? s.cost.toFixed(2) : ''),
+      sanitizeCsvCell(s.gain !== null ? s.gain.toFixed(2) : ''),
+      sanitizeCsvCell(s.gainPercent !== null ? s.gainPercent.toFixed(2) + '%' : ''),
+      sanitizeCsvCell(s.dailyChange !== null ? s.dailyChange.toFixed(2) : ''),
       sanitizeCsvCell(s.dailyChangePercent != null ? s.dailyChangePercent.toFixed(2) + '%' : ''),
     ])
     
@@ -373,6 +376,13 @@ export default function Performance() {
           <div style={{ marginTop: 16, padding: '10px 16px', background: 'rgba(251,191,36,0.08)', border: '1px solid rgba(251,191,36,0.25)', borderRadius: 6 }}>
             <p style={{ color: 'var(--amber)', margin: 0, fontSize: 13 }}>
               {t(language, 'performance.missingRatesWarning')}
+            </p>
+          </div>
+        )}
+        {hasMissingDailyChange && (
+          <div style={{ marginTop: 12, padding: '10px 16px', background: 'rgba(251,191,36,0.08)', border: '1px solid rgba(251,191,36,0.25)', borderRadius: 6 }}>
+            <p style={{ color: 'var(--amber)', margin: 0, fontSize: 13 }}>
+              {t(language, 'performance.missingDailyChangeWarning')}
             </p>
           </div>
         )}
@@ -466,16 +476,20 @@ export default function Performance() {
                   <td style={{ color: 'var(--muted)', fontFamily: "'Fira Code', monospace" }}>{stock.ticker}</td>
                   <td style={{ fontFamily: "'Fira Code', monospace" }}>{stock.quantity}</td>
                   <td><span className="badge badge-muted">{stock.currency}</span></td>
-                  <td style={{ fontFamily: "'Fira Code', monospace" }}>{stock.costSEK !== null ? formatCurrency(stock.costSEK, locale, 'SEK') : t(language, 'performance.rateMissing')}</td>
-                  <td style={{ fontFamily: "'Fira Code', monospace" }}>{stock.valueSEK !== null ? formatCurrency(stock.valueSEK, locale, 'SEK') : t(language, 'performance.rateMissing')}</td>
-                   <td className={stock.gainSEK !== null ? (stock.gainSEK >= 0 ? 'positive' : 'negative') : ''} style={{ fontFamily: "'Fira Code', monospace" }}>
-                    {stock.gainSEK !== null ? formatCurrency(stock.gainSEK, locale, 'SEK') : t(language, 'performance.rateMissing')}
+                  <td style={{ fontFamily: "'Fira Code', monospace" }}>
+                    {stock.cost === null ? '-' : (stock.costSEK !== null ? formatCurrency(stock.costSEK, locale, 'SEK') : t(language, 'performance.rateMissing'))}
                   </td>
-                  <td className={stock.gainPercent >= 0 ? 'positive' : 'negative'} style={{ fontFamily: "'Fira Code', monospace", fontWeight: 700 }}>
+                  <td style={{ fontFamily: "'Fira Code', monospace" }}>
+                    {stock.value === null ? '-' : (stock.valueSEK !== null ? formatCurrency(stock.valueSEK, locale, 'SEK') : t(language, 'performance.rateMissing'))}
+                  </td>
+                   <td className={stock.gainSEK !== null ? (stock.gainSEK >= 0 ? 'positive' : 'negative') : ''} style={{ fontFamily: "'Fira Code', monospace" }}>
+                    {stock.gain === null ? '-' : (stock.gainSEK !== null ? formatCurrency(stock.gainSEK, locale, 'SEK') : t(language, 'performance.rateMissing'))}
+                  </td>
+                  <td className={stock.gainPercent !== null ? (stock.gainPercent >= 0 ? 'positive' : 'negative') : ''} style={{ fontFamily: "'Fira Code', monospace", fontWeight: 700 }}>
                     {formatPercent(stock.gainPercent, locale)}
                   </td>
                    <td className={stock.dailyChangeSEK !== null ? (stock.dailyChangeSEK >= 0 ? 'positive' : 'negative') : ''} style={{ fontFamily: "'Fira Code', monospace" }}>
-                    {stock.dailyChangeSEK !== null ? formatCurrency(stock.dailyChangeSEK, locale, 'SEK') : (stock.dailyChange !== null ? t(language, 'performance.rateMissing') : '-')}
+                    {stock.dailyChange === null ? '-' : (stock.dailyChangeSEK !== null ? formatCurrency(stock.dailyChangeSEK, locale, 'SEK') : t(language, 'performance.rateMissing'))}
                   </td>
                    <td className={stock.dailyChangePercent !== null ? (stock.dailyChangePercent >= 0 ? 'positive' : 'negative') : ''} style={{ fontFamily: "'Fira Code', monospace" }}>
                     {formatPercent(stock.dailyChangePercent, locale)}

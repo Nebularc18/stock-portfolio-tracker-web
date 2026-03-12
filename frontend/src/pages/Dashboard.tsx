@@ -409,7 +409,7 @@ export default function Dashboard() {
   const groupedDividends = upcomingDividends
     .filter((div) => div.status !== 'paid')
     .reduce((acc, div) => {
-      const payoutDate = div.payout_date || div.payment_date || div.ex_date
+      const payoutDate = div.payment_date || div.ex_date
       const key = getMonthKey(payoutDate)
       if (!acc[key]) acc[key] = []
       acc[key].push(div)
@@ -762,7 +762,7 @@ export default function Dashboard() {
                     <tbody>
                       {group.items.map((div, i) => {
                         const displayed = getDisplayedDividendAmount(div)
-                        const payoutDisplayDate = div.payout_date || div.payment_date || div.ex_date
+                        const payoutDisplayDate = div.payment_date || div.ex_date
                         return (
                           <tr key={`${div.ticker}-${div.ex_date}-${payoutDisplayDate ?? 'na'}-${div.dividend_type ?? 'na'}-${i}`}>
                             <td>

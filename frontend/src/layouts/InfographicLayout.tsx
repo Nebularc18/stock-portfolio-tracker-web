@@ -69,7 +69,14 @@ export default function InfographicLayout() {
   const { timezone, headerIndices, language } = useSettings()
   const { user, logout } = useAuth()
   const locale = getLocaleForLanguage(language)
-  const currentYear = new Date().getUTCFullYear()
+  const currentYear = Number((() => {
+    const resolvedTimeZone = timezone || Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC'
+    try {
+      return new Intl.DateTimeFormat(locale, { year: 'numeric', timeZone: resolvedTimeZone }).format(new Date())
+    } catch {
+      return new Intl.DateTimeFormat(locale, { year: 'numeric', timeZone: 'UTC' }).format(new Date())
+    }
+  })())
   const [logoutError, setLogoutError] = useState<string | null>(null)
   const [isLoggingOut, setIsLoggingOut] = useState(false)
   // Filter indices based on settings

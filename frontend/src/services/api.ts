@@ -201,7 +201,6 @@ export interface UpcomingDividend {
   quantity: number
   ex_date: string
   payment_date: string | null
-  payout_date?: string
   status?: 'paid' | 'upcoming'
   dividend_type?: string | null
   amount_per_share: number

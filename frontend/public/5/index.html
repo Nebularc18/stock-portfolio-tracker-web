@@ -713,14 +713,11 @@ html, body {
   border-bottom: 1px solid var(--border);
   padding: 20px 24px;
   transition: background 0.13s;
-  cursor: pointer;
   display: grid;
   grid-template-columns: 1fr auto;
   gap: 12px;
   align-items: center;
 }
-
-.port-card:hover { background: rgba(129,140,248,0.03); }
 
 .pc-top { display: flex; align-items: center; gap: 12px; margin-bottom: 10px; }
 .pc-badge { width: 40px; height: 40px; border-radius: 10px; display: flex; align-items: center; justify-content: center; font-size: 9px; font-weight: 800; letter-spacing: 0.04em; }
@@ -953,6 +950,8 @@ html, body {
 
 .sr-section-title { font-size: 9px; font-weight: 700; letter-spacing: 0.22em; text-transform: uppercase; color: var(--muted); margin-bottom: 12px; }
 
+.search-empty { font-size: 12px; color: var(--muted); margin-top: 12px; display: none; }
+
 .result-card {
   display: flex;
   align-items: center;
@@ -962,11 +961,8 @@ html, body {
   border-radius: 8px;
   border: 1px solid var(--border);
   margin-bottom: 8px;
-  cursor: pointer;
   transition: border-color 0.13s, background 0.13s;
 }
-
-.result-card:hover { border-color: rgba(129,140,248,0.3); background: rgba(129,140,248,0.04); }
 
 .rc-badge { width: 38px; height: 38px; border-radius: 9px; display: flex; align-items: center; justify-content: center; font-size: 9px; font-weight: 800; flex-shrink: 0; }
 .rc-tick { font-size: 15px; font-weight: 800; letter-spacing: 0.04em; color: var(--text); }
@@ -985,10 +981,7 @@ html, body {
   padding: 16px 24px;
   border-bottom: 1px solid var(--border);
   transition: background 0.12s;
-  cursor: pointer;
 }
-
-.alert-item:hover { background: rgba(255,255,255,0.02); }
 
 .alert-accent { height: 36px; border-radius: 3px; flex-shrink: 0; }
 
@@ -1021,6 +1014,32 @@ html, body {
 }
 
 .alert-add-btn:hover { background: rgba(129,140,248,0.18); border-color: rgba(129,140,248,0.4); }
+
+.alert-modal {
+  position: fixed;
+  inset: 0;
+  background: rgba(9,11,17,0.7);
+  display: none;
+  align-items: center;
+  justify-content: center;
+  z-index: 60;
+}
+
+.alert-modal.active { display: flex; }
+
+.alert-modal-card {
+  width: 420px;
+  max-width: 92vw;
+  background: var(--bg2);
+  border: 1px solid var(--border2);
+  border-radius: 10px;
+  padding: 22px;
+}
+
+.alert-modal-title { font-size: 14px; font-weight: 700; margin-bottom: 8px; }
+.alert-modal-desc { font-size: 11px; color: var(--muted); margin-bottom: 14px; }
+.alert-modal-actions { display: flex; gap: 10px; justify-content: flex-end; margin-top: 16px; }
+.alert-modal input { width: 100%; }
 
 /* ── ACCOUNT VIEW ── */
 .account-grid {
@@ -1220,15 +1239,15 @@ html, body {
 </div>
 
 <!-- NAV -->
-<nav class="nav">
-  <button type="button" data-view="dashboard" class="active">Dashboard</button>
-  <button type="button" data-view="portfolio">Portfolio</button>
-  <button type="button" data-view="transactions">Transactions</button>
-  <button type="button" data-view="dividends">Dividends</button>
-  <button type="button" data-view="analytics">Analytics</button>
-  <button type="button" data-view="search">Search</button>
-  <button type="button" data-view="alerts">Alerts</button>
-  <button type="button" data-view="account">Account</button>
+<nav class="nav" role="tablist">
+  <button type="button" data-view="dashboard" class="active" role="tab" aria-selected="true" aria-controls="view-dashboard" id="tab-dashboard">Dashboard</button>
+  <button type="button" data-view="portfolio" role="tab" aria-selected="false" aria-controls="view-portfolio" id="tab-portfolio">Portfolio</button>
+  <button type="button" data-view="transactions" role="tab" aria-selected="false" aria-controls="view-transactions" id="tab-transactions">Transactions</button>
+  <button type="button" data-view="dividends" role="tab" aria-selected="false" aria-controls="view-dividends" id="tab-dividends">Dividends</button>
+  <button type="button" data-view="analytics" role="tab" aria-selected="false" aria-controls="view-analytics" id="tab-analytics">Analytics</button>
+  <button type="button" data-view="search" role="tab" aria-selected="false" aria-controls="view-search" id="tab-search">Search</button>
+  <button type="button" data-view="alerts" role="tab" aria-selected="false" aria-controls="view-alerts" id="tab-alerts">Alerts</button>
+  <button type="button" data-view="account" role="tab" aria-selected="false" aria-controls="view-account" id="tab-account">Account</button>
 </nav>
 
 <!-- ══════════════════════ DASHBOARD VIEW ══════════════════════ -->
@@ -1916,6 +1935,7 @@ html, body {
   </div>
   <div class="search-results">
     <div class="sr-section-title">Your Holdings</div>
+    <div class="search-empty" id="searchEmpty">No matching results.</div>
     <div class="result-card">
       <div class="rc-badge" style="background:rgba(129,140,248,0.12);color:var(--v2);">AAPL</div>
       <div><div class="rc-tick">AAPL</div><div class="rc-name">Apple Inc. · NASDAQ</div></div>
@@ -1957,8 +1977,40 @@ html, body {
     <div class="vh-sub">Price alerts, dividend reminders, and news</div>
   </div>
   <div class="alert-add-row">
-    <button class="alert-add-btn">+ New Price Alert</button>
-    <button class="alert-add-btn">+ New Dividend Reminder</button>
+    <button type="button" class="alert-add-btn" data-action="new-price-alert" aria-haspopup="dialog" aria-controls="alert-modal-price">+ New Price Alert</button>
+    <button type="button" class="alert-add-btn" data-action="new-dividend-reminder" aria-haspopup="dialog" aria-controls="alert-modal-dividend">+ New Dividend Reminder</button>
+  </div>
+  <div class="alert-modal" id="alert-modal-price" role="dialog" aria-modal="true" aria-hidden="true" aria-labelledby="alert-modal-price-title">
+    <div class="alert-modal-card" role="document" tabindex="-1">
+      <div class="alert-modal-title" id="alert-modal-price-title">Create price alert</div>
+      <div class="alert-modal-desc">Set a target price and get notified when the stock crosses it.</div>
+      <div style="display: grid; gap: 10px;">
+        <label style="font-size: 11px; color: var(--muted);">Ticker</label>
+        <input type="text" placeholder="e.g. AAPL" aria-label="Ticker symbol"/>
+        <label style="font-size: 11px; color: var(--muted);">Target price</label>
+        <input type="number" placeholder="e.g. 175" aria-label="Target price"/>
+      </div>
+      <div class="alert-modal-actions">
+        <button type="button" class="btn btn-secondary" data-modal-close>Cancel</button>
+        <button type="button" class="btn btn-primary">Create alert</button>
+      </div>
+    </div>
+  </div>
+  <div class="alert-modal" id="alert-modal-dividend" role="dialog" aria-modal="true" aria-hidden="true" aria-labelledby="alert-modal-dividend-title">
+    <div class="alert-modal-card" role="document" tabindex="-1">
+      <div class="alert-modal-title" id="alert-modal-dividend-title">Create dividend reminder</div>
+      <div class="alert-modal-desc">Choose a stock and get reminded before its dividend date.</div>
+      <div style="display: grid; gap: 10px;">
+        <label style="font-size: 11px; color: var(--muted);">Ticker</label>
+        <input type="text" placeholder="e.g. NOVO B" aria-label="Ticker symbol"/>
+        <label style="font-size: 11px; color: var(--muted);">Reminder days</label>
+        <input type="number" placeholder="e.g. 5" aria-label="Reminder days before dividend"/>
+      </div>
+      <div class="alert-modal-actions">
+        <button type="button" class="btn btn-secondary" data-modal-close>Cancel</button>
+        <button type="button" class="btn btn-primary">Create reminder</button>
+      </div>
+    </div>
   </div>
   <div class="alerts-list">
     <div class="alert-item">
@@ -2054,17 +2106,118 @@ html, body {
 const navLinks = document.querySelectorAll('.nav [data-view]');
 const views = document.querySelectorAll('.view');
 
+const setActiveView = (target) => {
+  if (!target) return;
+  navLinks.forEach((link) => {
+    const isActive = link.dataset.view === target;
+    link.classList.toggle('active', isActive);
+    link.setAttribute('aria-selected', isActive ? 'true' : 'false');
+    link.setAttribute('tabindex', isActive ? '0' : '-1');
+  });
+  views.forEach((view) => {
+    view.classList.toggle('active', view.id === 'view-' + target);
+};
+
 navLinks.forEach(link => {
   link.addEventListener('click', function(e) {
     e.preventDefault();
-    const target = this.dataset.view;
-    navLinks.forEach(l => l.classList.remove('active'));
-    views.forEach(v => v.classList.remove('active'));
-    this.classList.add('active');
-    document.getElementById('view-' + target).classList.add('active');
+    setActiveView(this.dataset.view);
+    this.focus();
   });
 });
 
+const initialActive = document.querySelector('.nav [data-view].active');
+if (initialActive) {
+  setActiveView(initialActive.dataset.view);
+}
+
+const initInteractive = () => {
+  const searchInput = document.getElementById('searchInput');
+  const searchResults = Array.from(document.querySelectorAll('.search-results .result-card'));
+  const searchEmpty = document.getElementById('searchEmpty');
+  const searchHint = document.querySelector('.search-hint');
+  let searchTimer;
+
+  const applySearch = (query) => {
+    const normalized = (query || '').trim().toLowerCase();
+    let visibleCount = 0;
+    searchResults.forEach((card) => {
+      const matches = normalized === '' || (card.textContent || '').toLowerCase().includes(normalized);
+      card.style.display = matches ? '' : 'none';
+      if (matches) visibleCount += 1;
+    });
+    if (searchEmpty) {
+      searchEmpty.style.display = visibleCount === 0 ? 'block' : 'none';
+    }
+    if (searchHint) {
+      searchHint.style.display = normalized === '' ? '' : 'none';
+    }
+  };
+
+  if (searchInput) {
+    searchInput.addEventListener('input', () => {
+      window.clearTimeout(searchTimer);
+      searchTimer = window.setTimeout(() => applySearch(searchInput.value), 140);
+    });
+    applySearch(searchInput.value);
+  }
+
+  const alertButtons = Array.from(document.querySelectorAll('.alert-add-btn'));
+  const setAlertButtonsDisabled = (disabled) => {
+    alertButtons.forEach((btn) => {
+      btn.disabled = disabled;
+      btn.setAttribute('aria-disabled', disabled ? 'true' : 'false');
+  };
+
+  const openAlertModal = (modalId) => {
+    const modal = document.getElementById(modalId);
+    setAlertButtonsDisabled(true);
+    if (!modal) {
+      setAlertButtonsDisabled(false);
+      return;
+    }
+    modal.classList.add('active');
+    modal.setAttribute('aria-hidden', 'false');
+    modal.setAttribute('aria-busy', 'true');
+    window.setTimeout(() => {
+      modal.setAttribute('aria-busy', 'false');
+      setAlertButtonsDisabled(false);
+      const focusTarget = modal.querySelector('input, button');
+      if (focusTarget) focusTarget.focus();
+    }, 150);
+  };
+
+  const closeAlertModal = (modal) => {
+    modal.classList.remove('active');
+    modal.setAttribute('aria-hidden', 'true');
+    modal.setAttribute('aria-busy', 'false');
+  };
+
+  document.querySelectorAll('[data-action=\'new-price-alert\']').forEach((btn) => {
+    btn.addEventListener('click', () => openAlertModal('alert-modal-price'));
+  });
+  document.querySelectorAll('[data-action=\'new-dividend-reminder\']').forEach((btn) => {
+    btn.addEventListener('click', () => openAlertModal('alert-modal-dividend'));
+  });
+
+  document.querySelectorAll('.alert-modal').forEach((modal) => {
+    modal.addEventListener('click', (e) => {
+      if (e.target === modal) closeAlertModal(modal);
+    });
+  });
+  document.querySelectorAll('[data-modal-close]').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      const modal = btn.closest('.alert-modal');
+      if (modal) closeAlertModal(modal);
+    });
+  });
+};
+
+if (document.readyState === 'loading') {
+  document.addEventListener('DOMContentLoaded', initInteractive);
+} else {
+  initInteractive();
+}
 // ── Period buttons ──
 document.querySelectorAll('.pbtns').forEach(group => {
   group.querySelectorAll('button').forEach(btn => {

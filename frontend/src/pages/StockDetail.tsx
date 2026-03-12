@@ -287,8 +287,14 @@ export default function StockDetail() {
     analyst: t(language, 'stockDetail.tabAnalyst'),
   }
 
-  const closeEditModal = useCallback(() => setShowEditModal(false), [])
-  const closeDividendModal = useCallback(() => setShowDividendModal(false), [])
+  const closeEditModal = useCallback(() => {
+    setShowEditModal(false)
+    setEditError(null)
+  }, [])
+  const closeDividendModal = useCallback(() => {
+    setShowDividendModal(false)
+    setDividendError(null)
+  }, [])
 
   useEffect(() => {
     tickerRef.current = ticker
@@ -355,7 +361,6 @@ export default function StockDetail() {
               quantity: stockData.quantity,
               ex_date: div.date,
               payment_date: div.payment_date,
-              payout_date: payoutDate,
               status,
               dividend_type: null,
               amount_per_share: amountPerShare,
@@ -388,7 +393,6 @@ export default function StockDetail() {
               quantity: stockData.quantity,
               ex_date: div.ex_date,
               payment_date: div.payment_date,
-              payout_date: payoutDate,
               status,
               dividend_type: div.dividend_type,
               amount_per_share: amountPerShare,
@@ -419,8 +423,8 @@ export default function StockDetail() {
         }
 
         const effectiveYearDividends = Array.from(dedupedMap.values()).sort((a, b) => {
-          const aDate = a.payout_date || a.payment_date || a.ex_date
-          const bDate = b.payout_date || b.payment_date || b.ex_date
+          const aDate = a.payment_date || a.ex_date
+          const bDate = b.payment_date || b.ex_date
           return aDate.localeCompare(bDate)
         })
 
@@ -438,8 +442,8 @@ export default function StockDetail() {
         }
 
         const effectiveAllYearDividends = Array.from(allDedupedMap.values()).sort((a, b) => {
-          const aDate = a.payout_date || a.payment_date || a.ex_date
-          const bDate = b.payout_date || b.payment_date || b.ex_date
+          const aDate = a.payment_date || a.ex_date
+          const bDate = b.payment_date || b.ex_date
           return aDate.localeCompare(bDate)
         })
 
@@ -664,7 +668,7 @@ export default function StockDetail() {
       setYearRemaining(yearlyState.yearRemaining)
       setShowEditModal(false)
     } catch (err) {
-      console.error('Failed to save', err)
+      setEditError(err instanceof Error ? err.message : String(err))
     } finally {
       setSaving(false)
     }
@@ -726,7 +730,7 @@ export default function StockDetail() {
       }
       setShowDividendModal(false)
     } catch (err) {
-      console.error('Failed to save dividend', err)
+      setDividendError(err instanceof Error ? err.message : String(err))
     } finally {
       setSaving(false)
     }
@@ -978,11 +982,17 @@ export default function StockDetail() {
 
       {/* Tab bar */}
       <div style={{ marginBottom: 20, borderBottom: '1px solid var(--border)' }}>
-        <div style={{ display: 'flex', gap: 4 }}>
+        <div style={{ display: 'flex', gap: 4 }} role="tablist">
           {tabs.map((tab) => (
             <button
               key={tab}
+              id={`tab-${tab}`}
               onClick={() => setActiveTab(tab)}
+              type="button"
+              role="tab"
+              aria-selected={activeTab === tab}
+              aria-controls={`panel-${tab}`}
+              tabIndex={activeTab === tab ? 0 : -1}
               style={{
                 padding: '10px 16px',
                 background: 'none',
@@ -1003,7 +1013,7 @@ export default function StockDetail() {
 
       {/* Overview tab */}
       {activeTab === 'overview' && (
-        <div className="grid grid-2">
+        <div className="grid grid-2" role="tabpanel" id="panel-overview" aria-labelledby="tab-overview">
           <div style={panelStyle}>
             <div className="sec-row" style={{ padding: '12px 16px', borderBottom: '1px solid var(--border)' }}>
               <span className="sec-title">{t(language, 'stockDetail.position')}</span>
@@ -1066,11 +1076,11 @@ export default function StockDetail() {
 
       {/* Profile tab */}
       {activeTab === 'profile' && (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }} role="tabpanel" id="panel-profile" aria-labelledby="tab-profile">
           <CompanyProfileComponent profile={companyProfile} loading={finnhubLoading} />
           <FinancialMetricsComponent metrics={financialMetrics} loading={finnhubLoading} />
           <PeerCompanies peers={peers} loading={finnhubLoading} />
-          {!finnhubLoading && !hasProfileContent && (
+          {!finnhubLoading && finnhubDataLoaded && !hasProfileContent && (
             <div style={panelStyle}>
               <div className="sec-row" style={{ padding: '12px 16px', borderBottom: '1px solid var(--border)' }}>
                 <span className="sec-title">{t(language, 'stockDetail.profileSnapshot')}</span>
@@ -1099,7 +1109,7 @@ export default function StockDetail() {
 
       {/* Dividends tab */}
       {activeTab === 'dividends' && (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }} role="tabpanel" id="panel-dividends" aria-labelledby="tab-dividends">
 
           {/* Manual dividends */}
           <div style={panelStyle}>
@@ -1359,7 +1369,7 @@ export default function StockDetail() {
 
       {/* Analyst tab */}
       {activeTab === 'analyst' && (
-        <div>
+        <div role="tabpanel" id="panel-analyst" aria-labelledby="tab-analyst">
           {analystDataLoading ? (
             <div className="loading-state">{t(language, 'stockDetail.loadingAnalyst')}</div>
           ) : (
@@ -1371,7 +1381,7 @@ export default function StockDetail() {
                 currency={stock?.currency || 'USD'}
                 currentPrice={stock?.current_price ?? null}
               />
-              {!analystData?.price_targets && !analystData?.recommendations?.length && !analystData?.finnhub_recommendations?.length && !finnhubLoading && !analystDataLoading && (
+              {!analystData?.price_targets && !analystData?.recommendations?.length && !analystData?.finnhub_recommendations?.length && !finnhubLoading && !analystDataLoading && analystDataLoaded && (
                 <div className="empty-state">{t(language, 'stockDetail.noAnalyst')}</div>
               )}
             </>
@@ -1383,7 +1393,7 @@ export default function StockDetail() {
       {showEditModal && (
         <div
           style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.7)', backdropFilter: 'blur(4px)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000 }}
-          onClick={() => setShowEditModal(false)}
+          onClick={closeEditModal}
         >
           <div
             style={{ width: 400, maxWidth: '92vw', background: 'var(--bg2)', border: '1px solid var(--border2)', borderRadius: 10, padding: 24 }}
@@ -1408,10 +1418,10 @@ export default function StockDetail() {
               <input id={editPurchaseDateInputId} type="date" value={editPurchaseDate} onChange={(e) => setEditPurchaseDate(e.target.value)} style={{ width: '100%' }} />
             </div>
             {editError && (
-              <p style={{ color: 'var(--red)', fontSize: 12, marginBottom: 14 }}>{editError}</p>
+              <p role="alert" style={{ color: 'var(--red)', fontSize: 12, marginBottom: 14 }}>{editError}</p>
             )}
             <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
-              <button className="btn btn-secondary" onClick={() => setShowEditModal(false)}>{t(language, 'stockDetail.cancel')}</button>
+              <button className="btn btn-secondary" onClick={closeEditModal}>{t(language, 'stockDetail.cancel')}</button>
               <button className="btn btn-primary" onClick={handleSaveEdit} disabled={saving}>
                 {saving ? t(language, 'stockDetail.saving') : t(language, 'stockDetail.save')}
               </button>
@@ -1424,7 +1434,7 @@ export default function StockDetail() {
       {showDividendModal && (
         <div
           style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.7)', backdropFilter: 'blur(4px)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000 }}
-          onClick={() => setShowDividendModal(false)}
+          onClick={closeDividendModal}
         >
           <div
             style={{ width: 400, maxWidth: '92vw', background: 'var(--bg2)', border: '1px solid var(--border2)', borderRadius: 10, padding: 24 }}
@@ -1451,10 +1461,10 @@ export default function StockDetail() {
               <input id={dividendNoteInputId} type="text" value={divNote} onChange={(e) => setDivNote(e.target.value)} style={{ width: '100%' }} placeholder="e.g. Q1 2024 dividend" />
             </div>
             {dividendError && (
-              <p style={{ color: 'var(--red)', fontSize: 12, marginBottom: 14 }}>{dividendError}</p>
+              <p role="alert" style={{ color: 'var(--red)', fontSize: 12, marginBottom: 14 }}>{dividendError}</p>
             )}
             <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
-              <button className="btn btn-secondary" onClick={() => setShowDividendModal(false)}>{t(language, 'stockDetail.cancel')}</button>
+              <button className="btn btn-secondary" onClick={closeDividendModal}>{t(language, 'stockDetail.cancel')}</button>
               <button className="btn btn-primary" onClick={handleSaveDividend} disabled={saving || !divDate || !divAmount}>
                 {saving ? t(language, 'stockDetail.saving') : t(language, 'stockDetail.save')}
               </button>

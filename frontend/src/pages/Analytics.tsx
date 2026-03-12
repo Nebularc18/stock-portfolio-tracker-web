@@ -93,7 +93,7 @@ function createColoredPieLabel(colors: string[], locale: string) {
         dominantBaseline="central"
         style={{ fontSize: 12, fontWeight: 700 }}
       >
-        {`${name} (${new Intl.NumberFormat(locale, { style: 'percent', maximumFractionDigits: 0 }).format(percent)})`}
+        {`${name} (${formatPercent(percent, locale)})`}
       </text>
     )
   }
@@ -249,7 +249,8 @@ export default function Analytics() {
           }
         }
 
-        const sortedYears = Array.from(new Set([...fallbackYears, ...dividendEvents.map((event) => event.year)])).sort((a, b) => a - b)
+        const actualYears = Array.from(new Set(dividendEvents.map((event) => event.year))).sort((a, b) => a - b)
+        const sortedYears = actualYears.length > 0 ? actualYears : fallbackYears
         const monthTotals = Array.from({ length: 12 }, (_, monthIndex) => {
           const row: DividendComparisonRow = {
             month: new Date(Date.UTC(2000, monthIndex, 1)).toLocaleDateString(locale, { month: 'long', timeZone: 'UTC' }),
@@ -273,7 +274,7 @@ export default function Analytics() {
           if (validPreviousYears.length > 0) {
             return validPreviousYears.slice(-3)
           }
-          return sortedYears.slice(-3)
+          return actualYears.length > 0 ? actualYears.slice(-3) : sortedYears.slice(-3)
         })
       } catch (dividendError) {
         console.error('Failed to load analytics dividend comparison data:', dividendError)

@@ -34,9 +34,7 @@ function formatCurrency(value: number, locale: string, currency: string = 'USD')
 
 function getMissingConversionMessage(language: string, currencies: string[]): string {
   const uniqueCurrencies = [...new Set(currencies)].sort().join(', ')
-  return language === 'sv'
-    ? `Konvertering saknas för ${uniqueCurrencies}`
-    : `Conversion missing for ${uniqueCurrencies}`
+  return t(language, 'history.conversionMissing', { currencies: uniqueCurrencies })
 }
 
 interface DividendWithStock {
@@ -58,6 +56,7 @@ interface YearlyData {
 }
 
 const DIVIDEND_BATCH_SIZE = 25
+const MAX_DIVIDEND_YEARS = 10
 
 /**
  * Display a yearly and monthly breakdown of historical dividends with per-share values and totals converted to SEK, and provide a selector to choose the year.
@@ -75,6 +74,7 @@ export default function HistoricalDividends() {
   const [availableYears, setAvailableYears] = useState<number[]>([])
   const [dividendsPartialLoad, setDividendsPartialLoad] = useState(false)
   const [dividendsLoadFailed, setDividendsLoadFailed] = useState(false)
+  const [showDividendRangeWarning, setShowDividendRangeWarning] = useState(false)
 
   useEffect(() => {
     const fetchData = async () => {
@@ -92,7 +92,10 @@ export default function HistoricalDividends() {
   }, [])
 
   useEffect(() => {
-    if (stocks.length === 0) return
+    if (stocks.length === 0) {
+      setShowDividendRangeWarning(false)
+      return
+    }
 
     const fetchDividends = async () => {
       setLoading(true)
@@ -108,12 +111,13 @@ export default function HistoricalDividends() {
           return Math.min(minYear, parsedYear)
         }, currentYear)
         const yearsToFetch = Math.max(1, currentYear - earliestPurchaseYear + 1)
+        setShowDividendRangeWarning(yearsToFetch > MAX_DIVIDEND_YEARS)
 
         const dividendBatchResults = stocks.length > 0
           ? await Promise.allSettled(
               Array.from({ length: Math.ceil(stocks.length / DIVIDEND_BATCH_SIZE) }, (_, index) => {
                 const batch = stocks.slice(index * DIVIDEND_BATCH_SIZE, (index + 1) * DIVIDEND_BATCH_SIZE)
-                return api.stocks.dividendsForTickers(batch.map((stock) => stock.ticker), Math.min(yearsToFetch, 10))
+                return api.stocks.dividendsForTickers(batch.map((stock) => stock.ticker), Math.min(yearsToFetch, MAX_DIVIDEND_YEARS))
               })
             )
           : []
@@ -319,6 +323,13 @@ export default function HistoricalDividends() {
         {!dividendsLoadFailed && dividendsPartialLoad && (
           <div style={{ background: 'rgba(251,191,36,0.08)', border: '1px solid rgba(251,191,36,0.25)', borderRadius: 8, padding: '12px 16px', marginTop: 20 }}>
             <p style={{ color: 'var(--amber)', fontSize: 13 }}>{t(language, 'history.partialLoadWarning')}</p>
+          </div>
+        )}
+        {!dividendsLoadFailed && showDividendRangeWarning && (
+          <div style={{ background: 'rgba(251,191,36,0.08)', border: '1px solid rgba(251,191,36,0.25)', borderRadius: 8, padding: '12px 16px', marginTop: 12 }}>
+            <p style={{ color: 'var(--amber)', fontSize: 13 }}>
+              {t(language, 'history.rangeWarning', { years: MAX_DIVIDEND_YEARS })}
+            </p>
           </div>
         )}
         {loading ? (
