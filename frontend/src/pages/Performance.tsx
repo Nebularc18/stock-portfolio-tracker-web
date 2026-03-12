@@ -471,7 +471,7 @@ export default function Performance() {
                       <Link to={`/stocks/${encodeURIComponent(stock.ticker)}`} style={{ color: 'var(--v2)', textDecoration: 'none', fontWeight: 700, fontSize: 13 }}>
                         {stock.name || stock.ticker}
                       </Link>
-                      <span className="positive" style={{ fontFamily: "'Fira Code', monospace", fontSize: 12, fontWeight: 600 }}>
+                      <span className={stock.gainPercent != null && stock.gainPercent >= 0 ? 'positive' : 'negative'} style={{ fontFamily: "'Fira Code', monospace", fontSize: 12, fontWeight: 600 }}>
                         {formatPercent(stock.gainPercent, locale)}
                       </span>
                     </div>
@@ -492,7 +492,7 @@ export default function Performance() {
                       <Link to={`/stocks/${encodeURIComponent(stock.ticker)}`} style={{ color: 'var(--v2)', textDecoration: 'none', fontWeight: 700, fontSize: 13 }}>
                         {stock.name || stock.ticker}
                       </Link>
-                      <span className="negative" style={{ fontFamily: "'Fira Code', monospace", fontSize: 12, fontWeight: 600 }}>
+                      <span className={stock.gainPercent != null && stock.gainPercent >= 0 ? 'positive' : 'negative'} style={{ fontFamily: "'Fira Code', monospace", fontSize: 12, fontWeight: 600 }}>
                         {formatPercent(stock.gainPercent, locale)}
                       </span>
                     </div>

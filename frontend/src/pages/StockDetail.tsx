@@ -554,10 +554,6 @@ export default function StockDetail() {
         console.error('Failed to load Finnhub peers', peersResult.reason)
       }
       setFinnhubDataLoaded(true)
-    }).catch((err) => {
-      if (tickerRef.current === activeTicker) {
-        console.error('Failed to load Finnhub data', err)
-      }
     }).finally(() => {
       if (finnhubRequestRef.current === request) {
         finnhubRequestRef.current = null

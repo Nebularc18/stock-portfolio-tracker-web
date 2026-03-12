@@ -110,8 +110,8 @@ function getMonthKey(dateStr: string): string {
  * @param locale - BCP 47 locale identifier (for example, `en-US`)
  * @returns A localized month and year string (for example, `January 2026`)
  */
-function formatMonthLabel(monthKey: string, locale: string): string {
-  if (monthKey === 'tbd') return 'TBD'
+function formatMonthLabel(monthKey: string, locale: string, language: string): string {
+  if (monthKey === 'tbd') return t(language, 'common.tbd')
   const [year, month] = monthKey.split('-').map(Number)
   if (!Number.isFinite(year) || !Number.isFinite(month)) return monthKey
   return new Date(Date.UTC(year, month - 1, 1))
@@ -730,8 +730,8 @@ export default function Dashboard() {
                     <td style={{ textAlign: 'right', fontFamily: "'Fira Code', monospace", color: 'var(--text2)' }}>{stock.quantity}</td>
                     <td style={{ textAlign: 'right', fontFamily: "'Fira Code', monospace", color: 'var(--text2)' }}>{renderConvertedAmount(stock.current_price, stock.currency)}</td>
                     <td style={{ textAlign: 'right', fontFamily: "'Fira Code', monospace", color: 'var(--text2)' }}>
-                      {stock.current_value_converted && stock.current_value != null
-                        ? formatCurrency(stock.current_value, locale, currency)
+                      {stock.current_value_converted != null
+                        ? formatCurrency(stock.current_value_converted, locale, currency)
                         : renderConvertedAmount(stock.current_value, stock.currency)}
                     </td>
                     <td style={{ textAlign: 'right', fontFamily: "'Fira Code', monospace" }} className={stock.gain_loss === null ? '' : (stock.gain_loss >= 0 ? 'positive' : 'negative')}>
@@ -763,7 +763,7 @@ export default function Dashboard() {
                 <div key={group.monthKey} style={{ marginBottom: 24 }}>
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
                     <h4 style={{ fontSize: 11, fontWeight: 700, letterSpacing: '0.1em', textTransform: 'uppercase', color: 'var(--muted)' }}>
-                      {formatMonthLabel(group.monthKey, locale)}
+                      {formatMonthLabel(group.monthKey, locale, language)}
                     </h4>
                     <span style={{ fontFamily: "'Fira Code', monospace", fontSize: 12, color: 'var(--green)', fontWeight: 600 }}>
                       {Object.entries(group.subtotalsByCurrency)
@@ -796,7 +796,7 @@ export default function Dashboard() {
                               </Link>
                             </td>
                             <td style={{ fontFamily: "'Fira Code', monospace", color: 'var(--text2)' }}>{formatDate(div.ex_date, locale)}</td>
-                            <td style={{ fontFamily: "'Fira Code', monospace", color: 'var(--text2)' }}>{payoutDisplayDate ? formatDate(payoutDisplayDate, locale) : 'TBD'}</td>
+                            <td style={{ fontFamily: "'Fira Code', monospace", color: 'var(--text2)' }}>{payoutDisplayDate ? formatDate(payoutDisplayDate, locale) : t(language, 'common.tbd')}</td>
                             <td style={{ textAlign: 'right', fontFamily: "'Fira Code', monospace", color: 'var(--text2)' }}>{formatCurrency(div.amount_per_share, locale, div.currency)}</td>
                             <td style={{ textAlign: 'right', fontFamily: "'Fira Code', monospace", color: 'var(--green)' }}>
                               {formatCurrency(displayed.amount, locale, displayed.currency)}

@@ -97,6 +97,11 @@ export default function HistoricalDividends() {
 
   useEffect(() => {
     if (stocks.length === 0) {
+      setDividendsByYear({})
+      setAvailableYears([])
+      setExchangeRatesByDate({})
+      setDividendsPartialLoad(false)
+      setDividendsLoadFailed(false)
       setShowDividendRangeWarning(false)
       return
     }
@@ -114,11 +119,12 @@ export default function HistoricalDividends() {
           if (!Number.isFinite(parsedYear)) return minYear
           return Math.min(minYear, parsedYear)
         }, Number.POSITIVE_INFINITY)
-        const resolvedEarliestPurchaseYear = earliestPurchaseYear === Number.POSITIVE_INFINITY
+        const isSynthetic = earliestPurchaseYear === Number.POSITIVE_INFINITY
+        const resolvedEarliestPurchaseYear = isSynthetic
           ? currentYear - (MAX_DIVIDEND_YEARS - 1)
           : earliestPurchaseYear
         const yearsToFetch = Math.max(1, currentYear - resolvedEarliestPurchaseYear + 1)
-        setShowDividendRangeWarning(yearsToFetch > MAX_DIVIDEND_YEARS)
+        setShowDividendRangeWarning(isSynthetic || yearsToFetch > MAX_DIVIDEND_YEARS)
 
         const dividendBatchResults = stocks.length > 0
           ? await Promise.allSettled(
