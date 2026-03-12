@@ -127,7 +127,7 @@ export default function UpcomingDividends() {
     return (
       <div style={{ padding: 28 }}>
         <div style={{ background: 'var(--bg2)', border: '1px solid var(--border)', borderRadius: 8, padding: '32px', textAlign: 'center' }}>
-          <p style={{ color: 'var(--muted)', marginBottom: 16 }}>{error}</p>
+          <p role="alert" aria-live="assertive" aria-atomic="true" style={{ color: 'var(--muted)', marginBottom: 16 }}>{error}</p>
           <button className="btn btn-primary" onClick={() => fetchData(true)}>
             {t(language, 'common.retry')}
           </button>

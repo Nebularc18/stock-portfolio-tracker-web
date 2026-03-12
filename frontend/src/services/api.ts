@@ -517,10 +517,10 @@ export const api = {
   },
   
   finnhub: {
-    profile: (ticker: string) => fetchAPI(`/finnhub/profile/${ticker}`) as Promise<CompanyProfile>,
-    metrics: (ticker: string) => fetchAPI(`/finnhub/metrics/${ticker}`) as Promise<FinancialMetrics>,
-    peers: (ticker: string) => fetchAPI(`/finnhub/peers/${ticker}`) as Promise<string[]>,
-    recommendations: (ticker: string) => fetchAPI(`/finnhub/recommendations/${ticker}`) as Promise<RecommendationTrend[]>,
+    profile: (ticker: string) => fetchAPI(`/finnhub/profile/${encodePathSegment(ticker)}`) as Promise<CompanyProfile>,
+    metrics: (ticker: string) => fetchAPI(`/finnhub/metrics/${encodePathSegment(ticker)}`) as Promise<FinancialMetrics>,
+    peers: (ticker: string) => fetchAPI(`/finnhub/peers/${encodePathSegment(ticker)}`) as Promise<string[]>,
+    recommendations: (ticker: string) => fetchAPI(`/finnhub/recommendations/${encodePathSegment(ticker)}`) as Promise<RecommendationTrend[]>,
   },
   
   marketstack: {
@@ -530,15 +530,15 @@ export const api = {
       if (dateFrom) params.append('date_from', dateFrom)
       if (dateTo) params.append('date_to', dateTo)
       const query = params.toString() ? `?${params.toString()}` : ''
-      return fetchAPI(`/marketstack/dividends/${ticker}${query}`) as Promise<{
+      return fetchAPI(`/marketstack/dividends/${encodePathSegment(ticker)}${query}`) as Promise<{
         ticker: string
         dividends: Dividend[]
         count: number
         usage: MarketstackUsage
       }>
     },
-    verify: (ticker: string) => fetchAPI(`/marketstack/verify/${ticker}`, { method: 'POST' }) as Promise<VerificationResult>,
-    clearCache: (ticker: string) => fetchAPI(`/marketstack/cache/${ticker}`, { method: 'DELETE' }) as Promise<{ message: string }>,
+    verify: (ticker: string) => fetchAPI(`/marketstack/verify/${encodePathSegment(ticker)}`, { method: 'POST' }) as Promise<VerificationResult>,
+    clearCache: (ticker: string) => fetchAPI(`/marketstack/cache/${encodePathSegment(ticker)}`, { method: 'DELETE' }) as Promise<{ message: string }>,
   },
   
   avanza: {
@@ -558,7 +558,7 @@ export const api = {
     deleteMapping: (avanzaName: string) =>
       fetchAPI(`/avanza/mappings/${encodeURIComponent(avanzaName)}`, { method: 'DELETE' }) as Promise<{ message: string }>,
     historical: (ticker: string, years: number = 5) =>
-      fetchAPI(`/avanza/historical/${ticker}?years=${years}`) as Promise<Array<{
+      fetchAPI(`/avanza/historical/${encodePathSegment(ticker)}?years=${years}`) as Promise<Array<{
         date: string
         amount: number
         currency: string

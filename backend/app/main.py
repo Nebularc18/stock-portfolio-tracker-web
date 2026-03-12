@@ -53,6 +53,10 @@ def _get_request_timing_warn_ms() -> float:
         logger.warning("Non-finite REQUEST_TIMING_WARN_MS=%r; using default %.1f", raw_value, default_value)
         return default_value
 
+    if parsed_value <= 0:
+        logger.warning("Non-positive REQUEST_TIMING_WARN_MS=%r; using default %.1f", raw_value, default_value)
+        return default_value
+
     return parsed_value
 
 

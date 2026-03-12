@@ -1065,6 +1065,7 @@ html, body {
 
 .acct-nav-item:hover { color: var(--text2); background: rgba(255,255,255,0.03); }
 .acct-nav-item.a { color: var(--v2); border-left-color: var(--v2); background: rgba(129,140,248,0.06); }
+.acct-nav-item[aria-disabled="true"] { opacity: 0.45; cursor: not-allowed; }
 
 @media (max-width: 1100px) {
   .hero,
@@ -1132,7 +1133,9 @@ html, body {
 
   .div-summary-strip,
   .analytics-grid,
-  .pc-stats {
+  .pc-stats,
+  .mkt-strip,
+  .port-grid {
     grid-template-columns: 1fr 1fr;
   }
 
@@ -1153,8 +1156,16 @@ html, body {
 @media (max-width: 560px) {
   .div-summary-strip,
   .analytics-grid,
-  .pc-stats {
+  .pc-stats,
+  .mkt-strip,
+  .port-grid {
     grid-template-columns: 1fr;
+  }
+
+  .ms-cell,
+  .port-main {
+    border-right: none;
+    border-bottom: 1px solid var(--border);
   }
 
   .account-grid {
@@ -2001,11 +2012,11 @@ html, body {
       <div class="acct-name">Johan Davidsson</div>
       <div class="acct-email">johan@example.com</div>
       <button type="button" class="acct-nav-item a" aria-pressed="true">Profile</button>
-      <button type="button" class="acct-nav-item" aria-pressed="false">Preferences</button>
-      <button type="button" class="acct-nav-item" aria-pressed="false">Connected Brokers</button>
-      <button type="button" class="acct-nav-item" aria-pressed="false">Currency Settings</button>
-      <button type="button" class="acct-nav-item" aria-pressed="false">Security</button>
-      <button type="button" class="acct-nav-item" aria-pressed="false">Billing</button>
+      <button type="button" class="acct-nav-item" aria-pressed="false" aria-disabled="true" title="Coming soon">Preferences</button>
+      <button type="button" class="acct-nav-item" aria-pressed="false" aria-disabled="true" title="Coming soon">Connected Brokers</button>
+      <button type="button" class="acct-nav-item" aria-pressed="false" aria-disabled="true" title="Coming soon">Currency Settings</button>
+      <button type="button" class="acct-nav-item" aria-pressed="false" aria-disabled="true" title="Coming soon">Security</button>
+      <button type="button" class="acct-nav-item" aria-pressed="false" aria-disabled="true" title="Coming soon">Billing</button>
     </div>
     <div class="acct-content">
       <div class="acct-section-title">Profile Information</div>
@@ -2084,9 +2095,9 @@ document.querySelectorAll('.tx-filter-btn').forEach(btn => {
   });
 });
 
-document.querySelectorAll('.acct-nav-item').forEach(btn => {
+document.querySelectorAll('.acct-nav-item:not([aria-disabled="true"])').forEach(btn => {
   btn.addEventListener('click', function() {
-    document.querySelectorAll('.acct-nav-item').forEach(item => {
+    document.querySelectorAll('.acct-nav-item:not([aria-disabled="true"])').forEach(item => {
       item.classList.remove('a');
       item.setAttribute('aria-pressed', 'false');
     });

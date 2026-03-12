@@ -46,6 +46,7 @@ interface DividendWithStock {
   quantity: number
   purchaseDate: string | null
   date: string
+  paymentDate: string
   amount: number
   dividendCurrency: string
   dividendType: string | null
@@ -154,6 +155,7 @@ export default function HistoricalDividends() {
               quantity: stock.quantity,
               purchaseDate: stock.purchase_date,
               date: div.date,
+              paymentDate: div.payment_date ?? div.date,
               amount: div.amount,
               dividendCurrency: div.currency || stock.currency,
               dividendType: div.dividend_type || null,
@@ -168,6 +170,7 @@ export default function HistoricalDividends() {
           const uniqueKey = [
             div.ticker,
             div.date,
+            div.paymentDate,
             div.amount,
             div.dividendCurrency,
             div.dividendType || '',
@@ -179,7 +182,7 @@ export default function HistoricalDividends() {
 
         const payoutDates = Array.from(new Set(
           Array.from(uniqueDividendMap.values())
-            .map((div) => div.date)
+            .map((div) => div.paymentDate)
             .filter(Boolean)
         ))
 
@@ -230,9 +233,9 @@ export default function HistoricalDividends() {
     fetchDividends()
   }, [stocks])
 
-  const convertToSEK = (amount: number, currency: string, date: string): number | null => {
+  const convertToSEK = (amount: number, currency: string, paymentDate: string): number | null => {
     if (currency === 'SEK') return amount
-    const rate = exchangeRatesByDate[date]?.[`${currency}_SEK`]
+    const rate = exchangeRatesByDate[paymentDate]?.[`${currency}_SEK`]
     if (rate != null) return amount * rate
     return null
   }
@@ -248,7 +251,7 @@ export default function HistoricalDividends() {
   if (yearData) {
     for (const monthDivs of Object.values(yearData.months)) {
       for (const div of monthDivs) {
-        const converted = convertToSEK(div.amount * div.quantity, div.dividendCurrency, div.date)
+        const converted = convertToSEK(div.amount * div.quantity, div.dividendCurrency, div.paymentDate)
         if (converted === null) {
           yearMissingCurrencies.add(div.dividendCurrency)
           continue
@@ -335,7 +338,7 @@ export default function HistoricalDividends() {
               let monthTotal = 0
               const monthMissingCurrencies = new Set<string>()
               for (const div of monthDivs) {
-                const converted = convertToSEK(div.amount * div.quantity, div.dividendCurrency, div.date)
+                const converted = convertToSEK(div.amount * div.quantity, div.dividendCurrency, div.paymentDate)
                 if (converted === null) {
                   monthMissingCurrencies.add(div.dividendCurrency)
                   continue
@@ -374,7 +377,7 @@ export default function HistoricalDividends() {
                         {[...monthDivs]
                           .sort((a, b) => a.date.localeCompare(b.date))
                           .map((div, i) => {
-                            const totalSEK = convertToSEK(div.amount * div.quantity, div.dividendCurrency, div.date)
+                            const totalSEK = convertToSEK(div.amount * div.quantity, div.dividendCurrency, div.paymentDate)
                             return (
                               <tr key={`${div.ticker}-${i}`}>
                                  <td>

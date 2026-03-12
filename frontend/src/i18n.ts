@@ -77,6 +77,7 @@ const en = {
     'common.delete': 'Delete',
     'common.autoRefresh10m': 'Auto-refresh every 10 min',
     'common.year': 'Year',
+    'guest': 'Guest',
 
     'markets.title': 'Markets',
     'markets.loadingData': 'Loading market data...',
@@ -116,6 +117,7 @@ const en = {
     'stocks.editTitle': 'Edit {{ticker}}',
     'stocks.saving': 'Saving...',
     'stocks.save': 'Save',
+    'stocks.invalidEditValues': 'Enter valid non-negative values and a purchase date that is not in the future.',
 
     'performance.title': 'Performance',
     'performance.exportCsv': 'Export CSV',
@@ -128,6 +130,7 @@ const en = {
     'analytics.portfolioDistribution': 'Portfolio Distribution',
     'analytics.sectorDistribution': 'Sector Distribution',
     'analytics.countryDistribution': 'Country Distribution',
+    'analytics.others': 'Others',
     'analytics.dividendComparison': 'Dividend Comparison',
     'analytics.dividendComparisonHint': 'Compare up to three years and switch the years you want to view.',
     'analytics.noData': 'No portfolio data available. Add stocks to see analytics.',
@@ -272,6 +275,7 @@ const en = {
     'stockDetail.saving': 'Saving...',
     'stockDetail.save': 'Save',
     'stockDetail.invalidPositionValues': 'Enter valid non-negative values for quantity and purchase price.',
+    'stockDetail.invalidDividendAmount': 'Enter a valid non-negative dividend amount.',
     'stockDetail.editDividend': 'Edit Dividend',
     'stockDetail.noteOptional': 'Note (optional)',
 
@@ -478,6 +482,7 @@ const sv: LocaleTranslations = {
     'common.delete': 'Ta bort',
     'common.autoRefresh10m': 'Uppdateras automatiskt var 10:e minut',
     'common.year': 'År',
+    'guest': 'Gäst',
 
     'markets.title': 'Marknader',
     'markets.loadingData': 'Laddar marknadsdata...',
@@ -517,6 +522,7 @@ const sv: LocaleTranslations = {
     'stocks.editTitle': 'Redigera {{ticker}}',
     'stocks.saving': 'Sparar...',
     'stocks.save': 'Spara',
+    'stocks.invalidEditValues': 'Ange giltiga icke-negativa värden och ett inköpsdatum som inte ligger i framtiden.',
 
     'performance.title': 'Prestanda',
     'performance.exportCsv': 'Exportera CSV',
@@ -529,6 +535,7 @@ const sv: LocaleTranslations = {
     'analytics.portfolioDistribution': 'Portföljfördelning',
     'analytics.sectorDistribution': 'Sektorfördelning',
     'analytics.countryDistribution': 'Landfördelning',
+    'analytics.others': 'Övriga',
     'analytics.dividendComparison': 'Jämförelse utdelningar',
     'analytics.dividendComparisonHint': 'Jämför upp till tre år och byt vilka år du vill visa.',
     'analytics.noData': 'Ingen portföljdata tillgänglig. Lägg till aktier för att se analys.',
@@ -671,6 +678,7 @@ const sv: LocaleTranslations = {
     'stockDetail.saving': 'Sparar...',
     'stockDetail.save': 'Spara',
     'stockDetail.invalidPositionValues': 'Ange giltiga icke-negativa värden för antal och inköpspris.',
+    'stockDetail.invalidDividendAmount': 'Ange ett giltigt icke-negativt utdelningsbelopp.',
     'stockDetail.editDividend': 'Redigera utdelning',
     'stockDetail.noteOptional': 'Notering (valfritt)',
 

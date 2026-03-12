@@ -859,7 +859,7 @@ def get_index_sparklines():
                 
                 prices = []
                 dates = []
-                for ts, price in zip(timestamps, closes):
+                for ts, price in zip(timestamps, closes, strict=False):
                     if price is not None:
                         prices.append(price)
                         dates.append(datetime.fromtimestamp(ts, tz=timezone.utc).strftime('%Y-%m-%d'))
@@ -877,8 +877,8 @@ def get_index_sparklines():
                         "end_value": end_price,
                         "change_percent": change_percent,
                     }
-            except Exception as e:
-                logger.error(f"Error fetching sparkline for {symbol}: {e}")
+            except Exception:
+                logger.exception("Error fetching sparkline for %s", symbol)
                 continue
     finally:
         session.close()

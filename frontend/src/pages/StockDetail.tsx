@@ -245,6 +245,7 @@ export default function StockDetail() {
   const [editPurchaseDate, setEditPurchaseDate] = useState('')
   const [saving, setSaving] = useState(false)
   const [showDividendModal, setShowDividendModal] = useState(false)
+  const [dividendError, setDividendError] = useState<string | null>(null)
   const [editingDividend, setEditingDividend] = useState<ManualDividend | null>(null)
   const [divDate, setDivDate] = useState('')
   const [divAmount, setDivAmount] = useState('')
@@ -680,6 +681,7 @@ export default function StockDetail() {
   }
 
   const openAddDividendModal = () => {
+    setDividendError(null)
     setEditingDividend(null)
     setDivDate('')
     setDivAmount('')
@@ -688,6 +690,7 @@ export default function StockDetail() {
   }
 
   const openEditDividendModal = (div: ManualDividend) => {
+    setDividendError(null)
     setEditingDividend(div)
     setDivDate(div.date)
     setDivAmount(div.amount.toString())
@@ -697,19 +700,25 @@ export default function StockDetail() {
 
   const handleSaveDividend = async () => {
     if (!ticker || !divDate || !divAmount) return
+    const amount = Number.parseFloat(divAmount)
+    if (!Number.isFinite(amount) || amount < 0) {
+      setDividendError(t(language, 'stockDetail.invalidDividendAmount'))
+      return
+    }
     try {
+      setDividendError(null)
       setSaving(true)
       if (editingDividend) {
         const updated = await api.stocks.updateManualDividend(ticker, editingDividend.id, {
           date: divDate,
-          amount: parseFloat(divAmount),
+          amount,
           note: divNote || undefined,
         })
         setStock(updated)
       } else {
         const updated = await api.stocks.addManualDividend(ticker, {
           date: divDate,
-          amount: parseFloat(divAmount),
+          amount,
           currency: stock?.currency,
           note: divNote || undefined,
         })
@@ -1435,12 +1444,15 @@ export default function StockDetail() {
             </div>
             <div style={{ marginBottom: 14 }}>
               <label htmlFor={dividendAmountInputId} style={{ display: 'block', marginBottom: 6, color: 'var(--muted)', fontSize: 12 }}>{t(language, 'stockDetail.amount')} ({stock?.currency})</label>
-              <input id={dividendAmountInputId} type="number" step="0.01" value={divAmount} onChange={(e) => setDivAmount(e.target.value)} style={{ width: '100%' }} placeholder="e.g. 1.50" />
+              <input id={dividendAmountInputId} type="number" step="0.01" min="0" value={divAmount} onChange={(e) => setDivAmount(e.target.value)} style={{ width: '100%' }} placeholder="e.g. 1.50" />
             </div>
             <div style={{ marginBottom: 22 }}>
               <label htmlFor={dividendNoteInputId} style={{ display: 'block', marginBottom: 6, color: 'var(--muted)', fontSize: 12 }}>{t(language, 'stockDetail.noteOptional')}</label>
               <input id={dividendNoteInputId} type="text" value={divNote} onChange={(e) => setDivNote(e.target.value)} style={{ width: '100%' }} placeholder="e.g. Q1 2024 dividend" />
             </div>
+            {dividendError && (
+              <p style={{ color: 'var(--red)', fontSize: 12, marginBottom: 14 }}>{dividendError}</p>
+            )}
             <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
               <button className="btn btn-secondary" onClick={() => setShowDividendModal(false)}>{t(language, 'stockDetail.cancel')}</button>
               <button className="btn btn-primary" onClick={handleSaveDividend} disabled={saving || !divDate || !divAmount}>

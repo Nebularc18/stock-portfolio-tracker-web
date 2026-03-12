@@ -150,12 +150,15 @@ export default function Performance() {
     const fetchData = async () => {
       try {
         setLoading(true)
-        const [stocksData, ratesData] = await Promise.all([
-          api.stocks.list(),
-          api.market.exchangeRates(),
-        ])
+        const stocksData = await api.stocks.list()
         setStocks(stocksData)
-        setExchangeRates(ratesData)
+        try {
+          const ratesData = await api.market.exchangeRates()
+          setExchangeRates(ratesData)
+        } catch (ratesError) {
+          console.error('Failed to load exchange rates:', ratesError)
+          setExchangeRates({})
+        }
       } catch (err) {
         console.error('Failed to load data:', err)
       } finally {
@@ -283,6 +286,7 @@ export default function Performance() {
     )
   ))
   const hasMissing = missingRateStocks.length > 0
+  const hasMissingDailyChange = performanceData.some((stock) => stock.dailyChange === null || stock.dailyChangeSEK === null)
 
   const totalValue = performanceData.reduce((sum, s) => sum + (s.valueSEK ?? 0), 0)
   const totalCost = performanceData.reduce((sum, s) => sum + (s.costSEK ?? 0), 0)
@@ -342,10 +346,10 @@ export default function Performance() {
         background: 'linear-gradient(115deg, var(--bg-dark, #12141c) 0%, var(--bg) 55%)',
       }}>
         {[
-          { label: t(language, 'performance.totalValue'), value: formatCurrency(totalValue, locale, 'SEK'), color: 'var(--text)' },
-          { label: t(language, 'performance.totalCost'), value: formatCurrency(totalCost, locale, 'SEK'), color: 'var(--text2)' },
-          { label: t(language, 'performance.totalGainLoss'), value: formatCurrency(totalGain, locale, 'SEK'), sub: formatPercent(totalGainPercent, locale), color: totalGain >= 0 ? 'var(--green)' : 'var(--red)' },
-          { label: t(language, 'performance.dailyChange'), value: formatCurrency(totalDailyChange, locale, 'SEK'), color: totalDailyChange >= 0 ? 'var(--green)' : 'var(--red)' },
+          { label: t(language, 'performance.totalValue'), value: formatCurrency(totalValue, locale, 'SEK'), color: 'var(--text)', incomplete: hasMissing },
+          { label: t(language, 'performance.totalCost'), value: formatCurrency(totalCost, locale, 'SEK'), color: 'var(--text2)', incomplete: hasMissing },
+          { label: t(language, 'performance.totalGainLoss'), value: formatCurrency(totalGain, locale, 'SEK'), sub: formatPercent(totalGainPercent, locale), color: totalGain >= 0 ? 'var(--green)' : 'var(--red)', incomplete: hasMissing },
+          { label: t(language, 'performance.dailyChange'), value: formatCurrency(totalDailyChange, locale, 'SEK'), color: totalDailyChange >= 0 ? 'var(--green)' : 'var(--red)', incomplete: hasMissingDailyChange },
         ].map((stat, i, arr) => (
           <div key={stat.label} style={{
             padding: '26px 28px',
@@ -355,7 +359,7 @@ export default function Performance() {
               {stat.label}
             </div>
             <div style={{ fontSize: 24, fontWeight: 800, letterSpacing: '-0.02em', lineHeight: 1, color: stat.color }}>
-              {stat.value}{hasMissing ? ' *' : ''}
+              {stat.value}{stat.incomplete ? ' *' : ''}
             </div>
             {stat.sub && (
               <div style={{ fontSize: 12, fontWeight: 600, marginTop: 4, color: stat.color, fontFamily: "'Fira Code', monospace" }}>{stat.sub}</div>

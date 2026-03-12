@@ -19,7 +19,7 @@ type DistributionDatum = {
   value: number
 }
 
-function aggregateDistributionData(data: DistributionDatum[], limit: number = 4): DistributionDatum[] {
+function aggregateDistributionData(data: DistributionDatum[], othersLabel: string, limit: number = 4): DistributionDatum[] {
   const sortedData = [...data].sort((a, b) => b.value - a.value)
   if (sortedData.length <= limit) return sortedData
 
@@ -27,7 +27,7 @@ function aggregateDistributionData(data: DistributionDatum[], limit: number = 4)
   const remainingValue = sortedData.slice(limit).reduce((sum, entry) => sum + entry.value, 0)
 
   return remainingValue > 0
-    ? [...topEntries, { name: 'Others', value: remainingValue }]
+    ? [...topEntries, { name: othersLabel, value: remainingValue }]
     : topEntries
 }
 
@@ -204,76 +204,86 @@ export default function Analytics() {
       setStockNamesByTicker(Object.fromEntries(
         stocksData.map((stock) => [stock.ticker, formatDisplayName(stock.name, stock.ticker)])
       ))
-      const targetCurrency = distributionData.display_currency || displayCurrency
+      try {
+        const targetCurrency = distributionData.display_currency || displayCurrency
 
-      const now = new Date()
-      const currentYear = now.getUTCFullYear()
-      const fallbackYears = [currentYear - 2, currentYear - 1, currentYear]
-      const dividendEvents: Array<{ year: number; monthIndex: number; value: number }> = []
+        const now = new Date()
+        const currentYear = now.getUTCFullYear()
+        const fallbackYears = [currentYear - 2, currentYear - 1, currentYear]
+        const dividendEvents: Array<{ year: number; monthIndex: number; value: number }> = []
 
-      const dividendsByTicker: DividendsByTicker = stocksData.length > 0
-        ? await api.stocks.dividendsForTickers(stocksData.map((stock) => stock.ticker), 5)
-        : {}
+        const dividendsByTicker: DividendsByTicker = stocksData.length > 0
+          ? await api.stocks.dividendsForTickers(stocksData.map((stock) => stock.ticker), 5)
+          : {}
 
-      const dividendResults = stocksData.map((stock) => ({
-        stock,
-        dividends: (dividendsByTicker[stock.ticker] || []) as Dividend[],
-      }))
+        const dividendResults = stocksData.map((stock) => ({
+          stock,
+          dividends: (dividendsByTicker[stock.ticker] || []) as Dividend[],
+        }))
 
-      const payoutDates = Array.from(new Set(
-        dividendResults.flatMap(({ dividends }) => dividends.map((div) => div.payment_date || div.date).filter(Boolean))
-      ))
-      const fxRatesByDate = payoutDates.length > 0
-        ? await api.market.exchangeRatesBatch(payoutDates)
-        : {}
+        const payoutDates = Array.from(new Set(
+          dividendResults.flatMap(({ dividends }) => dividends.map((div) => div.payment_date || div.date).filter(Boolean))
+        ))
+        const fxRatesByDate = payoutDates.length > 0
+          ? await api.market.exchangeRatesBatch(payoutDates)
+          : {}
 
-      for (const { stock, dividends } of dividendResults) {
-        for (const div of dividends) {
-          if (stock.purchase_date && div.date < stock.purchase_date) continue
-          const payoutDate = div.payment_date || div.date
-          if (!payoutDate) continue
-          const year = Number(payoutDate.slice(0, 4))
-          const monthIndex = Number(payoutDate.slice(5, 7)) - 1
-          if (!Number.isFinite(year) || monthIndex < 0 || monthIndex > 11) continue
-          const sourceCurrency = div.currency || stock.currency
-          const fxRates = fxRatesByDate[payoutDate]
-          if (!fxRates && sourceCurrency !== targetCurrency) continue
-          const convertedAmount = convertDividendValue(div.amount || 0, div.currency || stock.currency, targetCurrency, fxRates)
-          if (convertedAmount === null) continue
-          dividendEvents.push({
-            year,
-            monthIndex,
-            value: convertedAmount * stock.quantity,
-          })
+        for (const { stock, dividends } of dividendResults) {
+          for (const div of dividends) {
+            if (stock.purchase_date && div.date < stock.purchase_date) continue
+            const payoutDate = div.payment_date || div.date
+            if (!payoutDate) continue
+            const year = Number(payoutDate.slice(0, 4))
+            const monthIndex = Number(payoutDate.slice(5, 7)) - 1
+            if (!Number.isFinite(year) || monthIndex < 0 || monthIndex > 11) continue
+            const sourceCurrency = div.currency || stock.currency
+            const fxRates = fxRatesByDate[payoutDate]
+            if (!fxRates && sourceCurrency !== targetCurrency) continue
+            const convertedAmount = convertDividendValue(div.amount || 0, div.currency || stock.currency, targetCurrency, fxRates)
+            if (convertedAmount === null) continue
+            dividendEvents.push({
+              year,
+              monthIndex,
+              value: convertedAmount * stock.quantity,
+            })
+          }
         }
-      }
 
-      const sortedYears = Array.from(new Set([...fallbackYears, ...dividendEvents.map((event) => event.year)])).sort((a, b) => a - b)
-      const monthTotals = Array.from({ length: 12 }, (_, monthIndex) => {
-        const row: DividendComparisonRow = {
-          month: new Date(Date.UTC(2000, monthIndex, 1)).toLocaleDateString(locale, { month: 'long', timeZone: 'UTC' }),
-        }
-        for (const year of sortedYears) {
-          row[String(year)] = 0
-        }
-        return row
-      })
+        const sortedYears = Array.from(new Set([...fallbackYears, ...dividendEvents.map((event) => event.year)])).sort((a, b) => a - b)
+        const monthTotals = Array.from({ length: 12 }, (_, monthIndex) => {
+          const row: DividendComparisonRow = {
+            month: new Date(Date.UTC(2000, monthIndex, 1)).toLocaleDateString(locale, { month: 'long', timeZone: 'UTC' }),
+          }
+          for (const year of sortedYears) {
+            row[String(year)] = 0
+          }
+          return row
+        })
 
-      for (const event of dividendEvents) {
-        const key = String(event.year)
-        monthTotals[event.monthIndex][key] = Number(monthTotals[event.monthIndex][key] || 0) + event.value
+        for (const event of dividendEvents) {
+          const key = String(event.year)
+          monthTotals[event.monthIndex][key] = Number(monthTotals[event.monthIndex][key] || 0) + event.value
+        }
+
+        if (!isCurrentFetch()) return
+        setDividendComparisonData(monthTotals)
+        setAvailableComparisonYears([...sortedYears].sort((a, b) => b - a))
+        setSelectedComparisonYears((previousYears) => {
+          const validPreviousYears = previousYears.filter((year) => sortedYears.includes(year))
+          if (validPreviousYears.length > 0) {
+            return validPreviousYears.slice(-3)
+          }
+          return sortedYears.slice(-3)
+        })
+      } catch (dividendError) {
+        console.error('Failed to load analytics dividend comparison data:', dividendError)
+        if (!isCurrentFetch()) return
+        setDividendComparisonData([])
+        setAvailableComparisonYears([])
+        setSelectedComparisonYears([])
       }
 
       if (!isCurrentFetch()) return
-      setDividendComparisonData(monthTotals)
-      setAvailableComparisonYears([...sortedYears].sort((a, b) => b - a))
-      setSelectedComparisonYears((previousYears) => {
-        const validPreviousYears = previousYears.filter((year) => sortedYears.includes(year))
-        if (validPreviousYears.length > 0) {
-          return validPreviousYears.slice(-3)
-        }
-        return sortedYears.slice(-3)
-      })
       setError(null)
     } catch (err) {
       console.error('Failed to load analytics data:', err)
@@ -307,9 +317,10 @@ export default function Analytics() {
       })
     : []
 
-  const sectorData = aggregateDistributionData(rawSectorData)
-  const countryData = aggregateDistributionData(rawCountryData)
-  const stockData = aggregateDistributionData(rawStockData)
+  const othersLabel = t(language, 'analytics.others')
+  const sectorData = aggregateDistributionData(rawSectorData, othersLabel)
+  const countryData = aggregateDistributionData(rawCountryData, othersLabel)
+  const stockData = aggregateDistributionData(rawStockData, othersLabel)
 
   const handleToggleComparisonYear = (year: number) => {
     setSelectedComparisonYears((currentYears) => {
@@ -369,7 +380,7 @@ export default function Analytics() {
 
       <div style={{ padding: '0 28px 28px' }}>
 
-        {(sectorData.length > 0 || stockData.length > 0 || countryData.length > 0) ? (
+        {(sectorData.length > 0 || stockData.length > 0 || countryData.length > 0 || hasDividendComparisonData) ? (
           <>
             {/* ── DISTRIBUTION CHARTS ── */}
             <div className="grid grid-3" style={{ marginTop: 20, marginBottom: 20 }}>

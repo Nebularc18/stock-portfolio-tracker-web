@@ -68,6 +68,7 @@ function getLocalDateInputValue(value: Date = new Date()): string {
   const [editPurchasePrice, setEditPurchasePrice] = useState('')
   const [editPurchaseDate, setEditPurchaseDate] = useState('')
   const [saving, setSaving] = useState(false)
+  const [editError, setEditError] = useState<string | null>(null)
   const [lastUpdate, setLastUpdate] = useState<string | null>(null)
   const [failedLogos, setFailedLogos] = useState<Record<string, boolean>>({})
   const editModalRef = useRef<HTMLDivElement | null>(null)
@@ -165,6 +166,7 @@ function getLocalDateInputValue(value: Date = new Date()): string {
   }
 
   const openEditModal = (stock: Stock) => {
+    setEditError(null)
     setEditStock(stock)
     setEditQuantity(stock.quantity.toString())
     setEditPurchasePrice(stock.purchase_price?.toString() || '')
@@ -173,16 +175,34 @@ function getLocalDateInputValue(value: Date = new Date()): string {
 
   const handleSaveEdit = async () => {
     if (!editStock) return
-    try {
-      setSaving(true)
-      const parsedQuantity = parseFloat(editQuantity)
-      const quantity = editQuantity.trim() === '' || Number.isNaN(parsedQuantity)
-        ? undefined
-        : parsedQuantity
+    const quantityValue = editQuantity.trim()
+    const purchasePriceValue = editPurchasePrice.trim()
+    const parsedQuantity = Number(quantityValue)
+    const parsedPurchasePrice = Number(purchasePriceValue)
+    const quantity = quantityValue === '' ? undefined : parsedQuantity
+    const purchasePrice = purchasePriceValue === '' ? undefined : parsedPurchasePrice
+    const validDateFormat = /^\d{4}-\d{2}-\d{2}$/
+    const parsedDate = editPurchaseDate === '' ? null : new Date(`${editPurchaseDate}T00:00:00Z`)
+    const isValidPurchaseDate = editPurchaseDate === '' || (
+      validDateFormat.test(editPurchaseDate)
+      && Number.isFinite(parsedDate?.getTime())
+      && editPurchaseDate <= maxPurchaseDate
+    )
 
+    if (
+      (quantity !== undefined && (!Number.isFinite(quantity) || quantity < 0))
+      || (purchasePrice !== undefined && (!Number.isFinite(purchasePrice) || purchasePrice < 0))
+      || !isValidPurchaseDate
+    ) {
+      setEditError(t(language, 'stocks.invalidEditValues'))
+      return
+    }
+    try {
+      setEditError(null)
+      setSaving(true)
       await api.stocks.update(editStock.ticker, {
         quantity,
-        purchase_price: editPurchasePrice ? parseFloat(editPurchasePrice) : undefined,
+        purchase_price: purchasePrice,
         purchase_date: editPurchaseDate === '' ? null : editPurchaseDate,
       })
       setEditStock(null)
@@ -460,6 +480,9 @@ function getLocalDateInputValue(value: Date = new Date()): string {
                 </label>
                 <input id={editPurchaseDateInputId} type="date" value={editPurchaseDate} onChange={(e) => setEditPurchaseDate(e.target.value)} max={maxPurchaseDate} style={{ width: '100%' }} />
               </div>
+              {editError && (
+                <p style={{ color: 'var(--red)', fontSize: 12, marginBottom: 16 }}>{editError}</p>
+              )}
               <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
                 <button type="button" className="btn btn-secondary" onClick={() => setEditStock(null)}>
                   {t(language, 'stocks.cancel')}

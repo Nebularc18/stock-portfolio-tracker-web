@@ -139,9 +139,14 @@ export default function InfographicLayout() {
             const safeChangePct = idx.change_percent != null && Number.isFinite(Number(idx.change_percent))
               ? Number(idx.change_percent) : null
             const isPos = safeChange !== null
-              ? safeChange >= 0
+              ? safeChange > 0
               : safeChangePct !== null
-                ? safeChangePct >= 0
+                ? safeChangePct > 0
+                : false
+            const isNeg = safeChange !== null
+              ? safeChange < 0
+              : safeChangePct !== null
+                ? safeChangePct < 0
                 : false
             return (
               <div key={idx.symbol} className="tb-idx">
@@ -152,8 +157,9 @@ export default function InfographicLayout() {
                     : '—'}
                 </span>
                 {safeChangePct !== null && (
-                  <span className={`ti-ch ${isPos ? 'up' : 'dn'}`}>
-                    {isPos ? '↑' : '↓'}{Math.abs(safeChangePct).toFixed(2)}%
+                  <span className={`ti-ch ${isPos ? 'up' : isNeg ? 'dn' : ''}`}>
+                    {isPos ? '↑' : isNeg ? '↓' : ''}
+                    {Math.abs(safeChangePct).toLocaleString(locale, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}%
                   </span>
                 )}
               </div>
@@ -161,22 +167,28 @@ export default function InfographicLayout() {
           })}
 
           {/* FX rates */}
-          {(exchangeRates.USD_SEK != null || exchangeRates.EUR_SEK != null) && (
-            <div className="tb-idx" style={{ gap: 12 }}>
-              {exchangeRates.USD_SEK != null && (
-                <span style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
-                  <span className="ti-nm">USD/SEK</span>
-                  <span className="ti-vl">{Number(exchangeRates.USD_SEK).toFixed(4)}</span>
-                </span>
-              )}
-              {exchangeRates.EUR_SEK != null && (
-                <span style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
-                  <span className="ti-nm">EUR/SEK</span>
-                  <span className="ti-vl">{Number(exchangeRates.EUR_SEK).toFixed(4)}</span>
-                </span>
-              )}
-            </div>
-          )}
+          {(() => {
+            const usdSek = Number.isFinite(Number(exchangeRates.USD_SEK)) ? Number(exchangeRates.USD_SEK) : null
+            const eurSek = Number.isFinite(Number(exchangeRates.EUR_SEK)) ? Number(exchangeRates.EUR_SEK) : null
+            if (usdSek === null && eurSek === null) return null
+
+            return (
+              <div className="tb-idx" style={{ gap: 12 }}>
+                {usdSek !== null && (
+                  <span style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
+                    <span className="ti-nm">USD/SEK</span>
+                    <span className="ti-vl">{usdSek.toLocaleString(locale, { minimumFractionDigits: 4, maximumFractionDigits: 4 })}</span>
+                  </span>
+                )}
+                {eurSek !== null && (
+                  <span style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
+                    <span className="ti-nm">EUR/SEK</span>
+                    <span className="ti-vl">{eurSek.toLocaleString(locale, { minimumFractionDigits: 4, maximumFractionDigits: 4 })}</span>
+                  </span>
+                )}
+              </div>
+            )
+          })()}
         </div>
 
         {/* Clock + user */}
@@ -186,7 +198,7 @@ export default function InfographicLayout() {
           <span style={{ borderLeft: '1px solid var(--border)', paddingLeft: 14, marginLeft: 8 }}>
             {user?.username || ''}
             {user?.is_guest ? (
-              <span style={{ color: 'var(--amber)', marginLeft: 4, fontSize: 9 }}>GUEST</span>
+              <span style={{ color: 'var(--amber)', marginLeft: 4, fontSize: 9 }}>{t(language, 'guest')}</span>
             ) : null}
           </span>
           <button
