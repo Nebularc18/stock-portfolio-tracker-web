@@ -16,7 +16,10 @@ from datetime import datetime, timezone, timedelta
 from typing import Optional, Dict, Any, List
 from dataclasses import dataclass, asdict
 
+from app.services.env_utils import parse_float_env
+
 logger = logging.getLogger(__name__)
+SLOW_MARKETSTACK_REQUEST_MS = parse_float_env('SLOW_MARKETSTACK_REQUEST_MS', 800.0, logger)
 
 CACHE_DIR = os.path.join(os.path.dirname(__file__), '..', '..', 'data', 'cache')
 os.makedirs(CACHE_DIR, exist_ok=True)
@@ -257,18 +260,19 @@ class MarketstackService:
         return bool(self.api_key)
     
     def _make_request(self, endpoint: str, params: Optional[Dict[str, Any]] = None) -> Optional[Any]:
-        """Make an authenticated request to the Marketstack API.
+        """
+        Perform an authenticated HTTP GET to a Marketstack endpoint and return the parsed JSON.
         
-        Args:
-            endpoint: API endpoint path (e.g., 'dividends').
-            params: Optional query parameters.
+        Parameters:
+            endpoint (str): API endpoint path (for example, "dividends").
+            params (Optional[Dict[str, Any]]): Query parameters to include in the request.
         
         Returns:
-            JSON response data, or None if request fails.
+            The parsed JSON response on success, or None when the API returns 404 or 422.
         
         Raises:
-            FetchError: If API key not configured, rate limit reached,
-                or other API error.
+            FetchError: If the API key is not configured, the monthly call limit is reached,
+                the request is rate-limited (429), or another API/network error occurs.
         """
         if not self.api_key:
             raise FetchError("Marketstack API key not configured", 503)
@@ -278,13 +282,14 @@ class MarketstackService:
         
         params = params or {}
         params['access_key'] = self.api_key
+        response = None
+        started_at = time.perf_counter()
         
         try:
             url = f"{self.base_url}/{endpoint}"
             response = requests.get(url, params=params, timeout=15)
             
             if response.status_code == 429:
-                _decrement_usage()
                 raise FetchError("Marketstack rate limit reached", 429)
             
             if response.status_code in (404, 422):
@@ -302,6 +307,25 @@ class MarketstackService:
         except Exception as e:
             _decrement_usage()
             raise FetchError(f"Marketstack request failed: {e}", 502) from e
+        finally:
+            duration_ms = (time.perf_counter() - started_at) * 1000
+            status = response.status_code if response is not None else 'no-response'
+            if duration_ms >= SLOW_MARKETSTACK_REQUEST_MS:
+                logger.warning(
+                    "Marketstack request slow endpoint=%s symbols=%s status=%s duration_ms=%.1f",
+                    endpoint,
+                    params.get('symbols'),
+                    status,
+                    duration_ms,
+                )
+            else:
+                logger.info(
+                    "Marketstack request endpoint=%s symbols=%s status=%s duration_ms=%.1f",
+                    endpoint,
+                    params.get('symbols'),
+                    status,
+                    duration_ms,
+                )
     
     def fetch_dividends(
         self, 

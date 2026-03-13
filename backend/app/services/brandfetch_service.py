@@ -9,6 +9,8 @@ import logging
 import os
 import re
 import hashlib
+import mimetypes
+import tempfile
 from datetime import datetime
 from typing import Optional
 from urllib.parse import quote, urlparse
@@ -17,16 +19,32 @@ import requests
 
 logger = logging.getLogger(__name__)
 
+
+class LogoDownloadTransientError(Exception):
+    """Raised when logo download fails transiently and should not null-cache."""
+
 CACHE_DIR = os.path.join(os.path.dirname(__file__), '..', '..', 'data', 'cache')
+LOGO_DIR = os.path.join(os.path.dirname(__file__), '..', '..', 'data', 'static', 'logos')
 os.makedirs(CACHE_DIR, exist_ok=True)
+os.makedirs(LOGO_DIR, exist_ok=True)
 
 _LOGO_CACHE_TTL = 86400
+MAX_LOGO_BYTES = 5 * 1024 * 1024
 _LOGO_CACHE: dict[str, tuple[Optional[str], float]] = {}
 _CURATED_LOGO_QUERIES: dict[str, list[str]] = {
     "VOLV-B.ST": ["volvogroup.com", "Volvo Group"],
 }
 
 _session: Optional[requests.Session] = None
+_ALLOWED_REMOTE_LOGO_HOSTS = {
+    'cdn.brandfetch.io',
+    'logo.clearbit.com',
+    'www.google.com',
+    'icons.duckduckgo.com',
+}
+_LEGACY_BRANDFETCH_HOSTS = {
+    'cdn.brandfetch.io',
+}
 
 
 def _resolve_cache_path(filename: str) -> str:
@@ -51,16 +69,33 @@ def _resolve_cache_path(filename: str) -> str:
 
 def _safe_logo_cache_filename(ticker_upper: str) -> str:
     """
-    Return a deterministic, filesystem-safe cache filename for a ticker.
+    Generate a deterministic, filesystem-safe cache filename for an uppercased ticker.
     
     Parameters:
-        ticker_upper (str): Uppercased ticker string used to derive the filename.
+        ticker_upper (str): Uppercased ticker used to derive the filename.
     
     Returns:
         filename (str): Versioned JSON filename derived from the SHA-256 digest (first 24 hex chars) of the ticker, e.g. "brandfetch_logo_v2_<digest>.json".
     """
     digest = hashlib.sha256(ticker_upper.encode('utf-8')).hexdigest()[:24]
     return f"brandfetch_logo_v2_{digest}.json"
+
+
+def _safe_logo_asset_filename(ticker_upper: str, source: str, extension: str) -> str:
+    """
+    Create a deterministic, filesystem-safe filename for a downloaded logo asset.
+    
+    Parameters:
+        ticker_upper (str): Uppercase ticker symbol used as part of the identity for the asset.
+        source (str): Source identifier or URL used to distinguish different assets for the same ticker.
+        extension (str): File extension (with or without leading dot); will be normalized to start with a dot.
+    
+    Returns:
+        filename (str): A filename in the form "logo_<digest><extension>" where <digest> is a stable short hash derived from `ticker_upper` and `source`.
+    """
+    digest = hashlib.sha256(f"{ticker_upper}:{source}".encode('utf-8')).hexdigest()[:24]
+    sanitized_extension = extension if extension.startswith('.') else f'.{extension}'
+    return f"logo_{digest}{sanitized_extension}"
 
 
 def _get_session() -> requests.Session:
@@ -142,20 +177,237 @@ def _save_file_cache(filename: str, value: Optional[str], ttl: int = _LOGO_CACHE
 
 
 class BrandfetchService:
-    def _root_domain_token(self, domain: str) -> str:
+    def _is_local_logo_url(self, value: Optional[str]) -> bool:
         """
-        Derives a root domain token from a domain-like string.
+        Determine whether a string is a public local logo path under /static/logos/.
         
-        Strips any path or port, lowercases the input, and returns a concise identifier for the domain:
-        - If the hostname ends with a recognized top-level domain (e.g., "com", "net", "io", "se"), returns the second-level label (e.g., "example" for "example.com").
-        - Otherwise returns the first hostname label.
-        Returns an empty string for empty or invalid input.
+        @returns `true` if `value` is a non-empty string that starts with "/static/logos/", `false` otherwise.
+        """
+        return bool(value and value.startswith('/static/logos/'))
+
+    def _is_remote_logo_url(self, value: Optional[str]) -> bool:
+        """
+        Determine whether a value is an absolute HTTP(S) URL that includes a network location.
         
         Parameters:
-            domain (str): A domain, hostname, or domain-like string (may include path or port).
+            value (Optional[str]): The value to test; may be None or an empty string.
         
         Returns:
-            str: The root domain token, or an empty string if none can be determined.
+            True if the value is an HTTP or HTTPS URL with a netloc, False otherwise.
+        """
+        if not value:
+            return False
+        parsed = urlparse(value)
+        return parsed.scheme in {'http', 'https'} and bool(parsed.netloc)
+
+    def _is_allowed_remote_logo_url(self, value: str) -> bool:
+        """
+        Check whether a remote logo URL is allowed based on scheme and host.
+        
+        Parameters:
+            value (str): The URL to validate.
+        
+        Returns:
+            true if the URL uses `http` or `https` and its hostname is in the allowed hosts set, `false` otherwise.
+        """
+        parsed = urlparse(value)
+        return parsed.scheme in {'http', 'https'} and parsed.netloc.lower() in _ALLOWED_REMOTE_LOGO_HOSTS
+
+    def _is_legacy_remote_logo_url(self, value: str) -> bool:
+        """
+        Determine whether a URL points to a legacy Brandfetch host.
+        
+        Parameters:
+            value (str): The URL to check.
+        
+        Returns:
+            true if `value` is an `http` or `https` URL whose host is listed in the legacy Brandfetch hosts, false otherwise.
+        """
+        if not value:
+            return False
+        parsed = urlparse(value)
+        return parsed.scheme in {'http', 'https'} and parsed.netloc.lower() in _LEGACY_BRANDFETCH_HOSTS
+
+    def _logo_public_path(self, filename: str) -> str:
+        """
+        Constructs the public URL path for a stored logo asset.
+        
+        Parameters:
+            filename (str): Filesystem-safe filename of the stored logo (basename only).
+        
+        Returns:
+            str: Public path beginning with '/static/logos/' followed by the provided filename.
+        """
+        return f"/static/logos/{filename}"
+
+    def _download_logo_to_local(self, logo_url: str, ticker: str) -> Optional[str]:
+        """
+        Download an allowed remote logo image, store it in the service's logo directory, and return its public path.
+        
+        Parameters:
+            logo_url (str): Remote URL of the logo to download; must be an allowed host.
+            ticker (str): Ticker symbol used to derive a deterministic local filename for the stored asset.
+        
+        Returns:
+            Optional[str]: The public path to the stored logo asset (e.g., "/static/logos/<filename>") if the image was successfully downloaded and saved, `None` otherwise.
+        """
+        if not self._is_allowed_remote_logo_url(logo_url):
+            return None
+
+        session = _get_session()
+        filepath: Optional[str] = None
+        temp_path: Optional[str] = None
+        response: Optional[requests.Response] = None
+        try:
+            response = session.get(logo_url, timeout=10, stream=True)
+
+            redirect_chain = [redirect.url for redirect in response.history] + [response.url]
+            if any(not self._is_allowed_remote_logo_url(url) for url in redirect_chain if url):
+                return None
+
+            if response.status_code in (204, 404, 410):
+                return None
+            if response.status_code == 429 or response.status_code >= 500:
+                raise LogoDownloadTransientError(f"upstream status {response.status_code}")
+            if response.status_code != 200:
+                return None
+
+            content_length = response.headers.get('Content-Length')
+            if content_length:
+                try:
+                    if int(content_length) > MAX_LOGO_BYTES:
+                        return None
+                except ValueError:
+                    pass
+
+            content_type = (response.headers.get('Content-Type') or '').split(';', 1)[0].strip().lower()
+            if not content_type.startswith('image/'):
+                return None
+
+            extension = mimetypes.guess_extension(content_type) or os.path.splitext(urlparse(logo_url).path)[1] or '.png'
+            if extension == '.jpe':
+                extension = '.jpg'
+
+            filename = _safe_logo_asset_filename(ticker, logo_url, extension)
+            filepath = os.path.join(LOGO_DIR, filename)
+            fd, temp_path = tempfile.mkstemp(dir=LOGO_DIR, prefix='logo_tmp_', suffix=extension)
+            bytes_written = 0
+            with os.fdopen(fd, 'wb') as f:
+                for chunk in response.iter_content(chunk_size=8192):
+                    if not chunk:
+                        continue
+                    bytes_written += len(chunk)
+                    if bytes_written > MAX_LOGO_BYTES:
+                        raise OSError(f"Logo exceeds maximum size of {MAX_LOGO_BYTES} bytes")
+                    f.write(chunk)
+
+            os.replace(temp_path, filepath)
+            temp_path = None
+
+            return self._logo_public_path(filename)
+        except requests.RequestException as exc:
+            if temp_path and os.path.exists(temp_path):
+                try:
+                    os.remove(temp_path)
+                except OSError:
+                    pass
+            logger.warning("Failed to persist logo for %s from %s: %s", ticker, logo_url, exc)
+            raise LogoDownloadTransientError(str(exc)) from exc
+        except OSError as exc:
+            if temp_path and os.path.exists(temp_path):
+                try:
+                    os.remove(temp_path)
+                except OSError:
+                    pass
+            logger.warning("Failed to persist logo for %s from %s: %s", ticker, logo_url, exc)
+            raise LogoDownloadTransientError(str(exc)) from exc
+        finally:
+            if response is not None:
+                response.close()
+
+    def _domain_favicon_candidates(self, domain: str) -> list[str]:
+        """
+        Builds two favicon service URLs for a domain to use as favicon/logo fallbacks.
+        
+        Parameters:
+            domain (str): Domain-like string (hostname, possibly including path/port); empty or whitespace returns an empty list.
+        
+        Returns:
+            list[str]: A list containing two favicon candidate URLs (Google s2 favicons and DuckDuckGo ip3) for the normalized domain, or an empty list if the input is empty.
+        """
+        normalized_domain = domain.strip().lower()
+        if not normalized_domain:
+            return []
+        return [
+            f"https://www.google.com/s2/favicons?sz=128&domain={quote(normalized_domain, safe='')}",
+            f"https://icons.duckduckgo.com/ip3/{quote(normalized_domain, safe='')}.ico",
+        ]
+
+    def _persist_candidate_logo(self, candidate: dict, ticker: str) -> Optional[str]:
+        """
+        Persist a logo for a Brandfetch candidate by downloading its provided icon or domain favicon fallbacks.
+        
+        Parameters:
+            candidate (dict): Candidate data from Brandfetch. Expected keys:
+                - 'icon' (optional): URL to the candidate's icon.
+                - 'domain' (optional): Domain used to generate favicon fallback URLs.
+            ticker (str): Ticker symbol used to derive deterministic local asset filenames.
+        
+        Returns:
+            Optional[str]: Public path to the stored logo asset (e.g. "/static/logos/...") if a download and store succeeded, `None` otherwise.
+        """
+        icon_url = candidate.get('icon') if isinstance(candidate, dict) else None
+        domain = str(candidate.get('domain') or '').strip() if isinstance(candidate, dict) else ''
+
+        if isinstance(icon_url, str):
+            persisted = self._download_logo_to_local(icon_url, ticker)
+            if persisted:
+                return persisted
+
+        for fallback_url in self._domain_favicon_candidates(domain):
+            persisted = self._download_logo_to_local(fallback_url, ticker)
+            if persisted:
+                return persisted
+
+        return None
+
+    def should_refresh_logo(self, value: Optional[str]) -> bool:
+        """
+        Determine whether a logo value requires refreshing (when it is missing or not a local logo path).
+        
+        Parameters:
+            value (Optional[str]): Current logo value; may be a local public path (e.g., "/static/logos/..."), a remote URL, or None.
+        
+        Returns:
+            True if the logo should be refreshed, False otherwise.
+        """
+        if not value:
+            return True
+        if not self._is_local_logo_url(value):
+            return True
+        local_path = os.path.join(LOGO_DIR, value.replace('/static/logos/', '', 1))
+        return not os.path.exists(local_path)
+
+    def _discard_cached_logo(self, ticker_upper: str, cache_file: str) -> None:
+        _LOGO_CACHE.pop(ticker_upper, None)
+        filepath = _resolve_cache_path(cache_file)
+        try:
+            if os.path.exists(filepath):
+                os.remove(filepath)
+        except OSError as exc:
+            logger.warning("Failed to discard stale logo cache for %s: %s", ticker_upper, exc)
+
+    def _root_domain_token(self, domain: str) -> str:
+        """
+        Return a concise root-domain token extracted from a domain-like string.
+        
+        Chooses an identifying label such that common two-part TLDs (e.g., "example.com") yield the second-level label ("example") and recognized multi-label public suffixes (e.g., "example.co.uk") yield the third-from-last label; returns the first label for single-label hosts and an empty string for empty or invalid input.
+        
+        Parameters:
+            domain (str): A domain, hostname, or domain-like string (may include a path or port).
+        
+        Returns:
+            str: The root domain token (e.g., "example" for "https://example.com/path" or "example" for "example.co.uk"), or an empty string if none can be determined.
         """
         normalized = domain.lower().strip()
         if not normalized:
@@ -378,17 +630,17 @@ class BrandfetchService:
 
         return unique_candidates
 
-    def _search_logo(self, query: str, ticker: str, company_name: Optional[str]) -> Optional[str]:
+    def _search_logo(self, query: str, ticker: str, company_name: Optional[str]) -> Optional[dict]:
         """
-        Searches Brandfetch for a logo matching the provided query and returns the first confidently matched icon URL.
+        Search Brandfetch for candidates and return the first candidate judged to be a confident match.
         
         Parameters:
-            query (str): Search query string to send to Brandfetch; if empty, no search is performed.
+            query (str): Search query to send to Brandfetch; if empty, no request is made.
             ticker (str): Uppercase stock ticker used to evaluate candidate match confidence.
-            company_name (Optional[str]): Company name used to build expected tokens for matching; may be None.
+            company_name (Optional[str]): Company name used to derive expected tokens for matching; may be None.
         
         Returns:
-            Optional[str]: The first icon URL judged to be a confident match, or `None` if no suitable logo is found.
+            Optional[dict]: The first Brandfetch candidate dictionary judged a confident match, or `None` if no suitable candidate is found.
         """
         if not query:
             return None
@@ -406,9 +658,8 @@ class BrandfetchService:
                 return None
 
             for candidate in data:
-                icon = candidate.get('icon') if isinstance(candidate, dict) else None
-                if icon and isinstance(candidate, dict) and self._is_confident_match(candidate, ticker, company_name, query):
-                    return icon
+                if isinstance(candidate, dict) and self._is_confident_match(candidate, ticker, company_name, query):
+                    return candidate
         except Exception as exc:
             logger.warning(f"Brandfetch search failed for '{query}': {exc}")
 
@@ -419,37 +670,82 @@ class BrandfetchService:
         ticker: str,
         company_name: Optional[str] = None,
         force_refresh: bool = False,
+        existing_logo: Optional[str] = None,
     ) -> Optional[str]:
         """
-        Resolve a logo URL for a given stock ticker, using in-memory and file-based caches and falling back to Brandfetch search when needed.
+        Resolve a logo URL for a given stock ticker, consulting in-memory and on-disk caches and falling back to Brandfetch search when needed.
         
         Parameters:
             ticker (str): Stock ticker symbol (case-insensitive).
             company_name (Optional[str]): Optional company name to improve search relevance.
-            force_refresh (bool): If True, bypass both in-memory and file caches and perform a fresh search.
+            force_refresh (bool): If True, bypass in-memory and file caches and perform a fresh search.
+            existing_logo (Optional[str]): An existing logo URL or local path; if a local path is provided and refresh is not forced it will be returned as-is; if a remote URL is provided the service will attempt to download and persist it locally.
         
         Returns:
-            Optional[str]: The resolved logo URL if found, `None` otherwise.
+            Optional[str]: The resolved public logo path (local "/static/logos/..." path) if found or persisted, or `None` if no suitable logo could be resolved.
         """
         ticker_upper = ticker.strip().upper()
         cache_file = _safe_logo_cache_filename(ticker_upper)
 
+        if existing_logo and self._is_legacy_remote_logo_url(existing_logo):
+            force_refresh = True
+
+        if existing_logo and self._is_local_logo_url(existing_logo) and not force_refresh and not self.should_refresh_logo(existing_logo):
+            return existing_logo
+        if existing_logo and self._is_local_logo_url(existing_logo) and self.should_refresh_logo(existing_logo):
+            existing_logo = None
+            self._discard_cached_logo(ticker_upper, cache_file)
+
+        if existing_logo and self._is_remote_logo_url(existing_logo):
+            try:
+                persisted_existing_logo = self._download_logo_to_local(existing_logo, ticker_upper)
+            except LogoDownloadTransientError:
+                return existing_logo
+            if persisted_existing_logo:
+                _LOGO_CACHE[ticker_upper] = (persisted_existing_logo, datetime.now().timestamp())
+                _save_file_cache(cache_file, persisted_existing_logo)
+                return persisted_existing_logo
+
         if not force_refresh and ticker_upper in _LOGO_CACHE:
             cached_logo, timestamp = _LOGO_CACHE[ticker_upper]
             if datetime.now().timestamp() - timestamp < _LOGO_CACHE_TTL:
-                return cached_logo
+                if cached_logo is None:
+                    return cached_logo
+                if self._is_local_logo_url(cached_logo) and not self.should_refresh_logo(cached_logo):
+                    return cached_logo
+                if self._is_local_logo_url(cached_logo):
+                    self._discard_cached_logo(ticker_upper, cache_file)
 
         if not force_refresh:
             cache_hit, cached_logo = _load_file_cache(cache_file)
             if cache_hit:
-                _LOGO_CACHE[ticker_upper] = (cached_logo, datetime.now().timestamp())
-                return cached_logo
+                if cached_logo is None:
+                    _LOGO_CACHE[ticker_upper] = (cached_logo, datetime.now().timestamp())
+                    return cached_logo
+                if self._is_local_logo_url(cached_logo) and not self.should_refresh_logo(cached_logo):
+                    _LOGO_CACHE[ticker_upper] = (cached_logo, datetime.now().timestamp())
+                    return cached_logo
+                if self._is_local_logo_url(cached_logo):
+                    self._discard_cached_logo(ticker_upper, cache_file)
+
+        if force_refresh:
+            _LOGO_CACHE.pop(ticker_upper, None)
+            filepath = _resolve_cache_path(cache_file)
+            try:
+                if os.path.exists(filepath):
+                    os.remove(filepath)
+            except OSError as exc:
+                logger.warning("Failed to clear stale logo cache for %s: %s", ticker_upper, exc)
 
         candidates = self._build_query_candidates(ticker_upper, company_name)
 
         logo_url = None
         for query in candidates:
-            logo_url = self._search_logo(query, ticker_upper, company_name)
+            candidate = self._search_logo(query, ticker_upper, company_name)
+            try:
+                logo_url = self._persist_candidate_logo(candidate, ticker_upper) if candidate else None
+            except LogoDownloadTransientError:
+                return existing_logo if existing_logo and not self.should_refresh_logo(existing_logo) else None
             if logo_url:
                 break
 

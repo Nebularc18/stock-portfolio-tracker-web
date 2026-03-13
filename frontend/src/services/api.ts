@@ -1,5 +1,33 @@
 const API_BASE = '/api'
 export const AUTH_STORAGE_KEY = 'portfolioAuthUser'
+const SLOW_API_REQUEST_MS = 800
+const API_REQUEST_TIMEOUT_MS = 15000
+const encodePathSegment = (value: string) => encodeURIComponent(value)
+// These caches only deduplicate in-flight exchange rate requests.
+const exchangeRatesRequestCache = new Map<string, Promise<Record<string, number | null>>>()
+const exchangeRatesBatchRequestCache = new Map<string, Promise<Record<string, Record<string, number | null>>>>()
+
+function createTimeoutSignal(timeoutMs: number, externalSignal?: AbortSignal): { signal: AbortSignal; cleanup: () => void } {
+  const controller = new AbortController()
+  const timeoutId = window.setTimeout(() => controller.abort(), timeoutMs)
+
+  const abortFromExternal = () => controller.abort((externalSignal as AbortSignal & { reason?: unknown }).reason)
+  if (externalSignal?.aborted) {
+    abortFromExternal()
+  } else if (externalSignal) {
+    externalSignal.addEventListener('abort', abortFromExternal, { once: true })
+  }
+
+  return {
+    signal: controller.signal,
+    cleanup: () => {
+      window.clearTimeout(timeoutId)
+      if (externalSignal) {
+        externalSignal.removeEventListener('abort', abortFromExternal)
+      }
+    },
+  }
+}
 
 export interface AuthUser {
   id: number
@@ -45,23 +73,57 @@ function getStoredAuthUser(): AuthUser | null {
   }
 }
 
+/**
+ * Performs an HTTP request against the API and returns the parsed JSON response.
+ *
+ * The function automatically prefixes `endpoint` with the module's API_BASE and, when a stored
+ * authenticated user exists, adds an `Authorization: Bearer <token>` header to the request.
+ *
+ * @param endpoint - The API path to request (appended to API_BASE), e.g. `/stocks` or `/auth/login`
+ * @param options - Optional fetch RequestInit options (method, headers, body, etc.)
+ * @returns The parsed JSON response from the API
+ * @throws Error if the response has a non-OK status; the error message is taken from the response's `detail` field when available, otherwise `"Request failed"`
+ */
 async function fetchAPI(endpoint: string, options?: RequestInit) {
   const authUser = getStoredAuthUser()
-  const response = await fetch(`${API_BASE}${endpoint}`, {
-    ...options,
-    headers: {
-      'Content-Type': 'application/json',
-      ...(authUser ? { Authorization: `Bearer ${authUser.token}` } : {}),
-      ...options?.headers,
-    },
-  })
-  
-  if (!response.ok) {
-    const error = await response.json().catch(() => ({ detail: 'Unknown error' }))
-    throw new Error(error.detail || 'Request failed')
+  const startedAt = typeof performance !== 'undefined' ? performance.now() : Date.now()
+  const externalSignal = options?.signal ?? undefined
+  const { signal, cleanup } = createTimeoutSignal(API_REQUEST_TIMEOUT_MS, externalSignal)
+
+  try {
+    const response = await fetch(`${API_BASE}${endpoint}`, {
+      ...options,
+      signal,
+      headers: {
+        'Content-Type': 'application/json',
+        ...(authUser ? { Authorization: `Bearer ${authUser.token}` } : {}),
+        ...options?.headers,
+      },
+    })
+    const durationMs = (typeof performance !== 'undefined' ? performance.now() : Date.now()) - startedAt
+    const method = options?.method || 'GET'
+    const logLabel = `[API timing] ${method} ${endpoint} ${Math.round(durationMs)}ms ${response.status}`
+
+    if (durationMs >= SLOW_API_REQUEST_MS) {
+      console.warn(logLabel)
+    } else if (
+      endpoint.includes('/finnhub/')
+      || endpoint.includes('/marketstack/')
+      || endpoint.includes('/dividends')
+      || endpoint.includes('/analyst')
+    ) {
+      console.info(logLabel)
+    }
+
+    if (!response.ok) {
+      const error = await response.json().catch(() => ({ detail: 'Unknown error' }))
+      throw new Error(error.detail || 'Request failed')
+    }
+
+    return response.json()
+  } finally {
+    cleanup()
   }
-  
-  return response.json()
 }
 
 export interface Stock {
@@ -128,6 +190,7 @@ export interface Dividend {
   currency?: string
   source?: string
   payment_date: string | null
+  dividend_type?: string | null
 }
 
 export type DividendsByTicker = Record<string, Dividend[]>
@@ -138,7 +201,6 @@ export interface UpcomingDividend {
   quantity: number
   ex_date: string
   payment_date: string | null
-  payout_date?: string
   status?: 'paid' | 'upcoming'
   dividend_type?: string | null
   amount_per_share: number
@@ -357,14 +419,14 @@ export const api = {
 
   stocks: {
     list: () => fetchAPI('/stocks') as Promise<Stock[]>,
-    get: (ticker: string) => fetchAPI(`/stocks/${ticker}`) as Promise<Stock>,
+    get: (ticker: string) => fetchAPI(`/stocks/${encodePathSegment(ticker)}`) as Promise<Stock>,
     create: (data: { ticker: string; quantity: number; purchase_price?: number; purchase_date?: string }) => 
       fetchAPI('/stocks', { method: 'POST', body: JSON.stringify(data) }) as Promise<Stock>,
     update: (ticker: string, data: { quantity?: number; purchase_price?: number; purchase_date?: string | null }) =>
-      fetchAPI(`/stocks/${ticker}`, { method: 'PATCH', body: JSON.stringify(data) }) as Promise<Stock>,
-    delete: (ticker: string) => fetchAPI(`/stocks/${ticker}`, { method: 'DELETE' }),
-    refresh: (ticker: string) => fetchAPI(`/stocks/${ticker}/refresh`, { method: 'POST' }) as Promise<Stock>,
-    dividends: (ticker: string, years: number = 5) => fetchAPI(`/stocks/${ticker}/dividends?years=${years}`) as Promise<Dividend[]>,
+      fetchAPI(`/stocks/${encodePathSegment(ticker)}`, { method: 'PATCH', body: JSON.stringify(data) }) as Promise<Stock>,
+    delete: (ticker: string) => fetchAPI(`/stocks/${encodePathSegment(ticker)}`, { method: 'DELETE' }),
+    refresh: (ticker: string) => fetchAPI(`/stocks/${encodePathSegment(ticker)}/refresh`, { method: 'POST' }) as Promise<Stock>,
+    dividends: (ticker: string, years: number = 5) => fetchAPI(`/stocks/${encodePathSegment(ticker)}/dividends?years=${years}`) as Promise<Dividend[]>,
     dividendsForTickers: (tickers: string[], years: number = 5) => {
       const params = new URLSearchParams()
       for (const ticker of tickers) {
@@ -373,21 +435,21 @@ export const api = {
       params.set('years', String(years))
       return fetchAPI(`/stocks/dividends/batch?${params.toString()}`) as Promise<DividendsByTicker>
     },
-    upcomingDividends: (ticker: string) => fetchAPI(`/stocks/${ticker}/upcoming-dividends`) as Promise<StockUpcomingDividend[]>,
-    analyst: (ticker: string) => fetchAPI(`/stocks/${ticker}/analyst`) as Promise<AnalystData>,
-    validate: (ticker: string) => fetchAPI(`/stocks/validate/${ticker}`),
+    upcomingDividends: (ticker: string) => fetchAPI(`/stocks/${encodePathSegment(ticker)}/upcoming-dividends`) as Promise<StockUpcomingDividend[]>,
+    analyst: (ticker: string) => fetchAPI(`/stocks/${encodePathSegment(ticker)}/analyst`) as Promise<AnalystData>,
+    validate: (ticker: string) => fetchAPI(`/stocks/validate/${encodePathSegment(ticker)}`),
     addManualDividend: (ticker: string, data: { date: string; amount: number; currency?: string; note?: string }) =>
-      fetchAPI(`/stocks/${ticker}/manual-dividends`, { method: 'POST', body: JSON.stringify(data) }) as Promise<Stock>,
+      fetchAPI(`/stocks/${encodePathSegment(ticker)}/manual-dividends`, { method: 'POST', body: JSON.stringify(data) }) as Promise<Stock>,
     updateManualDividend: (ticker: string, dividendId: string, data: { date?: string; amount?: number; currency?: string; note?: string }) =>
-      fetchAPI(`/stocks/${ticker}/manual-dividends/${dividendId}`, { method: 'PUT', body: JSON.stringify(data) }) as Promise<Stock>,
+      fetchAPI(`/stocks/${encodePathSegment(ticker)}/manual-dividends/${encodePathSegment(dividendId)}`, { method: 'PUT', body: JSON.stringify(data) }) as Promise<Stock>,
     deleteManualDividend: (ticker: string, dividendId: string) =>
-      fetchAPI(`/stocks/${ticker}/manual-dividends/${dividendId}`, { method: 'DELETE' }),
+      fetchAPI(`/stocks/${encodePathSegment(ticker)}/manual-dividends/${encodePathSegment(dividendId)}`, { method: 'DELETE' }),
     suppressDividend: (ticker: string, data: { date: string; amount?: number; currency?: string }) =>
-      fetchAPI(`/stocks/${ticker}/suppress-dividend`, { method: 'POST', body: JSON.stringify(data) }),
+      fetchAPI(`/stocks/${encodePathSegment(ticker)}/suppress-dividend`, { method: 'POST', body: JSON.stringify(data) }),
     restoreDividend: (ticker: string, date: string) =>
-      fetchAPI(`/stocks/${ticker}/suppress-dividend/${date}`, { method: 'DELETE' }),
+      fetchAPI(`/stocks/${encodePathSegment(ticker)}/suppress-dividend/${encodePathSegment(date)}`, { method: 'DELETE' }),
     getSuppressedDividends: (ticker: string) =>
-      fetchAPI(`/stocks/${ticker}/suppressed-dividends`) as Promise<ManualDividend[]>,
+      fetchAPI(`/stocks/${encodePathSegment(ticker)}/suppressed-dividends`) as Promise<ManualDividend[]>,
   },
   
   portfolio: {
@@ -415,11 +477,35 @@ export const api = {
   market: {
     header: (force: boolean = false) => fetchAPI(`/market/header${force ? '?force=true' : ''}`) as Promise<HeaderMarketData>,
     indices: () => fetchAPI('/market/indices') as Promise<{ indices: MarketIndex[]; updated_at: string; next_refresh_at: string }>,
-    exchangeRates: (date?: string) => fetchAPI(`/market/exchange-rates${date ? `?date=${encodeURIComponent(date)}` : ''}`) as Promise<Record<string, number | null>>,
-    exchangeRatesBatch: (dates: string[]) => fetchAPI('/market/exchange-rates/batch', {
-      method: 'POST',
-      body: JSON.stringify({ dates }),
-    }) as Promise<Record<string, Record<string, number | null>>>,
+    exchangeRates: (date?: string) => {
+      const key = date || '__latest__'
+      const cached = exchangeRatesRequestCache.get(key)
+      if (cached) return cached
+
+      const request = fetchAPI(`/market/exchange-rates${date ? `?date=${encodeURIComponent(date)}` : ''}`)
+        .finally(() => {
+          exchangeRatesRequestCache.delete(key)
+        }) as Promise<Record<string, number | null>>
+
+      exchangeRatesRequestCache.set(key, request)
+      return request
+    },
+    exchangeRatesBatch: (dates: string[]) => {
+      const normalizedDates = [...new Set(dates)].sort()
+      const key = normalizedDates.join('|')
+      const cached = exchangeRatesBatchRequestCache.get(key)
+      if (cached) return cached
+
+      const request = fetchAPI('/market/exchange-rates/batch', {
+        method: 'POST',
+        body: JSON.stringify({ dates: normalizedDates }),
+      }).finally(() => {
+        exchangeRatesBatchRequestCache.delete(key)
+      }) as Promise<Record<string, Record<string, number | null>>>
+
+      exchangeRatesBatchRequestCache.set(key, request)
+      return request
+    },
     convert: (amount: number, from: string, to: string) => 
       fetchAPI(`/market/convert?amount=${amount}&from_currency=${from}&to_currency=${to}`),
     hours: (timezone?: string) => fetchAPI(`/market/hours${timezone ? `?timezone=${encodeURIComponent(timezone)}` : ''}`) as Promise<MarketStatus[]>,
@@ -430,10 +516,10 @@ export const api = {
   },
   
   finnhub: {
-    profile: (ticker: string) => fetchAPI(`/finnhub/profile/${ticker}`) as Promise<CompanyProfile>,
-    metrics: (ticker: string) => fetchAPI(`/finnhub/metrics/${ticker}`) as Promise<FinancialMetrics>,
-    peers: (ticker: string) => fetchAPI(`/finnhub/peers/${ticker}`) as Promise<string[]>,
-    recommendations: (ticker: string) => fetchAPI(`/finnhub/recommendations/${ticker}`) as Promise<RecommendationTrend[]>,
+    profile: (ticker: string) => fetchAPI(`/finnhub/profile/${encodePathSegment(ticker)}`) as Promise<CompanyProfile>,
+    metrics: (ticker: string) => fetchAPI(`/finnhub/metrics/${encodePathSegment(ticker)}`) as Promise<FinancialMetrics>,
+    peers: (ticker: string) => fetchAPI(`/finnhub/peers/${encodePathSegment(ticker)}`) as Promise<string[]>,
+    recommendations: (ticker: string) => fetchAPI(`/finnhub/recommendations/${encodePathSegment(ticker)}`) as Promise<RecommendationTrend[]>,
   },
   
   marketstack: {
@@ -443,15 +529,15 @@ export const api = {
       if (dateFrom) params.append('date_from', dateFrom)
       if (dateTo) params.append('date_to', dateTo)
       const query = params.toString() ? `?${params.toString()}` : ''
-      return fetchAPI(`/marketstack/dividends/${ticker}${query}`) as Promise<{
+      return fetchAPI(`/marketstack/dividends/${encodePathSegment(ticker)}${query}`) as Promise<{
         ticker: string
         dividends: Dividend[]
         count: number
         usage: MarketstackUsage
       }>
     },
-    verify: (ticker: string) => fetchAPI(`/marketstack/verify/${ticker}`, { method: 'POST' }) as Promise<VerificationResult>,
-    clearCache: (ticker: string) => fetchAPI(`/marketstack/cache/${ticker}`, { method: 'DELETE' }) as Promise<{ message: string }>,
+    verify: (ticker: string) => fetchAPI(`/marketstack/verify/${encodePathSegment(ticker)}`, { method: 'POST' }) as Promise<VerificationResult>,
+    clearCache: (ticker: string) => fetchAPI(`/marketstack/cache/${encodePathSegment(ticker)}`, { method: 'DELETE' }) as Promise<{ message: string }>,
   },
   
   avanza: {
@@ -471,7 +557,7 @@ export const api = {
     deleteMapping: (avanzaName: string) =>
       fetchAPI(`/avanza/mappings/${encodeURIComponent(avanzaName)}`, { method: 'DELETE' }) as Promise<{ message: string }>,
     historical: (ticker: string, years: number = 5) =>
-      fetchAPI(`/avanza/historical/${ticker}?years=${years}`) as Promise<Array<{
+      fetchAPI(`/avanza/historical/${encodePathSegment(ticker)}?years=${years}`) as Promise<Array<{
         date: string
         amount: number
         currency: string

@@ -1,0 +1,897 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Portfolio — Graphite</title>
+<link rel="stylesheet" href="style.css">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:ital,wght@0,300;0,400;0,500;0,600;0,700;0,800;1,300&family=Fira+Code:wght@300;400;500&display=swap" rel="stylesheet">
+
+</head>
+<body>
+
+<!-- TOPBAR -->
+<div class="topbar">
+  <div class="tb-logo"><span class="v-dot"></span>Portfolio</div>
+  <div class="tb-indices">
+    <div class="tb-idx"><span class="ti-nm">S&P 500</span><span class="ti-vl">5,842.10</span><span class="ti-ch up">▲ 0.34%</span></div>
+    <div class="tb-idx"><span class="ti-nm">NASDAQ</span><span class="ti-vl">18,402</span><span class="ti-ch up">▲ 0.51%</span></div>
+    <div class="tb-idx"><span class="ti-nm">OMX 30</span><span class="ti-vl">2,641.80</span><span class="ti-ch dn">▼ 0.12%</span></div>
+    <div class="tb-idx"><span class="ti-nm">USD/SEK</span><span class="ti-vl">10.4200</span><span class="ti-ch dn">▼ 0.08%</span></div>
+    <div class="tb-idx"><span class="ti-nm">EUR/SEK</span><span class="ti-vl">10.8125</span><span class="ti-ch up">▲ 0.03%</span></div>
+  </div>
+  <div class="tb-time"><span class="live-dot"></span>10 MAR 2026 · 09:42</div>
+</div>
+
+<!-- NAV -->
+<nav class="nav" role="tablist">
+  <button type="button" data-view="dashboard" class="active" role="tab" aria-selected="true" aria-controls="view-dashboard" id="tab-dashboard">Dashboard</button>
+  <button type="button" data-view="portfolio" role="tab" aria-selected="false" aria-controls="view-portfolio" id="tab-portfolio">Portfolio</button>
+  <button type="button" data-view="transactions" role="tab" aria-selected="false" aria-controls="view-transactions" id="tab-transactions">Transactions</button>
+  <button type="button" data-view="dividends" role="tab" aria-selected="false" aria-controls="view-dividends" id="tab-dividends">Dividends</button>
+  <button type="button" data-view="analytics" role="tab" aria-selected="false" aria-controls="view-analytics" id="tab-analytics">Analytics</button>
+  <button type="button" data-view="search" role="tab" aria-selected="false" aria-controls="view-search" id="tab-search">Search</button>
+  <button type="button" data-view="alerts" role="tab" aria-selected="false" aria-controls="view-alerts" id="tab-alerts">Alerts</button>
+  <button type="button" data-view="account" role="tab" aria-selected="false" aria-controls="view-account" id="tab-account">Account</button>
+</nav>
+
+<!-- ══════════════════════ DASHBOARD VIEW ══════════════════════ -->
+<div class="view active" id="view-dashboard" role="tabpanel" aria-labelledby="tab-dashboard" aria-hidden="false">
+
+  <!-- HERO -->
+  <div class="hero">
+    <div class="hero-value-block">
+      <div class="hv-eyebrow">Net Portfolio Value</div>
+      <div class="hv-num"><span class="cur">SEK</span>842,341</div>
+      <div class="hv-sub">
+        5 positions
+        <span class="hv-sub-dot"></span>
+        3 markets
+        <span class="hv-sub-dot"></span>
+        2 currencies
+      </div>
+    </div>
+    <div class="hero-sep"></div>
+    <div class="hero-stat">
+      <div class="hs-lbl">Today's P&amp;L</div>
+      <div class="hs-val up d1">+2,841</div>
+      <div class="hs-sub">+0.34% · SEK</div>
+      <svg class="hs-spark" viewBox="0 0 80 24" preserveAspectRatio="none">
+        <polyline points="0,18 16,15 32,17 48,10 64,8 80,4" fill="none" stroke="var(--green)" stroke-width="1.5" stroke-linejoin="round" opacity="0.7"/>
+      </svg>
+    </div>
+    <div class="hero-sep"></div>
+    <div class="hero-stat">
+      <div class="hs-lbl">YTD Return</div>
+      <div class="hs-val up d2">+12.4%</div>
+      <div class="hs-sub">+93,014 SEK</div>
+      <svg class="hs-spark" viewBox="0 0 80 24" preserveAspectRatio="none">
+        <polyline points="0,20 16,18 32,14 48,11 64,7 80,4" fill="none" stroke="var(--green)" stroke-width="1.5" stroke-linejoin="round" opacity="0.7"/>
+      </svg>
+    </div>
+    <div class="hero-sep"></div>
+    <div class="hero-stat">
+      <div class="hs-lbl">Annual Yield</div>
+      <div class="hs-val d3" style="color:var(--amber);">3.2%</div>
+      <div class="hs-sub">26,955 SEK est.</div>
+    </div>
+    <div class="hero-sep"></div>
+    <div class="hero-stat">
+      <div class="hs-lbl">Positions</div>
+      <div class="hs-val d4" style="color:var(--v2);">5</div>
+      <div class="hs-sub">3 mkts · 2 FX</div>
+    </div>
+    <div class="hero-fill"></div>
+  </div>
+
+  <!-- BODY -->
+  <div class="body-grid">
+
+    <!-- LEFT -->
+    <div class="left-col">
+
+      <!-- Chart -->
+      <div class="chart-section">
+        <div class="sec-row">
+          <span class="sr-title">Performance</span>
+          <div class="pbtns">
+            <button aria-pressed="false">1W</button><button aria-pressed="false">1M</button><button class="a" aria-pressed="true">3M</button><button aria-pressed="false">1Y</button><button aria-pressed="false">ALL</button>
+          </div>
+        </div>
+        <div class="chart-container" id="chartWrap">
+          <div class="chart-tooltip" id="chartTooltip">
+            <div class="ct-val" id="ctVal"></div>
+            <div class="ct-dt" id="ctDt"></div>
+          </div>
+          <svg id="chartSvg" viewBox="0 0 640 185" preserveAspectRatio="none">
+            <defs>
+              <linearGradient id="vg" x1="0" y1="0" x2="0" y2="1">
+                <stop offset="0%" stop-color="rgba(129,140,248,0.18)"/>
+                <stop offset="100%" stop-color="rgba(129,140,248,0)"/>
+              </linearGradient>
+              <clipPath id="chartClip">
+                <rect x="0" y="0" width="640" height="185"/>
+              </clipPath>
+            </defs>
+            <!-- Grid lines -->
+            <line x1="0" y1="40" x2="640" y2="40" stroke="#1e2029" stroke-width="1"/>
+            <line x1="0" y1="80" x2="640" y2="80" stroke="#1e2029" stroke-width="1"/>
+            <line x1="0" y1="120" x2="640" y2="120" stroke="#1e2029" stroke-width="1"/>
+            <line x1="0" y1="160" x2="640" y2="160" stroke="#1e2029" stroke-width="1"/>
+            <!-- Y labels -->
+            <text x="4" y="162" font-family="Fira Code" font-size="7.5" fill="#2d3044">740k</text>
+            <text x="4" y="122" font-family="Fira Code" font-size="7.5" fill="#2d3044">780k</text>
+            <text x="4" y="82"  font-family="Fira Code" font-size="7.5" fill="#2d3044">810k</text>
+            <text x="4" y="42"  font-family="Fira Code" font-size="7.5" fill="#2d3044">840k</text>
+            <!-- Area fill -->
+            <path clip-path="url(#chartClip)" d="M0,162 C40,158 80,155 120,152 C160,149 200,153 240,148 C280,143 320,136 360,127 C400,118 440,112 480,105 C520,98 560,91 640,78 L640,185 L0,185 Z" fill="url(#vg)"/>
+            <!-- Line -->
+            <path clip-path="url(#chartClip)" d="M0,162 C40,158 80,155 120,152 C160,149 200,153 240,148 C280,143 320,136 360,127 C400,118 440,112 480,105 C520,98 560,91 640,78" fill="none" stroke="#818cf8" stroke-width="2" stroke-linejoin="round"/>
+            <!-- End dot -->
+            <circle cx="640" cy="78" r="4" fill="#0c0d10" stroke="#818cf8" stroke-width="2"/>
+            <text x="634" y="70" font-family="Fira Code" font-size="8" fill="#a5b0fc" text-anchor="end">842,341</text>
+            <!-- X labels -->
+            <text x="2"   y="182" font-family="Fira Code" font-size="7.5" fill="#2d3044">DEC</text>
+            <text x="213" y="182" font-family="Fira Code" font-size="7.5" fill="#2d3044" text-anchor="middle">JAN</text>
+            <text x="427" y="182" font-family="Fira Code" font-size="7.5" fill="#2d3044" text-anchor="middle">FEB</text>
+            <text x="636" y="182" font-family="Fira Code" font-size="7.5" fill="#2d3044" text-anchor="end">MAR</text>
+            <!-- Crosshair vertical line (JS controlled) -->
+            <line id="crosshair" x1="0" y1="0" x2="0" y2="185" stroke="rgba(129,140,248,0.25)" stroke-width="1" stroke-dasharray="4,3" display="none"/>
+            <circle id="crosshairDot" cx="0" cy="0" r="4" fill="#0c0d10" stroke="#818cf8" stroke-width="2" display="none"/>
+          </svg>
+        </div>
+      </div>
+
+      <!-- Holdings table -->
+      <div class="holdings-full">
+        <div class="sec-row">
+          <span class="sr-title">Holdings</span>
+          <span style="font-size:10px;color:var(--muted);font-weight:600;">5 positions</span>
+        </div>
+        <table class="htbl">
+          <thead>
+            <tr>
+              <th>Asset</th>
+              <th>Shares</th>
+              <th class="r">Price</th>
+              <th class="r">Change</th>
+              <th class="r">Value SEK</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>
+                <div class="h-asset">
+                  <div class="h-badge" style="background:rgba(129,140,248,0.12);color:var(--v2);">AAPL</div>
+                  <div><div class="h-tick">AAPL</div><div class="h-name">Apple Inc.</div></div>
+                </div>
+              </td>
+              <td class="h-qty">50</td>
+              <td class="h-price r">189.42 USD</td>
+              <td class="r"><span class="h-chg up">+0.87%</span></td>
+              <td class="r">
+                <div class="h-val">98,703</div>
+                <div class="h-bar"><div class="h-bar-fill" style="width:100%;background:var(--v2);"></div></div>
+              </td>
+            </tr>
+            <tr>
+              <td>
+                <div class="h-asset">
+                  <div class="h-badge" style="background:rgba(248,113,113,0.1);color:var(--red);">TSLA</div>
+                  <div><div class="h-tick">TSLA</div><div class="h-name">Tesla Inc.</div></div>
+                </div>
+              </td>
+              <td class="h-qty">30</td>
+              <td class="h-price r">248.30 USD</td>
+              <td class="r"><span class="h-chg dn">-1.23%</span></td>
+              <td class="r">
+                <div class="h-val">77,546</div>
+                <div class="h-bar"><div class="h-bar-fill" style="width:78%;background:var(--red);"></div></div>
+              </td>
+            </tr>
+            <tr>
+              <td>
+                <div class="h-asset">
+                  <div class="h-badge" style="background:rgba(251,191,36,0.1);color:var(--amber);">NOVO</div>
+                  <div><div class="h-tick">NOVO B</div><div class="h-name">Novo Nordisk A/S</div></div>
+                </div>
+              </td>
+              <td class="h-qty">120</td>
+              <td class="h-price r">642.50 DKK</td>
+              <td class="r"><span class="h-chg dn">-0.45%</span></td>
+              <td class="r">
+                <div class="h-val">294,440</div>
+                <div class="h-bar"><div class="h-bar-fill" style="width:100%;background:var(--amber);"></div></div>
+              </td>
+            </tr>
+            <tr>
+              <td>
+                <div class="h-asset">
+                  <div class="h-badge" style="background:rgba(45,212,191,0.1);color:var(--teal);">VOLV</div>
+                  <div><div class="h-tick">VOLV B</div><div class="h-name">Volvo AB</div></div>
+                </div>
+              </td>
+              <td class="h-qty">200</td>
+              <td class="h-price r">260.20 SEK</td>
+              <td class="r"><span class="h-chg up">+0.22%</span></td>
+              <td class="r">
+                <div class="h-val">52,040</div>
+                <div class="h-bar"><div class="h-bar-fill" style="width:53%;background:var(--teal);"></div></div>
+              </td>
+            </tr>
+            <tr>
+              <td>
+                <div class="h-asset">
+                  <div class="h-badge" style="background:rgba(56,189,248,0.1);color:var(--sky);">SAP</div>
+                  <div><div class="h-tick">SAP</div><div class="h-name">SAP SE</div></div>
+                </div>
+              </td>
+              <td class="h-qty">15</td>
+              <td class="h-price r">202.80 EUR</td>
+              <td class="r"><span class="h-chg up">+1.15%</span></td>
+              <td class="r">
+                <div class="h-val">32,894</div>
+                <div class="h-bar"><div class="h-bar-fill" style="width:33%;background:var(--sky);"></div></div>
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+    </div>
+
+    <!-- RIGHT SIDEBAR -->
+    <div class="right-col">
+
+      <!-- Dividends -->
+      <div class="rs-section">
+        <div class="sec-row">
+          <span class="sr-title">Upcoming Dividends</span>
+          <span style="font-size:9px;color:var(--muted);font-weight:600;">90 days</span>
+        </div>
+        <ul class="div-list">
+          <li class="div-item">
+            <div class="di-date">15<span class="mo">MAR</span></div>
+            <div><div class="di-tk">AAPL</div><div class="di-desc">Quarterly · 0.25 USD/share</div></div>
+            <div><div class="di-amt">130</div><div class="di-ccy">SEK</div></div>
+          </li>
+          <li class="div-item">
+            <div class="di-date">03<span class="mo">APR</span></div>
+            <div><div class="di-tk">VOLV B</div><div class="di-desc">Annual · 8.00 SEK/share</div></div>
+            <div><div class="di-amt">1,600</div><div class="di-ccy">SEK</div></div>
+          </li>
+          <li class="div-item">
+            <div class="di-date">22<span class="mo">APR</span></div>
+            <div><div class="di-tk">NOVO B</div><div class="di-desc">Semi-annual · 5.40 DKK/sh</div></div>
+            <div><div class="di-amt">2,480</div><div class="di-ccy">SEK</div></div>
+          </li>
+          <li class="div-item">
+            <div class="di-date">18<span class="mo">MAY</span></div>
+            <div><div class="di-tk">SAP</div><div class="di-desc">Annual · 2.20 EUR/share</div></div>
+            <div><div class="di-amt">357</div><div class="di-ccy">SEK</div></div>
+          </li>
+        </ul>
+      </div>
+
+      <!-- Allocation donut -->
+      <div class="alloc-sec">
+        <div class="alloc-title">Portfolio Allocation</div>
+        <div class="alloc-donut-wrap">
+          <svg width="88" height="88" viewBox="0 0 88 88">
+            <!-- Donut slices (circumference = 2π×34 ≈ 213.6) -->
+            <!-- NOVO B 34.9% → 74.6 | AAPL 11.7% → 25.0 | TSLA 9.2% → 19.6 | VOLV B 6.2% → 13.2 | SAP 3.9% → 8.3 | rest 34.1% → 72.8 -->
+            <circle cx="44" cy="44" r="34" fill="none" stroke="#1c1f27" stroke-width="12"/>
+            <!-- NOVO B amber -->
+            <circle cx="44" cy="44" r="34" fill="none" stroke="#fbbf24" stroke-width="12"
+              stroke-dasharray="74.6 213.6" stroke-dashoffset="0" transform="rotate(-90 44 44)" opacity="0.9"/>
+            <!-- AAPL violet -->
+            <circle cx="44" cy="44" r="34" fill="none" stroke="#a5b0fc" stroke-width="12"
+              stroke-dasharray="25.0 213.6" stroke-dashoffset="-74.6" transform="rotate(-90 44 44)" opacity="0.9"/>
+            <!-- TSLA red -->
+            <circle cx="44" cy="44" r="34" fill="none" stroke="#f87171" stroke-width="12"
+              stroke-dasharray="19.6 213.6" stroke-dashoffset="-99.6" transform="rotate(-90 44 44)" opacity="0.9"/>
+            <!-- VOLV B teal -->
+            <circle cx="44" cy="44" r="34" fill="none" stroke="#2dd4bf" stroke-width="12"
+              stroke-dasharray="13.2 213.6" stroke-dashoffset="-119.2" transform="rotate(-90 44 44)" opacity="0.9"/>
+            <!-- SAP sky -->
+            <circle cx="44" cy="44" r="34" fill="none" stroke="#38bdf8" stroke-width="12"
+              stroke-dasharray="8.3 213.6" stroke-dashoffset="-132.4" transform="rotate(-90 44 44)" opacity="0.9"/>
+            <!-- Center label -->
+            <text x="44" y="40" text-anchor="middle" font-family="Plus Jakarta Sans" font-size="14" font-weight="800" fill="#e4e6ec">5</text>
+            <text x="44" y="52" text-anchor="middle" font-family="Plus Jakarta Sans" font-size="8" font-weight="600" fill="#525870" letter-spacing="0.1em">POS</text>
+          </svg>
+          <div class="alloc-legend">
+            <div class="al-row"><span class="al-dot" style="background:var(--amber);"></span><span class="al-nm">NOVO B</span><span class="al-pct">34.9%</span></div>
+            <div class="al-row"><span class="al-dot" style="background:var(--v2);"></span><span class="al-nm">AAPL</span><span class="al-pct">11.7%</span></div>
+            <div class="al-row"><span class="al-dot" style="background:var(--red);"></span><span class="al-nm">TSLA</span><span class="al-pct">9.2%</span></div>
+            <div class="al-row"><span class="al-dot" style="background:var(--teal);"></span><span class="al-nm">VOLV B</span><span class="al-pct">6.2%</span></div>
+            <div class="al-row"><span class="al-dot" style="background:var(--sky);"></span><span class="al-nm">SAP</span><span class="al-pct">3.9%</span></div>
+          </div>
+        </div>
+      </div>
+
+    </div>
+  </div>
+
+  <!-- MARKET STRIP -->
+  <div class="mkt-strip">
+    <div class="ms-cell">
+      <div class="ms-nm">S&P 500</div>
+      <div class="ms-vl">5,842.10</div>
+      <div class="ms-ch up">▲ 0.34%</div>
+      <svg class="ms-sparkline" viewBox="0 0 48 20" preserveAspectRatio="none">
+        <polyline points="0,16 10,14 20,12 30,8 38,6 48,3" fill="none" stroke="var(--green)" stroke-width="1.5" opacity="0.7"/>
+      </svg>
+    </div>
+    <div class="ms-cell">
+      <div class="ms-nm">NASDAQ</div>
+      <div class="ms-vl">18,402.33</div>
+      <div class="ms-ch up">▲ 0.51%</div>
+      <svg class="ms-sparkline" viewBox="0 0 48 20" preserveAspectRatio="none">
+        <polyline points="0,17 10,13 20,10 30,7 38,5 48,2" fill="none" stroke="var(--green)" stroke-width="1.5" opacity="0.7"/>
+      </svg>
+    </div>
+    <div class="ms-cell">
+      <div class="ms-nm">OMX 30</div>
+      <div class="ms-vl">2,641.80</div>
+      <div class="ms-ch dn">▼ 0.12%</div>
+      <svg class="ms-sparkline" viewBox="0 0 48 20" preserveAspectRatio="none">
+        <polyline points="0,4 10,6 20,8 30,10 38,13 48,15" fill="none" stroke="var(--red)" stroke-width="1.5" opacity="0.7"/>
+      </svg>
+    </div>
+    <div class="ms-cell">
+      <div class="ms-nm">USD/SEK</div>
+      <div class="ms-vl">10.4200</div>
+      <div class="ms-ch dn">▼ 0.08%</div>
+      <svg class="ms-sparkline" viewBox="0 0 48 20" preserveAspectRatio="none">
+        <polyline points="0,5 10,6 20,8 30,9 38,12 48,13" fill="none" stroke="var(--red)" stroke-width="1.5" opacity="0.7"/>
+      </svg>
+    </div>
+    <div class="ms-cell">
+      <div class="ms-nm">EUR/SEK</div>
+      <div class="ms-vl">10.8125</div>
+      <div class="ms-ch up">▲ 0.03%</div>
+      <svg class="ms-sparkline" viewBox="0 0 48 20" preserveAspectRatio="none">
+        <polyline points="0,12 10,11 20,10 30,9 38,7 48,6" fill="none" stroke="var(--green)" stroke-width="1.5" opacity="0.7"/>
+      </svg>
+    </div>
+  </div>
+
+</div><!-- /dashboard view -->
+
+<!-- ══════════════════════ PORTFOLIO VIEW ══════════════════════ -->
+<div class="view" id="view-portfolio" role="tabpanel" aria-labelledby="tab-portfolio" aria-hidden="true">
+  <div class="view-header">
+    <div class="vh-eyebrow">Overview</div>
+    <div class="vh-title">Portfolio</div>
+    <div class="vh-sub">5 active positions across 3 markets — last updated 09:42</div>
+  </div>
+  <div class="port-grid">
+    <div class="port-main">
+
+      <div class="port-card">
+        <div>
+          <div class="pc-top">
+            <div class="pc-badge" style="background:rgba(129,140,248,0.12);color:var(--v2);">AAPL</div>
+            <div class="pc-info"><div class="pc-tick">AAPL</div><div class="pc-name">Apple Inc. · NASDAQ</div></div>
+            <span class="h-chg up" style="margin-left:auto;">+0.87%</span>
+          </div>
+          <div class="pc-stats">
+            <div class="pc-stat"><div class="pcs-lbl">Shares</div><div class="pcs-val">50</div></div>
+            <div class="pc-stat"><div class="pcs-lbl">Price</div><div class="pcs-val">189.42</div></div>
+            <div class="pc-stat"><div class="pcs-lbl">Value SEK</div><div class="pcs-val">98,703</div></div>
+            <div class="pc-stat"><div class="pcs-lbl">Gain</div><div class="pcs-val" style="color:var(--green);">+14.2%</div></div>
+          </div>
+        </div>
+      </div>
+
+      <div class="port-card">
+        <div>
+          <div class="pc-top">
+            <div class="pc-badge" style="background:rgba(248,113,113,0.1);color:var(--red);">TSLA</div>
+            <div class="pc-info"><div class="pc-tick">TSLA</div><div class="pc-name">Tesla Inc. · NASDAQ</div></div>
+            <span class="h-chg dn" style="margin-left:auto;">-1.23%</span>
+          </div>
+          <div class="pc-stats">
+            <div class="pc-stat"><div class="pcs-lbl">Shares</div><div class="pcs-val">30</div></div>
+            <div class="pc-stat"><div class="pcs-lbl">Price</div><div class="pcs-val">248.30</div></div>
+            <div class="pc-stat"><div class="pcs-lbl">Value SEK</div><div class="pcs-val">77,546</div></div>
+            <div class="pc-stat"><div class="pcs-lbl">Gain</div><div class="pcs-val" style="color:var(--red);">-8.4%</div></div>
+          </div>
+        </div>
+      </div>
+
+      <div class="port-card">
+        <div>
+          <div class="pc-top">
+            <div class="pc-badge" style="background:rgba(251,191,36,0.1);color:var(--amber);">NOVO</div>
+            <div class="pc-info"><div class="pc-tick">NOVO B</div><div class="pc-name">Novo Nordisk A/S · OMX</div></div>
+            <span class="h-chg dn" style="margin-left:auto;">-0.45%</span>
+          </div>
+          <div class="pc-stats">
+            <div class="pc-stat"><div class="pcs-lbl">Shares</div><div class="pcs-val">120</div></div>
+            <div class="pc-stat"><div class="pcs-lbl">Price</div><div class="pcs-val">642.50</div></div>
+            <div class="pc-stat"><div class="pcs-lbl">Value SEK</div><div class="pcs-val">294,440</div></div>
+            <div class="pc-stat"><div class="pcs-lbl">Gain</div><div class="pcs-val" style="color:var(--green);">+22.1%</div></div>
+          </div>
+        </div>
+      </div>
+
+      <div class="port-card">
+        <div>
+          <div class="pc-top">
+            <div class="pc-badge" style="background:rgba(45,212,191,0.1);color:var(--teal);">VOLV</div>
+            <div class="pc-info"><div class="pc-tick">VOLV B</div><div class="pc-name">Volvo AB · OMX</div></div>
+            <span class="h-chg up" style="margin-left:auto;">+0.22%</span>
+          </div>
+          <div class="pc-stats">
+            <div class="pc-stat"><div class="pcs-lbl">Shares</div><div class="pcs-val">200</div></div>
+            <div class="pc-stat"><div class="pcs-lbl">Price</div><div class="pcs-val">260.20</div></div>
+            <div class="pc-stat"><div class="pcs-lbl">Value SEK</div><div class="pcs-val">52,040</div></div>
+            <div class="pc-stat"><div class="pcs-lbl">Gain</div><div class="pcs-val" style="color:var(--green);">+5.8%</div></div>
+          </div>
+        </div>
+      </div>
+
+      <div class="port-card">
+        <div>
+          <div class="pc-top">
+            <div class="pc-badge" style="background:rgba(56,189,248,0.1);color:var(--sky);">SAP</div>
+            <div class="pc-info"><div class="pc-tick">SAP</div><div class="pc-name">SAP SE · XETRA</div></div>
+            <span class="h-chg up" style="margin-left:auto;">+1.15%</span>
+          </div>
+          <div class="pc-stats">
+            <div class="pc-stat"><div class="pcs-lbl">Shares</div><div class="pcs-val">15</div></div>
+            <div class="pc-stat"><div class="pcs-lbl">Price</div><div class="pcs-val">202.80</div></div>
+            <div class="pc-stat"><div class="pcs-lbl">Value SEK</div><div class="pcs-val">32,894</div></div>
+            <div class="pc-stat"><div class="pcs-lbl">Gain</div><div class="pcs-val" style="color:var(--green);">+18.3%</div></div>
+          </div>
+        </div>
+      </div>
+
+    </div>
+
+    <div class="port-sidebar">
+      <div class="ps-title">Summary</div>
+
+      <div class="ps-kpi">
+        <div class="ps-kpi-lbl">Total Value</div>
+        <div class="ps-kpi-val" style="color:var(--text);">842,341 <span style="font-size:14px;color:var(--muted);">SEK</span></div>
+        <div class="ps-kpi-sub">Cost basis: 749,327 SEK</div>
+      </div>
+
+      <div class="ps-kpi">
+        <div class="ps-kpi-lbl">Total Gain / Loss</div>
+        <div class="ps-kpi-val up">+93,014 SEK</div>
+        <div class="ps-kpi-sub">+12.4% since inception</div>
+      </div>
+
+      <div class="ps-kpi">
+        <div class="ps-kpi-lbl">Today's P&amp;L</div>
+        <div class="ps-kpi-val up">+2,841 SEK</div>
+        <div class="ps-kpi-sub">+0.34% on open</div>
+      </div>
+
+      <div class="ps-kpi">
+        <div class="ps-kpi-lbl">Annual Yield Est.</div>
+        <div class="ps-kpi-val" style="color:var(--amber);">26,955 SEK</div>
+        <div class="ps-kpi-sub">3.2% dividend yield</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ══════════════════════ TRANSACTIONS VIEW ══════════════════════ -->
+<div class="view" id="view-transactions" role="tabpanel" aria-labelledby="tab-transactions" aria-hidden="true">
+  <div class="view-header">
+    <div class="vh-eyebrow">History</div>
+    <div class="vh-title">Transactions</div>
+    <div class="vh-sub">All buys, sells and dividend receipts</div>
+  </div>
+  <div class="tx-filters">
+    <button class="tx-filter-btn a" data-filter="all" aria-pressed="true">All</button>
+    <button class="tx-filter-btn" data-filter="buy" aria-pressed="false">Buy</button>
+    <button class="tx-filter-btn" data-filter="sell" aria-pressed="false">Sell</button>
+    <button class="tx-filter-btn" data-filter="div" aria-pressed="false">Dividend</button>
+  </div>
+  <div class="tx-list">
+    <div class="tx-item" data-type="buy">
+      <div class="tx-date">10 MAR 2026</div>
+      <div class="tx-asset">
+        <div class="tx-badge" style="background:rgba(129,140,248,0.12);color:var(--v2);">AAPL</div>
+        <div><div class="tx-tick">AAPL</div><div class="tx-detail">50 shares @ 189.42 USD</div></div>
+      </div>
+      <span class="tx-type buy">Buy</span>
+      <div><div class="tx-amt">98,703</div><div class="tx-sub">SEK · 10.4200 FX</div></div>
+    </div>
+    <div class="tx-item" data-type="div">
+      <div class="tx-date">08 MAR 2026</div>
+      <div class="tx-asset">
+        <div class="tx-badge" style="background:rgba(251,191,36,0.1);color:var(--amber);">NOVO</div>
+        <div><div class="tx-tick">NOVO B</div><div class="tx-detail">Dividend Q1 · 5.40 DKK/sh</div></div>
+      </div>
+      <span class="tx-type div">Dividend</span>
+      <div><div class="tx-amt" style="color:var(--green);">+2,480</div><div class="tx-sub">SEK received</div></div>
+    </div>
+    <div class="tx-item" data-type="buy">
+      <div class="tx-date">01 MAR 2026</div>
+      <div class="tx-asset">
+        <div class="tx-badge" style="background:rgba(248,113,113,0.1);color:var(--red);">TSLA</div>
+        <div><div class="tx-tick">TSLA</div><div class="tx-detail">30 shares @ 248.30 USD</div></div>
+      </div>
+      <span class="tx-type buy">Buy</span>
+      <div><div class="tx-amt">77,546</div><div class="tx-sub">SEK · 10.4200 FX</div></div>
+    </div>
+    <div class="tx-item" data-type="buy">
+      <div class="tx-date">14 FEB 2026</div>
+      <div class="tx-asset">
+        <div class="tx-badge" style="background:rgba(45,212,191,0.1);color:var(--teal);">VOLV</div>
+        <div><div class="tx-tick">VOLV B</div><div class="tx-detail">200 shares @ 255.40 SEK</div></div>
+      </div>
+      <span class="tx-type buy">Buy</span>
+      <div><div class="tx-amt">51,080</div><div class="tx-sub">SEK</div></div>
+    </div>
+    <div class="tx-item" data-type="buy">
+      <div class="tx-date">28 JAN 2026</div>
+      <div class="tx-asset">
+        <div class="tx-badge" style="background:rgba(56,189,248,0.1);color:var(--sky);">SAP</div>
+        <div><div class="tx-tick">SAP</div><div class="tx-detail">15 shares @ 198.20 EUR</div></div>
+      </div>
+      <span class="tx-type buy">Buy</span>
+      <div><div class="tx-amt">32,148</div><div class="tx-sub">SEK · 10.8125 FX</div></div>
+    </div>
+    <div class="tx-item" data-type="buy">
+      <div class="tx-date">10 JAN 2026</div>
+      <div class="tx-asset">
+        <div class="tx-badge" style="background:rgba(251,191,36,0.1);color:var(--amber);">NOVO</div>
+        <div><div class="tx-tick">NOVO B</div><div class="tx-detail">120 shares @ 618.00 DKK</div></div>
+      </div>
+      <span class="tx-type buy">Buy</span>
+      <div><div class="tx-amt">268,920</div><div class="tx-sub">SEK converted DKK</div></div>
+    </div>
+    <div class="tx-item" data-type="div">
+      <div class="tx-date">05 DEC 2025</div>
+      <div class="tx-asset">
+        <div class="tx-badge" style="background:rgba(129,140,248,0.12);color:var(--v2);">AAPL</div>
+        <div><div class="tx-tick">AAPL</div><div class="tx-detail">Dividend Q4 · 0.25 USD/sh</div></div>
+      </div>
+      <span class="tx-type div">Dividend</span>
+      <div><div class="tx-amt" style="color:var(--green);">+130</div><div class="tx-sub">SEK received</div></div>
+    </div>
+  </div>
+</div>
+
+<!-- ══════════════════════ DIVIDENDS VIEW ══════════════════════ -->
+<div class="view" id="view-dividends" role="tabpanel" aria-labelledby="tab-dividends" aria-hidden="true">
+  <div class="view-header">
+    <div class="vh-eyebrow">Income</div>
+    <div class="vh-title">Dividends</div>
+    <div class="vh-sub">Upcoming payments over the next 90 days</div>
+  </div>
+  <div class="div-summary-strip">
+    <div class="dss-cell"><div class="dss-lbl">Annual Income Est.</div><div class="dss-val" style="color:var(--green);">26,955</div><div class="dss-sub">SEK per year</div></div>
+    <div class="dss-cell"><div class="dss-lbl">Dividend Yield</div><div class="dss-val" style="color:var(--amber);">3.2%</div><div class="dss-sub">Portfolio average</div></div>
+    <div class="dss-cell"><div class="dss-lbl">Next 90 Days</div><div class="dss-val" style="color:var(--v2);">4,567</div><div class="dss-sub">SEK expected</div></div>
+    <div class="dss-cell"><div class="dss-lbl">Paying Positions</div><div class="dss-val" style="color:var(--text);">4/5</div><div class="dss-sub">of 5 holdings</div></div>
+  </div>
+  <div class="div-calendar">
+    <div class="dcal-month">
+      <div class="dcal-month-hd">March 2026</div>
+      <div class="dcal-entry">
+        <div class="dcal-day">15</div>
+        <div>
+          <div class="dcal-tick">AAPL</div>
+          <div class="dcal-desc">Apple Inc. · Quarterly dividend · 0.25 USD per share · 50 shares</div>
+        </div>
+        <div class="dcal-amt-wrap">
+          <div class="dcal-amt">+130</div>
+          <div class="dcal-ccy">SEK</div>
+        </div>
+      </div>
+    </div>
+    <div class="dcal-month">
+      <div class="dcal-month-hd">April 2026</div>
+      <div class="dcal-entry">
+        <div class="dcal-day">03</div>
+        <div>
+          <div class="dcal-tick">VOLV B</div>
+          <div class="dcal-desc">Volvo AB · Annual dividend · 8.00 SEK per share · 200 shares</div>
+        </div>
+        <div class="dcal-amt-wrap">
+          <div class="dcal-amt">+1,600</div>
+          <div class="dcal-ccy">SEK</div>
+        </div>
+      </div>
+      <div class="dcal-entry">
+        <div class="dcal-day">22</div>
+        <div>
+          <div class="dcal-tick">NOVO B</div>
+          <div class="dcal-desc">Novo Nordisk · Semi-annual · 5.40 DKK per share · 120 shares</div>
+        </div>
+        <div class="dcal-amt-wrap">
+          <div class="dcal-amt">+2,480</div>
+          <div class="dcal-ccy">SEK</div>
+        </div>
+      </div>
+    </div>
+    <div class="dcal-month">
+      <div class="dcal-month-hd">May 2026</div>
+      <div class="dcal-entry">
+        <div class="dcal-day">18</div>
+        <div>
+          <div class="dcal-tick">SAP</div>
+          <div class="dcal-desc">SAP SE · Annual dividend · 2.20 EUR per share · 15 shares</div>
+        </div>
+        <div class="dcal-amt-wrap">
+          <div class="dcal-amt">+357</div>
+          <div class="dcal-ccy">SEK</div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ══════════════════════ ANALYTICS VIEW ══════════════════════ -->
+<div class="view" id="view-analytics" role="tabpanel" aria-labelledby="tab-analytics" aria-hidden="true">
+  <div class="view-header">
+    <div class="vh-eyebrow">Insights</div>
+    <div class="vh-title">Analytics</div>
+    <div class="vh-sub">Performance breakdown and portfolio metrics</div>
+  </div>
+  <div class="analytics-grid">
+    <div class="an-cell">
+      <div class="an-lbl">YTD Return</div>
+      <div class="an-val up">+12.4%</div>
+      <div class="an-sub">+93,014 SEK since Jan 1</div>
+    </div>
+    <div class="an-cell">
+      <div class="an-lbl">Best Performer</div>
+      <div class="an-val" style="color:var(--amber);">NOVO B</div>
+      <div class="an-sub">+22.1% total return</div>
+    </div>
+    <div class="an-cell">
+      <div class="an-lbl">Worst Performer</div>
+      <div class="an-val" style="color:var(--red);">TSLA</div>
+      <div class="an-sub">-8.4% total return</div>
+    </div>
+    <div class="an-cell wide">
+      <div class="an-lbl">Monthly Returns</div>
+      <div class="monthly-bars">
+        <div class="mb" style="height:35%;background:var(--green);opacity:0.7;" title="Aug +2.1%"></div>
+        <div class="mb" style="height:20%;background:var(--red);opacity:0.7;" title="Sep -1.2%"></div>
+        <div class="mb" style="height:50%;background:var(--green);opacity:0.7;" title="Oct +3.4%"></div>
+        <div class="mb" style="height:28%;background:var(--green);opacity:0.7;" title="Nov +1.8%"></div>
+        <div class="mb" style="height:15%;background:var(--red);opacity:0.7;" title="Dec -0.9%"></div>
+        <div class="mb" style="height:45%;background:var(--green);opacity:0.7;" title="Jan +3.1%"></div>
+        <div class="mb" style="height:60%;background:var(--green);opacity:0.7;" title="Feb +4.2%"></div>
+        <div class="mb" style="height:40%;background:var(--green);opacity:0.7;" title="Mar +2.8%"></div>
+      </div>
+      <div style="display:flex;justify-content:space-between;margin-top:6px;">
+        <span style="font-family:'Fira Code',monospace;font-size:8px;color:var(--muted);">AUG</span>
+        <span style="font-family:'Fira Code',monospace;font-size:8px;color:var(--muted);">SEP</span>
+        <span style="font-family:'Fira Code',monospace;font-size:8px;color:var(--muted);">OCT</span>
+        <span style="font-family:'Fira Code',monospace;font-size:8px;color:var(--muted);">NOV</span>
+        <span style="font-family:'Fira Code',monospace;font-size:8px;color:var(--muted);">DEC</span>
+        <span style="font-family:'Fira Code',monospace;font-size:8px;color:var(--muted);">JAN</span>
+        <span style="font-family:'Fira Code',monospace;font-size:8px;color:var(--muted);">FEB</span>
+        <span style="font-family:'Fira Code',monospace;font-size:8px;color:var(--muted);">MAR</span>
+      </div>
+    </div>
+    <div class="an-cell">
+      <div class="an-lbl">Volatility (30D)</div>
+      <div class="an-val" style="color:var(--amber);">14.2%</div>
+      <div class="an-sub">Annualised std dev</div>
+    </div>
+    <div class="an-cell">
+      <div class="an-lbl">Sector Weights</div>
+      <ul class="sector-list">
+        <li class="sector-item"><span class="sec-nm">Technology</span><div class="sec-track"><div class="sec-fill" style="width:47%;background:var(--v2);"></div></div><span class="sec-pct">47%</span></li>
+        <li class="sector-item"><span class="sec-nm">Healthcare</span><div class="sec-track"><div class="sec-fill" style="width:35%;background:var(--amber);"></div></div><span class="sec-pct">35%</span></li>
+        <li class="sector-item"><span class="sec-nm">Industrial</span><div class="sec-track"><div class="sec-fill" style="width:18%;background:var(--teal);"></div></div><span class="sec-pct">18%</span></li>
+      </ul>
+    </div>
+    <div class="an-cell">
+      <div class="an-lbl">Sharpe Ratio</div>
+      <div class="an-val" style="color:var(--teal);">1.84</div>
+      <div class="an-sub">Risk-adjusted return</div>
+    </div>
+    <div class="an-cell">
+      <div class="an-lbl">Max Drawdown</div>
+      <div class="an-val" style="color:var(--red);">-9.3%</div>
+      <div class="an-sub">Largest peak-to-trough</div>
+    </div>
+    <div class="an-cell">
+      <div class="an-lbl">FX Exposure</div>
+      <div class="an-val" style="color:var(--sky);">58%</div>
+      <div class="an-sub">Non-SEK positions</div>
+    </div>
+  </div>
+</div>
+
+<!-- ══════════════════════ SEARCH VIEW ══════════════════════ -->
+<div class="view" id="view-search" role="tabpanel" aria-labelledby="tab-search" aria-hidden="true">
+  <div class="search-hero">
+    <div class="vh-eyebrow" style="margin-bottom:16px;">Search</div>
+    <div class="search-box">
+      <svg class="search-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>
+      <input class="search-input" type="text" placeholder="Search stocks, ETFs, indices…" id="searchInput" aria-label="Search stocks, ETFs, indices" autocomplete="off"/>
+    </div>
+    <div class="search-hint">Try: AAPL · TSLA · OMX · Novo · SAP</div>
+  </div>
+  <div class="search-results">
+    <div class="sr-section-title">Your Holdings</div>
+    <div class="search-empty" id="searchEmpty">No matching results.</div>
+    <div class="result-card">
+      <div class="rc-badge" style="background:rgba(129,140,248,0.12);color:var(--v2);">AAPL</div>
+      <div><div class="rc-tick">AAPL</div><div class="rc-name">Apple Inc. · NASDAQ</div></div>
+      <div class="rc-price">189.42</div>
+      <div class="rc-chg up">▲ 0.87%</div>
+    </div>
+    <div class="result-card">
+      <div class="rc-badge" style="background:rgba(248,113,113,0.1);color:var(--red);">TSLA</div>
+      <div><div class="rc-tick">TSLA</div><div class="rc-name">Tesla Inc. · NASDAQ</div></div>
+      <div class="rc-price">248.30</div>
+      <div class="rc-chg dn">▼ 1.23%</div>
+    </div>
+    <div class="result-card">
+      <div class="rc-badge" style="background:rgba(251,191,36,0.1);color:var(--amber);">NOVO</div>
+      <div><div class="rc-tick">NOVO B</div><div class="rc-name">Novo Nordisk A/S · OMX</div></div>
+      <div class="rc-price">642.50</div>
+      <div class="rc-chg dn">▼ 0.45%</div>
+    </div>
+    <div class="result-card">
+      <div class="rc-badge" style="background:rgba(45,212,191,0.1);color:var(--teal);">VOLV</div>
+      <div><div class="rc-tick">VOLV B</div><div class="rc-name">Volvo AB · OMX</div></div>
+      <div class="rc-price">260.20</div>
+      <div class="rc-chg up">▲ 0.22%</div>
+    </div>
+    <div class="result-card">
+      <div class="rc-badge" style="background:rgba(56,189,248,0.1);color:var(--sky);">SAP</div>
+      <div><div class="rc-tick">SAP</div><div class="rc-name">SAP SE · XETRA</div></div>
+      <div class="rc-price">202.80</div>
+      <div class="rc-chg up">▲ 1.15%</div>
+    </div>
+  </div>
+</div>
+
+<!-- ══════════════════════ ALERTS VIEW ══════════════════════ -->
+<div class="view" id="view-alerts" role="tabpanel" aria-labelledby="tab-alerts" aria-hidden="true">
+  <div class="view-header">
+    <div class="vh-eyebrow">Notifications</div>
+    <div class="vh-title">Alerts</div>
+    <div class="vh-sub">Price alerts, dividend reminders, and news</div>
+  </div>
+  <div class="alert-add-row">
+    <button type="button" class="alert-add-btn" data-action="new-price-alert" aria-haspopup="dialog" aria-controls="alert-modal-price">+ New Price Alert</button>
+    <button type="button" class="alert-add-btn" data-action="new-dividend-reminder" aria-haspopup="dialog" aria-controls="alert-modal-dividend">+ New Dividend Reminder</button>
+  </div>
+  <div class="alert-feedback" id="alertFeedback" role="status" aria-live="polite" aria-atomic="true"></div>
+  <div class="alert-modal" id="alert-modal-price" role="dialog" aria-modal="true" aria-hidden="true" aria-labelledby="alert-modal-price-title">
+    <div class="alert-modal-card" role="document" tabindex="-1">
+      <div class="alert-modal-title" id="alert-modal-price-title">Create price alert</div>
+      <div class="alert-modal-desc">Set a target price and get notified when the stock crosses it.</div>
+      <div style="display: grid; gap: 10px;">
+        <label style="font-size: 11px; color: var(--muted);">Ticker</label>
+        <input type="text" placeholder="e.g. AAPL" aria-label="Ticker symbol"/>
+        <label style="font-size: 11px; color: var(--muted);">Target price</label>
+        <input type="number" placeholder="e.g. 175" aria-label="Target price"/>
+      </div>
+      <div class="alert-modal-actions">
+        <button type="button" class="btn btn-secondary" data-modal-close>Cancel</button>
+        <button type="button" class="btn btn-primary" data-modal-submit="price">Create alert</button>
+      </div>
+    </div>
+  </div>
+  <div class="alert-modal" id="alert-modal-dividend" role="dialog" aria-modal="true" aria-hidden="true" aria-labelledby="alert-modal-dividend-title">
+    <div class="alert-modal-card" role="document" tabindex="-1">
+      <div class="alert-modal-title" id="alert-modal-dividend-title">Create dividend reminder</div>
+      <div class="alert-modal-desc">Choose a stock and get reminded before its dividend date.</div>
+      <div style="display: grid; gap: 10px;">
+        <label style="font-size: 11px; color: var(--muted);">Ticker</label>
+        <input type="text" placeholder="e.g. NOVO B" aria-label="Ticker symbol"/>
+        <label style="font-size: 11px; color: var(--muted);">Reminder days</label>
+        <input type="number" placeholder="e.g. 5" aria-label="Reminder days before dividend"/>
+      </div>
+      <div class="alert-modal-actions">
+        <button type="button" class="btn btn-secondary" data-modal-close>Cancel</button>
+        <button type="button" class="btn btn-primary" data-modal-submit="dividend">Create reminder</button>
+      </div>
+    </div>
+  </div>
+  <div class="alerts-list">
+    <div class="alert-item">
+      <span class="alert-new"></span>
+      <div class="alert-body">
+        <div class="al-title">TSLA below 250.00 USD</div>
+        <div class="al-desc">Tesla crossed your price alert threshold — currently 248.30 USD</div>
+      </div>
+      <div class="al-time">09:41</div>
+    </div>
+    <div class="alert-item">
+      <span class="alert-new"></span>
+      <div class="alert-body">
+        <div class="al-title">AAPL dividend in 5 days</div>
+        <div class="al-desc">Apple Inc. quarterly dividend of 0.25 USD/share — ex-date 15 MAR</div>
+      </div>
+      <div class="al-time">08:00</div>
+    </div>
+    <div class="alert-item">
+      <span class="alert-read"></span>
+      <div class="alert-body">
+        <div class="al-title">SAP +1.15% today</div>
+        <div class="al-desc">SAP SE is up 1.15% — 202.80 EUR, approaching your target of 210.00</div>
+      </div>
+      <div class="al-time">Yesterday</div>
+    </div>
+    <div class="alert-item">
+      <span class="alert-read"></span>
+      <div class="alert-body">
+        <div class="al-title">NOVO B ex-dividend date</div>
+        <div class="al-desc">Novo Nordisk semi-annual dividend — 5.40 DKK/share on 22 APR 2026</div>
+      </div>
+      <div class="al-time">08 MAR</div>
+    </div>
+    <div class="alert-item">
+      <span class="alert-read"></span>
+      <div class="alert-body">
+        <div class="al-title">Portfolio up +4.2% in February</div>
+        <div class="al-desc">Monthly performance summary: best month since inception</div>
+      </div>
+      <div class="al-time">01 MAR</div>
+    </div>
+  </div>
+</div>
+
+<!-- ══════════════════════ ACCOUNT VIEW ══════════════════════ -->
+<div class="view" id="view-account" role="tabpanel" aria-labelledby="tab-account" aria-hidden="true">
+  <div class="account-grid">
+    <div class="acct-sidebar">
+      <div class="acct-avatar">JD</div>
+      <div class="acct-name">Johan Davidsson</div>
+      <div class="acct-email">johan@example.com</div>
+      <button type="button" class="acct-nav-item a" aria-pressed="true">Profile</button>
+      <button type="button" class="acct-nav-item" aria-pressed="false" aria-disabled="true" title="Coming soon">Preferences</button>
+      <button type="button" class="acct-nav-item" aria-pressed="false" aria-disabled="true" title="Coming soon">Connected Brokers</button>
+      <button type="button" class="acct-nav-item" aria-pressed="false" aria-disabled="true" title="Coming soon">Currency Settings</button>
+      <button type="button" class="acct-nav-item" aria-pressed="false" aria-disabled="true" title="Coming soon">Security</button>
+      <button type="button" class="acct-nav-item" aria-pressed="false" aria-disabled="true" title="Coming soon">Billing</button>
+    </div>
+    <div class="acct-content">
+      <div class="acct-section-title">Profile Information</div>
+      <div class="acct-field"><div class="acct-field-label">Full name</div><div class="acct-field-val">Johan Davidsson</div></div>
+      <div class="acct-field"><div class="acct-field-label">Email</div><div class="acct-field-val">johan@example.com</div></div>
+      <div class="acct-field"><div class="acct-field-label">Member since</div><div class="acct-field-val">January 2025</div></div>
+      <div class="acct-field"><div class="acct-field-label">Home currency</div><div class="acct-field-val">SEK — Swedish Krona</div></div>
+
+      <div class="acct-section-title" style="margin-top:28px;">Connected Brokers</div>
+      <div class="acct-badge-row">
+        <span class="acct-badge" style="color:var(--green);">✓ Avanza</span>
+        <span class="acct-badge" style="color:var(--green);">✓ Nordnet</span>
+        <span class="acct-badge" style="color:var(--muted);">+ Add Broker</span>
+      </div>
+
+      <div class="acct-section-title" style="margin-top:28px;">Subscription</div>
+      <div class="acct-field"><div class="acct-field-label">Plan</div><div class="acct-field-val" style="color:var(--v2);">Pro · Active</div></div>
+      <div class="acct-field"><div class="acct-field-label">Renewal</div><div class="acct-field-val">01 April 2026</div></div>
+    </div>
+  </div>
+</div>
+
+<!-- ── SWITCHER ── -->
+<div class="sw">
+  <span class="sw-lbl">Design</span>
+  <a href="/1/">01</a>
+  <a href="/2/">02</a>
+  <a href="/3/">03</a>
+  <a href="/4/">04</a>
+  <a href="/5/" class="active">05</a>
+</div>
+
+
+<script src="app.js"></script>
+</body>
+</html>
+
+

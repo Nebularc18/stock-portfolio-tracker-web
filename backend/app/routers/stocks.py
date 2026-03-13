@@ -10,10 +10,12 @@ from pydantic import BaseModel
 from typing import Optional
 import uuid
 import logging
+import time
 from datetime import date, datetime
 
 from app.main import get_db, get_current_user, User, Stock, StockCreate, StockUpdate, StockResponse, StockPriceHistory
 from app.utils.time import utc_now
+from app.services.brandfetch_service import brandfetch_service
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -176,15 +178,37 @@ class ManualDividendUpdate(BaseModel):
 
 @router.get("", response_model=list[StockResponse])
 def get_stocks(db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
-    """Retrieve all stocks in the portfolio.
+    """
+    Return all stocks for the current user and refresh their logos when a new logo is available.
     
-    Args:
-        db: Database session dependency.
+    If any logo is updated, the function commits the changes and refreshes the returned stock objects.
     
     Returns:
-        list[StockResponse]: List of all stocks.
+        list[Stock]: Stocks belonging to the current user, with logos possibly updated.
     """
     stocks = db.query(Stock).filter(Stock.user_id == current_user.id).all()
+
+    logos_updated = False
+    for stock in (stock for stock in stocks if brandfetch_service.should_refresh_logo(stock.logo)):
+        try:
+            refreshed_logo = brandfetch_service.get_logo_url_for_ticker(
+                stock.ticker,
+                stock.name,
+                force_refresh=False,
+                existing_logo=stock.logo,
+            )
+        except Exception as exc:
+            logger.warning("Failed to refresh logo for %s: %s", stock.ticker, exc)
+            continue
+        if refreshed_logo and refreshed_logo != stock.logo:
+            stock.logo = refreshed_logo
+            logos_updated = True
+
+    if logos_updated:
+        db.commit()
+        for stock in stocks:
+            db.refresh(stock)
+
     return stocks
 
 
@@ -474,13 +498,18 @@ def refresh_stock(ticker: str, db: Session = Depends(get_db), current_user: User
         stock.sector = info.get("sector") or stock.sector
         stock.last_updated = utc_now()
         
-        should_refresh_logo = not stock.logo
+        should_refresh_logo = brandfetch_service.should_refresh_logo(stock.logo)
         if should_refresh_logo:
-            refreshed_logo = brandfetch_service.get_logo_url_for_ticker(
-                stock.ticker,
-                stock.name or info.get("name"),
-                force_refresh=False,
-            )
+            try:
+                refreshed_logo = brandfetch_service.get_logo_url_for_ticker(
+                    stock.ticker,
+                    stock.name or info.get("name"),
+                    force_refresh=False,
+                    existing_logo=stock.logo,
+                )
+            except Exception as exc:
+                logger.warning("Failed to refresh logo for %s: %s", stock.ticker, exc)
+                refreshed_logo = None
             if refreshed_logo:
                 stock.logo = refreshed_logo
         
@@ -493,17 +522,20 @@ def refresh_stock(ticker: str, db: Session = Depends(get_db), current_user: User
 @router.get("/{ticker}/dividends")
 def get_stock_dividends(ticker: str, years: int = 5, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
     """
-    Retrieve merged dividend history for the given stock ticker over the specified number of years.
+    Return the merged, deduplicated dividend history for a stock over a given number of years.
+    
+    Retrieves combined dividend records from local storage and Avanza for the specified ticker, filters out dividends before the stock's purchase date, deduplicates and scores overlapping records, and sorts the result by date descending.
     
     Parameters:
         ticker (str): Stock ticker symbol (case-insensitive).
-        years (int): Number of years of history to include (default 5).
+        years (int): Number of years of history to include; must be between 1 and MAX_YEARS (default 5).
     
     Returns:
-        list: Merged, deduplicated list of dividend records sorted by date descending. Each record includes date, amount, currency, and source metadata.
+        list: A list of dividend records (dicts) containing fields such as `date`, `amount`, `currency`, `payment_date`, `dividend_type`, and source metadata.
     
     Raises:
         HTTPException: 404 if the stock is not found for the current user.
+        HTTPException: 400 if `years` is outside the allowed range.
     """
     from app.services.stock_service import StockService
     from app.services.avanza_service import avanza_service
@@ -522,22 +554,31 @@ def get_stock_dividends(ticker: str, years: int = 5, db: Session = Depends(get_d
             detail=f"years must be between 1 and {MAX_YEARS}",
         )
 
-    return _get_merged_stock_dividends(stock, stock.ticker or ticker.upper(), years, stock_service, avanza_service)
+    started_at = time.perf_counter()
+    dividends = _get_merged_stock_dividends(stock, stock.ticker or ticker.upper(), years, stock_service, avanza_service)
+    logger.info(
+        "Stock dividends route ticker=%s years=%s count=%s duration_ms=%.1f",
+        stock.ticker or ticker.upper(),
+        years,
+        len(dividends),
+        (time.perf_counter() - started_at) * 1000,
+    )
+    return dividends
 
 
 @router.get("/{ticker}/upcoming-dividends")
 def get_upcoming_dividends(ticker: str, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
     """
-    Get upcoming dividend events for the given stock, preferring Avanza current-year data when available.
+    Retrieve upcoming dividend events for the given stock, preferring Avanza current-year data when available.
     
     Returns:
-        A list of upcoming dividend event dictionaries. Each dictionary may contain:
+        A list of upcoming dividend event dictionaries. Each dictionary contains any of the following keys:
           - `ex_date` (str|None): Ex-dividend date in ISO format, if available.
           - `payment_date` (str|None): Payment date in ISO format, if available.
           - `amount` (number|None): Dividend amount.
           - `currency` (str|None): Currency code of the dividend.
-          - `dividend_type` (str|None): Type/category of the dividend.
-          - `source` (str|None): Origin of the event (e.g., `"avanza"` when from Avanza); may be absent for other sources.
+          - `dividend_type` (str|None): Type or category of the dividend.
+          - `source` (str|None): Origin of the event (for example, `"avanza"` when sourced from Avanza).
     
     Raises:
         HTTPException: 404 if the stock for the current user and ticker is not found.
@@ -553,6 +594,7 @@ def get_upcoming_dividends(ticker: str, db: Session = Depends(get_db), current_u
     if not stock:
         raise HTTPException(status_code=404, detail="Stock not found")
     
+    started_at = time.perf_counter()
     normalized_ticker = stock.ticker or ticker.upper()
     historical_dividends = [
         div for div in (stock_service.get_dividends(normalized_ticker, 2) or [])
@@ -621,10 +663,16 @@ def get_upcoming_dividends(ticker: str, db: Session = Depends(get_db), current_u
                 upcoming_or_remaining.append(div)
                 seen_event_keys.add(event_key)
 
+            logger.info(
+                "Upcoming dividends route ticker=%s source=avanza count=%s duration_ms=%.1f",
+                normalized_ticker,
+                len(upcoming_or_remaining),
+                (time.perf_counter() - started_at) * 1000,
+            )
             return upcoming_or_remaining
 
     upcoming = stock_service.get_upcoming_dividends(normalized_ticker) or []
-    return [
+    filtered_upcoming = [
         div for div in upcoming
         if _is_after_purchase_date(div.get('ex_date'), stock.purchase_date)
         and not (
@@ -632,22 +680,29 @@ def get_upcoming_dividends(ticker: str, db: Session = Depends(get_db), current_u
             and cutoff_date <= today
         )
     ]
+    logger.info(
+        "Upcoming dividends route ticker=%s source=stock_service count=%s duration_ms=%.1f",
+        normalized_ticker,
+        len(filtered_upcoming),
+        (time.perf_counter() - started_at) * 1000,
+    )
+    return filtered_upcoming
 
 
 @router.get("/{ticker}/analyst")
 def get_analyst_data(ticker: str, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
-    """Retrieve analyst recommendations and price targets for a stock.
-    
-    Args:
-        ticker: The stock ticker symbol.
-        db: Database session dependency.
+    """
+    Fetch analyst recommendations and price targets for the given stock ticker.
     
     Returns:
-        dict: Contains recommendations, finnhub_recommendations,
-            price_targets, and latest_rating.
+        dict: Mapping with keys:
+            - `recommendations`: list of yfinance recommendation entries or `None`.
+            - `finnhub_recommendations`: list of finnhub recommendation entries or `None`.
+            - `price_targets`: price target data or `None`.
+            - `latest_rating`: latest consolidated analyst rating or `None`.
     
     Raises:
-        HTTPException: 404 if stock not found.
+        HTTPException: 404 if the stock does not exist for the current user.
     """
     from app.services.stock_service import StockService
     stock_service = StockService()
@@ -659,10 +714,21 @@ def get_analyst_data(ticker: str, db: Session = Depends(get_db), current_user: U
     if not stock:
         raise HTTPException(status_code=404, detail="Stock not found")
     
+    started_at = time.perf_counter()
     normalized_ticker = stock.ticker or ticker.upper()
     all_recommendations = stock_service.get_all_analyst_recommendations(normalized_ticker)
     price_targets = stock_service.get_price_targets(normalized_ticker)
     latest_rating = stock_service.get_latest_rating(normalized_ticker)
+
+    duration_ms = (time.perf_counter() - started_at) * 1000
+    logger.info(
+        "Analyst route ticker=%s yfinance_count=%s finnhub_count=%s has_price_targets=%s duration_ms=%.1f",
+        normalized_ticker,
+        len(all_recommendations.get('yfinance') or []),
+        len(all_recommendations.get('finnhub') or []),
+        price_targets is not None,
+        duration_ms,
+    )
     
     return {
         "recommendations": all_recommendations.get('yfinance'),

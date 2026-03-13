@@ -7,10 +7,12 @@ market hours status, and sparkline charts for the header component.
 from fastapi import APIRouter, Body, HTTPException, Query
 from typing import List
 from datetime import date, datetime, timezone, timedelta
+from concurrent.futures import ThreadPoolExecutor, as_completed
 import requests
 import logging
 import json
 import os
+import tempfile
 from functools import lru_cache
 
 from app.services.market_hours_service import MarketHoursService
@@ -19,7 +21,6 @@ from app.services.market_data_service import get_header_market_data, HEADER_INDI
 router = APIRouter()
 logger = logging.getLogger(__name__)
 
-_session = None
 _CACHE_DIR = os.path.join(os.path.dirname(__file__), '..', '..', 'data', 'cache')
 _DEFAULT_SUPPORTED_EXCHANGE_CURRENCIES = ('SEK', 'USD', 'GBP', 'EUR')
 _SUPPORTED_EXCHANGES_PATH = os.getenv(
@@ -42,6 +43,9 @@ def _get_int_env(name: str, default: int) -> int:
 
 MAX_EXCHANGE_RATE_SPAN_DAYS = _get_int_env('MARKET_MAX_EXCHANGE_RATE_SPAN_DAYS', 3650)
 INDICES_CACHE_TTL = 900  # 15 minutes
+EXCHANGE_RATES_CACHE_TTL = _get_int_env('EXCHANGE_RATES_CACHE_TTL', 900)
+HISTORICAL_EXCHANGE_RATES_CACHE_TTL = _get_int_env('HISTORICAL_EXCHANGE_RATES_CACHE_TTL', 86400 * 30)
+EXCHANGE_RATE_FETCH_WORKERS = _get_int_env('EXCHANGE_RATE_FETCH_WORKERS', 6)
 
 
 @lru_cache(maxsize=1)
@@ -110,6 +114,48 @@ def _store_exchange_rate(rates: dict[str, float | None], key: str, rate: float):
     rates[reverse_key] = None
 
 
+def _has_resolved_rates(rates: dict[str, float | None]) -> bool:
+    return any(value is not None for value in rates.values())
+
+
+def _has_complete_rates(rates: dict[str, float | None]) -> bool:
+    return all(value is not None for value in rates.values())
+
+
+def _merge_rates_with_stale_cache(
+    cache_key: str,
+    ttl: int,
+    rates: dict[str, float | None],
+) -> dict[str, float | None]:
+    cached_snapshot = _load_json_cache(cache_key, ttl, allow_stale=True)
+    if cached_snapshot is None:
+        return dict(rates)
+
+    merged_rates = dict(rates)
+    for key, value in cached_snapshot.items():
+        if merged_rates.get(key) is None and value is not None:
+            merged_rates[key] = value
+
+    return merged_rates
+
+
+def _group_consecutive_dates(values: list[tuple[str, date]]) -> list[list[tuple[str, date]]]:
+    if not values:
+        return []
+
+    sorted_values = sorted(values, key=lambda item: item[1])
+    groups: list[list[tuple[str, date]]] = [[sorted_values[0]]]
+
+    for entry in sorted_values[1:]:
+        previous_date = groups[-1][-1][1]
+        if (entry[1] - previous_date).days == 1:
+            groups[-1].append(entry)
+        else:
+            groups.append([entry])
+
+    return groups
+
+
 def _validate_exchange_rate_span(start_date: date, end_date: date):
     span_days = (end_date - start_date).days
     if span_days > MAX_EXCHANGE_RATE_SPAN_DAYS:
@@ -120,6 +166,14 @@ def _validate_exchange_rate_span(start_date: date, end_date: date):
 
 
 def _log_non_200_yahoo_response(url: str, response: requests.Response, context: str):
+    """
+    Log a warning when a Yahoo HTTP request returns a non-200 response.
+    
+    Parameters:
+        url (str): The requested Yahoo URL.
+        response (requests.Response): The HTTP response whose status code and body will be logged (body truncated).
+        context (str): Short description of the request context (for example symbol or endpoint name).
+    """
     logger.warning(
         "Yahoo returned %s for %s (%s): %s",
         response.status_code,
@@ -129,38 +183,242 @@ def _log_non_200_yahoo_response(url: str, response: requests.Response, context: 
     )
 
 
+def _load_json_cache(filename: str, ttl: int, allow_stale: bool = False) -> dict | None:
+    """
+    Load a JSON cache file from the module cache directory and return its stored value if not expired.
+    
+    Parameters:
+        filename (str): Name of the cache file inside the cache directory.
+        ttl (int): Time-to-live in seconds; the cached entry is considered expired when current UTC time minus `cached_at` is greater than or equal to `ttl`.
+    
+    Returns:
+        dict | None: The cached `value` object from the file if present and not expired, otherwise `None` (also returned on parse or I/O errors).
+    """
+    try:
+        os.makedirs(_CACHE_DIR, exist_ok=True)
+        filepath = os.path.join(_CACHE_DIR, filename)
+        if not os.path.exists(filepath):
+            return None
+        with open(filepath, 'r', encoding='utf-8') as f:
+            try:
+                payload = json.load(f)
+            except json.JSONDecodeError:
+                return None
+        cached_at = payload.get('cached_at', 0)
+        if not allow_stale and datetime.now(timezone.utc).timestamp() - cached_at >= ttl:
+            return None
+        return payload.get('value')
+    except Exception:
+        logger.exception("Failed to load cache file %s", filename)
+        return None
+
+
+def _save_json_cache(filename: str, value: dict):
+    """
+    Write a JSON-serializable mapping to the module cache directory as an atomic cache file with a UTC timestamp.
+    
+    The function stores `value` under `filename` inside the configured cache directory. The on-disk payload contains two keys: `cached_at` (UTC epoch seconds) and `value` (the provided mapping). The file is written atomically via a temporary file and rename; any I/O or serialization errors are logged and suppressed (no exception is raised).
+     
+    Parameters:
+        filename (str): Name of the cache file to create (relative to the cache directory).
+        value (dict): JSON-serializable mapping to persist.
+    """
+    try:
+        os.makedirs(_CACHE_DIR, exist_ok=True)
+        filepath = os.path.join(_CACHE_DIR, filename)
+        fd, temp_path = tempfile.mkstemp(dir=_CACHE_DIR, prefix=f"{filename}.", suffix='.tmp')
+        try:
+            with os.fdopen(fd, 'w', encoding='utf-8') as f:
+                json.dump({
+                    'cached_at': datetime.now(timezone.utc).timestamp(),
+                    'value': value,
+                }, f)
+                f.flush()
+                os.fsync(f.fileno())
+            os.replace(temp_path, filepath)
+        finally:
+            if os.path.exists(temp_path):
+                os.remove(temp_path)
+    except Exception:
+        logger.exception("Failed to save cache file %s", filename)
+
+
+def _latest_exchange_rates_cache_key() -> str:
+    """
+    Return the filename used for caching the latest exchange rates JSON.
+    
+    Returns:
+        cache_filename (str): The relative filename 'exchange_rates_latest.json'.
+    """
+    return 'exchange_rates_latest.json'
+
+
+def _historical_exchange_rates_cache_key(target_date: date) -> str:
+    """
+    Builds the cache filename for historical exchange rates for a specific date.
+    
+    Parameters:
+        target_date (date): The date for which to generate the cache key.
+    
+    Returns:
+        str: Cache filename in the format "exchange_rates_YYYYMMDD.json" (e.g., "exchange_rates_20260311.json").
+    """
+    return f"exchange_rates_{target_date.isoformat().replace('-', '')}.json"
+
+
+def _build_session() -> requests.Session:
+    session = requests.Session()
+    session.headers.update({
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+        'Accept': 'application/json, text/plain, */*',
+        'Accept-Language': 'en-US,en;q=0.9',
+    })
+    return session
+
+
+def _fetch_latest_pair_rate(session: requests.Session | None, symbol: str, key: str) -> tuple[str, float | None]:
+    """
+    Fetches the most recent available daily close price for a given Yahoo Finance exchange-rate symbol.
+    
+    Parameters:
+        symbol (str): Yahoo Finance symbol for the currency pair (e.g., "USDSEK=X").
+        key (str): Result mapping key for the pair (e.g., "USD_SEK").
+    
+    Returns:
+        tuple[str, float | None]: A tuple (key, price) where `price` is the most recent daily close as a float, or `None` if no valid price was found.
+    """
+    active_session = session or _build_session()
+    owns_session = session is None
+
+    try:
+        url = f"https://query1.finance.yahoo.com/v8/finance/chart/{symbol}?interval=1d&range=1d"
+        response = active_session.get(url, timeout=5)
+
+        if response.status_code != 200:
+            _log_non_200_yahoo_response(url, response, f"exchange rate {key}")
+            return key, None
+
+        data = response.json()
+        if not data.get('chart', {}).get('result'):
+            return key, None
+
+        result = data['chart']['result'][0]
+        quote = result.get('indicators', {}).get('quote', [{}])[0]
+        closes = quote.get('close', [])
+        prices = [price for price in closes if price is not None]
+        return key, prices[-1] if prices else None
+    finally:
+        if owns_session:
+            active_session.close()
+
+
+def _fetch_range_pair_rates(
+    session: requests.Session | None,
+    symbol: str,
+    key: str,
+    period_start: datetime,
+    period_end: datetime,
+) -> tuple[str, list[tuple[date, float]]]:
+    """
+    Retrieve daily close prices for the given ticker symbol between period_start and period_end.
+    
+    Parameters:
+        session (requests.Session): HTTP session used to perform the request.
+        symbol (str): Ticker symbol to fetch historical data for (e.g., "USDSEK=X").
+        key (str): Pair key to return alongside the series (e.g., "USD_SEK").
+        period_start (datetime): Inclusive start of the requested time range (UTC-aware recommended).
+        period_end (datetime): Exclusive end of the requested time range (UTC-aware recommended).
+    
+    Returns:
+        tuple[str, list[tuple[date, float]]]: A tuple whose first element is the provided `key` and whose second element
+        is a list of (date, price) pairs for each day in the range with an available close price. Returns an empty list
+        when no valid data is available for the symbol in the requested range.
+    """
+    active_session = session or _build_session()
+    owns_session = session is None
+
+    try:
+        url = (
+            f"https://query1.finance.yahoo.com/v8/finance/chart/{symbol}"
+            f"?period1={int(period_start.timestamp())}&period2={int(period_end.timestamp())}&interval=1d"
+        )
+        response = active_session.get(url, timeout=5)
+
+        if response.status_code != 200:
+            _log_non_200_yahoo_response(url, response, f"exchange rate series {key}")
+            return key, []
+
+        data = response.json()
+        if not data.get('chart', {}).get('result'):
+            return key, []
+
+        result = data['chart']['result'][0]
+        quote = result.get('indicators', {}).get('quote', [{}])[0]
+        closes = quote.get('close', [])
+        timestamps = result.get('timestamp', [])
+        return key, [
+            (datetime.fromtimestamp(ts, tz=timezone.utc).date(), price)
+            for ts, price in zip(timestamps, closes, strict=False)
+            if price is not None
+        ]
+    finally:
+        if owns_session:
+            active_session.close()
+
+
 def _fetch_latest_exchange_rates() -> dict[str, float | None]:
-    session = get_session()
+    """
+    Retrieve the latest exchange rate values for all supported currency pairs.
+    
+    Returns:
+        dict[str, float | None]: A mapping of rate keys to their latest exchange rates or `None` if unavailable.
+    """
+    cached = _load_json_cache(_latest_exchange_rates_cache_key(), EXCHANGE_RATES_CACHE_TTL)
+    if cached is not None:
+        return cached
+
     rates: dict[str, float | None] = _empty_rate_map()
 
-    for symbol, key in pairs:
-        try:
-            url = f"https://query1.finance.yahoo.com/v8/finance/chart/{symbol}?interval=1d&range=1d"
-            response = session.get(url, timeout=5)
+    with ThreadPoolExecutor(max_workers=max(1, min(EXCHANGE_RATE_FETCH_WORKERS, len(pairs)))) as executor:
+        futures = {
+            executor.submit(_fetch_latest_pair_rate, None, symbol, key): (symbol, key)
+            for symbol, key in pairs
+        }
+        for future in as_completed(futures):
+            symbol, key = futures[future]
+            try:
+                _, rate = future.result()
+                if rate is not None:
+                    _store_exchange_rate(rates, key, rate)
+            except Exception:
+                logger.exception("Failed to fetch exchange rate for %s (%s)", key, symbol)
 
-            if response.status_code != 200:
-                _log_non_200_yahoo_response(url, response, f"exchange rate {key}")
-                continue
+    if _has_resolved_rates(rates):
+        merged_rates = _merge_rates_with_stale_cache(
+            _latest_exchange_rates_cache_key(),
+            EXCHANGE_RATES_CACHE_TTL,
+            rates,
+        )
+        if _has_complete_rates(merged_rates):
+            _save_json_cache(_latest_exchange_rates_cache_key(), merged_rates)
+        return merged_rates
 
-            data = response.json()
-            if not data.get('chart', {}).get('result'):
-                continue
-
-            result = data['chart']['result'][0]
-            quote = result.get('indicators', {}).get('quote', [{}])[0]
-            closes = quote.get('close', [])
-            prices = [price for price in closes if price is not None]
-            if prices:
-                _store_exchange_rate(rates, key, prices[-1])
-        except Exception:
-            logger.exception("Failed to fetch exchange rate for %s (%s)", key, symbol)
-
-    return rates
+    cached_snapshot = _load_json_cache(_latest_exchange_rates_cache_key(), EXCHANGE_RATES_CACHE_TTL, allow_stale=True)
+    return cached_snapshot if cached_snapshot is not None else rates
 
 
 def _fetch_exchange_rates_for_range(start_date: date, end_date: date) -> dict[date, dict[str, float | None]]:
+    """
+    Fetches exchange rates for every date in the inclusive date range and returns a per-day map of rate keys to values.
+    
+    Parameters:
+        start_date (date): Inclusive start of the date range.
+        end_date (date): Inclusive end of the date range.
+    
+    Returns:
+        dict[date, dict[str, float | None]]: A mapping where each date in the inclusive range maps to a dictionary of all rate keys (e.g., `USD_SEK`) to their rate value or `None` if unavailable.
+    """
     _validate_exchange_rate_span(start_date, end_date)
-    session = get_session()
     rates_by_date: dict[date, dict[str, float | None]] = {
         start_date + timedelta(days=offset): _empty_rate_map()
         for offset in range((end_date - start_date).days + 1)
@@ -169,73 +427,83 @@ def _fetch_exchange_rates_for_range(start_date: date, end_date: date) -> dict[da
     period_start = datetime.combine(start_date - timedelta(days=7), datetime.min.time(), tzinfo=timezone.utc)
     period_end = datetime.combine(end_date + timedelta(days=1), datetime.min.time(), tzinfo=timezone.utc)
 
-    for symbol, key in pairs:
-        try:
-            url = (
-                f"https://query1.finance.yahoo.com/v8/finance/chart/{symbol}"
-                f"?period1={int(period_start.timestamp())}&period2={int(period_end.timestamp())}&interval=1d"
-            )
-            response = session.get(url, timeout=5)
+    with ThreadPoolExecutor(max_workers=max(1, min(EXCHANGE_RATE_FETCH_WORKERS, len(pairs)))) as executor:
+        futures = {
+            executor.submit(_fetch_range_pair_rates, None, symbol, key, period_start, period_end): (symbol, key)
+            for symbol, key in pairs
+        }
+        for future in as_completed(futures):
+            symbol, key = futures[future]
+            try:
+                _, series = future.result()
+                if not series:
+                    continue
 
-            if response.status_code != 200:
-                _log_non_200_yahoo_response(url, response, f"exchange rate series {key}")
-                continue
-
-            data = response.json()
-            if not data.get('chart', {}).get('result'):
-                continue
-
-            result = data['chart']['result'][0]
-            quote = result.get('indicators', {}).get('quote', [{}])[0]
-            closes = quote.get('close', [])
-            timestamps = result.get('timestamp', [])
-            series = [
-                (datetime.fromtimestamp(ts, tz=timezone.utc).date(), price)
-                for ts, price in zip(timestamps, closes, strict=False)
-                if price is not None
-            ]
-
-            if not series:
-                continue
-
-            series_index = 0
-            latest_price = None
-            for current_date in sorted(rates_by_date):
-                while series_index < len(series) and series[series_index][0] <= current_date:
-                    latest_price = series[series_index][1]
-                    series_index += 1
-                if latest_price is not None:
-                    _store_exchange_rate(rates_by_date[current_date], key, latest_price)
-        except Exception:
-            logger.exception("Failed to fetch exchange rate series for %s (%s)", key, symbol)
+                series_index = 0
+                latest_price = None
+                for current_date in sorted(rates_by_date):
+                    while series_index < len(series) and series[series_index][0] <= current_date:
+                        latest_price = series[series_index][1]
+                        series_index += 1
+                    if latest_price is not None:
+                        _store_exchange_rate(rates_by_date[current_date], key, latest_price)
+            except Exception:
+                logger.exception("Failed to fetch exchange rate series for %s (%s)", key, symbol)
 
     return rates_by_date
 
 
-def _fetch_exchange_rates_for_date(target_date: date | None) -> dict[str, float | None]:
+def _fetch_exchange_rates_for_date(target_date: date | None, allow_stale: bool = False) -> dict[str, float | None]:
+    """
+    Retrieve exchange rates for a specific date, or the latest rates when no date is provided.
+    
+    Parameters:
+        target_date (date | None): The ISO date to retrieve historical rates for; if None, the current/latest rates are returned.
+    
+    Returns:
+        dict[str, float | None]: A mapping from rate key (e.g., "USD_SEK") to the exchange rate as a float, or `None` if no valid rate is available for that key.
+    """
     if target_date is None:
         return _fetch_latest_exchange_rates()
 
-    return _fetch_exchange_rates_for_range(target_date, target_date).get(
+    cached = _load_json_cache(
+        _historical_exchange_rates_cache_key(target_date),
+        HISTORICAL_EXCHANGE_RATES_CACHE_TTL,
+        allow_stale=allow_stale,
+    )
+    if cached is not None:
+        return cached
+
+    rates = _fetch_exchange_rates_for_range(target_date, target_date).get(
         target_date,
         _empty_rate_map(),
     )
+    if _has_resolved_rates(rates):
+        merged_rates = _merge_rates_with_stale_cache(
+            _historical_exchange_rates_cache_key(target_date),
+            HISTORICAL_EXCHANGE_RATES_CACHE_TTL,
+            rates,
+        )
+        if _has_complete_rates(merged_rates):
+            _save_json_cache(_historical_exchange_rates_cache_key(target_date), merged_rates)
+        return merged_rates
+
+    cached_snapshot = _load_json_cache(
+        _historical_exchange_rates_cache_key(target_date),
+        HISTORICAL_EXCHANGE_RATES_CACHE_TTL,
+        allow_stale=True,
+    )
+    if cached_snapshot is not None:
+        return cached_snapshot
+    return rates
 
 def get_session():
-    """Get or create a shared requests session with default headers.
+    """Create a requests session with default headers.
     
     Returns:
         requests.Session: Session with User-Agent and Accept headers configured.
     """
-    global _session
-    if _session is None:
-        _session = requests.Session()
-        _session.headers.update({
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-            'Accept': 'application/json, text/plain, */*',
-            'Accept-Language': 'en-US,en;q=0.9',
-        })
-    return _session
+    return _build_session()
 
 
 def _load_indices_cache() -> dict | None:
@@ -288,7 +556,7 @@ def _save_indices_cache(data: dict):
         logger.warning(f"Failed to save indices cache: {e}")
 
 
-def fetch_index_data(symbol: str) -> dict | None:
+def fetch_index_data(symbol: str, session: requests.Session) -> dict | None:
     """
     Retrieve the latest price and percentage change for a market index from Yahoo Finance.
     
@@ -299,8 +567,6 @@ def fetch_index_data(symbol: str) -> dict | None:
         dict: Mapping with keys 'symbol' (str), 'price' (number), 'change' (number), and 'change_percent' (number).
         None: If the data could not be fetched or parsed.
     """
-    session = get_session()
-    
     try:
         url = f"https://query1.finance.yahoo.com/v8/finance/chart/{symbol}?interval=1d&range=5d"
         response = session.get(url, timeout=10)
@@ -403,14 +669,17 @@ def get_market_indices():
     
     # Fetch fresh data
     results = []
-    
-    for symbol, name in HEADER_INDICES.items():
-        data = fetch_index_data(symbol)
-        if data:
-            results.append({
-                **data,
-                "name": name,
-            })
+    session = get_session()
+    try:
+        for symbol, name in HEADER_INDICES.items():
+            data = fetch_index_data(symbol, session)
+            if data:
+                results.append({
+                    **data,
+                    "name": name,
+                })
+    finally:
+        session.close()
     
     now = datetime.now(timezone.utc)
     next_refresh = now + timedelta(seconds=INDICES_CACHE_TTL)
@@ -460,8 +729,26 @@ def get_exchange_rates(date: str | None = Query(None)):
 
 @router.post("/exchange-rates/batch")
 def get_exchange_rates_batch(dates: List[str] = Body(..., embed=True)):
-    """Retrieve exchange rates for multiple ISO dates provided in the request body."""
+    """
+    Return exchange rate maps for multiple ISO date strings provided in the request body.
+    
+    Parses each input string as YYYY-MM-DD and returns a mapping from the original input string to a per-rate-key mapping of exchange rates (float) or None when a rate is unavailable. Cached per-date results are used when available; missing dates are fetched as a contiguous range and cached.
+    
+    Parameters:
+        dates (List[str]): List of date strings in the format "YYYY-MM-DD" provided in the request body.
+    
+    Returns:
+        dict[str, dict[str, float | None]]: Mapping from each input date string to a map of rate keys (e.g., "USD_SEK") to their rate value or `None`.
+    
+    Raises:
+        HTTPException: If any input date is not a valid YYYY-MM-DD string (status code 400).
+    """
+    if not dates:
+        return {}
+
     parsed_dates: list[tuple[str, date]] = []
+    rates_by_date: dict[str, dict[str, float | None]] = {}
+    missing_dates: list[tuple[str, date]] = []
 
     for value in dates:
         try:
@@ -471,18 +758,42 @@ def get_exchange_rates_batch(dates: List[str] = Body(..., embed=True)):
 
         parsed_dates.append((value, target_date))
 
-    min_date = min(target_date for _, target_date in parsed_dates)
-    max_date = max(target_date for _, target_date in parsed_dates)
-    _validate_exchange_rate_span(min_date, max_date)
+        cached = _load_json_cache(
+            _historical_exchange_rates_cache_key(target_date),
+            HISTORICAL_EXCHANGE_RATES_CACHE_TTL,
+        )
+        if cached is not None:
+            rates_by_date[value] = cached
+        else:
+            missing_dates.append((value, target_date))
 
-    range_rates = _fetch_exchange_rates_for_range(
-        min_date,
-        max_date,
-    )
+    if not missing_dates:
+        return rates_by_date
 
-    rates_by_date: dict[str, dict[str, float | None]] = {}
-    for original_value, target_date in parsed_dates:
-        rates_by_date[original_value] = range_rates.get(target_date, _empty_rate_map())
+    for group in _group_consecutive_dates(missing_dates):
+        start_date = group[0][1]
+        end_date = group[-1][1]
+        _validate_exchange_rate_span(start_date, end_date)
+
+        range_rates = _fetch_exchange_rates_for_range(start_date, end_date)
+
+        for original_value, target_date in group:
+            cache_key = _historical_exchange_rates_cache_key(target_date)
+            daily_rates = range_rates.get(target_date, _empty_rate_map())
+            if _has_resolved_rates(daily_rates):
+                daily_rates = _merge_rates_with_stale_cache(
+                    cache_key,
+                    HISTORICAL_EXCHANGE_RATES_CACHE_TTL,
+                    daily_rates,
+                )
+                if _has_complete_rates(daily_rates):
+                    _save_json_cache(cache_key, daily_rates)
+            else:
+                stale_rates = _fetch_exchange_rates_for_date(target_date, allow_stale=True)
+                if _has_resolved_rates(stale_rates):
+                    daily_rates = stale_rates
+
+            rates_by_date[original_value] = daily_rates
 
     return rates_by_date
 
@@ -527,47 +838,50 @@ def get_index_sparklines():
     session = get_session()
     sparklines = {}
     
-    for symbol in HEADER_INDICES.keys():
-        try:
-            url = f"https://query1.finance.yahoo.com/v8/finance/chart/{symbol}?interval=1d&range=30d"
-            response = session.get(url, timeout=10)
-            
-            if response.status_code != 200:
-                continue
-            
-            data = response.json()
-            
-            if 'chart' not in data or 'result' not in data['chart'] or not data['chart']['result']:
-                continue
-            
-            result = data['chart']['result'][0]
-            quote = result.get('indicators', {}).get('quote', [{}])[0]
-            timestamps = result.get('timestamp', [])
-            closes = quote.get('close', [])
-            
-            prices = []
-            dates = []
-            for i, (ts, price) in enumerate(zip(timestamps, closes)):
-                if price is not None:
-                    prices.append(price)
-                    dates.append(datetime.fromtimestamp(ts, tz=timezone.utc).strftime('%Y-%m-%d'))
-            
-            if len(prices) >= 2:
-                start_price = prices[0]
-                end_price = prices[-1]
-                change_percent = ((end_price - start_price) / start_price) * 100 if start_price else 0
+    try:
+        for symbol in HEADER_INDICES.keys():
+            try:
+                url = f"https://query1.finance.yahoo.com/v8/finance/chart/{symbol}?interval=1d&range=30d"
+                response = session.get(url, timeout=10)
                 
-                sparklines[symbol] = {
-                    "prices": prices,
-                    "dates": dates,
-                    "is_positive": end_price >= start_price,
-                    "start_value": start_price,
-                    "end_value": end_price,
-                    "change_percent": change_percent,
-                }
-        except Exception as e:
-            logger.error(f"Error fetching sparkline for {symbol}: {e}")
-            continue
+                if response.status_code != 200:
+                    continue
+                
+                data = response.json()
+                
+                if 'chart' not in data or 'result' not in data['chart'] or not data['chart']['result']:
+                    continue
+                
+                result = data['chart']['result'][0]
+                quote = result.get('indicators', {}).get('quote', [{}])[0]
+                timestamps = result.get('timestamp', [])
+                closes = quote.get('close', [])
+                
+                prices = []
+                dates = []
+                for ts, price in zip(timestamps, closes, strict=False):
+                    if price is not None:
+                        prices.append(price)
+                        dates.append(datetime.fromtimestamp(ts, tz=timezone.utc).strftime('%Y-%m-%d'))
+                
+                if len(prices) >= 2:
+                    start_price = prices[0]
+                    end_price = prices[-1]
+                    change_percent = ((end_price - start_price) / start_price) * 100 if start_price else 0
+                    
+                    sparklines[symbol] = {
+                        "prices": prices,
+                        "dates": dates,
+                        "is_positive": end_price >= start_price,
+                        "start_value": start_price,
+                        "end_value": end_price,
+                        "change_percent": change_percent,
+                    }
+            except Exception:
+                logger.exception("Error fetching sparkline for %s", symbol)
+                continue
+    finally:
+        session.close()
     
     return {
         "sparklines": sparklines,

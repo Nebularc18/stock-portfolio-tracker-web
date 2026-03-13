@@ -1,0 +1,789 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Portfolio — Midnight</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,400;0,700;0,900;1,400;1,700&family=JetBrains+Mono:wght@300;400;500&display=swap" rel="stylesheet">
+<style>
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+:root {
+  --bg:    #07080f;
+  --bg1:   #0c0d16;
+  --bg2:   #111220;
+  --bg3:   #171827;
+  --border:#1e2030;
+  --text:  #c8cdd8;
+  --head:  #e8ecf4;
+  --muted: #545870;
+  --dim:   #282a3c;
+  --amber: #f59e0b;
+  --amber2:#fbbf24;
+  --green: #34d399;
+  --red:   #f87171;
+  --blue:  #60a5fa;
+}
+
+html, body {
+  background: var(--bg);
+  color: var(--text);
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 12px;
+  line-height: 1.6;
+  min-height: 100vh;
+}
+
+/* ── TOP ── */
+.top {
+  display: flex;
+  align-items: stretch;
+  height: 46px;
+  border-bottom: 1px solid var(--border);
+  background: var(--bg1);
+}
+
+.top-logo {
+  font-family: 'Playfair Display', serif;
+  font-size: 20px;
+  font-weight: 700;
+  font-style: italic;
+  color: var(--head);
+  letter-spacing: 0.02em;
+  padding: 0 28px;
+  border-right: 1px solid var(--border);
+  display: flex;
+  align-items: center;
+}
+
+.top-logo .accent { color: var(--amber); }
+
+.top-mkt {
+  display: flex;
+  align-items: stretch;
+  flex: 1;
+}
+
+.top-mkt-item {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 0 18px;
+  border-right: 1px solid var(--border);
+}
+
+.tm-nm { font-size: 9px; letter-spacing: 0.12em; text-transform: uppercase; color: var(--muted); }
+.tm-vl { font-size: 12px; font-weight: 500; color: var(--head); letter-spacing: 0.02em; }
+.tm-ch { font-size: 10px; font-weight: 500; }
+.up { color: var(--green); }
+.dn { color: var(--red); }
+
+.top-time {
+  display: flex;
+  align-items: center;
+  padding: 0 20px;
+  font-size: 10px;
+  color: var(--muted);
+  letter-spacing: 0.08em;
+  border-left: 1px solid var(--border);
+  margin-left: auto;
+}
+
+/* ── NAV ── */
+.nav {
+  height: 40px;
+  display: flex;
+  align-items: center;
+  border-bottom: 1px solid var(--border);
+  padding: 0 28px;
+  gap: 0;
+}
+
+.nav a {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 10px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  text-decoration: none;
+  color: var(--muted);
+  padding: 7px 14px;
+  border-radius: 3px;
+  transition: color 0.14s, background 0.14s;
+}
+
+.nav a:hover { color: var(--text); background: var(--bg2); }
+.nav a.active { color: var(--amber); background: rgba(245,158,11,0.08); }
+
+/* ── PAGE ── */
+/* Full-width layout in stacked horizontal sections */
+.page {}
+
+/* ── BIG HERO BAND ── */
+.hero-band {
+  display: grid;
+  grid-template-columns: 1fr 240px 240px 240px;
+  border-bottom: 1px solid var(--border);
+  background: linear-gradient(160deg, var(--bg1) 0%, var(--bg) 55%);
+}
+
+/* Decorative amber side bar */
+.hero-main {
+  padding: 44px 52px 36px;
+  border-right: 1px solid var(--border);
+  position: relative;
+}
+
+.hero-main::before {
+  content: '';
+  position: absolute;
+  left: 0; top: 20%; bottom: 20%;
+  width: 3px;
+  background: linear-gradient(to bottom, transparent, var(--amber), transparent);
+  opacity: 0.6;
+}
+
+.hero-eyebrow {
+  font-size: 9px;
+  letter-spacing: 0.3em;
+  text-transform: uppercase;
+  color: var(--muted);
+  margin-bottom: 14px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.hero-eyebrow::before {
+  content: '';
+  display: inline-block;
+  width: 20px; height: 1px;
+  background: var(--amber);
+  opacity: 0.6;
+}
+
+.hero-num {
+  font-family: 'Playfair Display', serif;
+  font-size: clamp(60px, 7.5vw, 104px);
+  font-weight: 900;
+  line-height: 0.9;
+  letter-spacing: -0.02em;
+  color: var(--head);
+}
+
+.hero-num .cur {
+  font-size: 0.22em;
+  font-weight: 400;
+  font-style: italic;
+  color: var(--amber);
+  letter-spacing: 0.06em;
+  vertical-align: 0.65em;
+  margin-right: 6px;
+}
+
+.hero-sub {
+  margin-top: 16px;
+  font-size: 10px;
+  color: var(--muted);
+  letter-spacing: 0.1em;
+  display: flex;
+  gap: 14px;
+}
+
+/* KPI columns */
+.hero-kpi {
+  padding: 28px 24px;
+  border-right: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+}
+
+.hero-kpi:last-child { border-right: none; }
+
+.hk-label {
+  font-size: 9px;
+  letter-spacing: 0.22em;
+  text-transform: uppercase;
+  color: var(--muted);
+  margin-bottom: 10px;
+}
+
+.hk-val {
+  font-family: 'Playfair Display', serif;
+  font-size: 40px;
+  font-weight: 700;
+  line-height: 1;
+  letter-spacing: -0.01em;
+}
+
+.hk-sub {
+  font-size: 10px;
+  color: var(--muted);
+  margin-top: 6px;
+}
+
+/* ── CHART + RIGHT COL ── */
+.mid-band {
+  display: grid;
+  grid-template-columns: 1fr 320px;
+  border-bottom: 1px solid var(--border);
+}
+
+.chart-col {
+  border-right: 1px solid var(--border);
+}
+
+.sec-hdr {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 12px 24px;
+  border-bottom: 1px solid var(--border);
+}
+
+.sec-title {
+  font-size: 9px;
+  letter-spacing: 0.22em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.pbtns { display: flex; }
+
+.pbtns button {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 9px;
+  letter-spacing: 0.08em;
+  background: none;
+  border: 1px solid var(--border);
+  color: var(--muted);
+  padding: 3px 10px;
+  margin-left: -1px;
+  cursor: pointer;
+  transition: color 0.12s, background 0.12s;
+}
+
+.pbtns button:hover { color: var(--text); background: var(--bg2); }
+.pbtns button.a { color: var(--amber); background: rgba(245,158,11,0.08); border-color: rgba(245,158,11,0.3); }
+
+.chart-wrap {
+  padding: 16px 24px 12px;
+  height: 200px;
+}
+
+.chart-wrap svg { width: 100%; height: 100%; }
+
+/* Holdings col */
+.holdings-col { display: flex; flex-direction: column; }
+
+.htable { width: 100%; border-collapse: collapse; }
+
+.htable th {
+  font-size: 8px;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--muted);
+  font-weight: 300;
+  padding: 10px 16px;
+  border-bottom: 1px solid var(--border);
+  text-align: left;
+}
+
+.htable th:last-child { text-align: right; }
+
+.htable tbody tr {
+  border-bottom: 1px solid rgba(30,32,48,0.6);
+  transition: background 0.12s;
+}
+
+.htable tbody tr:hover { background: var(--bg2); }
+.htable tbody tr:last-child { border-bottom: none; }
+
+.htable td {
+  padding: 11px 16px;
+  vertical-align: middle;
+}
+
+.htable td:last-child { text-align: right; }
+
+.ht-tick {
+  font-family: 'Playfair Display', serif;
+  font-size: 17px;
+  font-weight: 700;
+  color: var(--head);
+  letter-spacing: 0.02em;
+}
+
+.ht-name { font-size: 9px; color: var(--muted); margin-top: 2px; }
+
+.ht-val {
+  font-family: 'Playfair Display', serif;
+  font-size: 17px;
+  font-weight: 400;
+  color: var(--text);
+}
+
+.ht-chg { font-size: 9px; margin-top: 3px; }
+
+/* ── BOTTOM BAND ── */
+.bottom-band {
+  display: grid;
+  grid-template-columns: 1fr 1fr 1fr 320px;
+  border-bottom: 1px solid var(--border);
+}
+
+.bot-cell {
+  padding: 20px 24px;
+  border-right: 1px solid var(--border);
+  transition: background 0.12s;
+}
+
+.bot-cell:hover { background: var(--bg1); }
+.bot-cell:last-child { border-right: none; }
+
+.bc-nm { font-size: 9px; letter-spacing: 0.2em; text-transform: uppercase; color: var(--muted); margin-bottom: 8px; }
+
+.bc-val {
+  font-family: 'Playfair Display', serif;
+  font-size: 26px;
+  font-weight: 700;
+  line-height: 1;
+  color: var(--head);
+}
+
+.bc-ch { font-size: 10px; margin-top: 4px; font-weight: 500; }
+
+/* ── DIVIDENDS BAND ── */
+.div-band {}
+
+.div-items { display: flex; }
+
+.div-card {
+  flex: 1;
+  padding: 18px 22px;
+  border-right: 1px solid var(--border);
+  transition: background 0.12s;
+}
+
+.div-card:hover { background: var(--bg1); }
+.div-card:last-child { border-right: none; }
+
+.dc-date {
+  font-family: 'Playfair Display', serif;
+  font-size: 32px;
+  font-weight: 900;
+  font-style: italic;
+  line-height: 1;
+  color: var(--amber);
+  letter-spacing: -0.02em;
+}
+
+.dc-date .mo {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 9px;
+  font-weight: 300;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--muted);
+  display: block;
+  margin-top: 3px;
+  font-style: normal;
+}
+
+.dc-tick {
+  font-family: 'Playfair Display', serif;
+  font-size: 17px;
+  font-weight: 700;
+  color: var(--head);
+  margin-top: 10px;
+}
+
+.dc-desc { font-size: 10px; color: var(--muted); margin-top: 3px; }
+
+.dc-amt {
+  font-family: 'Playfair Display', serif;
+  font-size: 22px;
+  font-weight: 700;
+  color: var(--text);
+  margin-top: 10px;
+}
+
+.dc-ccy { font-size: 9px; color: var(--muted); margin-top: 2px; letter-spacing: 0.1em; }
+
+/* Alloc sidebar in bottom */
+.alloc-right {
+  padding: 18px 16px;
+  border-left: 1px solid var(--border);
+}
+
+.alloc-t {
+  font-size: 8px;
+  letter-spacing: 0.22em;
+  text-transform: uppercase;
+  color: var(--muted);
+  margin-bottom: 14px;
+}
+
+.ar { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; }
+.ar:last-child { margin-bottom: 0; }
+
+.ar-nm { font-size: 9px; color: var(--muted); width: 48px; flex-shrink: 0; }
+
+.ar-track {
+  flex: 1;
+  height: 3px;
+  background: var(--dim);
+  border-radius: 2px;
+  overflow: hidden;
+}
+
+.ar-fill { height: 100%; border-radius: 2px; }
+
+.ar-pct { font-size: 9px; color: var(--muted); width: 34px; text-align: right; flex-shrink: 0; }
+
+/* ── SWITCHER ── */
+.sw-bar {
+  display: flex;
+  align-items: center;
+  padding: 11px 28px;
+  gap: 0;
+  border-top: 1px solid var(--border);
+  background: var(--bg1);
+}
+
+.sw-lbl {
+  font-size: 8px;
+  letter-spacing: 0.26em;
+  text-transform: uppercase;
+  color: var(--muted);
+  margin-right: 14px;
+}
+
+.sw-bar a {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 10px;
+  color: var(--muted);
+  text-decoration: none;
+  padding: 4px 13px;
+  border: 1px solid var(--border);
+  margin-right: -1px;
+  transition: color 0.12s, background 0.12s;
+}
+
+.sw-bar a:hover { color: var(--text); background: var(--bg2); }
+.sw-bar a.active { color: var(--amber); background: rgba(245,158,11,0.07); border-color: rgba(245,158,11,0.3); z-index: 1; }
+
+@media (max-width: 1100px) {
+  .hero-band,
+  .bottom-band,
+  .mid-band,
+  .account-grid {
+    grid-template-columns: 1fr 1fr;
+  }
+
+  .hero-main,
+  .chart-col,
+  .bot-cell,
+  .hero-kpi {
+    border-right: 1px solid var(--border);
+  }
+
+  .holdings-col,
+  .bot-cell:last-child {
+    border-right: none;
+  }
+
+  .div-band > div:last-child {
+    grid-template-columns: repeat(2, 1fr) !important;
+  }
+}
+
+@media (max-width: 720px) {
+  .top,
+  .nav,
+  .sw-bar {
+    overflow-x: auto;
+  }
+
+  .hero-band,
+  .mid-band,
+  .bottom-band {
+    grid-template-columns: 1fr;
+  }
+
+  .hero-main,
+  .hero-kpi,
+  .chart-col,
+  .holdings-col,
+  .bot-cell {
+    border-right: none;
+    border-bottom: 1px solid var(--border);
+  }
+
+  .hero-main {
+    padding: 32px 24px 26px;
+  }
+
+  .hero-sub {
+    flex-wrap: wrap;
+  }
+
+  .sec-hdr {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+
+  .pbtns {
+    flex-wrap: wrap;
+  }
+
+  .htable,
+  .htable thead,
+  .htable tbody,
+  .htable tr,
+  .htable th,
+  .htable td {
+    display: block;
+    width: 100%;
+  }
+
+  .htable thead {
+    display: none;
+  }
+
+  .htable tbody tr {
+    padding: 12px 0;
+  }
+
+  .htable td:last-child {
+    text-align: left;
+  }
+
+  .div-band > div:last-child {
+    grid-template-columns: 1fr !important;
+  }
+
+  .div-card {
+    border-right: none;
+    border-bottom: 1px solid var(--border);
+  }
+
+  .div-card:last-child {
+    border-bottom: none;
+  }
+}
+</style>
+</head>
+<body>
+
+<div class="top">
+  <div class="top-logo">Port<span class="accent">folio</span></div>
+  <div class="top-mkt">
+    <div class="top-mkt-item"><span class="tm-nm">S&P 500</span><span class="tm-vl">5,842.10</span><span class="tm-ch up">+0.34%</span></div>
+    <div class="top-mkt-item"><span class="tm-nm">NASDAQ</span><span class="tm-vl">18,402</span><span class="tm-ch up">+0.51%</span></div>
+    <div class="top-mkt-item"><span class="tm-nm">OMX 30</span><span class="tm-vl">2,641.80</span><span class="tm-ch dn">-0.12%</span></div>
+    <div class="top-mkt-item"><span class="tm-nm">USD/SEK</span><span class="tm-vl">10.4200</span><span class="tm-ch dn">-0.08%</span></div>
+    <div class="top-mkt-item"><span class="tm-nm">EUR/SEK</span><span class="tm-vl">10.8125</span><span class="tm-ch up">+0.03%</span></div>
+  </div>
+  <div class="top-time">10 MAR 2026 · 09:42</div>
+</div>
+
+<nav class="nav">
+  <a href="#" class="active">Dashboard</a>
+  <a href="#">Portfolio</a>
+  <a href="#">Transactions</a>
+  <a href="#">Dividends</a>
+  <a href="#">Analytics</a>
+  <a href="#">Search</a>
+  <a href="#">Alerts</a>
+  <a href="#">Account</a>
+</nav>
+
+<div class="page">
+
+  <!-- HERO BAND -->
+  <div class="hero-band">
+    <div class="hero-main">
+      <div class="hero-eyebrow">Total Portfolio Value</div>
+      <div class="hero-num"><span class="cur">SEK</span>842,341</div>
+      <div class="hero-sub">
+        <span>5 positions</span>
+        <span>·</span>
+        <span>3 markets</span>
+        <span>·</span>
+        <span>2 currencies</span>
+      </div>
+    </div>
+    <div class="hero-kpi">
+      <div class="hk-label">Today's P&amp;L</div>
+      <div class="hk-val up">+2,841</div>
+      <div class="hk-sub">+0.34% · SEK</div>
+    </div>
+    <div class="hero-kpi">
+      <div class="hk-label">YTD Return</div>
+      <div class="hk-val up">+12.4%</div>
+      <div class="hk-sub">+93,014 SEK</div>
+    </div>
+    <div class="hero-kpi">
+      <div class="hk-label">Annual Yield</div>
+      <div class="hk-val" style="color:var(--amber);">3.2%</div>
+      <div class="hk-sub">26,955 SEK est.</div>
+    </div>
+  </div>
+
+  <!-- MID BAND -->
+  <div class="mid-band">
+    <div class="chart-col">
+      <div class="sec-hdr">
+        <span class="sec-title">Performance</span>
+        <div class="pbtns">
+          <button aria-pressed="false">1W</button><button aria-pressed="false">1M</button><button class="a" aria-pressed="true">3M</button><button aria-pressed="false">1Y</button><button aria-pressed="false">ALL</button>
+        </div>
+      </div>
+      <div class="chart-wrap">
+        <svg viewBox="0 0 620 175" preserveAspectRatio="none">
+          <defs>
+            <linearGradient id="mg" x1="0" y1="0" x2="0" y2="1">
+              <stop offset="0%" stop-color="rgba(245,158,11,0.14)"/>
+              <stop offset="100%" stop-color="rgba(245,158,11,0)"/>
+            </linearGradient>
+          </defs>
+          <line x1="0" y1="43" x2="620" y2="43" stroke="#1e2030" stroke-width="1"/>
+          <line x1="0" y1="87" x2="620" y2="87" stroke="#1e2030" stroke-width="1"/>
+          <line x1="0" y1="131" x2="620" y2="131" stroke="#1e2030" stroke-width="1"/>
+          <text x="4" y="133" font-family="JetBrains Mono" font-size="7.5" fill="#545870">750k</text>
+          <text x="4" y="89"  font-family="JetBrains Mono" font-size="7.5" fill="#545870">800k</text>
+          <text x="4" y="45"  font-family="JetBrains Mono" font-size="7.5" fill="#545870">840k</text>
+          <path d="M0,156 L62,151 L124,147 L186,143 L248,148 L310,136 L372,127 L434,117 L496,106 L558,93 L620,80 L620,175 L0,175 Z" fill="url(#mg)"/>
+          <path d="M0,156 L62,151 L124,147 L186,143 L248,148 L310,136 L372,127 L434,117 L496,106 L558,93 L620,80" fill="none" stroke="#f59e0b" stroke-width="1.8" stroke-linejoin="round"/>
+          <circle cx="620" cy="80" r="3.5" fill="var(--bg)" stroke="#f59e0b" stroke-width="1.8"/>
+          <text x="616" y="72" font-family="JetBrains Mono" font-size="7.5" fill="#f59e0b" text-anchor="end">842,341</text>
+          <text x="0"   y="173" font-family="JetBrains Mono" font-size="7.5" fill="#545870">DEC</text>
+          <text x="206" y="173" font-family="JetBrains Mono" font-size="7.5" fill="#545870" text-anchor="middle">JAN</text>
+          <text x="413" y="173" font-family="JetBrains Mono" font-size="7.5" fill="#545870" text-anchor="middle">FEB</text>
+          <text x="616" y="173" font-family="JetBrains Mono" font-size="7.5" fill="#545870" text-anchor="end">MAR</text>
+        </svg>
+      </div>
+    </div>
+
+    <div class="holdings-col">
+      <div class="sec-hdr">
+        <span class="sec-title">Holdings</span>
+        <span style="font-size:9px;color:var(--muted);">5 positions</span>
+      </div>
+      <table class="htable">
+        <thead>
+          <tr><th>Asset</th><th>Qty</th><th>SEK</th></tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td><div class="ht-tick">AAPL</div><div class="ht-name">Apple Inc.</div></td>
+            <td style="color:var(--muted);">50</td>
+            <td><div class="ht-val">98,703</div><div class="ht-chg up">+0.87%</div></td>
+          </tr>
+          <tr>
+            <td><div class="ht-tick">TSLA</div><div class="ht-name">Tesla Inc.</div></td>
+            <td style="color:var(--muted);">30</td>
+            <td><div class="ht-val">77,546</div><div class="ht-chg dn">-1.23%</div></td>
+          </tr>
+          <tr>
+            <td><div class="ht-tick">NOVO B</div><div class="ht-name">Novo Nordisk</div></td>
+            <td style="color:var(--muted);">120</td>
+            <td><div class="ht-val">294,440</div><div class="ht-chg dn">-0.45%</div></td>
+          </tr>
+          <tr>
+            <td><div class="ht-tick">VOLV B</div><div class="ht-name">Volvo AB</div></td>
+            <td style="color:var(--muted);">200</td>
+            <td><div class="ht-val">52,040</div><div class="ht-chg up">+0.22%</div></td>
+          </tr>
+          <tr>
+            <td><div class="ht-tick">SAP</div><div class="ht-name">SAP SE</div></td>
+            <td style="color:var(--muted);">15</td>
+            <td><div class="ht-val">32,894</div><div class="ht-chg up">+1.15%</div></td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- BOTTOM: MARKETS -->
+  <div class="bottom-band">
+    <div class="bot-cell"><div class="bc-nm">S&amp;P 500</div><div class="bc-val">5,842.10</div><div class="bc-ch up">+0.34%</div></div>
+    <div class="bot-cell"><div class="bc-nm">NASDAQ</div><div class="bc-val">18,402.33</div><div class="bc-ch up">+0.51%</div></div>
+    <div class="bot-cell"><div class="bc-nm">OMX 30</div><div class="bc-val">2,641.80</div><div class="bc-ch dn">-0.12%</div></div>
+    <div class="bot-cell" style="display:grid;grid-template-columns:1fr 1fr;gap:0;padding:0;border-right:none;">
+      <div style="padding:20px 16px;border-right:1px solid var(--border);">
+        <div class="bc-nm">USD/SEK</div><div class="bc-val">10.4200</div><div class="bc-ch dn">-0.08%</div>
+      </div>
+      <div style="padding:20px 16px;">
+        <div class="bc-nm">EUR/SEK</div><div class="bc-val">10.8125</div><div class="bc-ch up">+0.03%</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- DIVIDENDS BAND -->
+  <div class="div-band">
+    <div class="sec-hdr" style="padding: 12px 24px;">
+      <span class="sec-title">Upcoming Dividends</span>
+      <span style="font-size:9px;color:var(--muted);">Next 90 days</span>
+    </div>
+    <div style="display:grid;grid-template-columns:1fr 1fr 1fr 1fr;border-top:1px solid var(--border);">
+      <div class="div-card">
+        <div class="dc-date">15<span class="mo">MAR</span></div>
+        <div class="dc-tick">AAPL</div>
+        <div class="dc-desc">Quarterly · 0.25 USD/sh · Ex Mar 10</div>
+        <div class="dc-amt">130</div>
+        <div class="dc-ccy">SEK</div>
+      </div>
+      <div class="div-card">
+        <div class="dc-date">03<span class="mo">APR</span></div>
+        <div class="dc-tick">VOLV B</div>
+        <div class="dc-desc">Annual · 8.00 SEK/sh · Ex Mar 28</div>
+        <div class="dc-amt">1,600</div>
+        <div class="dc-ccy">SEK</div>
+      </div>
+      <div class="div-card">
+        <div class="dc-date">22<span class="mo">APR</span></div>
+        <div class="dc-tick">NOVO B</div>
+        <div class="dc-desc">Semi-annual · 5.40 DKK/sh · Ex Apr 17</div>
+        <div class="dc-amt">2,480</div>
+        <div class="dc-ccy">SEK</div>
+      </div>
+      <div class="div-card" style="border-right:none;">
+        <div class="dc-date">18<span class="mo">MAY</span></div>
+        <div class="dc-tick">SAP</div>
+        <div class="dc-desc">Annual · 2.20 EUR/sh · Ex May 13</div>
+        <div class="dc-amt">357</div>
+        <div class="dc-ccy">SEK</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- SWITCHER -->
+  <div class="sw-bar">
+    <span class="sw-lbl">Design</span>
+    <a href="/1/">01</a>
+    <a href="/2/">02</a>
+    <a href="/3/">03</a>
+    <a href="/4/" class="active">04</a>
+    <a href="/5/">05</a>
+  </div>
+
+</div>
+
+<script>
+  document.querySelectorAll('.pbtns button').forEach(btn => {
+    btn.addEventListener('click', function() {
+      this.closest('.pbtns').querySelectorAll('button').forEach(b => {
+        b.classList.remove('a');
+        b.setAttribute('aria-pressed', 'false');
+      });
+      this.classList.add('a');
+      this.setAttribute('aria-pressed', 'true');
+    });
+  });
+</script>
+</body>
+</html>

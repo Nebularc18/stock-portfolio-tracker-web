@@ -12,7 +12,10 @@ import json
 import logging
 from typing import Optional, Dict, Any, List, Tuple
 
+from app.services.env_utils import parse_float_env
+
 logger = logging.getLogger(__name__)
+SLOW_FINNHUB_REQUEST_MS = parse_float_env('SLOW_FINNHUB_REQUEST_MS', 800.0, logger)
 
 CACHE_DIR = os.path.join(os.path.dirname(__file__), '..', '..', 'data', 'cache')
 os.makedirs(CACHE_DIR, exist_ok=True)
@@ -110,31 +113,59 @@ class FinnhubService:
         self.base_url = "https://finnhub.io/api/v1"
     
     def _make_request(self, endpoint: str, params: Optional[Dict[str, str]] = None) -> Optional[Any]:
-        """Make an authenticated request to Finnhub API.
+        """
+        Perform an authenticated GET to a Finnhub API endpoint and return the parsed JSON response.
         
-        Args:
-            endpoint: API endpoint path (e.g., 'stock/profile2').
-            params: Optional query parameters.
+        If the API key is missing, the HTTP status is not 200, or an error occurs during the request, returns `None`.
+        
+        Parameters:
+            endpoint (str): Finnhub API path (for example, "stock/profile2").
+            params (Optional[Dict[str, str]]): Query parameters to include in the request; the API token will be added automatically.
         
         Returns:
-            JSON response data, or None if request fails.
+            Parsed JSON response data, or `None` if the request failed or returned a non-200 status.
         """
         if not self.api_key:
             return None
         
         params = params or {}
         params['token'] = self.api_key
+        response = None
+        request_error = None
+        started_at = time.perf_counter()
         
         try:
             url = f"{self.base_url}/{endpoint}"
             response = requests.get(url, params=params, timeout=10)
             
             if response.status_code != 200:
+                request_error = f"status_code={response.status_code}"
                 return None
             
             return response.json()
-        except Exception:
+        except Exception as exc:
+            request_error = exc
             return None
+        finally:
+            duration_ms = (time.perf_counter() - started_at) * 1000
+            status_code = response.status_code if response is not None else 'error'
+            if request_error is not None or duration_ms >= SLOW_FINNHUB_REQUEST_MS:
+                logger.warning(
+                    "Finnhub request endpoint=%s symbol=%s status=%s duration_ms=%.1f error=%s",
+                    endpoint,
+                    params.get('symbol'),
+                    status_code,
+                    duration_ms,
+                    request_error,
+                )
+            else:
+                logger.info(
+                    "Finnhub request endpoint=%s symbol=%s status=%s duration_ms=%.1f",
+                    endpoint,
+                    params.get('symbol'),
+                    status_code,
+                    duration_ms,
+                )
     
     def get_company_profile(self, ticker: str) -> Optional[Dict[str, Any]]:
         """Retrieve company profile from Finnhub.

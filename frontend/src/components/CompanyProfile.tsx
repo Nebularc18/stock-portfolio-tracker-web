@@ -1,6 +1,7 @@
 import { CompanyProfile as CompanyProfileType } from '../services/api'
 import { useSettings } from '../SettingsContext'
 import { t } from '../i18n'
+import { resolveBackendAssetUrl } from '../utils/assets'
 
 interface Props {
   profile: CompanyProfileType | null
@@ -25,11 +26,11 @@ function formatWebsite(url: string | null): string {
 }
 
 /**
- * Render a company profile card with translated labels, or a translated loading message while loading.
+ * Renders a company profile card with translated labels, or a translated loading message when loading.
  *
  * @param props.profile - The company profile to display; when `null` the component returns `null`.
  * @param props.loading - If `true`, shows a translated loading state instead of the profile.
- * @returns A JSX element containing the company profile card, or `null` when no profile is provided.
+ * @returns The company profile card JSX element, or `null` when `profile` is `null`.
  */
 export default function CompanyProfile({ profile, loading }: Props) {
   const { language } = useSettings()
@@ -49,15 +50,17 @@ export default function CompanyProfile({ profile, loading }: Props) {
     return null
   }
 
+  const resolvedLogoUrl = resolveBackendAssetUrl(profile.logo)
+
   return (
     <div className="card">
       <h3 style={{ marginBottom: '16px' }}>{t(language, 'companyProfile.title')}</h3>
       
       <div style={{ display: 'flex', gap: '24px', alignItems: 'flex-start' }}>
-        {profile.logo && (
+        {resolvedLogoUrl && (
           <div style={{ flexShrink: 0 }}>
             <img 
-              src={profile.logo} 
+              src={resolvedLogoUrl} 
               alt={profile.name || 'Company logo'}
               style={{ 
                 width: 64, 
