@@ -1,7 +1,7 @@
 import { useState, useEffect, useMemo, useCallback } from 'react'
 import { Link } from 'react-router-dom'
 import { api, Dividend, Stock } from '../services/api'
-import { getLocaleForLanguage, t } from '../i18n'
+import { getLocaleForLanguage, t, type Language } from '../i18n'
 import { useSettings } from '../SettingsContext'
 
 /**
@@ -32,7 +32,7 @@ function formatCurrency(value: number, locale: string, currency: string = 'USD')
   }).format(value)
 }
 
-function getMissingConversionMessage(language: string, currencies: string[]): string {
+function getMissingConversionMessage(language: Language, currencies: string[]): string {
   const uniqueCurrencies = [...new Set(currencies)].sort().join(', ')
   return t(language, 'history.conversionMissing', { currencies: uniqueCurrencies })
 }

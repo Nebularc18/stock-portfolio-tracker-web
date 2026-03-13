@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom'
 import { api, Stock } from '../services/api'
 import { getLocaleForLanguage, t } from '../i18n'
 import { useSettings } from '../SettingsContext'
+import { convertCurrencyToSEK } from '../utils/currency'
 
 /**
  * Format a numeric amount as a localized currency string.
@@ -185,16 +186,6 @@ export default function Performance() {
     }
   }, [fetchData])
 
-  const convertToSEK = useCallback((amount: number, currency: string): number | null => {
-    if (amount === 0) return 0
-    if (currency === 'SEK') return amount
-    const rate = exchangeRates[`${currency}_SEK`]
-    if (Number.isFinite(rate) && rate !== 0) return amount * rate
-    const inverseRate = exchangeRates[`SEK_${currency}`]
-    if (Number.isFinite(inverseRate) && inverseRate !== 0) return amount / inverseRate
-    return null
-  }, [exchangeRates])
-
   const performanceData: PerformanceData[] = useMemo(() => (
     stocks.map(stock => {
       const value = stock.current_price != null ? stock.current_price * stock.quantity : null
@@ -208,8 +199,8 @@ export default function Performance() {
         ? ((stock.current_price - stock.previous_close) / stock.previous_close) * 100
         : null
 
-      const valueSEK = value != null ? convertToSEK(value, stock.currency) : null
-      const costSEK = cost != null ? convertToSEK(cost, stock.currency) : null
+      const valueSEK = convertCurrencyToSEK(value, stock.currency, exchangeRates)
+      const costSEK = convertCurrencyToSEK(cost, stock.currency, exchangeRates)
 
       return {
         ticker: stock.ticker,
@@ -228,10 +219,10 @@ export default function Performance() {
         valueSEK,
         costSEK,
         gainSEK: valueSEK !== null && costSEK !== null ? valueSEK - costSEK : null,
-        dailyChangeSEK: dailyChange != null ? convertToSEK(dailyChange, stock.currency) : null,
+        dailyChangeSEK: convertCurrencyToSEK(dailyChange, stock.currency, exchangeRates),
       }
     })
-  ), [stocks, convertToSEK])
+  ), [stocks, exchangeRates])
 
   const sortedData = useMemo(() => (
     [...performanceData].sort((a, b) => {
@@ -324,6 +315,9 @@ export default function Performance() {
       const dailyChangeRateMissing = stock.dailyChange !== null && stock.dailyChangeSEK === null
       return valueRateMissing || costRateMissing || gainRateMissing || dailyChangeRateMissing
     })
+    const hasNullLocalInputs = performanceData.some((stock) => (
+      stock.value === null || stock.cost === null || stock.gain === null || stock.dailyChange === null
+    ))
     const totalVal = performanceData.reduce((sum, s) => sum + (s.valueSEK ?? 0), 0)
     const totalCostLocal = performanceData.reduce((sum, s) => sum + (s.costSEK ?? 0), 0)
     const totalGainLocal = totalVal - totalCostLocal
@@ -332,7 +326,7 @@ export default function Performance() {
     const missingDailyChange = performanceData.some((stock) => stock.dailyChange === null || (stock.dailyChange !== null && stock.dailyChangeSEK === null))
     return {
       missingRateStocks: missing,
-      hasMissing: missing.length > 0,
+      hasMissing: missing.length > 0 || hasNullLocalInputs,
       hasMissingDailyChange: missingDailyChange,
       totalValue: totalVal,
       totalCost: totalCostLocal,

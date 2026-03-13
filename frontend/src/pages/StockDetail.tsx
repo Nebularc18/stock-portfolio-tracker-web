@@ -10,6 +10,7 @@ import { useSettings } from '../SettingsContext'
 import { formatTimeInTimezone } from '../utils/time'
 import { getLocaleForLanguage, t } from '../i18n'
 import { resolveBackendAssetUrl } from '../utils/assets'
+import { convertCurrencyToSEK } from '../utils/currency'
 import { useModalFocusTrap } from '../hooks/useModalFocusTrap'
 import { formatDisplayName } from '../utils/displayName'
 
@@ -115,13 +116,7 @@ function convertToSEKValue(
   currency: string,
   safeRates: Record<string, number | null>
 ): number | null {
-  if (amount === null) return null
-  if (currency === 'SEK') return amount
-  const direct = safeRates[`${currency}_SEK`]
-  if (direct != null) return amount * direct
-  const inverse = safeRates[`SEK_${currency}`]
-  if (inverse != null && inverse !== 0) return amount / inverse
-  return null
+  return convertCurrencyToSEK(amount, currency, safeRates)
 }
 
 /**
@@ -876,6 +871,7 @@ export default function StockDetail() {
   }
 
   const displayName = formatDisplayName(stock.name, stock.ticker)
+  const resolvedLogoUrl = resolveBackendAssetUrl(stock.logo)
   const today = new Date()
   today.setUTCHours(0, 0, 0, 0)
   const oneYearAgo = new Date(today)
@@ -985,9 +981,9 @@ export default function StockDetail() {
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 16, position: 'relative' }}>
           {/* Left: logo + name + price */}
           <div style={{ display: 'flex', gap: 16, alignItems: 'flex-start' }}>
-            {resolveBackendAssetUrl(stock.logo) && !logoFailed ? (
+            {resolvedLogoUrl && !logoFailed ? (
               <img
-                src={resolveBackendAssetUrl(stock.logo) || undefined}
+                src={resolvedLogoUrl || undefined}
                 alt={displayName}
                 style={{ width: 52, height: 52, borderRadius: 10, objectFit: 'contain', background: 'var(--bg3)', padding: 6, border: '1px solid var(--border2)', flexShrink: 0 }}
                 onError={() => setLogoFailed(true)}

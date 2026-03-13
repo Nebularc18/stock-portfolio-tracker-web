@@ -5,7 +5,7 @@ import { api, PortfolioSummary, Stock, UpcomingDividend } from '../services/api'
 import { useSettings } from '../SettingsContext'
 import { formatTimeInTimezone } from '../utils/time'
 import { resolveBackendAssetUrl } from '../utils/assets'
-import { getLocaleForLanguage, t, type TranslationKey } from '../i18n'
+import { getLocaleForLanguage, t, type Language, type TranslationKey } from '../i18n'
 
 type HistoryRangeKey = '1D' | '1W' | '1M' | 'YTD' | '1Y' | 'SINCE_START'
 
@@ -110,7 +110,7 @@ function getMonthKey(dateStr: string): string {
  * @param locale - BCP 47 locale identifier (for example, `en-US`)
  * @returns A localized month and year string (for example, `January 2026`)
  */
-function formatMonthLabel(monthKey: string, locale: string, language: string): string {
+function formatMonthLabel(monthKey: string, locale: string, language: Language): string {
   if (monthKey === 'tbd') return t(language, 'common.tbd')
   const [year, month] = monthKey.split('-').map(Number)
   if (!Number.isFinite(year) || !Number.isFinite(month)) return monthKey
@@ -730,8 +730,8 @@ export default function Dashboard() {
                     <td style={{ textAlign: 'right', fontFamily: "'Fira Code', monospace", color: 'var(--text2)' }}>{stock.quantity}</td>
                     <td style={{ textAlign: 'right', fontFamily: "'Fira Code', monospace", color: 'var(--text2)' }}>{renderConvertedAmount(stock.current_price, stock.currency)}</td>
                     <td style={{ textAlign: 'right', fontFamily: "'Fira Code', monospace", color: 'var(--text2)' }}>
-                      {stock.current_value_converted != null
-                        ? formatCurrency(stock.current_value_converted, locale, currency)
+                      {stock.current_value_converted
+                        ? formatCurrency(stock.current_value, locale, currency)
                         : renderConvertedAmount(stock.current_value, stock.currency)}
                     </td>
                     <td style={{ textAlign: 'right', fontFamily: "'Fira Code', monospace" }} className={stock.gain_loss === null ? '' : (stock.gain_loss >= 0 ? 'positive' : 'negative')}>

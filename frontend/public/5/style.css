@@ -227,7 +227,7 @@ html, body {
   color: var(--text);
   opacity: 0;
   transform: translateY(6px);
-  animation: fadeUp 0.5s 0.1s ease forwards;
+  animation: fade-up 0.5s 0.1s ease forwards;
 }
 
 .hv-num .cur {
@@ -251,7 +251,7 @@ html, body {
 
 .hv-sub-dot { width: 3px; height: 3px; border-radius: 50%; background: var(--border2); }
 
-@keyframes fadeUp {
+@keyframes fade-up {
   to { opacity: 1; transform: translateY(0); }
 }
 
@@ -289,7 +289,7 @@ html, body {
   letter-spacing: -0.02em;
   opacity: 0;
   transform: translateY(4px);
-  animation: fadeUp 0.45s ease forwards;
+  animation: fade-up 0.45s ease forwards;
 }
 
 .hs-val.d1 { animation-delay: 0.2s; }
@@ -394,8 +394,6 @@ html, body {
 .chart-tooltip .ct-dt { font-size: 11px; color: var(--muted); margin-top: 2px; }
 
 /* ── HOLDINGS TABLE ── */
-.holdings-full { }
-
 .htbl { width: 100%; border-collapse: collapse; }
 
 .htbl thead tr { background: var(--bg2); }
@@ -1280,12 +1278,12 @@ html, body {
 .acct-badge { font-size: 10px; font-weight: 600; padding: 4px 10px; border-radius: 4px; background: var(--bg2); border: 1px solid var(--border); color: var(--text2); }
 
 /* ── ANIMATIONS ── */
-@keyframes countUp {
+@keyframes count-up {
   from { opacity: 0; transform: translateY(8px); }
   to { opacity: 1; transform: translateY(0); }
 }
 
 .animate-in {
   opacity: 0;
-  animation: countUp 0.4s ease forwards;
+  animation: count-up 0.4s ease forwards;
 }
