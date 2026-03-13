@@ -267,7 +267,8 @@ export default function HistoricalDividends() {
   const hasStocks = stocks.length > 0
   const hasAnyDividendHistory = useMemo(() => Object.keys(dividendsByYear).length > 0, [dividendsByYear])
 
-  let yearTotalSEK = 0
+  let yearTotalSEK: number | null = 0
+  let yearHasConvertedValues = false
   const yearMissingCurrencies = new Set<string>()
   if (yearData) {
     for (const monthDivs of Object.values(yearData.months)) {
@@ -277,8 +278,12 @@ export default function HistoricalDividends() {
           yearMissingCurrencies.add(div.dividendCurrency)
           continue
         }
+        yearHasConvertedValues = true
         yearTotalSEK += converted
       }
+    }
+    if (!yearHasConvertedValues || yearMissingCurrencies.size > 0) {
+      yearTotalSEK = null
     }
   }
 
@@ -318,7 +323,9 @@ export default function HistoricalDividends() {
           {yearData && (
             <>
               <div style={{ fontSize: 24, fontWeight: 800, letterSpacing: '-0.02em', color: 'var(--green)', fontFamily: "'Fira Code', monospace" }}>
-                {formatCurrency(yearTotalSEK, locale, 'SEK')}
+                {yearTotalSEK !== null
+                  ? formatCurrency(yearTotalSEK, locale, 'SEK')
+                  : getMissingConversionMessage(language, Array.from(yearMissingCurrencies))}
               </div>
               {yearMissingCurrencies.size > 0 && (
                 <p style={{ color: 'var(--amber)', fontSize: 12, marginTop: 6 }}>
@@ -382,7 +389,8 @@ export default function HistoricalDividends() {
           <>
             {sortedMonths.map((month) => {
               const monthDivs = yearData.months[month]
-              let monthTotal = 0
+              let monthTotalSEK: number | null = 0
+              let monthHasConvertedValues = false
               const monthMissingCurrencies = new Set<string>()
               for (const div of monthDivs) {
                 const converted = convertToSEK(div.amount * div.quantity, div.dividendCurrency, div.paymentDate)
@@ -390,7 +398,11 @@ export default function HistoricalDividends() {
                   monthMissingCurrencies.add(div.dividendCurrency)
                   continue
                 }
-                monthTotal += converted
+                monthHasConvertedValues = true
+                monthTotalSEK += converted
+              }
+              if (!monthHasConvertedValues || monthMissingCurrencies.size > 0) {
+                monthTotalSEK = null
               }
 
               return (
@@ -406,7 +418,9 @@ export default function HistoricalDividends() {
                       )}
                     </div>
                     <span style={{ fontFamily: "'Fira Code', monospace", fontSize: 13, fontWeight: 700, color: 'var(--green)' }}>
-                      {formatCurrency(monthTotal, locale, 'SEK')}
+                      {monthTotalSEK !== null
+                        ? formatCurrency(monthTotalSEK, locale, 'SEK')
+                        : getMissingConversionMessage(language, Array.from(monthMissingCurrencies))}
                     </span>
                   </div>
 

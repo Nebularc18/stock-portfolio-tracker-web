@@ -548,7 +548,13 @@ export default function StockDetail() {
       } else {
         console.error('Failed to load Finnhub peers', peersResult.reason)
       }
-      setFinnhubDataLoaded(true)
+      if (
+        profileResult.status === 'fulfilled'
+        && metricsResult.status === 'fulfilled'
+        && peersResult.status === 'fulfilled'
+      ) {
+        setFinnhubDataLoaded(true)
+      }
     }).finally(() => {
       if (finnhubRequestRef.current === request) {
         finnhubRequestRef.current = null
@@ -1230,7 +1236,7 @@ export default function StockDetail() {
                 </thead>
                 <tbody>
                   {yearDividends.map((div) => (
-                    <tr key={`${div.ex_date}-${div.payment_date || ''}-${div.amount_per_share ?? ''}-${div.source || ''}`}>
+                    <tr key={`${div.ex_date}-${div.payment_date || ''}-${div.amount_per_share ?? ''}-${div.dividend_type || ''}-${div.source || ''}`}>
                       <td className="mono">{formatDate(div.ex_date, locale)}</td>
                       <td className="mono">{div.payment_date ? formatDate(div.payment_date, locale) : '-'}</td>
                       <td className="mono">{formatCurrency(div.amount_per_share, locale, div.currency || stock.currency)}</td>

@@ -312,18 +312,21 @@ export default function Performance() {
       const valueRateMissing = stock.value !== null && stock.valueSEK === null
       const costRateMissing = stock.cost !== null && stock.costSEK === null
       const gainRateMissing = stock.gain !== null && stock.gainSEK === null
-      const dailyChangeRateMissing = stock.dailyChange !== null && stock.dailyChangeSEK === null
-      return valueRateMissing || costRateMissing || gainRateMissing || dailyChangeRateMissing
+      return valueRateMissing || costRateMissing || gainRateMissing
     })
     const hasNullLocalInputs = performanceData.some((stock) => (
-      stock.value === null || stock.cost === null || stock.gain === null || stock.dailyChange === null
+      stock.value === null || stock.cost === null || stock.gain === null
     ))
     const totalVal = performanceData.reduce((sum, s) => sum + (s.valueSEK ?? 0), 0)
     const totalCostLocal = performanceData.reduce((sum, s) => sum + (s.costSEK ?? 0), 0)
-    const totalGainLocal = totalVal - totalCostLocal
+    const totalGainLocal = performanceData.reduce((sum, s) => {
+      if (s.gainSEK !== null) return sum + s.gainSEK
+      if (s.valueSEK !== null && s.costSEK !== null) return sum + (s.valueSEK - s.costSEK)
+      return sum
+    }, 0)
     const totalGainPercentLocal = totalCostLocal > 0 ? (totalGainLocal / totalCostLocal) * 100 : 0
     const totalDailyChangeLocal = performanceData.reduce((sum, s) => sum + (s.dailyChangeSEK ?? 0), 0)
-    const missingDailyChange = performanceData.some((stock) => stock.dailyChange === null || (stock.dailyChange !== null && stock.dailyChangeSEK === null))
+    const missingDailyChange = performanceData.some((stock) => stock.dailyChange === null || stock.dailyChangeSEK === null)
     return {
       missingRateStocks: missing,
       hasMissing: missing.length > 0 || hasNullLocalInputs,

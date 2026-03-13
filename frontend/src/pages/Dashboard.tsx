@@ -275,7 +275,6 @@ export default function Dashboard() {
     historyRequestIdRef.current = requestId
     setHistoryLoading(true)
     setHistoryError(null)
-    setPortfolioHistory([])
     const rangeQuery = HISTORY_RANGE_OPTIONS.find((o) => o.key === range)?.query || '1m'
     try {
       const historyData = await api.portfolio.history({ range: rangeQuery })
@@ -285,7 +284,6 @@ export default function Dashboard() {
       if (requestId !== historyRequestIdRef.current) return
       console.error('Failed to load portfolio history:', error)
       setHistoryError(error instanceof Error ? error : new Error(String(error)))
-      setPortfolioHistory([])
     } finally {
       if (requestId === historyRequestIdRef.current) setHistoryLoading(false)
     }

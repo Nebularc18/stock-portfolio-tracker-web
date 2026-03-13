@@ -149,6 +149,18 @@ html, body {
 .nav a:hover, .nav button:hover { color: var(--text2); background: var(--bg2); }
 .nav a.active, .nav button.active { color: var(--v2); background: rgba(129,140,248,0.1); }
 
+.nav a:focus-visible,
+.nav button:focus-visible,
+.sw a:focus-visible,
+.alert-add-btn:focus-visible,
+.btn:focus-visible,
+.tx-filter-btn:focus-visible,
+.acct-nav-item:focus-visible,
+.pbtns button:focus-visible {
+  outline: 2px solid rgba(129,140,248,0.9);
+  outline-offset: 2px;
+}
+
 /* ── VIEWS ── */
 .view { display: none; }
 .view.active { display: block; }
@@ -753,16 +765,6 @@ html, body {
 
 .tx-filter-btn:hover { color: var(--text2); border-color: var(--border2); }
 .tx-filter-btn.a { color: var(--v2); background: rgba(129,140,248,0.1); border-color: rgba(129,140,248,0.3); }
-.tx-filter-btn:focus-visible,
-.acct-nav-item:focus-visible,
-.pbtns button:focus-visible,
-.nav button:focus-visible {
-  outline: 2px solid rgba(129,140,248,0.9);
-  outline-offset: 2px;
-}
-
-.tx-list { }
-
 .tx-item {
   display: grid;
   grid-template-columns: 90px 1fr auto auto;
@@ -973,7 +975,6 @@ html, body {
 
 .alert-accent { height: 36px; border-radius: 3px; flex-shrink: 0; }
 
-.alert-body { }
 .al-title { font-size: 13px; font-weight: 700; color: var(--text); margin-bottom: 3px; }
 .al-desc { font-size: 10px; color: var(--muted); }
 .al-time { font-family: 'Fira Code', monospace; font-size: 11px; color: var(--muted); white-space: nowrap; }
@@ -1286,4 +1287,18 @@ html, body {
 .animate-in {
   opacity: 0;
   animation: count-up 0.4s ease forwards;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation: none !important;
+    transition: none !important;
+  }
+
+  .hv-num,
+  .hs-val,
+  .animate-in {
+    opacity: 1 !important;
+    transform: none !important;
+  }
 }
