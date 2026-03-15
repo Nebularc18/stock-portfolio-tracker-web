@@ -17,6 +17,9 @@ services:
       retries: 5
 
   app:
+    build:
+      context: .
+      dockerfile: Dockerfile
     image: ghcr.io/${GHCR_OWNER:-nebularc18}/stock-portfolio-tracker:latest
     restart: unless-stopped
     ports:

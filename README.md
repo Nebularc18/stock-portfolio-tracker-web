@@ -226,8 +226,8 @@ Important: the seeded `DEFAULT_*` and `GUEST_*` credentials are for local develo
 ### Running in Development Mode
 
 ```bash
-# Start services
-docker compose up -d
+# Start services (builds a local image first)
+docker compose up -d --build
 
 # View logs
 docker compose logs -f
@@ -237,7 +237,7 @@ docker compose pull
 
 # Rebuild locally after changes (tag must match docker-compose.yml)
 docker build -t ghcr.io/YOUR_USERNAME/stock-portfolio-tracker:latest .
-docker compose up -d
+docker compose up -d --build
 ```
 
 ### Multi-Architecture Builds
@@ -255,6 +255,8 @@ docker buildx build \
 ```
 
 This repository also includes a GitHub Actions workflow that publishes a multi-architecture GHCR image for the default branch and version tags.
+
+For local development, `docker compose` now builds the app image from the checked-out source so it works even if the remote GHCR tag has not been published for your CPU architecture yet.
 
 ### Database Migrations
 
