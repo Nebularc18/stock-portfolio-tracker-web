@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom'
 import { api, Dividend, Stock } from '../services/api'
 import { getLocaleForLanguage, t, type Language } from '../i18n'
 import { useSettings } from '../SettingsContext'
+import { getQuantityHeldOnDate } from '../utils/positions'
 
 /**
  * Produces the locale-formatted short name for a given month.
@@ -162,14 +163,15 @@ export default function HistoricalDividends() {
         const allDividends: DividendWithStock[] = stocks.flatMap((stock) => {
           const stockDividends = (dividendsByTicker[stock.ticker] || []) as Dividend[]
           return stockDividends.flatMap((div: Dividend) => {
-            if (stock.purchase_date && div.date < stock.purchase_date) {
+            const quantityHeld = getQuantityHeldOnDate(stock.position_entries || [], div.date, stock.quantity)
+            if (quantityHeld <= 0) {
               return []
             }
             return [{
               ticker: stock.ticker,
               name: stock.name,
               currency: stock.currency,
-              quantity: stock.quantity,
+              quantity: quantityHeld,
               purchaseDate: stock.purchase_date,
               date: div.date,
               paymentDate: div.payment_date ?? div.date,

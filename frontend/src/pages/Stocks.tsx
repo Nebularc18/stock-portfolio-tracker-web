@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useRef, useId } from 'react'
 import { Link } from 'react-router-dom'
-import { api, Stock } from '../services/api'
+import { api, PositionEntry, Stock } from '../services/api'
 import { useSettings } from '../SettingsContext'
 import { formatTimeInTimezone, getLatestTimestamp } from '../utils/time'
 import { resolveBackendAssetUrl } from '../utils/assets'
@@ -44,6 +44,16 @@ function getLocalDateInputValue(value: Date = new Date()): string {
   return `${year}-${month}-${day}`
 }
 
+function createEmptyPositionEntry(): PositionEntry {
+  return {
+    id: crypto.randomUUID(),
+    quantity: 0,
+    purchase_price: null,
+    purchase_date: null,
+    sell_date: null,
+  }
+}
+
 /**
  * Display and manage the user's stock positions with controls to view, add, edit, and remove entries localized to the current language and timezone.
  *
@@ -64,9 +74,7 @@ function getLocalDateInputValue(value: Date = new Date()): string {
   const [error, setError] = useState<string | null>(null)
   const [validationStatus, setValidationStatus] = useState<'idle' | 'checking' | 'valid' | 'invalid'>('idle')
   const [editStock, setEditStock] = useState<Stock | null>(null)
-  const [editQuantity, setEditQuantity] = useState('')
-  const [editPurchasePrice, setEditPurchasePrice] = useState('')
-  const [editPurchaseDate, setEditPurchaseDate] = useState('')
+  const [editEntries, setEditEntries] = useState<PositionEntry[]>([])
   const [saving, setSaving] = useState(false)
   const [editError, setEditError] = useState<string | null>(null)
   const [lastUpdate, setLastUpdate] = useState<string | null>(null)
@@ -168,42 +176,51 @@ function getLocalDateInputValue(value: Date = new Date()): string {
   const openEditModal = (stock: Stock) => {
     setEditError(null)
     setEditStock(stock)
-    setEditQuantity(stock.quantity.toString())
-    setEditPurchasePrice(stock.purchase_price?.toString() || '')
-    setEditPurchaseDate(stock.purchase_date || '')
+    setEditEntries(
+      stock.position_entries && stock.position_entries.length > 0
+        ? stock.position_entries
+        : [{
+            id: crypto.randomUUID(),
+            quantity: stock.quantity,
+            purchase_price: stock.purchase_price,
+            purchase_date: stock.purchase_date,
+            sell_date: null,
+          }]
+    )
   }
 
   const handleSaveEdit = async () => {
     if (!editStock) return
-    const quantityValue = editQuantity.trim()
-    const purchasePriceValue = editPurchasePrice.trim()
-    const parsedQuantity = Number(quantityValue)
-    const parsedPurchasePrice = Number(purchasePriceValue)
-    const quantity = quantityValue === '' ? undefined : parsedQuantity
-    const purchasePrice = purchasePriceValue === '' ? undefined : parsedPurchasePrice
     const validDateFormat = /^\d{4}-\d{2}-\d{2}$/
-    const parsedDate = editPurchaseDate === '' ? null : new Date(`${editPurchaseDate}T00:00:00Z`)
-    const isValidPurchaseDate = editPurchaseDate === '' || (
-      validDateFormat.test(editPurchaseDate)
-      && Number.isFinite(parsedDate?.getTime())
-      && editPurchaseDate <= maxPurchaseDate
-    )
 
-    if (
-      (quantity !== undefined && (!Number.isFinite(quantity) || quantity < 0))
-      || (purchasePrice !== undefined && (!Number.isFinite(purchasePrice) || purchasePrice < 0))
-      || !isValidPurchaseDate
-    ) {
+    const normalizedEntries = editEntries
+      .map((entry) => ({
+        ...entry,
+        quantity: Number(entry.quantity),
+        purchase_price: entry.purchase_price === null || entry.purchase_price === undefined ? null : Number(entry.purchase_price),
+        purchase_date: entry.purchase_date || null,
+        sell_date: entry.sell_date || null,
+      }))
+      .filter((entry) => Number.isFinite(entry.quantity) && entry.quantity > 0)
+
+    const hasInvalidEntry = normalizedEntries.some((entry) => {
+      const purchaseDateValid = !entry.purchase_date || (validDateFormat.test(entry.purchase_date) && entry.purchase_date <= maxPurchaseDate)
+      const sellDateValid = !entry.sell_date || (validDateFormat.test(entry.sell_date) && entry.sell_date <= maxPurchaseDate)
+      const purchasePriceValid = entry.purchase_price === null || (Number.isFinite(entry.purchase_price) && entry.purchase_price >= 0)
+      const sellAfterPurchase = !entry.sell_date || !entry.purchase_date || entry.sell_date >= entry.purchase_date
+      return !purchaseDateValid || !sellDateValid || !purchasePriceValid || !sellAfterPurchase
+    })
+
+    if (hasInvalidEntry) {
       setEditError(t(language, 'stocks.invalidEditValues'))
       return
     }
+
     try {
       setEditError(null)
       setSaving(true)
       await api.stocks.update(editStock.ticker, {
-        quantity,
-        purchase_price: purchasePrice,
-        purchase_date: editPurchaseDate === '' ? null : editPurchaseDate,
+        position_entries: normalizedEntries,
       })
       setEditStock(null)
       await fetchStocks()
@@ -462,23 +479,83 @@ function getLocalDateInputValue(value: Date = new Date()): string {
               <button type="button" aria-label="Close" style={{ background: 'none', border: 'none', color: 'var(--muted)', cursor: 'pointer', fontSize: 18, lineHeight: 1 }} onClick={() => setEditStock(null)}>×</button>
             </div>
             <div style={{ padding: '20px' }}>
-              <div style={{ marginBottom: 16 }}>
-                <label htmlFor={editQuantityInputId} style={{ display: 'block', marginBottom: 6, color: 'var(--muted)', fontSize: 11, fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase' }}>
-                  {t(language, 'stocks.quantity')}
-                </label>
-                <input id={editQuantityInputId} ref={editQuantityInputRef} type="number" step="0.01" min="0" value={editQuantity} onChange={(e) => setEditQuantity(e.target.value)} style={{ width: '100%' }} />
-              </div>
-              <div style={{ marginBottom: 16 }}>
-                <label htmlFor={editPurchasePriceInputId} style={{ display: 'block', marginBottom: 6, color: 'var(--muted)', fontSize: 11, fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase' }}>
-                  {t(language, 'stocks.purchasePrice')} ({editStock.currency})
-                </label>
-                <input id={editPurchasePriceInputId} type="number" step="0.01" min="0" value={editPurchasePrice} onChange={(e) => setEditPurchasePrice(e.target.value)} placeholder={t(language, 'stocks.placeholderPrice')} style={{ width: '100%' }} />
-              </div>
-              <div style={{ marginBottom: 24 }}>
-                <label htmlFor={editPurchaseDateInputId} style={{ display: 'block', marginBottom: 6, color: 'var(--muted)', fontSize: 11, fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase' }}>
-                  {t(language, 'stocks.purchaseDate')}
-                </label>
-                <input id={editPurchaseDateInputId} type="date" value={editPurchaseDate} onChange={(e) => setEditPurchaseDate(e.target.value)} max={maxPurchaseDate} style={{ width: '100%' }} />
+              <div style={{ marginBottom: 24, display: 'grid', gap: 12 }}>
+                {editEntries.map((entry, index) => (
+                  <div key={entry.id} style={{ padding: 12, border: '1px solid var(--border)', borderRadius: 8, background: 'rgba(255,255,255,0.02)', display: 'grid', gap: 10 }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                      <span style={{ fontSize: 11, fontWeight: 700, color: 'var(--muted)', letterSpacing: '0.08em', textTransform: 'uppercase' }}>
+                        Lot {index + 1}
+                      </span>
+                      <button
+                        type="button"
+                        className="btn btn-secondary"
+                        style={{ padding: '4px 10px', fontSize: 11 }}
+                        onClick={() => setEditEntries((current) => current.filter((candidate) => candidate.id !== entry.id))}
+                        disabled={editEntries.length === 1}
+                      >
+                        Remove
+                      </button>
+                    </div>
+                    <div>
+                      <label style={{ display: 'block', marginBottom: 6, color: 'var(--muted)', fontSize: 11, fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase' }}>
+                        {t(language, 'stocks.quantity')}
+                      </label>
+                      <input
+                        id={index === 0 ? editQuantityInputId : undefined}
+                        ref={index === 0 ? editQuantityInputRef : undefined}
+                        type="number"
+                        step="0.01"
+                        min="0"
+                        value={entry.quantity}
+                        onChange={(e) => setEditEntries((current) => current.map((candidate) => candidate.id === entry.id ? { ...candidate, quantity: Number(e.target.value) } : candidate))}
+                        style={{ width: '100%' }}
+                      />
+                    </div>
+                    <div>
+                      <label style={{ display: 'block', marginBottom: 6, color: 'var(--muted)', fontSize: 11, fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase' }}>
+                        {t(language, 'stocks.purchasePrice')} ({editStock.currency})
+                      </label>
+                      <input
+                        type="number"
+                        step="0.01"
+                        min="0"
+                        value={entry.purchase_price ?? ''}
+                        onChange={(e) => setEditEntries((current) => current.map((candidate) => candidate.id === entry.id ? { ...candidate, purchase_price: e.target.value === '' ? null : Number(e.target.value) } : candidate))}
+                        placeholder={t(language, 'stocks.placeholderPrice')}
+                        style={{ width: '100%' }}
+                      />
+                    </div>
+                    <div>
+                      <label style={{ display: 'block', marginBottom: 6, color: 'var(--muted)', fontSize: 11, fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase' }}>
+                        {t(language, 'stocks.purchaseDate')}
+                      </label>
+                      <input
+                        id={index === 0 ? editPurchaseDateInputId : undefined}
+                        type="date"
+                        value={entry.purchase_date || ''}
+                        onChange={(e) => setEditEntries((current) => current.map((candidate) => candidate.id === entry.id ? { ...candidate, purchase_date: e.target.value || null } : candidate))}
+                        max={maxPurchaseDate}
+                        style={{ width: '100%' }}
+                      />
+                    </div>
+                    <div>
+                      <label style={{ display: 'block', marginBottom: 6, color: 'var(--muted)', fontSize: 11, fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase' }}>
+                        Sell Date
+                      </label>
+                      <input
+                        id={index === 0 ? editPurchasePriceInputId : undefined}
+                        type="date"
+                        value={entry.sell_date || ''}
+                        onChange={(e) => setEditEntries((current) => current.map((candidate) => candidate.id === entry.id ? { ...candidate, sell_date: e.target.value || null } : candidate))}
+                        max={maxPurchaseDate}
+                        style={{ width: '100%' }}
+                      />
+                    </div>
+                  </div>
+                ))}
+                <button type="button" className="btn btn-secondary" onClick={() => setEditEntries((current) => [...current, createEmptyPositionEntry()])}>
+                  Add Lot
+                </button>
               </div>
               {editError && (
                 <p style={{ color: 'var(--red)', fontSize: 12, marginBottom: 16 }}>{editError}</p>

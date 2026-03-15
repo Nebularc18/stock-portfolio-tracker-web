@@ -32,6 +32,7 @@ from sqlalchemy import create_engine, Column, Integer, String, Float, Date, Date
 from sqlalchemy.orm import sessionmaker, relationship, declarative_base
 from sqlalchemy.pool import NullPool
 from app.utils.time import utc_now
+from app.services.position_service import calculate_position_snapshot, normalize_position_entries
 
 ROOT_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..'))
 load_dotenv(os.path.join(ROOT_DIR, '.env'))
@@ -228,6 +229,7 @@ class Stock(Base):
         sector: Company sector.
         logo: URL to company logo image.
         purchase_price: Average purchase price per share.
+        position_entries: Historical buy lots with optional sell dates.
         current_price: Current market price.
         previous_close: Previous day's closing price.
         dividend_yield: Annual dividend yield percentage.
@@ -251,6 +253,7 @@ class Stock(Base):
     logo = Column(String, nullable=True)
     purchase_price = Column(Float, nullable=True)
     purchase_date = Column(Date, nullable=True)
+    position_entries = Column(JSON, default=list)
     current_price = Column(Float, nullable=True)
     previous_close = Column(Float, nullable=True)
     dividend_yield = Column(Float, nullable=True)
@@ -398,6 +401,7 @@ def ensure_account_schema_and_seed() -> None:
 
         conn.execute(text("ALTER TABLE stocks ADD COLUMN IF NOT EXISTS user_id INTEGER"))
         conn.execute(text("ALTER TABLE stocks ADD COLUMN IF NOT EXISTS purchase_date DATE"))
+        conn.execute(text("ALTER TABLE stocks ADD COLUMN IF NOT EXISTS position_entries JSON"))
         conn.execute(text("ALTER TABLE user_settings ADD COLUMN IF NOT EXISTS user_id INTEGER"))
         conn.execute(text("ALTER TABLE portfolio_history ADD COLUMN IF NOT EXISTS user_id INTEGER"))
         conn.execute(text("ALTER TABLE stock_price_history ADD COLUMN IF NOT EXISTS user_id INTEGER"))
@@ -629,15 +633,21 @@ def ensure_account_schema_and_seed() -> None:
         })
 
         for stock in guest_stocks:
+            position_snapshot = calculate_position_snapshot([{
+                "quantity": stock["quantity"],
+                "purchase_price": stock["purchase_price"],
+                "purchase_date": stock["purchase_date"],
+                "sell_date": None,
+            }])
             conn.execute(text("""
                 INSERT INTO stocks (
                     user_id, ticker, name, quantity, currency, sector, purchase_price,
-                    purchase_date,
+                    purchase_date, position_entries,
                     current_price, previous_close, dividend_yield, dividend_per_share,
                     last_updated, manual_dividends, suppressed_dividends
                 ) VALUES (
                     :user_id, :ticker, :name, :quantity, :currency, :sector, :purchase_price,
-                    :purchase_date,
+                    :purchase_date, :position_entries,
                     :current_price, :previous_close, :dividend_yield, :dividend_per_share,
                     :last_updated, '[]'::json, '[]'::json
                 )
@@ -648,6 +658,7 @@ def ensure_account_schema_and_seed() -> None:
                     sector = EXCLUDED.sector,
                     purchase_price = EXCLUDED.purchase_price,
                     purchase_date = EXCLUDED.purchase_date,
+                    position_entries = EXCLUDED.position_entries,
                     current_price = EXCLUDED.current_price,
                     previous_close = EXCLUDED.previous_close,
                     dividend_yield = EXCLUDED.dividend_yield,
@@ -664,6 +675,7 @@ def ensure_account_schema_and_seed() -> None:
                 "sector": stock["sector"],
                 "purchase_price": stock["purchase_price"],
                 "purchase_date": stock["purchase_date"],
+                "position_entries": json.dumps(position_snapshot["position_entries"]),
                 "current_price": stock["current_price"],
                 "previous_close": stock["previous_close"],
                 "dividend_yield": stock["dividend_yield"],
@@ -824,12 +836,14 @@ class StockCreate(BaseModel):
     quantity: float
     purchase_price: Optional[float] = None
     purchase_date: Optional[date] = None
+    position_entries: Optional[List[dict]] = None
 
 
 class StockUpdate(BaseModel):
     quantity: Optional[float] = None
     purchase_price: Optional[float] = None
     purchase_date: Optional[date] = None
+    position_entries: Optional[List[dict]] = None
 
 
 class StockResponse(BaseModel):
@@ -842,6 +856,7 @@ class StockResponse(BaseModel):
     logo: Optional[str] = None
     purchase_price: Optional[float]
     purchase_date: Optional[date]
+    position_entries: Optional[List[dict]] = []
     current_price: Optional[float]
     previous_close: Optional[float]
     dividend_yield: Optional[float]

@@ -14,6 +14,7 @@ import logging
 from app.main import get_db, get_current_user, User, Stock, PortfolioHistory, UserSettings, StockPriceHistory
 from app.services.brandfetch_service import brandfetch_service
 from app.services.exchange_rate_service import ExchangeRateService
+from app.services.position_service import calculate_position_snapshot, get_quantity_held_on_date, has_position_history, normalize_position_entries
 from app.utils.time import utc_now
 
 router = APIRouter()
@@ -64,6 +65,16 @@ def parse_event_date(value) -> Optional[date]:
 def sort_event_date(value) -> date:
     parsed = parse_event_date(value)
     return parsed if parsed is not None else date.max
+
+
+def apply_position_snapshot(stock: Stock) -> Stock:
+    stock.position_entries = normalize_position_entries(getattr(stock, 'position_entries', None), stock.quantity, stock.purchase_price, stock.purchase_date)
+    snapshot = calculate_position_snapshot(stock.position_entries)
+    stock.quantity = snapshot['quantity']
+    stock.purchase_price = snapshot['purchase_price']
+    stock.purchase_date = parse_event_date(snapshot['purchase_date'])
+    stock.position_entries = snapshot['position_entries']
+    return stock
 
 
 def normalize_dividend_event(raw_div: dict, event_type: str) -> dict:
@@ -306,6 +317,7 @@ def get_portfolio_summary(db: Session = Depends(get_db), current_user: User = De
     unconverted_stocks = []
     
     for stock in stocks:
+        apply_position_snapshot(stock)
         if stock.current_price is not None and stock.quantity is not None:
             current_value_native = stock.current_price * stock.quantity
             current_value = convert_value(current_value_native, stock.currency, display_currency, rates)
@@ -427,6 +439,7 @@ def refresh_all_prices(db: Session = Depends(get_db), current_user: User = Depen
     request_ts = utc_now()
     today = request_ts.replace(hour=0, minute=0, second=0, microsecond=0)
     for stock in stocks:
+        apply_position_snapshot(stock)
         info = stock_service.get_stock_info(stock.ticker)
         if info:
             stock.current_price = info.get('current_price')
@@ -585,6 +598,9 @@ def get_portfolio_distribution(db: Session = Depends(get_db), current_user: User
     by_stock = {}
     
     for stock in stocks:
+        apply_position_snapshot(stock)
+        if not has_position_history(getattr(stock, 'position_entries', None), stock.quantity):
+            continue
         if stock.quantity is None or stock.quantity <= 0:
             continue
 
@@ -665,7 +681,9 @@ def get_upcoming_portfolio_dividends(db: Session = Depends(get_db), current_user
     current_year = now.year
 
     for stock in stocks:
-        purchase_date = stock.purchase_date
+        apply_position_snapshot(stock)
+        if not has_position_history(getattr(stock, 'position_entries', None), stock.quantity):
+            continue
         avanza_mapping = avanza_service.get_mapping_by_ticker(stock.ticker)
         no_avanza_mapping = avanza_mapping is None or not avanza_mapping.instrument_id
 
@@ -700,10 +718,10 @@ def get_upcoming_portfolio_dividends(db: Session = Depends(get_db), current_user
             if not payout_date_parsed:
                 continue
 
-            if purchase_date is not None:
-                entitlement_date = ex_date_parsed or payout_date_parsed
-                if entitlement_date and entitlement_date <= purchase_date:
-                    continue
+            entitlement_date = ex_date_parsed or payout_date_parsed
+            quantity_on_entitlement = get_quantity_held_on_date(getattr(stock, 'position_entries', None), entitlement_date)
+            if quantity_on_entitlement <= 0:
+                continue
 
             if payout_date_parsed.year != current_year:
                 continue
@@ -723,10 +741,7 @@ def get_upcoming_portfolio_dividends(db: Session = Depends(get_db), current_user
             if not amount or amount < 0:
                 continue
             
-            if stock.quantity is None or stock.quantity <= 0:
-                continue
-            
-            total_amount = amount * stock.quantity
+            total_amount = amount * quantity_on_entitlement
             
             div_currency = div.get('currency') or stock.currency
             
@@ -752,7 +767,7 @@ def get_upcoming_portfolio_dividends(db: Session = Depends(get_db), current_user
             dividends.append({
                 'ticker': stock.ticker,
                 'name': stock.name,
-                'quantity': stock.quantity,
+                'quantity': quantity_on_entitlement,
                 'ex_date': ex_date,
                 'payment_date': payment_date,
                 'payout_date': payout_date,

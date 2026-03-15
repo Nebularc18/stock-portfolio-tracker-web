@@ -16,6 +16,7 @@ from datetime import date, datetime
 from app.main import get_db, get_current_user, User, Stock, StockCreate, StockUpdate, StockResponse, StockPriceHistory
 from app.utils.time import utc_now
 from app.services.brandfetch_service import brandfetch_service
+from app.services.position_service import calculate_position_snapshot, get_quantity_held_on_date, has_position_history, normalize_position_entries, validate_position_entries
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -57,6 +58,12 @@ def _is_after_purchase_date(event_date: Optional[str], purchase_date: Optional[d
     return event_date_value > purchase_date
 
 
+def _resolve_stock_purchase_date(stock: Stock) -> Optional[date]:
+    snapshot = calculate_position_snapshot(getattr(stock, 'position_entries', None))
+    purchase_date = snapshot.get('purchase_date')
+    return _parse_event_date(purchase_date) if purchase_date else stock.purchase_date
+
+
 def _get_merged_stock_dividends(stock: Stock, ticker: str, years: int, stock_service, avanza_service) -> list[dict]:
     """
     Builds a merged, deduplicated list of dividend records for a stock by combining local service dividends and Avanza-derived dividends.
@@ -75,7 +82,7 @@ def _get_merged_stock_dividends(stock: Stock, ticker: str, years: int, stock_ser
     dividends_raw = stock_service.get_dividends(normalized_ticker, years)
     dividends = [
         div for div in (dividends_raw or [])
-        if _is_after_purchase_date(div.get('date'), stock.purchase_date)
+        if get_quantity_held_on_date(getattr(stock, 'position_entries', None), div.get('date')) > 0
     ]
     mapped_year_dividends = []
     today = utc_now().date()
@@ -100,7 +107,7 @@ def _get_merged_stock_dividends(stock: Stock, ticker: str, years: int, stock_ser
 
     mapped_year_dividends = [
         div for div in mapped_year_dividends
-        if _is_after_purchase_date(div.get('date'), stock.purchase_date)
+        if get_quantity_held_on_date(getattr(stock, 'position_entries', None), div.get('date')) > 0
     ]
 
     deduped = {}
@@ -208,6 +215,14 @@ def get_stocks(db: Session = Depends(get_db), current_user: User = Depends(get_c
         db.commit()
         for stock in stocks:
             db.refresh(stock)
+
+    for stock in stocks:
+        stock.position_entries = normalize_position_entries(getattr(stock, 'position_entries', None), stock.quantity, stock.purchase_price, stock.purchase_date)
+        snapshot = calculate_position_snapshot(stock.position_entries)
+        stock.quantity = snapshot['quantity']
+        stock.purchase_price = snapshot['purchase_price']
+        stock.purchase_date = _parse_event_date(snapshot['purchase_date'])
+        stock.position_entries = snapshot['position_entries']
 
     return stocks
 
@@ -376,17 +391,34 @@ def create_stock(stock_data: StockCreate, db: Session = Depends(get_db), current
         raise HTTPException(status_code=400, detail=f"Could not fetch stock information for '{ticker}'. Please try again.")
     
     logo = brandfetch_service.get_logo_url_for_ticker(ticker, info.get("name"))
+    if stock_data.position_entries is not None:
+        position_entries = validate_position_entries(stock_data.position_entries)
+        snapshot = calculate_position_snapshot(position_entries)
+        quantity = snapshot['quantity']
+        purchase_price = snapshot['purchase_price']
+        purchase_date = _parse_event_date(snapshot['purchase_date'])
+    else:
+        quantity = stock_data.quantity
+        purchase_price = stock_data.purchase_price
+        purchase_date = stock_data.purchase_date
+        snapshot = calculate_position_snapshot([{
+            'quantity': quantity,
+            'purchase_price': purchase_price,
+            'purchase_date': purchase_date,
+            'sell_date': None,
+        }])
     
     stock = Stock(
         user_id=current_user.id,
         ticker=ticker,
         name=info.get("name"),
-        quantity=stock_data.quantity,
+        quantity=quantity,
         currency=info.get("currency", "USD"),
         sector=info.get("sector"),
         logo=logo,
-        purchase_price=stock_data.purchase_price,
-        purchase_date=stock_data.purchase_date,
+        purchase_price=purchase_price,
+        purchase_date=purchase_date,
+        position_entries=snapshot['position_entries'],
         current_price=info.get("current_price"),
         previous_close=info.get("previous_close"),
         dividend_yield=info.get("dividend_yield"),
@@ -423,16 +455,34 @@ def update_stock(ticker: str, stock_data: StockUpdate, db: Session = Depends(get
     if not stock:
         raise HTTPException(status_code=404, detail="Stock not found")
     
-    if stock_data.quantity is not None:
-        stock.quantity = stock_data.quantity
-    if stock_data.purchase_price is not None:
-        stock.purchase_price = stock_data.purchase_price
     provided_fields = getattr(stock_data, "model_fields_set", getattr(stock_data, "__fields_set__", set()))
-    if "purchase_date" in provided_fields:
-        stock.purchase_date = stock_data.purchase_date
+
+    if "position_entries" in provided_fields:
+        position_entries = validate_position_entries(stock_data.position_entries or [])
+        snapshot = calculate_position_snapshot(position_entries)
+        stock.position_entries = snapshot['position_entries']
+        stock.quantity = snapshot['quantity']
+        stock.purchase_price = snapshot['purchase_price']
+        stock.purchase_date = _parse_event_date(snapshot['purchase_date'])
+    else:
+        if stock_data.quantity is not None:
+            stock.quantity = stock_data.quantity
+        if stock_data.purchase_price is not None:
+            stock.purchase_price = stock_data.purchase_price
+        if "purchase_date" in provided_fields:
+            stock.purchase_date = stock_data.purchase_date
+        stock.position_entries = normalize_position_entries(getattr(stock, 'position_entries', None), stock.quantity, stock.purchase_price, stock.purchase_date)
+        snapshot = calculate_position_snapshot(stock.position_entries)
+        stock.position_entries = snapshot['position_entries']
     
     db.commit()
     db.refresh(stock)
+    stock.position_entries = normalize_position_entries(getattr(stock, 'position_entries', None), stock.quantity, stock.purchase_price, stock.purchase_date)
+    snapshot = calculate_position_snapshot(stock.position_entries)
+    stock.quantity = snapshot['quantity']
+    stock.purchase_price = snapshot['purchase_price']
+    stock.purchase_date = _parse_event_date(snapshot['purchase_date'])
+    stock.position_entries = snapshot['position_entries']
     return stock
 
 
@@ -598,7 +648,7 @@ def get_upcoming_dividends(ticker: str, db: Session = Depends(get_db), current_u
     normalized_ticker = stock.ticker or ticker.upper()
     historical_dividends = [
         div for div in (stock_service.get_dividends(normalized_ticker, 2) or [])
-        if _is_after_purchase_date(div.get('date'), stock.purchase_date)
+        if get_quantity_held_on_date(getattr(stock, 'position_entries', None), div.get('date')) > 0
     ]
     historical_event_keys = {
         (
@@ -629,7 +679,7 @@ def get_upcoming_dividends(ticker: str, db: Session = Depends(get_db), current_u
                 )
                 if event_key in seen_event_keys:
                     continue
-                if not _is_after_purchase_date(div.ex_date, stock.purchase_date):
+                if get_quantity_held_on_date(getattr(stock, 'position_entries', None), div.ex_date) <= 0:
                     continue
                 cutoff_date = _parse_event_date(div.payment_date or div.ex_date)
                 if cutoff_date and cutoff_date <= today:
@@ -655,7 +705,7 @@ def get_upcoming_dividends(ticker: str, db: Session = Depends(get_db), current_u
                 )
                 if event_key in seen_event_keys:
                     continue
-                if not _is_after_purchase_date(div.get('ex_date'), stock.purchase_date):
+                if get_quantity_held_on_date(getattr(stock, 'position_entries', None), div.get('ex_date')) <= 0:
                     continue
                 cutoff_date = _parse_event_date(div.get('payment_date') or div.get('ex_date'))
                 if cutoff_date and cutoff_date <= today:
@@ -674,7 +724,7 @@ def get_upcoming_dividends(ticker: str, db: Session = Depends(get_db), current_u
     upcoming = stock_service.get_upcoming_dividends(normalized_ticker) or []
     filtered_upcoming = [
         div for div in upcoming
-        if _is_after_purchase_date(div.get('ex_date'), stock.purchase_date)
+        if get_quantity_held_on_date(getattr(stock, 'position_entries', None), div.get('ex_date')) > 0
         and not (
             (cutoff_date := _parse_event_date(div.get('payment_date') or div.get('ex_date')))
             and cutoff_date <= today
