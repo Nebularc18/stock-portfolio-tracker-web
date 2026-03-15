@@ -15,6 +15,7 @@ type DividendComparisonRow = {
 } & Record<string, number | string>
 
 type DistributionDatum = {
+  id?: string
   name: string
   value: number
 }
@@ -114,7 +115,7 @@ function renderDistributionLegend(data: DistributionDatum[], colors: string[], l
     const share = total > 0 ? entry.value / total : 0
     return (
       <div
-        key={entry.name}
+        key={entry.id || `${entry.name}-${index}`}
         style={{
           display: 'flex',
           alignItems: 'center',
@@ -313,15 +314,14 @@ export default function Analytics() {
   const rawStockData = distribution?.by_stock
     ? Object.entries(distribution.by_stock).map(([ticker, value]) => {
         const label = stockNamesByTicker[ticker] || ticker
-        const shouldAppendTicker = label.trim().toUpperCase() !== ticker.trim().toUpperCase()
-        return { name: shouldAppendTicker ? `${label} (${ticker})` : ticker, value }
+        return { id: ticker, name: label, value }
       })
     : []
 
   const othersLabel = t(language, 'analytics.others')
   const sectorData = aggregateDistributionData(rawSectorData, othersLabel)
   const countryData = aggregateDistributionData(rawCountryData, othersLabel)
-  const stockData = aggregateDistributionData(rawStockData, othersLabel)
+  const stockData = [...rawStockData].sort((a, b) => b.value - a.value)
 
   const handleToggleComparisonYear = (year: number) => {
     setSelectedComparisonYears((currentYears) => {

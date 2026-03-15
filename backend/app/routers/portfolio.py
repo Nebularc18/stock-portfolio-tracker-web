@@ -562,6 +562,8 @@ def get_portfolio_history(
 def get_portfolio_distribution(db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
     """
     Compute the portfolio's value distribution aggregated by sector, country, currency, and ticker, expressed using the user's display currency.
+
+    Stocks use current market price when available and fall back to purchase price so holdings are still represented in analytics when a live quote is temporarily missing.
     
     Returns:
         dict: A mapping with keys:
@@ -583,20 +585,26 @@ def get_portfolio_distribution(db: Session = Depends(get_db), current_user: User
     by_stock = {}
     
     for stock in stocks:
-        if stock.current_price is not None and stock.quantity is not None:
-            value_native = stock.current_price * stock.quantity
-            by_currency[stock.currency] = by_currency.get(stock.currency, 0) + value_native
-            value = convert_value(value_native, stock.currency, display_currency, rates)
-            if value is None:
-                continue
-            
-            sector = stock.sector or "Unknown"
-            by_sector[sector] = by_sector.get(sector, 0) + value
+        if stock.quantity is None or stock.quantity <= 0:
+            continue
 
-            country = infer_country_from_ticker(stock.ticker) or "Unknown"
-            by_country[country] = by_country.get(country, 0) + value
+        unit_price = stock.current_price if stock.current_price is not None else stock.purchase_price
+        if unit_price is None:
+            continue
 
-            by_stock[stock.ticker] = by_stock.get(stock.ticker, 0) + value
+        value_native = unit_price * stock.quantity
+        by_currency[stock.currency] = by_currency.get(stock.currency, 0) + value_native
+        value = convert_value(value_native, stock.currency, display_currency, rates)
+        if value is None:
+            continue
+
+        sector = stock.sector or "Unknown"
+        by_sector[sector] = by_sector.get(sector, 0) + value
+
+        country = infer_country_from_ticker(stock.ticker) or "Unknown"
+        by_country[country] = by_country.get(country, 0) + value
+
+        by_stock[stock.ticker] = by_stock.get(stock.ticker, 0) + value
     
     return {
         "display_currency": display_currency,
