@@ -16,10 +16,12 @@ import time
 import uuid
 from contextlib import asynccontextmanager
 from datetime import date, datetime, timezone
+from pathlib import Path
 from typing import List, Optional, Any
 import logging
 
 from fastapi import FastAPI, HTTPException, Depends, Request
+from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from dotenv import load_dotenv
@@ -649,6 +651,34 @@ if STATIC_DIR_READY:
 else:
     logger.warning("Static directory unavailable at %s; skipping static file mounts", STATIC_DIR)
 
+DEFAULT_FRONTEND_DIR = os.path.join(ROOT_DIR, 'frontend', 'dist')
+FRONTEND_DIR = os.getenv('FRONTEND_STATIC_DIR') or os.getenv('FRONTEND_DIR') or DEFAULT_FRONTEND_DIR
+FRONTEND_DIR_READY = os.path.isdir(FRONTEND_DIR)
+FRONTEND_INDEX_PATH = os.path.join(FRONTEND_DIR, 'index.html')
+FRONTEND_INDEX_READY = os.path.isfile(FRONTEND_INDEX_PATH)
+
+if FRONTEND_DIR_READY and FRONTEND_INDEX_READY:
+    logger.info("Frontend static files enabled from %s", FRONTEND_DIR)
+elif FRONTEND_DIR_READY:
+    logger.warning("Frontend directory %s found but index.html is missing.", FRONTEND_DIR)
+
+
+def _resolve_frontend_path(request_path: str) -> Optional[str]:
+    if not FRONTEND_DIR_READY:
+        return None
+
+    base = Path(FRONTEND_DIR).resolve()
+    safe_request_path = request_path.lstrip("/")
+    candidate = (base / safe_request_path).resolve()
+
+    if candidate != base and base not in candidate.parents:
+        return None
+
+    if candidate.is_file():
+        return str(candidate)
+
+    return None
+
 
 @app.middleware("http")
 async def log_request_timing(request: Request, call_next):
@@ -796,6 +826,8 @@ def read_root():
     Returns:
         dict: A dictionary containing the API name and version.
     """
+    if FRONTEND_INDEX_READY:
+        return FileResponse(FRONTEND_INDEX_PATH)
     return {"message": "Stock Portfolio API", "version": "1.0.0"}
 
 
@@ -807,3 +839,18 @@ def health_check():
         dict: A dictionary containing the health status.
     """
     return {"status": "healthy"}
+
+
+@app.get("/{full_path:path}")
+def serve_frontend(full_path: str):
+    if full_path.startswith("api/") or full_path == "api":
+        raise HTTPException(status_code=404, detail="Not Found")
+
+    file_path = _resolve_frontend_path(full_path)
+    if file_path:
+        return FileResponse(file_path)
+
+    if FRONTEND_INDEX_READY:
+        return FileResponse(FRONTEND_INDEX_PATH)
+
+    raise HTTPException(status_code=404, detail="Not Found")

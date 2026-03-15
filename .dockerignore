@@ -1,0 +1,11 @@
+.git
+.gitignore
+.vscode
+.venv
+__pycache__/
+*.pyc
+backend/.pytest_cache
+backend/data/cache
+frontend/node_modules
+frontend/dist
+plans

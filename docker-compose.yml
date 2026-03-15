@@ -16,8 +16,8 @@ services:
       timeout: 5s
       retries: 5
 
-  backend:
-    build: ./backend
+  app:
+    image: ghcr.io/${GHCR_OWNER:-nebularc18}/stock-portfolio-tracker:latest
     restart: unless-stopped
     ports:
       - "8000:8000"
@@ -35,16 +35,7 @@ services:
       postgres:
         condition: service_healthy
     volumes:
-      - ./backend:/app
       - cache_data:/app/data/cache
-
-  frontend:
-    build: ./frontend
-    restart: unless-stopped
-    ports:
-      - "3000:80"
-    depends_on:
-      - backend
 
 volumes:
   postgres_data:

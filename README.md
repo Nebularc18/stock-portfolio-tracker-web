@@ -46,9 +46,64 @@ A modern web-based stock portfolio tracker built with React, FastAPI, and Postgr
    ```
 
 3. **Access the application**
-   - Frontend: http://localhost:3000
+   - App (frontend + API): http://localhost:8000
    - Backend API: http://localhost:8000
    - API Documentation: http://localhost:8000/docs
+
+## Server Compose (Copy/Paste)
+
+Create a `docker-compose.yml` on your server with this content:
+
+```yaml
+version: "3.8"
+
+services:
+  postgres:
+    image: postgres:15-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: portfolio
+      POSTGRES_PASSWORD: portfolio
+      POSTGRES_DB: portfolio
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U portfolio"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  stock-tracker:
+    image: ghcr.io/nebularc18/stock-portfolio-tracker:latest
+    restart: unless-stopped
+    ports:
+      - "8080:8000"
+    environment:
+      DATABASE_URL: postgresql://portfolio:portfolio@postgres:5432/portfolio
+      AUTH_TOKEN_SECRET: change-me
+      DEFAULT_USERNAME: admin
+      DEFAULT_PASSWORD: admin123
+      GUEST_USERNAME: guest
+      GUEST_PASSWORD: guest-demo-password
+      FINNHUB_API_KEY: ""
+      MARKETSTACK_API_KEY: ""
+    depends_on:
+      postgres:
+        condition: service_healthy
+    volumes:
+      - cache_data:/app/data/cache
+
+volumes:
+  postgres_data:
+  cache_data:
+```
+
+Then run:
+
+```bash
+docker compose pull
+docker compose up -d
+```
 
 ## Usage
 
@@ -176,8 +231,12 @@ docker compose up -d
 # View logs
 docker compose logs -f
 
-# Rebuild after changes
-docker compose up -d --build
+# Pull latest image
+docker compose pull
+
+# Rebuild locally after changes (tag must match docker-compose.yml)
+docker build -t ghcr.io/YOUR_USERNAME/stock-portfolio-tracker:latest .
+docker compose up -d
 ```
 
 ### Database Migrations
@@ -191,7 +250,7 @@ docker exec stock-portfolio-tracker-web-postgres-1 psql -U portfolio -d portfoli
 For the `stocks.logo` column migration in this repository, run:
 
 ```bash
-docker compose exec backend python backend/migrations/20260304_add_stocks_logo_column.py upgrade
+docker compose exec app python migrations/20260304_add_stocks_logo_column.py upgrade
 ```
 
 Run this migration during deployment before starting new backend code that reads/writes `stock.logo`.
