@@ -6,6 +6,7 @@ import { useSettings } from '../SettingsContext'
 import { formatTimeInTimezone } from '../utils/time'
 import { resolveBackendAssetUrl } from '../utils/assets'
 import { getLocaleForLanguage, t, type Language, type TranslationKey } from '../i18n'
+import { formatDisplayName } from '../utils/displayName'
 
 type HistoryRangeKey = '1D' | '1W' | '1M' | 'YTD' | '1Y' | 'SINCE_START'
 
@@ -695,6 +696,7 @@ export default function Dashboard() {
               <tbody>
                 {summary?.stocks?.map((stock) => {
                   const logoUrl = resolveBackendAssetUrl(stock.logo)
+                  const displayName = formatDisplayName(stock.name, stock.ticker)
                   return <tr
                     key={stock.ticker}
                     onClick={() => navigate(`/stocks/${encodeURIComponent(stock.ticker)}`)}
@@ -709,7 +711,7 @@ export default function Dashboard() {
                         {logoUrl && !failedLogos[stock.ticker] ? (
                           <img
                             src={logoUrl}
-                            alt={stock.name || stock.ticker}
+                            alt={displayName}
                             style={{ width: 22, height: 22, borderRadius: 4, objectFit: 'contain', background: 'var(--bg3)', padding: 2 }}
                             onError={(e) => {
                               ;(e.target as HTMLImageElement).style.display = 'none'
@@ -718,13 +720,13 @@ export default function Dashboard() {
                           />
                         ) : (
                           <span style={{ width: 22, height: 22, borderRadius: 4, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', fontSize: 11, fontWeight: 700, color: 'var(--muted)', background: 'var(--bg3)' }}>
-                            {(stock.name || stock.ticker || '?').charAt(0).toUpperCase()}
+                            {(displayName || stock.ticker || '?').charAt(0).toUpperCase()}
                           </span>
                         )}
                         {stock.ticker}
                       </Link>
                     </td>
-                    <td style={{ color: 'var(--text2)' }}>{stock.name || '-'}</td>
+                    <td style={{ color: 'var(--text2)' }}>{displayName}</td>
                     <td style={{ textAlign: 'right', fontFamily: "'Fira Code', monospace", color: 'var(--text2)' }}>{stock.quantity}</td>
                     <td style={{ textAlign: 'right', fontFamily: "'Fira Code', monospace", color: 'var(--text2)' }}>{renderConvertedAmount(stock.current_price, stock.currency)}</td>
                     <td style={{ textAlign: 'right', fontFamily: "'Fira Code', monospace", color: 'var(--text2)' }}>

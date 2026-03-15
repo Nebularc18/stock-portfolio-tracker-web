@@ -28,7 +28,7 @@ from dotenv import load_dotenv
 from passlib.context import CryptContext
 from passlib.exc import UnknownHashError
 from pydantic import BaseModel, field_validator
-from sqlalchemy import create_engine, Column, Integer, String, Float, Date, DateTime, ForeignKey, JSON, Boolean, text, UniqueConstraint
+from sqlalchemy import create_engine, Column, Integer, String, Float, Date, DateTime, ForeignKey, JSON, Boolean, text, UniqueConstraint, bindparam
 from sqlalchemy.orm import sessionmaker, relationship, declarative_base
 from sqlalchemy.pool import NullPool
 from app.utils.time import utc_now
@@ -534,7 +534,7 @@ def ensure_account_schema_and_seed() -> None:
                 "name": "ASML Holding",
                 "quantity": 4.0,
                 "currency": "EUR",
-                "sector": "Technology",
+                "sector": "Basic Materials",
                 "purchase_price": 812.0,
                 "purchase_date": date(2024, 8, 19),
                 "current_price": 864.2,
@@ -582,43 +582,17 @@ def ensure_account_schema_and_seed() -> None:
                 "dividend_per_share": 0.0,
             },
             {
-                "ticker": "BHP.AX",
-                "name": "BHP Group",
-                "quantity": 18.0,
-                "currency": "AUD",
-                "sector": "Basic Materials",
-                "purchase_price": 43.2,
-                "purchase_date": date(2024, 3, 21),
-                "current_price": 46.9,
-                "previous_close": 46.4,
-                "dividend_yield": 5.1,
-                "dividend_per_share": 2.4,
-            },
-            {
-                "ticker": "6758.T",
-                "name": "Sony Group Corp.",
+                "ticker": "RIO.AX",
+                "name": "Rio Tinto",
                 "quantity": 14.0,
-                "currency": "JPY",
-                "sector": "Communication Services",
-                "purchase_price": 13250.0,
-                "purchase_date": date(2024, 6, 17),
-                "current_price": 14180.0,
-                "previous_close": 14090.0,
-                "dividend_yield": 0.7,
-                "dividend_per_share": 120.0,
-            },
-            {
-                "ticker": "0700.HK",
-                "name": "Tencent Holdings",
-                "quantity": 32.0,
-                "currency": "HKD",
-                "sector": "Communication Services",
-                "purchase_price": 288.0,
-                "purchase_date": date(2024, 4, 11),
-                "current_price": 318.4,
-                "previous_close": 316.1,
-                "dividend_yield": 0.8,
-                "dividend_per_share": 3.4,
+                "currency": "AUD",
+                "sector": "Technology",
+                "purchase_price": 118.0,
+                "purchase_date": date(2024, 3, 21),
+                "current_price": 126.4,
+                "previous_close": 125.7,
+                "dividend_yield": 4.3,
+                "dividend_per_share": 5.2,
             },
             {
                 "ticker": "OR.PA",
@@ -627,10 +601,10 @@ def ensure_account_schema_and_seed() -> None:
                 "currency": "EUR",
                 "sector": "Consumer Defensive",
                 "purchase_price": 421.0,
-                "purchase_date": date(2024, 1, 29),
+                "purchase_date": date(2024, 6, 17),
                 "current_price": 446.7,
                 "previous_close": 444.2,
-                "dividend_yield": 1.4,
+                "dividend_yield": 1.3,
                 "dividend_per_share": 6.6,
             },
             {
@@ -640,13 +614,20 @@ def ensure_account_schema_and_seed() -> None:
                 "currency": "USD",
                 "sector": "Technology",
                 "purchase_price": 398.0,
-                "purchase_date": date(2024, 2, 5),
+                "purchase_date": date(2024, 4, 11),
                 "current_price": 426.5,
                 "previous_close": 424.7,
                 "dividend_yield": 0.7,
                 "dividend_per_share": 3.0,
             },
         ]
+
+        guest_tickers = [stock["ticker"] for stock in guest_stocks]
+        conn.execute(text("DELETE FROM stocks WHERE user_id = :user_id AND ticker NOT IN :tickers").bindparams(bindparam("tickers", expanding=True)), {
+            "user_id": guest_user_id,
+            "tickers": guest_tickers,
+        })
+
         for stock in guest_stocks:
             conn.execute(text("""
                 INSERT INTO stocks (

@@ -194,7 +194,7 @@ def get_stocks(db: Session = Depends(get_db), current_user: User = Depends(get_c
             refreshed_logo = brandfetch_service.get_logo_url_for_ticker(
                 stock.ticker,
                 stock.name,
-                force_refresh=False,
+                force_refresh=True,
                 existing_logo=stock.logo,
             )
         except Exception as exc:
@@ -504,7 +504,7 @@ def refresh_stock(ticker: str, db: Session = Depends(get_db), current_user: User
                 refreshed_logo = brandfetch_service.get_logo_url_for_ticker(
                     stock.ticker,
                     stock.name or info.get("name"),
-                    force_refresh=False,
+                    force_refresh=True,
                     existing_logo=stock.logo,
                 )
             except Exception as exc:
