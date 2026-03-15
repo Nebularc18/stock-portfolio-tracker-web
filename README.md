@@ -30,6 +30,7 @@ A modern web-based stock portfolio tracker built with React, FastAPI, and Postgr
 ## Prerequisites
 
 - Docker and Docker Compose
+- Docker Buildx for multi-architecture image builds
 - Git
 
 ## Quick Start
@@ -238,6 +239,22 @@ docker compose pull
 docker build -t ghcr.io/YOUR_USERNAME/stock-portfolio-tracker:latest .
 docker compose up -d
 ```
+
+### Multi-Architecture Builds
+
+The root `Dockerfile` and `frontend/Dockerfile` are compatible with both `linux/amd64` and `linux/arm64`.
+
+Build and push a multi-architecture image locally with Buildx:
+
+```bash
+docker buildx build \
+  --platform linux/amd64,linux/arm64 \
+  -t ghcr.io/YOUR_USERNAME/stock-portfolio-tracker:latest \
+  --push \
+  .
+```
+
+This repository also includes a GitHub Actions workflow that publishes a multi-architecture GHCR image for the default branch and version tags.
 
 ### Database Migrations
 
