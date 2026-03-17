@@ -58,8 +58,17 @@ def _is_after_purchase_date(event_date: Optional[str], purchase_date: Optional[d
     return event_date_value > purchase_date
 
 
+def _get_normalized_stock_position_entries(stock: Stock) -> list[dict]:
+    return normalize_position_entries(
+        getattr(stock, 'position_entries', None),
+        stock.quantity,
+        stock.purchase_price,
+        stock.purchase_date,
+    )
+
+
 def _resolve_stock_purchase_date(stock: Stock) -> Optional[date]:
-    snapshot = calculate_position_snapshot(getattr(stock, 'position_entries', None))
+    snapshot = calculate_position_snapshot(_get_normalized_stock_position_entries(stock))
     purchase_date = snapshot.get('purchase_date')
     return _parse_event_date(purchase_date) if purchase_date else stock.purchase_date
 
@@ -80,9 +89,10 @@ def _get_merged_stock_dividends(stock: Stock, ticker: str, years: int, stock_ser
     """
     normalized_ticker = stock.ticker or ticker.upper()
     dividends_raw = stock_service.get_dividends(normalized_ticker, years)
+    ownership_entries = _get_normalized_stock_position_entries(stock)
     dividends = [
         div for div in (dividends_raw or [])
-        if get_quantity_held_on_date(getattr(stock, 'position_entries', None), div.get('date')) > 0
+        if get_quantity_held_on_date(ownership_entries, div.get('date')) > 0
     ]
     mapped_year_dividends = []
     today = utc_now().date()
@@ -107,7 +117,7 @@ def _get_merged_stock_dividends(stock: Stock, ticker: str, years: int, stock_ser
 
     mapped_year_dividends = [
         div for div in mapped_year_dividends
-        if get_quantity_held_on_date(getattr(stock, 'position_entries', None), div.get('date')) > 0
+        if get_quantity_held_on_date(ownership_entries, div.get('date')) > 0
     ]
 
     deduped = {}
@@ -471,6 +481,20 @@ def update_stock(ticker: str, stock_data: StockUpdate, db: Session = Depends(get
             stock.purchase_price = stock_data.purchase_price
         if "purchase_date" in provided_fields:
             stock.purchase_date = stock_data.purchase_date
+        scalar_patch_fields = {"quantity", "purchase_price", "purchase_date"} & set(provided_fields)
+        if scalar_patch_fields and isinstance(getattr(stock, 'position_entries', None), list):
+            historical_entries = [
+                entry
+                for entry in normalize_position_entries(stock.position_entries)
+                if entry.get('sell_date')
+            ]
+            stock.position_entries = [{
+                'id': str(uuid.uuid4()),
+                'quantity': stock.quantity,
+                'purchase_price': stock.purchase_price,
+                'purchase_date': stock.purchase_date,
+                'sell_date': None,
+            }, *historical_entries]
         stock.position_entries = normalize_position_entries(getattr(stock, 'position_entries', None), stock.quantity, stock.purchase_price, stock.purchase_date)
         snapshot = calculate_position_snapshot(stock.position_entries)
         stock.quantity = snapshot['quantity']

@@ -270,7 +270,7 @@ export default function Dashboard() {
   const historyRequestIdRef = useRef(0)
   const dataRequestIdRef = useRef(0)
   const autoRefreshTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
-  const isMountedRef = useRef(true)
+  const lastAutoRefreshRunRef = useRef<symbol | null>(null)
   const { displayCurrency, timezone, language } = useSettings()
   const locale = getLocaleForLanguage(language)
   const { sortState: holdingsSortState, requestSort: requestHoldingsSort } = useTableSort<HoldingSortField>({ field: 'ticker', direction: 'asc' })
@@ -357,19 +357,21 @@ export default function Dashboard() {
   }, [historyRange, user?.id])
 
   useEffect(() => {
-    isMountedRef.current = true
+    const runId = Symbol('dashboard-auto-refresh')
+    lastAutoRefreshRunRef.current = runId
     if (autoRefreshTimeoutRef.current) {
       clearTimeout(autoRefreshTimeoutRef.current)
       autoRefreshTimeoutRef.current = null
     }
 
     const scheduleNextRefresh = () => {
+      if (lastAutoRefreshRunRef.current !== runId) return
       autoRefreshTimeoutRef.current = setTimeout(() => {
         Promise.allSettled([
           fetchData({ background: true }),
           fetchHistory(historyRange, { background: true }),
         ]).finally(() => {
-          if (isMountedRef.current) {
+          if (lastAutoRefreshRunRef.current === runId) {
             scheduleNextRefresh()
           }
         })
@@ -379,7 +381,9 @@ export default function Dashboard() {
     scheduleNextRefresh()
 
     return () => {
-      isMountedRef.current = false
+      if (lastAutoRefreshRunRef.current === runId) {
+        lastAutoRefreshRunRef.current = null
+      }
       if (autoRefreshTimeoutRef.current) {
         clearTimeout(autoRefreshTimeoutRef.current)
         autoRefreshTimeoutRef.current = null

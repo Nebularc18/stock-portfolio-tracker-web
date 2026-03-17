@@ -1024,6 +1024,11 @@ class StockService:
                 logger.warning("Yahoo analyst quote page returned %s for %s", response.status_code, ticker_upper)
                 return None
 
+            # This regex-based quoteSummary extraction is intentionally a fragile
+            # fallback for when yfinance fails. If Yahoo changes the HTML script
+            # attributes or payload shape, check both `pattern` and the
+            # follow-up `json.loads(body)` parsing here and update or remove the
+            # fallback accordingly.
             pattern = re.compile(
                 rf'<script type="application/json" data-sveltekit-fetched data-url="https://query1\.finance\.yahoo\.com/v10/finance/quoteSummary/{re.escape(ticker_upper)}\?[^"]*modules=[^"]*financialData%2CrecommendationTrend[^"]*" data-ttl="1">(.*?)</script>',
                 re.DOTALL,

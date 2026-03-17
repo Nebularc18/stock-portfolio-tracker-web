@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState, type WheelEvent } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { Link, Outlet, useLocation } from 'react-router-dom'
 import { useHeaderData } from '../contexts/HeaderDataContext'
 import { useSettings } from '../SettingsContext'
@@ -127,14 +127,14 @@ export default function InfographicLayout() {
     if (!element) return
 
     const scrollAmount = Math.max(240, Math.floor(element.clientWidth * 0.75))
+    const behavior = window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth'
     element.scrollBy({
       left: direction === 'left' ? -scrollAmount : scrollAmount,
-      behavior: 'smooth',
+      behavior,
     })
   }, [])
 
-  const handleIndicesWheel = useCallback((event: WheelEvent<HTMLDivElement>) => {
-    const element = indicesScrollerRef.current
+  const handleIndicesWheel = useCallback((event: WheelEvent, element: HTMLDivElement) => {
     if (!element || element.scrollWidth <= element.clientWidth) return
 
     const deltaModeFactor = event.deltaMode === 1
@@ -163,15 +163,18 @@ export default function InfographicLayout() {
 
     const handleScroll = () => updateIndicesScrollState()
     const handleResize = () => updateIndicesScrollState()
+    const handleWheel = (event: WheelEvent) => handleIndicesWheel(event, element)
 
     element.addEventListener('scroll', handleScroll, { passive: true })
+    element.addEventListener('wheel', handleWheel, { passive: false })
     window.addEventListener('resize', handleResize)
 
     return () => {
       element.removeEventListener('scroll', handleScroll)
+      element.removeEventListener('wheel', handleWheel)
       window.removeEventListener('resize', handleResize)
     }
-  }, [indices, updateIndicesScrollState])
+  }, [handleIndicesWheel, indices, updateIndicesScrollState])
 
   return (
     <div style={{ minHeight: '100vh', background: 'var(--bg)', color: 'var(--text)' }}>
@@ -186,7 +189,7 @@ export default function InfographicLayout() {
             type="button"
             className={`tb-scroll-btn left${canScrollIndicesLeft ? ' visible' : ''}`}
             onClick={() => scrollIndicesByPage('left')}
-            aria-label="Scroll market indices left"
+            aria-label={t(language, 'layout.scrollIndicesLeft')}
             aria-hidden={!canScrollIndicesLeft}
             disabled={!canScrollIndicesLeft}
             tabIndex={canScrollIndicesLeft ? 0 : -1}
@@ -196,7 +199,6 @@ export default function InfographicLayout() {
           <div
             ref={indicesScrollerRef}
             className="tb-indices"
-            onWheel={handleIndicesWheel}
           >
             {indices.map((idx) => {
               const safeChange = idx.change != null && Number.isFinite(Number(idx.change))
@@ -261,7 +263,7 @@ export default function InfographicLayout() {
             type="button"
             className={`tb-scroll-btn right${canScrollIndicesRight ? ' visible' : ''}`}
             onClick={() => scrollIndicesByPage('right')}
-            aria-label="Scroll market indices right"
+            aria-label={t(language, 'layout.scrollIndicesRight')}
             aria-hidden={!canScrollIndicesRight}
             disabled={!canScrollIndicesRight}
             tabIndex={canScrollIndicesRight ? 0 : -1}

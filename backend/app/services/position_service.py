@@ -90,6 +90,40 @@ def normalize_position_entries(
 def validate_position_entries(entries: Any) -> list[dict[str, Any]]:
     if not isinstance(entries, list):
         raise ValueError('position_entries must be a list')
+
+    for entry in entries:
+        if not isinstance(entry, dict):
+            raise ValueError('each position entry must be an object')
+
+        for required_key in ('quantity', 'purchase_price', 'purchase_date'):
+            if required_key not in entry:
+                raise ValueError(f'position entry missing required field: {required_key}')
+
+        quantity_raw = entry.get('quantity')
+        try:
+            quantity = float(quantity_raw)
+        except (TypeError, ValueError):
+            raise ValueError('quantity must be a number') from None
+        if quantity <= 0:
+            raise ValueError('quantity must be greater than zero')
+
+        purchase_price_raw = entry.get('purchase_price')
+        if purchase_price_raw not in (None, ''):
+            try:
+                purchase_price = float(purchase_price_raw)
+            except (TypeError, ValueError):
+                raise ValueError('purchase_price must be a number') from None
+            if purchase_price < 0:
+                raise ValueError('purchase_price must be greater than or equal to zero')
+
+        purchase_date_raw = entry.get('purchase_date')
+        if purchase_date_raw not in (None, '') and parse_position_date(purchase_date_raw) is None:
+            raise ValueError('purchase_date must be a valid date')
+
+        sell_date_raw = entry.get('sell_date')
+        if sell_date_raw not in (None, '') and parse_position_date(sell_date_raw) is None:
+            raise ValueError('sell_date must be a valid date')
+
     normalized = normalize_position_entries(entries)
 
     for entry in normalized:
