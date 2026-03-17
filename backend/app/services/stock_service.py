@@ -77,6 +77,7 @@ _PRICE_TARGETS_CACHE_TTL = 43200
 _PRICE_TARGETS_FALLBACK_CACHE_TTL = 300
 _YAHOO_ANALYST_PAGE_CACHE: Dict[str, tuple] = {}
 _YAHOO_ANALYST_PAGE_CACHE_TTL = 3600
+_ANALYST_SINGLE_CACHE_KIND = "single_analyst_recommendations"
 _ANALYST_ALL_CACHE_KIND = "all_analyst_recommendations"
 _PRICE_TARGETS_CACHE_KIND = "price_targets"
 
@@ -89,6 +90,21 @@ def _is_marked_cache_payload(value: Any, cache_kind: str) -> bool:
         and value.get('cache_status') == 'hit'
         and value.get('cache_kind') == cache_kind
     )
+
+
+def _wrap_single_analyst_cache_value(value: Optional[List[Dict[str, Any]]]) -> Dict[str, Any]:
+    return {
+        'cache_status': 'hit',
+        'cache_kind': _ANALYST_SINGLE_CACHE_KIND,
+        'has_recommendations': value is not None,
+        'value': value,
+    }
+
+
+def _unwrap_single_analyst_cache_value(value: Any) -> Optional[List[Dict[str, Any]]]:
+    if _is_marked_cache_payload(value, _ANALYST_SINGLE_CACHE_KIND):
+        return value.get('value')
+    return value
 
 
 def _wrap_all_analyst_cache_value(
@@ -142,6 +158,7 @@ def _unwrap_price_targets_cache_value(value: Any) -> Optional[Dict[str, Any]]:
 
 
 def _get_single_analyst_cache_ttl(value: Any) -> int:
+    value = _unwrap_single_analyst_cache_value(value)
     return _ANALYST_CACHE_TTL if value else _ANALYST_NEGATIVE_CACHE_TTL
 
 
@@ -835,13 +852,15 @@ class StockService:
         cache_file = f"analyst_recs_{ticker_upper}.json"
 
         cached = _load_file_cache(cache_file)
+        if _is_marked_cache_payload(cached, _ANALYST_SINGLE_CACHE_KIND):
+            return _unwrap_single_analyst_cache_value(cached)
         if cached is not None:
             return cached
 
         if ticker_upper in _ANALYST_SINGLE_CACHE:
             data, timestamp = _ANALYST_SINGLE_CACHE[ticker_upper]
             if datetime.now().timestamp() - timestamp < _get_single_analyst_cache_ttl(data):
-                return data
+                return _unwrap_single_analyst_cache_value(data)
 
         normalized = self._get_yfinance_recommendations(ticker_upper)
         
@@ -853,7 +872,9 @@ class StockService:
             _save_file_cache(cache_file, normalized, _ANALYST_CACHE_TTL)
             return normalized
 
-        _ANALYST_SINGLE_CACHE[ticker_upper] = (None, datetime.now().timestamp())
+        negative_payload = _wrap_single_analyst_cache_value(None)
+        _ANALYST_SINGLE_CACHE[ticker_upper] = (negative_payload, datetime.now().timestamp())
+        _save_file_cache(cache_file, negative_payload, _ANALYST_NEGATIVE_CACHE_TTL)
         return None
 
     def get_all_analyst_recommendations(self, ticker: str) -> Dict[str, Optional[List[Dict[str, Any]]]]:

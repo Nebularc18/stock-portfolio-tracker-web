@@ -401,7 +401,7 @@ def create_stock(stock_data: StockCreate, db: Session = Depends(get_db), current
         raise HTTPException(status_code=400, detail=f"Could not fetch stock information for '{ticker}'. Please try again.")
     
     logo = brandfetch_service.get_logo_url_for_ticker(ticker, info.get("name"))
-    if stock_data.position_entries is not None:
+    if stock_data.position_entries:
         position_entries = validate_position_entries(stock_data.position_entries)
         snapshot = calculate_position_snapshot(position_entries)
         quantity = snapshot['quantity']
@@ -492,6 +492,15 @@ def update_stock(ticker: str, stock_data: StockUpdate, db: Session = Depends(get
                 updated_entries.append(updated_entry)
                 if not updated_entry.get('sell_date'):
                     open_entry_indexes.append(len(updated_entries) - 1)
+
+            if len(open_entry_indexes) > 1:
+                raise HTTPException(
+                    status_code=400,
+                    detail=(
+                        "Scalar stock updates are ambiguous when multiple open lots exist; "
+                        "provide full position_entries instead."
+                    ),
+                )
 
             if not open_entry_indexes:
                 updated_entries.append({

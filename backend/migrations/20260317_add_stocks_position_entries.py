@@ -48,6 +48,11 @@ def run(direction: str) -> None:
 
     engine = create_engine(get_database_url())
     try:
+        if engine.dialect.name != "postgresql":
+            raise MigrationError(
+                f"This migration requires PostgreSQL, but detected dialect '{engine.dialect.name}'. "
+                "Use a PostgreSQL DATABASE_URL."
+            )
         with engine.begin() as conn:
             conn.execute(text("SET LOCAL lock_timeout = '5s'"))
             conn.execute(text("SET LOCAL statement_timeout = '30s'"))

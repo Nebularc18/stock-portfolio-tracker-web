@@ -27,7 +27,7 @@ from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from dotenv import load_dotenv
 from passlib.context import CryptContext
 from passlib.exc import UnknownHashError
-from pydantic import BaseModel, field_validator
+from pydantic import BaseModel, field_validator, model_validator
 from sqlalchemy import create_engine, Column, Integer, String, Float, Date, DateTime, ForeignKey, JSON, Boolean, text, UniqueConstraint, bindparam
 from sqlalchemy.orm import sessionmaker, relationship, declarative_base
 from sqlalchemy.pool import NullPool
@@ -792,6 +792,33 @@ def _resolve_frontend_path(request_path: str) -> Optional[str]:
     return None
 
 
+def _looks_like_frontend_file_request(request_path: str) -> bool:
+    last_segment = Path(request_path).name.lower()
+    if not last_segment:
+        return False
+
+    if "." in last_segment:
+        return True
+
+    return Path(last_segment).suffix.lower() in {
+        ".css",
+        ".gif",
+        ".ico",
+        ".jpeg",
+        ".jpg",
+        ".js",
+        ".json",
+        ".map",
+        ".mjs",
+        ".png",
+        ".svg",
+        ".txt",
+        ".webp",
+        ".woff",
+        ".woff2",
+    }
+
+
 @app.middleware("http")
 async def log_request_timing(request: Request, call_next):
     """
@@ -835,10 +862,37 @@ async def log_request_timing(request: Request, call_next):
 
 class StockCreate(BaseModel):
     ticker: str
-    quantity: float
+    quantity: Optional[float] = None
     purchase_price: Optional[float] = None
     purchase_date: Optional[date] = None
     position_entries: Optional[List[dict]] = None
+
+    @model_validator(mode="after")
+    def validate_create_payload(self) -> "StockCreate":
+        has_position_entries = isinstance(self.position_entries, list) and len(self.position_entries) > 0
+
+        if has_position_entries:
+            return self
+
+        if self.quantity is None:
+            raise ValueError(
+                "StockCreate validation failed for create_stock payload (/api/stocks): "
+                "provide non-empty position_entries or a positive quantity."
+            )
+
+        if self.quantity <= 0:
+            raise ValueError(
+                "StockCreate validation failed for create_stock payload (/api/stocks): "
+                "quantity must be greater than zero when position_entries is omitted."
+            )
+
+        if self.purchase_price is not None and self.purchase_price < 0:
+            raise ValueError(
+                "StockCreate validation failed for create_stock payload (/api/stocks): "
+                "purchase_price must be greater than or equal to zero."
+            )
+
+        return self
 
 
 class StockUpdate(BaseModel):
@@ -964,6 +1018,9 @@ def serve_frontend(full_path: str):
     file_path = _resolve_frontend_path(full_path)
     if file_path:
         return FileResponse(file_path)
+
+    if _looks_like_frontend_file_request(full_path):
+        raise HTTPException(status_code=404, detail="Not Found")
 
     if FRONTEND_INDEX_READY:
         return FileResponse(FRONTEND_INDEX_PATH)

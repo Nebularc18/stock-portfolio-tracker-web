@@ -502,6 +502,7 @@ tbody tr:hover td {
   line-height: 1;
   cursor: pointer;
   opacity: 0;
+  visibility: hidden;
   pointer-events: none;
   transition: opacity 0.15s, color 0.15s, border-color 0.15s;
   z-index: 2;
@@ -509,6 +510,7 @@ tbody tr:hover td {
 
 .tb-scroll-btn.visible {
   opacity: 1;
+  visibility: visible;
   pointer-events: auto;
 }
 

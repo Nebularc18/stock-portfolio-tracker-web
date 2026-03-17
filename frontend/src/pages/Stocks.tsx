@@ -518,7 +518,13 @@ type SortField =
             </div>
             <div style={{ padding: '20px' }}>
               <div style={{ marginBottom: 24, display: 'grid', gap: 12 }}>
-                {editEntries.map((entry, index) => (
+                {editEntries.map((entry, index) => {
+                  const quantityInputId = index === 0 ? editQuantityInputId : `quantity-${entry.id}`
+                  const purchasePriceInputId = index === 0 ? editPurchasePriceInputId : `purchasePrice-${entry.id}`
+                  const purchaseDateInputId = index === 0 ? editPurchaseDateInputId : `purchaseDate-${entry.id}`
+                  const sellDateInputId = `sellDate-${entry.id}`
+
+                  return (
                   <div key={entry.id} style={{ padding: 12, border: '1px solid var(--border)', borderRadius: 8, background: 'rgba(255,255,255,0.02)', display: 'grid', gap: 10 }}>
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                       <span style={{ fontSize: 11, fontWeight: 700, color: 'var(--muted)', letterSpacing: '0.08em', textTransform: 'uppercase' }}>
@@ -535,11 +541,11 @@ type SortField =
                       </button>
                     </div>
                     <div>
-                      <label style={{ display: 'block', marginBottom: 6, color: 'var(--muted)', fontSize: 11, fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase' }}>
+                      <label htmlFor={quantityInputId} style={{ display: 'block', marginBottom: 6, color: 'var(--muted)', fontSize: 11, fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase' }}>
                         {t(language, 'stocks.quantity')}
                       </label>
                       <input
-                        id={index === 0 ? editQuantityInputId : undefined}
+                        id={quantityInputId}
                         ref={index === 0 ? editQuantityInputRef : undefined}
                         type="number"
                         step="0.01"
@@ -550,10 +556,11 @@ type SortField =
                       />
                     </div>
                     <div>
-                      <label style={{ display: 'block', marginBottom: 6, color: 'var(--muted)', fontSize: 11, fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase' }}>
+                      <label htmlFor={purchasePriceInputId} style={{ display: 'block', marginBottom: 6, color: 'var(--muted)', fontSize: 11, fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase' }}>
                         {t(language, 'stocks.purchasePrice')} ({editStock.currency})
                       </label>
                       <input
+                        id={purchasePriceInputId}
                         type="number"
                         step="0.01"
                         min="0"
@@ -564,11 +571,11 @@ type SortField =
                       />
                     </div>
                     <div>
-                      <label style={{ display: 'block', marginBottom: 6, color: 'var(--muted)', fontSize: 11, fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase' }}>
+                      <label htmlFor={purchaseDateInputId} style={{ display: 'block', marginBottom: 6, color: 'var(--muted)', fontSize: 11, fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase' }}>
                         {t(language, 'stocks.purchaseDate')}
                       </label>
                       <input
-                        id={index === 0 ? editPurchaseDateInputId : undefined}
+                        id={purchaseDateInputId}
                         type="date"
                         value={entry.purchase_date || ''}
                         onChange={(e) => setEditEntries((current) => current.map((candidate) => candidate.id === entry.id ? { ...candidate, purchase_date: e.target.value || null } : candidate))}
@@ -577,11 +584,11 @@ type SortField =
                       />
                     </div>
                     <div>
-                      <label style={{ display: 'block', marginBottom: 6, color: 'var(--muted)', fontSize: 11, fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase' }}>
+                      <label htmlFor={sellDateInputId} style={{ display: 'block', marginBottom: 6, color: 'var(--muted)', fontSize: 11, fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase' }}>
                         {t(language, 'stocks.sellDate')}
                       </label>
                       <input
-                        id={index === 0 ? editPurchasePriceInputId : undefined}
+                        id={sellDateInputId}
                         type="date"
                         value={entry.sell_date || ''}
                         onChange={(e) => setEditEntries((current) => current.map((candidate) => candidate.id === entry.id ? { ...candidate, sell_date: e.target.value || null } : candidate))}
@@ -590,7 +597,8 @@ type SortField =
                       />
                     </div>
                   </div>
-                ))}
+                  )
+                })}
                 <button type="button" className="btn btn-secondary" onClick={() => setEditEntries((current) => [...current, createEmptyPositionEntry()])}>
                   {t(language, 'stocks.addLot')}
                 </button>

@@ -190,25 +190,6 @@ function aggregateDividendTotal(
     return hasMissingConversion ? null : total
 }
 
-/**
- * Filter a list of dividends to only those occurring on or after the given purchase date.
- *
- * If `purchaseDateValue` is null/undefined or a dividend's date cannot be parsed, that dividend is retained.
- *
- * @param items - Array of dividends to filter
- * @param purchaseDateValue - Purchase date string (ISO or date-only) used as the cutoff
- * @returns The input array with dividends whose ex-date is before `purchaseDateValue` removed
- */
-function filterDividends(items: Dividend[], purchaseDateValue: string | null | undefined): Dividend[] {
-  const purchaseDate = normalizeToDay(purchaseDateValue)
-  return items.filter((div) => {
-    if (!purchaseDate) return true
-    const exDate = normalizeToDay(div.date)
-    if (!exDate) return true
-    return exDate.getTime() >= purchaseDate.getTime()
-  })
-}
-
 type LoadedStockPageData = {
   stockData: Stock
   allDividendsData: Dividend[]
@@ -241,9 +222,9 @@ export default function StockDetail() {
   const { ticker } = useParams<{ ticker: string }>()
   const navigate = useNavigate()
   const [stock, setStock] = useState<Stock | null>(null)
-  const [allDividends, setAllDividends] = useState<Dividend[]>([])
+  const [, setAllDividends] = useState<Dividend[]>([])
   const [dividends, setDividends] = useState<Dividend[]>([])
-  const [allYearDividends, setAllYearDividends] = useState<UpcomingDividend[]>([])
+  const [, setAllYearDividends] = useState<UpcomingDividend[]>([])
   const [yearDividends, setYearDividends] = useState<UpcomingDividend[]>([])
   const [yearReceived, setYearReceived] = useState<number | null>(0)
   const [yearRemaining, setYearRemaining] = useState<number | null>(0)
@@ -484,12 +465,11 @@ export default function StockDetail() {
     })
 
     const yearlyState = recalculateYearlyDividendState(effectiveYearDividends, stockData, safeRates)
-    const filteredHistoryDividends = filterDividends(divData, stockData.purchase_date)
 
     return {
       stockData,
       allDividendsData: divData,
-      dividendsData: filteredHistoryDividends,
+      dividendsData: divData,
       allYearDividendsData: effectiveAllYearDividends,
       yearDividendsData: yearlyState.yearDividends,
       yearReceivedData: yearlyState.yearReceived,
@@ -757,20 +737,14 @@ export default function StockDetail() {
     try {
       setEditError(null)
       setSaving(true)
-      const updated = await api.stocks.update(ticker, {
+      await api.stocks.update(ticker, {
         quantity: nextQuantity,
         purchase_price: nextPurchasePrice,
         purchase_date: editPurchaseDate || null,
       })
-      setStock(updated)
-      const updatedFilteredDividends = filterDividends(allDividends, updated.purchase_date)
-      const recalculatedAllYearDividends = recalculateYearlyDividendState(allYearDividends, updated, exchangeRates).yearDividends
-      const updatedFilteredYearDividends = recalculatedAllYearDividends.filter((div) => div.quantity > 0)
-      setDividends(updatedFilteredDividends)
-      setAllYearDividends(recalculatedAllYearDividends)
-      setYearDividends(updatedFilteredYearDividends)
-      setYearReceived(aggregateDividendTotal(updatedFilteredYearDividends, 'paid'))
-      setYearRemaining(aggregateDividendTotal(updatedFilteredYearDividends, 'upcoming'))
+      const data = await loadStockPageData(ticker)
+      if (tickerRef.current !== ticker) return
+      applyLoadedStockPageData(data)
       setShowEditModal(false)
     } catch (err) {
       setEditError(err instanceof Error ? err.message : String(err))
@@ -1414,8 +1388,8 @@ export default function StockDetail() {
               <table style={{ margin: 0 }}>
                 <thead>
                   <tr>
-                    <SortableHeader field="date" label={t(language, 'stockDetail.date')} sortState={suppressedSortState} onSort={requestSuppressedSort} />
-                    <SortableHeader field="amount" label={t(language, 'stockDetail.amount')} sortState={suppressedSortState} onSort={requestSuppressedSort} align="right" />
+                    <SortableHeader field="date" label={t(language, 'stockDetail.date')} sortState={historySortState} onSort={requestHistorySort} />
+                    <SortableHeader field="amount" label={t(language, 'stockDetail.amount')} sortState={historySortState} onSort={requestHistorySort} align="right" />
                     <th>{t(language, 'common.actions')}</th>
                   </tr>
                 </thead>
@@ -1554,8 +1528,8 @@ export default function StockDetail() {
               <table style={{ margin: 0 }}>
                 <thead>
                   <tr>
-                    <SortableHeader field="date" label={t(language, 'stockDetail.date')} sortState={historySortState} onSort={requestHistorySort} />
-                    <SortableHeader field="amount" label={t(language, 'stockDetail.amount')} sortState={historySortState} onSort={requestHistorySort} align="right" />
+                    <SortableHeader field="date" label={t(language, 'stockDetail.date')} sortState={suppressedSortState} onSort={requestSuppressedSort} />
+                    <SortableHeader field="amount" label={t(language, 'stockDetail.amount')} sortState={suppressedSortState} onSort={requestSuppressedSort} align="right" />
                     <th>{t(language, 'common.actions')}</th>
                   </tr>
                 </thead>

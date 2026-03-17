@@ -333,7 +333,7 @@ def get_portfolio_summary(db: Session = Depends(get_db), current_user: User = De
     
     for stock in stocks:
         snapshot = apply_position_snapshot(stock)
-        if stock.current_price is not None and snapshot.quantity is not None:
+        if stock.current_price is not None and snapshot.quantity is not None and snapshot.quantity > 0:
             current_value_native = stock.current_price * snapshot.quantity
             current_value = convert_value(current_value_native, stock.currency, display_currency, rates)
             
@@ -418,7 +418,7 @@ def get_portfolio_summary(db: Session = Depends(get_db), current_user: User = De
         "total_gain_loss_percent": total_gain_loss_percent,
         "display_currency": display_currency,
         "stocks": stock_data,
-        "stock_count": len(stocks),
+        "stock_count": len(stock_data),
         "unconverted_stocks": unconverted_stocks,
     }
 
@@ -499,7 +499,7 @@ def refresh_all_prices(db: Session = Depends(get_db), current_user: User = Depen
             )
             db.execute(price_stmt)
         
-        if stock.current_price is not None and snapshot.quantity is not None:
+        if stock.current_price is not None and snapshot.quantity is not None and snapshot.quantity > 0:
             value = stock.current_price * snapshot.quantity
             converted_value = convert_value(value, stock.currency, 'SEK', rates)
             if converted_value is not None:

@@ -38,7 +38,7 @@ def normalize_position_entries(
     normalized: list[dict[str, Any]] = []
 
     raw_entries = entries if isinstance(entries, list) else []
-    for entry in raw_entries:
+    for index, entry in enumerate(raw_entries):
         if not isinstance(entry, dict):
             continue
 
@@ -60,7 +60,17 @@ def normalize_position_entries(
         sell_date = parse_position_date(entry.get('sell_date'))
         entry_id = entry.get('id')
         if not entry_id:
-            entry_id = str(uuid.uuid4())
+            entry_id = str(uuid.uuid5(
+                uuid.NAMESPACE_URL,
+                "|".join([
+                    "position-entry",
+                    str(index),
+                    str(quantity),
+                    str(purchase_price),
+                    purchase_date.isoformat() if purchase_date else "",
+                    sell_date.isoformat() if sell_date else "",
+                ]),
+            ))
             entry['id'] = entry_id
 
         normalized.append({
@@ -83,7 +93,15 @@ def normalize_position_entries(
     if fallback_qty > 0:
         fallback_date = parse_position_date(fallback_purchase_date)
         return [{
-            'id': str(uuid.uuid4()),
+            'id': str(uuid.uuid5(
+                uuid.NAMESPACE_URL,
+                "|".join([
+                    "fallback-position-entry",
+                    str(fallback_qty),
+                    str(fallback_purchase_price),
+                    fallback_date.isoformat() if fallback_date else "",
+                ]),
+            )),
             'quantity': fallback_qty,
             'purchase_price': fallback_purchase_price,
             'purchase_date': fallback_date.isoformat() if fallback_date else None,
@@ -176,8 +194,8 @@ def get_quantity_held_on_date(
     """Return quantity owned strictly before `resolved_target_date`.
 
     Entries bought on `resolved_target_date` (`purchase_date >= resolved_target_date`)
-    or sold on `resolved_target_date` (`sell_date <= resolved_target_date`) are
-    excluded deliberately to preserve ex-date entitlement semantics.
+    are excluded deliberately to preserve ex-date entitlement semantics. Entries
+    sold on `resolved_target_date` remain included.
     """
     normalized = normalize_position_entries(
         entries,
@@ -194,11 +212,11 @@ def get_quantity_held_on_date(
         purchase_date = parse_position_date(entry.get('purchase_date'))
         sell_date = parse_position_date(entry.get('sell_date'))
 
-        # Boundary dates are exclusive: ownership must begin before the target
-        # date and must not end on or before the target date.
+        # Boundary dates are exclusive for purchases but inclusive for same-day
+        # sells so ex-date lookups still count positions sold on the target date.
         if purchase_date and purchase_date >= resolved_target_date:
             continue
-        if sell_date and sell_date <= resolved_target_date:
+        if sell_date and sell_date < resolved_target_date:
             continue
         quantity += float(entry['quantity'])
 

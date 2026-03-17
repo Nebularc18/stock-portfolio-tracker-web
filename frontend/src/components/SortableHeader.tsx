@@ -21,7 +21,7 @@ export default function SortableHeader<Field extends string>({
   style,
 }: Props<Field>) {
   const isActive = sortState.field === field
-  const ariaSort = isActive ? (sortState.direction === 'asc' ? 'ascending' : 'descending') : 'none'
+  const ariaSort = isActive ? (sortState.direction === 'asc' ? 'ascending' : 'descending') : undefined
   const indicator = isActive ? (sortState.direction === 'asc' ? ' ^' : ' v') : ''
 
   return (

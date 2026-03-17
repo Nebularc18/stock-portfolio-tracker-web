@@ -63,31 +63,31 @@ services:
     image: postgres:15-alpine
     restart: unless-stopped
     environment:
-      POSTGRES_USER: portfolio
-      POSTGRES_PASSWORD: portfolio
-      POSTGRES_DB: portfolio
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB}
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U portfolio"]
+      test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB"]
       interval: 5s
       timeout: 5s
       retries: 5
 
   app:
-    image: ghcr.io/nebularc18/stock-portfolio-tracker:${IMAGE_TAG:-local}
+    image: ghcr.io/nebularc18/stock-portfolio-tracker:${IMAGE_TAG}
     restart: unless-stopped
     ports:
       - "8080:8000"
     environment:
-      DATABASE_URL: postgresql://portfolio:portfolio@postgres:5432/portfolio
-      AUTH_TOKEN_SECRET: <generate-a-secure-random-secret>
-      DEFAULT_USERNAME: <your-admin-username>
-      DEFAULT_PASSWORD: <strong-admin-password>
-      GUEST_USERNAME: <optional-guest-username>
-      GUEST_PASSWORD: <optional-guest-password>
-      FINNHUB_API_KEY: <your-finnhub-api-key>
-      MARKETSTACK_API_KEY: <your-marketstack-api-key>
+      DATABASE_URL: ${DATABASE_URL}
+      AUTH_TOKEN_SECRET: ${AUTH_TOKEN_SECRET}
+      DEFAULT_USERNAME: ${DEFAULT_USERNAME}
+      DEFAULT_PASSWORD: ${DEFAULT_PASSWORD}
+      GUEST_USERNAME: ${GUEST_USERNAME}
+      GUEST_PASSWORD: ${GUEST_PASSWORD}
+      FINNHUB_API_KEY: ${FINNHUB_API_KEY}
+      MARKETSTACK_API_KEY: ${MARKETSTACK_API_KEY}
     depends_on:
       postgres:
         condition: service_healthy
@@ -102,6 +102,7 @@ volumes:
 Then run:
 
 ```bash
+export IMAGE_TAG=<published-tag>
 docker compose pull
 docker compose up -d
 ```
@@ -274,11 +275,25 @@ docker compose exec app python migrations/20260304_add_stocks_logo_column.py upg
 
 Run this migration during deployment before starting new backend code that reads/writes `stock.logo`.
 
+For the `stocks.position_entries` migration in this repository, run:
+
+```bash
+docker compose exec app python migrations/20260317_add_stocks_position_entries.py upgrade
+```
+
+Deploy this migration before starting backend code that reads or writes lot-level `position_entries`.
+
 For the timezone migration (`backend/migrations/20260305_add_timezone_to_datetime_columns.py`):
 
 - Validate first on a staging copy of production.
 - Run during a maintenance/low-traffic window because `ALTER COLUMN TYPE` can acquire strong table locks.
 - Prepare rollback by running the same script with `downgrade`.
+
+For rollout safety with the `position_entries` schema change:
+
+- Validate the migration first on a staging copy of production.
+- Run `docker compose exec app python migrations/20260317_add_stocks_position_entries.py upgrade` during a maintenance or low-traffic window before deploying the new backend.
+- Prepare rollback with `docker compose exec app python migrations/20260317_add_stocks_position_entries.py downgrade`.
 
 ## Project Structure
 

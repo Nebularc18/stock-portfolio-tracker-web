@@ -212,7 +212,53 @@ class ExchangeRateService:
             except Exception as e:
                 logger.error(f"Error fetching {pair}: {e}")
                 rates[pair] = None
-        
+
+        def get_rate_value(from_currency: str, to_currency: str) -> Optional[float]:
+            if from_currency == to_currency:
+                return 1.0
+
+            key = f"{from_currency}_{to_currency}"
+            if key in rates and rates[key] is not None:
+                return rates[key]
+            if key in _cache:
+                cached_rate, timestamp = _cache[key]
+                if now - timestamp < _cache_ttl:
+                    return cached_rate
+
+            inverse_key = f"{to_currency}_{from_currency}"
+            if inverse_key in rates and rates[inverse_key]:
+                return 1.0 / rates[inverse_key]
+            if inverse_key in _cache:
+                cached_rate, timestamp = _cache[inverse_key]
+                if now - timestamp < _cache_ttl and cached_rate:
+                    return 1.0 / cached_rate
+
+            return None
+
+        for currency in currencies:
+            if currency == display_currency:
+                continue
+
+            direct_key = f"{currency}_{display_currency}"
+            direct_rate = get_rate_value(currency, display_currency)
+            if direct_rate is not None:
+                rates[direct_key] = direct_rate
+                _cache[direct_key] = (direct_rate, now)
+                continue
+
+            if currency == "SEK" or display_currency == "SEK":
+                rates.setdefault(direct_key, None)
+                continue
+
+            first_leg = get_rate_value(currency, "SEK")
+            second_leg = get_rate_value("SEK", display_currency)
+            if first_leg is not None and second_leg is not None:
+                combined_rate = first_leg * second_leg
+                rates[direct_key] = combined_rate
+                _cache[direct_key] = (combined_rate, now)
+            else:
+                rates.setdefault(direct_key, None)
+
         return rates
 
     @staticmethod

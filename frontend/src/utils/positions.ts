@@ -21,20 +21,25 @@ function normalizeDate(value: string | null | undefined): string | null {
   return normalized
 }
 
+function parseQuantity(value: PositionEntry['quantity']): number {
+  const parsed = typeof value === 'number' ? value : Number.parseFloat(String(value ?? ''))
+  return Number.isFinite(parsed) ? parsed : 0
+}
+
 export function getQuantityHeldOnDate(entries: PositionEntry[] | null | undefined, targetDate: string | null | undefined, fallbackQuantity: number): number {
   if (!entries || entries.length === 0) return fallbackQuantity
   const normalizedTargetDate = normalizeDate(targetDate)
   if (!normalizedTargetDate) {
     return entries
       .filter((entry) => !normalizeDate(entry.sell_date))
-      .reduce((sum, entry) => sum + Number(entry.quantity || 0), 0)
+      .reduce((sum, entry) => sum + parseQuantity(entry.quantity), 0)
   }
 
   return entries.reduce((sum, entry) => {
     const purchaseDate = normalizeDate(entry.purchase_date)
     const sellDate = normalizeDate(entry.sell_date)
     if (purchaseDate && purchaseDate >= normalizedTargetDate) return sum
-    if (sellDate && sellDate <= normalizedTargetDate) return sum
-    return sum + Number(entry.quantity || 0)
+    if (sellDate && sellDate < normalizedTargetDate) return sum
+    return sum + parseQuantity(entry.quantity)
   }, 0)
 }

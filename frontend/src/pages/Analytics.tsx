@@ -323,7 +323,7 @@ export default function Analytics() {
   const othersLabel = t(language, 'analytics.others')
   const sectorData = aggregateDistributionData(rawSectorData, othersLabel)
   const countryData = aggregateDistributionData(rawCountryData, othersLabel)
-  const stockData = [...rawStockData].sort((a, b) => b.value - a.value)
+  const stockData = aggregateDistributionData(rawStockData, othersLabel).sort((a, b) => b.value - a.value)
 
   const handleToggleComparisonYear = (year: number) => {
     setSelectedComparisonYears((currentYears) => {

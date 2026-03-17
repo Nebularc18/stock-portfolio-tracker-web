@@ -47,6 +47,60 @@ def test_empty_analyst_result_uses_short_cache_ttl(monkeypatch):
     assert saved[-1][2] == stock_service._ANALYST_NEGATIVE_CACHE_TTL
 
 
+def test_empty_single_analyst_result_uses_short_cache_ttl(monkeypatch):
+    service = StockService()
+    stock_service._ANALYST_SINGLE_CACHE.clear()
+    saved = []
+
+    monkeypatch.setattr("app.services.stock_service._load_file_cache", lambda _filename: None)
+    monkeypatch.setattr(
+        "app.services.stock_service._save_file_cache",
+        lambda filename, value, ttl=3600: saved.append((filename, value, ttl)),
+    )
+    monkeypatch.setattr(service, "_get_yfinance_recommendations", lambda _ticker: None)
+    monkeypatch.setattr(service, "_get_finnhub_recommendations", lambda _ticker: None)
+
+    result = service.get_analyst_recommendations("MSFT")
+
+    assert result is None
+    assert saved[-1][2] == stock_service._ANALYST_NEGATIVE_CACHE_TTL
+    assert saved[-1][1] == {
+        "cache_status": "hit",
+        "cache_kind": stock_service._ANALYST_SINGLE_CACHE_KIND,
+        "has_recommendations": False,
+        "value": None,
+    }
+
+
+def test_marked_empty_single_analyst_cache_is_respected(monkeypatch):
+    service = StockService()
+    stock_service._ANALYST_SINGLE_CACHE.clear()
+
+    monkeypatch.setattr(
+        "app.services.stock_service._load_file_cache",
+        lambda _filename: {
+            "cache_status": "hit",
+            "cache_kind": stock_service._ANALYST_SINGLE_CACHE_KIND,
+            "has_recommendations": False,
+            "value": None,
+        },
+    )
+    monkeypatch.setattr(
+        service,
+        "_get_yfinance_recommendations",
+        lambda _ticker: (_ for _ in ()).throw(AssertionError("should not refetch yfinance recommendations")),
+    )
+    monkeypatch.setattr(
+        service,
+        "_get_finnhub_recommendations",
+        lambda _ticker: (_ for _ in ()).throw(AssertionError("should not refetch finnhub recommendations")),
+    )
+
+    result = service.get_analyst_recommendations("MSFT")
+
+    assert result is None
+
+
 def test_legacy_empty_aggregate_cache_is_ignored(monkeypatch):
     service = StockService()
     stock_service._ANALYST_ALL_CACHE.clear()

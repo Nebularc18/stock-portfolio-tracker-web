@@ -164,15 +164,26 @@ export default function InfographicLayout() {
     const handleScroll = () => updateIndicesScrollState()
     const handleResize = () => updateIndicesScrollState()
     const handleWheel = (event: WheelEvent) => handleIndicesWheel(event, element)
+    const resizeObserver = typeof ResizeObserver !== 'undefined'
+      ? new ResizeObserver(() => updateIndicesScrollState())
+      : null
+    const stripElement = element.firstElementChild instanceof HTMLElement
+      ? element.firstElementChild
+      : null
 
     element.addEventListener('scroll', handleScroll, { passive: true })
     element.addEventListener('wheel', handleWheel, { passive: false })
     window.addEventListener('resize', handleResize)
+    resizeObserver?.observe(element)
+    if (stripElement) {
+      resizeObserver?.observe(stripElement)
+    }
 
     return () => {
       element.removeEventListener('scroll', handleScroll)
       element.removeEventListener('wheel', handleWheel)
       window.removeEventListener('resize', handleResize)
+      resizeObserver?.disconnect()
     }
   }, [handleIndicesWheel, indices, updateIndicesScrollState])
 

@@ -53,3 +53,34 @@ def test_get_quantity_held_on_date_uses_fallback_position():
     )
 
     assert quantity == 3
+
+
+def test_normalize_position_entries_uses_stable_fallback_id():
+    first = normalize_position_entries(
+        None,
+        fallback_quantity=3,
+        fallback_purchase_price=10,
+        fallback_purchase_date="2024-01-01",
+    )
+    second = normalize_position_entries(
+        None,
+        fallback_quantity=3,
+        fallback_purchase_price=10,
+        fallback_purchase_date="2024-01-01",
+    )
+
+    assert first[0]["id"] == second[0]["id"]
+
+
+def test_get_quantity_held_on_date_includes_lot_sold_on_target_date():
+    quantity = get_quantity_held_on_date(
+        [{
+            "quantity": 5,
+            "purchase_price": 10,
+            "purchase_date": "2024-01-01",
+            "sell_date": "2024-02-01",
+        }],
+        "2024-02-01",
+    )
+
+    assert quantity == 5
