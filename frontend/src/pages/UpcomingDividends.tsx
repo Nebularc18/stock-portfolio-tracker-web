@@ -3,6 +3,8 @@ import { Link } from 'react-router-dom'
 import { api, UpcomingDividend } from '../services/api'
 import { useSettings } from '../SettingsContext'
 import { getLocaleForLanguage, t } from '../i18n'
+import SortableHeader from '../components/SortableHeader'
+import { sortTableItems, useTableSort } from '../utils/tableSort'
 /**
  * Format a number as a localized currency string.
  *
@@ -45,11 +47,13 @@ function getMonthKey(dateStr: string): string {
 }
 
 /**
- * Produces a localized month label from a year-month key.
+ * Render a localized month and year label from a year-month key.
  *
- * @param monthKey - Year-month key in the format `YYYY-MM`
+ * Returns `'TBD'` when `monthKey` is the literal `"tbd"`.
+ *
+ * @param monthKey - Year-month key in the form `YYYY-MM` (e.g., `2026-03`) or the literal `"tbd"`
  * @param locale - BCP 47 locale identifier used for formatting (for example `sv-SE`)
- * @returns The month and year formatted for `locale` (e.g., `March 2026`)
+ * @returns The month and year formatted for `locale` (for example `March 2026`) or `'TBD'`
  */
 function formatMonthLabel(monthKey: string, locale: string): string {
   if (monthKey === 'tbd') return 'TBD'
@@ -57,6 +61,8 @@ function formatMonthLabel(monthKey: string, locale: string): string {
   const date = new Date(Date.UTC(year, month - 1, 1))
   return date.toLocaleDateString(locale, { year: 'numeric', month: 'long', timeZone: 'UTC' })
 }
+
+type SortField = 'name' | 'exDate' | 'paymentDate' | 'perShare' | 'total' | 'source'
 
 /**
  * Render the current year's upcoming dividend payments for the user's portfolio, including data fetching, refresh handling, and month-grouped listings.
@@ -78,6 +84,7 @@ export default function UpcomingDividends() {
   const [refreshing, setRefreshing] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [refreshError, setRefreshError] = useState<string | null>(null)
+  const { sortState, requestSort } = useTableSort<SortField>({ field: 'name', direction: 'asc' })
 
   const fetchData = useCallback(async (showLoadingState: boolean = true) => {
     try {
@@ -119,23 +126,6 @@ export default function UpcomingDividends() {
     fetchData(true)
   }, [fetchData])
 
-  if (loading) {
-    return <div className="loading-state">{t(language, 'upcoming.loading')}</div>
-  }
-
-  if (error) {
-    return (
-      <div style={{ padding: 28 }}>
-        <div style={{ background: 'var(--bg2)', border: '1px solid var(--border)', borderRadius: 8, padding: '32px', textAlign: 'center' }}>
-          <p role="alert" aria-live="assertive" aria-atomic="true" style={{ color: 'var(--muted)', marginBottom: 16 }}>{error}</p>
-          <button className="btn btn-primary" onClick={() => fetchData(true)}>
-            {t(language, 'common.retry')}
-          </button>
-        </div>
-      </div>
-    )
-  }
-
   const groupedByMonth = dividends.reduce((acc, div) => {
     const payoutDate = div.payment_date
     const key = payoutDate ? getMonthKey(payoutDate) : 'tbd'
@@ -175,13 +165,43 @@ export default function UpcomingDividends() {
     })
     .map(([monthKey, items]) => ({
       monthKey,
-      items,
+      items: sortTableItems(
+        items,
+        sortState,
+        {
+          name: (item) => item.name || item.ticker,
+          exDate: (item) => item.ex_date,
+          paymentDate: (item) => item.payment_date,
+          perShare: (item) => item.amount_per_share,
+          total: (item) => getDisplayedDividendTotal(item),
+          source: (item) => item.source,
+        },
+        locale,
+        (item) => item.ticker
+      ),
       subtotal: items.some((item) => getDisplayedDividendTotal(item) === null)
         ? null
         : items.reduce((acc, item) => acc + (getDisplayedDividendTotal(item) ?? 0), 0),
     }))
 
   const averagePerMonthThisYear = totalExpected / 12
+
+  if (loading) {
+    return <div className="loading-state">{t(language, 'upcoming.loading')}</div>
+  }
+
+  if (error) {
+    return (
+      <div style={{ padding: 28 }}>
+        <div style={{ background: 'var(--bg2)', border: '1px solid var(--border)', borderRadius: 8, padding: '32px', textAlign: 'center' }}>
+          <p role="alert" aria-live="assertive" aria-atomic="true" style={{ color: 'var(--muted)', marginBottom: 16 }}>{error}</p>
+          <button className="btn btn-primary" onClick={() => fetchData(true)}>
+            {t(language, 'common.retry')}
+          </button>
+        </div>
+      </div>
+    )
+  }
 
   return (
     <div>
@@ -281,12 +301,12 @@ export default function UpcomingDividends() {
                     <table style={{ tableLayout: 'fixed', minWidth: 720, width: '100%' }}>
                       <thead>
                         <tr>
-                          <th style={{ width: '24%' }}>{t(language, 'performance.name')}</th>
-                          <th style={{ width: '14%' }}>{t(language, 'dashboard.exDate')}</th>
-                          <th style={{ width: '16%' }}>{t(language, 'dashboard.dividendDate')}</th>
-                          <th style={{ width: '16%', textAlign: 'right' }}>{t(language, 'dashboard.perShare')}</th>
-                          <th style={{ width: '16%', textAlign: 'right' }}>{t(language, 'dashboard.total')}</th>
-                          <th style={{ width: '14%' }}>{t(language, 'dashboard.source')}</th>
+                          <SortableHeader field="name" label={t(language, 'performance.name')} sortState={sortState} onSort={requestSort} style={{ width: '24%' }} />
+                          <SortableHeader field="exDate" label={t(language, 'dashboard.exDate')} sortState={sortState} onSort={requestSort} style={{ width: '14%' }} />
+                          <SortableHeader field="paymentDate" label={t(language, 'dashboard.dividendDate')} sortState={sortState} onSort={requestSort} style={{ width: '16%' }} />
+                          <SortableHeader field="perShare" label={t(language, 'dashboard.perShare')} sortState={sortState} onSort={requestSort} align="right" style={{ width: '16%' }} />
+                          <SortableHeader field="total" label={t(language, 'dashboard.total')} sortState={sortState} onSort={requestSort} align="right" style={{ width: '16%' }} />
+                          <SortableHeader field="source" label={t(language, 'dashboard.source')} sortState={sortState} onSort={requestSort} style={{ width: '14%' }} />
                         </tr>
                       </thead>
                       <tbody>

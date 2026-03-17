@@ -2,6 +2,7 @@ import requests
 import json
 import importlib
 import os
+import re
 from datetime import datetime, timezone, timedelta
 from typing import Optional, Dict, Any, List
 import logging
@@ -66,13 +67,230 @@ _DIVIDEND_CACHE_TTL = 86400 * 30
 
 _sector_cache: Dict[str, Optional[str]] = {}
 
-_ANALYST_CACHE: Dict[str, tuple] = {}
+_ANALYST_SINGLE_CACHE: Dict[str, tuple] = {}
+_ANALYST_ALL_CACHE: Dict[str, tuple] = {}
 _ANALYST_CACHE_TTL = 43200
+_ANALYST_NEGATIVE_CACHE_TTL = 300
 
 _PRICE_TARGETS_CACHE: Dict[str, tuple] = {}
 _PRICE_TARGETS_CACHE_TTL = 43200
+_PRICE_TARGETS_FALLBACK_CACHE_TTL = 300
+_YAHOO_ANALYST_PAGE_CACHE: Dict[str, tuple] = {}
+_YAHOO_ANALYST_PAGE_CACHE_TTL = 3600
+_ANALYST_ALL_CACHE_KIND = "all_analyst_recommendations"
+_PRICE_TARGETS_CACHE_KIND = "price_targets"
 
 _session = None
+
+
+def _is_marked_cache_payload(value: Any, cache_kind: str) -> bool:
+    """
+    Check whether a value is a marked cache payload for a specific cache kind.
+    
+    Parameters:
+        value (Any): The object to inspect for cache payload markers.
+        cache_kind (str): The expected cache kind tag to match.
+    
+    Returns:
+        bool: `True` if `value` is a dict with `'cache_status'` equal to `'hit'` and `'cache_kind'` equal to `cache_kind`, `False` otherwise.
+    """
+    return (
+        isinstance(value, dict)
+        and value.get('cache_status') == 'hit'
+        and value.get('cache_kind') == cache_kind
+    )
+
+
+def _wrap_all_analyst_cache_value(
+    yfinance_recs: Optional[List[Dict[str, Any]]],
+    finnhub_recs: Optional[List[Dict[str, Any]]],
+) -> Dict[str, Any]:
+    """
+    Wraps analyst recommendation lists from multiple sources into a standardized cache payload.
+    
+    Parameters:
+        yfinance_recs (Optional[List[Dict[str, Any]]]): Normalized recommendation records from YFinance, or None if unavailable.
+        finnhub_recs (Optional[List[Dict[str, Any]]]): Normalized recommendation records from Finnhub, or None if unavailable.
+    
+    Returns:
+        Dict[str, Any]: A cache payload dictionary with the following keys:
+            - cache_status: 'hit'
+            - cache_kind: cache kind identifier for the combined-analyst cache
+            - has_recommendations: `true` if either source provided recommendations, `false` otherwise
+            - yfinance: the provided `yfinance_recs` value
+            - finnhub: the provided `finnhub_recs` value
+    """
+    return {
+        'cache_status': 'hit',
+        'cache_kind': _ANALYST_ALL_CACHE_KIND,
+        'has_recommendations': bool(yfinance_recs or finnhub_recs),
+        'yfinance': yfinance_recs,
+        'finnhub': finnhub_recs,
+    }
+
+
+def _unwrap_all_analyst_cache_value(value: Any) -> Dict[str, Optional[List[Dict[str, Any]]]]:
+    """
+    Unwraps a cache payload tagged as an "all-analyst" value and returns a normalized dict with `yfinance` and `finnhub` entries.
+    
+    Parameters:
+        value (Any): A cache value that may be a marked payload produced by the all-analyst cache wrapper or already-unwrapped.
+    
+    Returns:
+        Dict[str, Optional[List[Dict[str, Any]]]]: If `value` is a marked all-analyst payload, returns a dict with keys `yfinance` and `finnhub` whose values are either a list of recommendation records or `None`. If `value` is not a marked payload, returns `value` unchanged.
+    """
+    if _is_marked_cache_payload(value, _ANALYST_ALL_CACHE_KIND):
+        return {
+            'yfinance': value.get('yfinance'),
+            'finnhub': value.get('finnhub'),
+        }
+    return value
+
+
+def _has_any_analyst_recommendations(value: Any) -> bool:
+    """
+    Determine whether a cached or raw analyst-recommendation payload contains any recommendations.
+    
+    Parameters:
+        value (Any): A value that may be a wrapped cache payload or a raw recommendations structure.
+    
+    Returns:
+        `true` if the unwrapped payload contains recommendations from `yfinance` or `finnhub`, `false` otherwise.
+    """
+    value = _unwrap_all_analyst_cache_value(value)
+    if not isinstance(value, dict):
+        return False
+    return bool(value.get('yfinance') or value.get('finnhub'))
+
+
+def _is_fallback_price_targets(value: Any) -> bool:
+    """
+    Detect whether a value represents a fallback price-targets payload.
+    
+    Handles both raw price-target dictionaries and cache-wrapped payloads marked with the price-targets kind; a fallback payload is identified by the presence of a "note" key.
+    
+    Parameters:
+        value (Any): The value or cache payload to inspect. If this is a wrapped cache payload, the wrapped value will be examined.
+    
+    Returns:
+        `true` if the value is a price-targets dict marked as a fallback (contains a "note"), `false` otherwise.
+    """
+    if _is_marked_cache_payload(value, _PRICE_TARGETS_CACHE_KIND):
+        value = value.get('value')
+    return isinstance(value, dict) and bool(value.get('note'))
+
+
+def _wrap_price_targets_cache_value(value: Optional[Dict[str, Any]]) -> Dict[str, Any]:
+    """
+    Wraps a price-target payload for consistent file-cache storage with metadata.
+    
+    Parameters:
+        value (Optional[Dict[str, Any]]): The price-target data to store, or `None` to indicate no targets.
+    
+    Returns:
+        Dict[str, Any]: A cache payload containing:
+            - `cache_status` (str): `'hit'` marker for stored payloads.
+            - `cache_kind` (str): Cache kind identifier (price targets).
+            - `has_price_targets` (bool): `true` if `value` is not `None`, `false` otherwise.
+            - `value` (Optional[Dict[str, Any]]): The original `value` passed through.
+    """
+    return {
+        'cache_status': 'hit',
+        'cache_kind': _PRICE_TARGETS_CACHE_KIND,
+        'has_price_targets': value is not None,
+        'value': value,
+    }
+
+
+def _unwrap_price_targets_cache_value(value: Any) -> Optional[Dict[str, Any]]:
+    """
+    Unwraps a price-targets cache payload tagged with the price-targets kind to return the stored value.
+    
+    Parameters:
+        value (Any): A cache entry which may be a wrapped payload (a dict tagged with the price-targets kind), a raw price-targets dict, or None.
+    
+    Returns:
+        dict: The underlying price-targets dictionary when `value` is a wrapped payload; otherwise returns `value` unchanged (which may be a dict or None).
+    """
+    if _is_marked_cache_payload(value, _PRICE_TARGETS_CACHE_KIND):
+        return value.get('value')
+    return value
+
+
+def _get_single_analyst_cache_ttl(value: Any) -> int:
+    """
+    Select the appropriate TTL for a single-ticker analyst cache entry based on whether the cached value contains data.
+    
+    Parameters:
+        value (Any): The cached payload for a ticker; treated as "has data" when truthy.
+    
+    Returns:
+        int: The TTL in seconds to use — _ANALYST_CACHE_TTL when `value` is truthy, otherwise _ANALYST_NEGATIVE_CACHE_TTL.
+    """
+    return _ANALYST_CACHE_TTL if value else _ANALYST_NEGATIVE_CACHE_TTL
+
+
+def _get_all_analyst_cache_ttl(value: Any) -> int:
+    """
+    Select the appropriate TTL based on whether the provided analyst recommendations contain any entries.
+    
+    Parameters:
+        value (Any): The analyst recommendations payload to evaluate (e.g., list or dict returned by recommendation fetchers).
+    
+    Returns:
+        int: `_ANALYST_CACHE_TTL` if `value` contains any analyst recommendations, `_ANALYST_NEGATIVE_CACHE_TTL` otherwise.
+    """
+    return _ANALYST_CACHE_TTL if _has_any_analyst_recommendations(value) else _ANALYST_NEGATIVE_CACHE_TTL
+
+
+def _get_price_targets_cache_ttl(value: Any) -> int:
+    """
+    Selects the appropriate time-to-live (TTL) for a cached price-target payload.
+    
+    Parameters:
+        value (Any): A cached price-target payload (possibly wrapped); may be None or a special "fallback" payload.
+    
+    Returns:
+        int: The TTL in seconds to use for this payload — the standard price-target TTL if `value` is present and not a fallback, otherwise the fallback TTL.
+    """
+    value = _unwrap_price_targets_cache_value(value)
+    return _PRICE_TARGETS_CACHE_TTL if (value and not _is_fallback_price_targets(value)) else _PRICE_TARGETS_FALLBACK_CACHE_TTL
+
+
+def _extract_raw_finance_value(value: Any) -> Any:
+    """
+    Extract the underlying 'raw' value from a Yahoo Finance-style field or return the input unchanged.
+    
+    Parameters:
+        value (Any): A value that may be a mapping with a 'raw' key (e.g., {"raw": 123, "fmt": "123.00"}) or any other value.
+    
+    Returns:
+        Any: The value of the 'raw' key if `value` is a dict containing it, otherwise `value` itself.
+    """
+    if isinstance(value, dict):
+        return value.get('raw')
+    return value
+
+
+def _import_yfinance_with_csrf_strategy():
+    """
+    Import yfinance and attempt to configure it to use a CSRF cookie strategy for its internal HTTP client.
+    
+    Attempts to call YfData()._set_cookie_strategy('csrf') to force yfinance to use a CSRF cookie bootstrap; if that configuration fails the function logs a debug message and still returns the imported module.
+    
+    Returns:
+        yf (module): The imported yfinance module.
+    """
+    yf = importlib.import_module('yfinance')
+    try:
+        from yfinance.data import YfData
+
+        # In some environments fc.yahoo.com resolves to 0.0.0.0, which breaks
+        # yfinance's default basic cookie bootstrap before it can fall back.
+        YfData()._set_cookie_strategy('csrf')
+    except Exception as exc:
+        logger.debug("Unable to force yfinance csrf cookie strategy: %s", exc)
+    return yf
 
 def get_session():
     """Get or create a shared requests session with default headers.
@@ -534,17 +752,19 @@ class StockService:
             logger.debug(f"Swedish ticker {ticker} has no Avanza mapping or instrument_id, falling back to yfinance")
         
         try:
-            yf = importlib.import_module('yfinance')
+            yf = _import_yfinance_with_csrf_strategy()
             yf_ticker = yf.Ticker(ticker)
 
             def _to_date_str(value: Any) -> Optional[str]:
                 """
-                Normalize various date-like inputs to an ISO date string (YYYY-MM-DD) or return None.
+                Normalize a variety of date-like inputs to an ISO date string (YYYY-MM-DD) or return None.
+                
+                Accepts datetime.date/datetime.datetime, pandas-like Timestamp objects exposing `to_pydatetime()`,
+                a sequence whose first element is date-like, an integer/float epoch timestamp (seconds), or a string
+                containing an ISO-like date. Empty sequences or unparseable values yield `None`.
                 
                 Parameters:
-                    value (Any): A date-like input which may be a datetime/date object, a pandas Timestamp (or similar with `to_pydatetime`),
-                                 a list/sequence whose first element is a date-like value, an integer/float epoch timestamp (seconds),
-                                 or a string representation of a date.
+                    value (Any): The date-like input to normalize.
                 
                 Returns:
                     Optional[str]: An ISO-formatted date string `YYYY-MM-DD` if the input can be interpreted as a date, `None` otherwise.
@@ -722,16 +942,13 @@ class StockService:
             return None
 
     def get_analyst_recommendations(self, ticker: str) -> Optional[List[Dict[str, Any]]]:
-        """Retrieve analyst recommendations for a stock.
+        """
+        Fetch analyst recommendation trends for a ticker, preferring yfinance and falling back to Finnhub.
         
-        Tries yfinance first, falls back to Finnhub.
-        
-        Args:
-            ticker: Stock ticker symbol.
+        Results are cached in-memory and persisted to a file; a negative cache entry is stored when no data is found.
         
         Returns:
-            list: Recommendation trends with buy/sell/hold counts,
-                or None if unavailable.
+            list: A list of recommendation trend dictionaries (each contains keys like `period`, `strong_buy`, `buy`, `hold`, `sell`, `strong_sell`, `total_analysts`) if available, `None` otherwise.
         """
         ticker_upper = ticker.upper()
         cache_file = f"analyst_recs_{ticker_upper}.json"
@@ -740,9 +957,9 @@ class StockService:
         if cached is not None:
             return cached
 
-        if ticker_upper in _ANALYST_CACHE:
-            data, timestamp = _ANALYST_CACHE[ticker_upper]
-            if datetime.now().timestamp() - timestamp < _ANALYST_CACHE_TTL:
+        if ticker_upper in _ANALYST_SINGLE_CACHE:
+            data, timestamp = _ANALYST_SINGLE_CACHE[ticker_upper]
+            if datetime.now().timestamp() - timestamp < _get_single_analyst_cache_ttl(data):
                 return data
 
         normalized = self._get_yfinance_recommendations(ticker_upper)
@@ -751,60 +968,59 @@ class StockService:
             normalized = self._get_finnhub_recommendations(ticker_upper)
 
         if normalized:
-            _ANALYST_CACHE[ticker_upper] = (normalized, datetime.now().timestamp())
+            _ANALYST_SINGLE_CACHE[ticker_upper] = (normalized, datetime.now().timestamp())
             _save_file_cache(cache_file, normalized, _ANALYST_CACHE_TTL)
             return normalized
 
-        _ANALYST_CACHE[ticker_upper] = (None, datetime.now().timestamp())
+        _ANALYST_SINGLE_CACHE[ticker_upper] = (None, datetime.now().timestamp())
         return None
 
     def get_all_analyst_recommendations(self, ticker: str) -> Dict[str, Optional[List[Dict[str, Any]]]]:
-        """Retrieve analyst recommendations from all sources.
-        
-        Args:
-            ticker: Stock ticker symbol.
+        """
+        Fetch analyst recommendation trends from all supported sources and return them combined by source.
         
         Returns:
-            dict: Contains 'yfinance' and 'finnhub' recommendation lists.
+            result (Dict[str, Optional[List[Dict[str, Any]]]]): A mapping with keys 'yfinance' and 'finnhub'. Each value is either a list of recommendation records or `None` when unavailable. Recommendation record fields include `period`, `strong_buy`, `buy`, `hold`, `sell`, `strong_sell`, and `total_analysts`.
         """
         ticker_upper = ticker.upper()
         cache_file = f"all_analyst_recs_{ticker_upper}.json"
         
         cached = _load_file_cache(cache_file)
-        if cached is not None:
-            return cached
+        if _is_marked_cache_payload(cached, _ANALYST_ALL_CACHE_KIND):
+            return _unwrap_all_analyst_cache_value(cached)
+        if _has_any_analyst_recommendations(cached):
+            return _unwrap_all_analyst_cache_value(cached)
         
-        if ticker_upper in _ANALYST_CACHE:
-            data, timestamp = _ANALYST_CACHE[ticker_upper]
-            if datetime.now().timestamp() - timestamp < _ANALYST_CACHE_TTL:
-                return data
+        if ticker_upper in _ANALYST_ALL_CACHE:
+            data, timestamp = _ANALYST_ALL_CACHE[ticker_upper]
+            if datetime.now().timestamp() - timestamp < _get_all_analyst_cache_ttl(data):
+                return _unwrap_all_analyst_cache_value(data)
         
         yfinance_recs = self._get_yfinance_recommendations(ticker_upper)
         finnhub_recs = self._get_finnhub_recommendations(ticker_upper)
         
-        result = {
-            'yfinance': yfinance_recs,
-            'finnhub': finnhub_recs,
-        }
-        
-        _ANALYST_CACHE[ticker_upper] = (result, datetime.now().timestamp())
-        _save_file_cache(cache_file, result, _ANALYST_CACHE_TTL)
-        
-        return result
+        result = _wrap_all_analyst_cache_value(yfinance_recs, finnhub_recs)
+        cache_ttl = _get_all_analyst_cache_ttl(result)
+        _ANALYST_ALL_CACHE[ticker_upper] = (result, datetime.now().timestamp())
+        _save_file_cache(cache_file, result, cache_ttl)
+
+        return _unwrap_all_analyst_cache_value(result)
 
     def _get_yfinance_recommendations(self, ticker_upper: str) -> Optional[List[Dict[str, Any]]]:
-        """Fetch analyst recommendations from yfinance library.
+        """
+        Retrieve and normalize analyst recommendation trends for a given uppercase ticker, using yfinance and falling back to the Yahoo quote page when necessary.
         
-        Args:
-            ticker_upper: Uppercase stock ticker symbol.
+        Parameters:
+            ticker_upper (str): Uppercase stock ticker symbol.
         
         Returns:
-            list: Normalized recommendations with period and counts,
-                or None if unavailable.
+            list[dict] | None: A list of normalized recommendation records (each containing
+            'period', 'strong_buy', 'buy', 'hold', 'sell', 'strong_sell', and 'total_analysts'),
+            or `None` if no recommendation data is available.
         """
         logger.info(f"[YFINANCE] Attempting to fetch recommendations for {ticker_upper}")
         try:
-            yf = importlib.import_module('yfinance')
+            yf = _import_yfinance_with_csrf_strategy()
             yf_ticker = yf.Ticker(ticker_upper)
             
             logger.info(f"[YFINANCE] Calling recommendations attribute for {ticker_upper}")
@@ -815,6 +1031,10 @@ class StockService:
 
             if recs_df is None or (hasattr(recs_df, 'empty') and recs_df.empty):
                 logger.warning(f"[YFINANCE] No recommendations data returned for {ticker_upper}")
+                quote_page_recs = self._get_quote_page_recommendations(ticker_upper)
+                if quote_page_recs:
+                    logger.info(f"[YAHOO PAGE] Using quote page recommendations fallback for {ticker_upper}")
+                    return quote_page_recs
                 return None
             
             logger.info(f"[YFINANCE] Successfully got recommendations for {ticker_upper}")
@@ -856,21 +1076,37 @@ class StockService:
                     'total_analysts': strong_buy + buy + hold + sell + strong_sell,
                 })
 
-            return normalized if normalized else None
+            if normalized:
+                return normalized
+
+            quote_page_recs = self._get_quote_page_recommendations(ticker_upper)
+            if quote_page_recs:
+                logger.info(f"[YAHOO PAGE] Using quote page recommendations fallback for {ticker_upper}")
+                return quote_page_recs
+
+            return None
 
         except Exception as e:
             logger.warning(f"yfinance recommendations failed for {ticker_upper}: {e}")
+            quote_page_recs = self._get_quote_page_recommendations(ticker_upper)
+            if quote_page_recs:
+                logger.info(f"[YAHOO PAGE] Using quote page recommendations fallback for {ticker_upper}")
+                return quote_page_recs
             return None
 
     def _get_finnhub_recommendations(self, ticker_upper: str) -> Optional[List[Dict[str, Any]]]:
-        """Fetch analyst recommendations from Finnhub API.
-        
-        Args:
-            ticker_upper: Uppercase stock ticker symbol.
+        """
+        Fetch analyst recommendation trends for a ticker from Finnhub and normalize them.
         
         Returns:
-            list: Normalized recommendations with period and counts,
-                or None if unavailable.
+            list[dict] | None: A list of normalized recommendation records, or `None` if no data is available or an error occurs. Each record contains:
+                - period (str): reporting period (e.g., "2023-04")
+                - strong_buy (int)
+                - buy (int)
+                - hold (int)
+                - sell (int)
+                - strong_sell (int)
+                - total_analysts (int)
         """
         try:
             finnhub_recs = finnhub_service.get_recommendation_trends(ticker_upper)
@@ -895,31 +1131,173 @@ class StockService:
             logger.warning(f"Finnhub recommendations failed for {ticker_upper}: {e}")
             return None
 
-    def get_price_targets(self, ticker: str) -> Optional[Dict[str, Any]]:
-        """Retrieve analyst price targets for a stock.
+    def _get_yahoo_analyst_quote_summary(self, ticker_upper: str) -> Optional[Dict[str, Any]]:
+        """
+        Fetches and parses the embedded `quoteSummary` JSON from a Yahoo Finance quote page and caches the parsed result.
         
-        Args:
-            ticker: Stock ticker symbol.
+        Attempts to retrieve the quote page for the given uppercase ticker, extract the page-embedded `quoteSummary` payload, parse it into a Python dict, and store it in an in-memory TTL cache for subsequent calls. This function is a fragile fallback that depends on Yahoo's page structure and will return `None` if the expected payload is absent or parsing fails.
+        
+        Parameters:
+            ticker_upper (str): Uppercase ticker symbol to query (e.g., "AAPL").
         
         Returns:
-            dict: Price targets with current, targetAvg, targetHigh,
-                targetLow, and numberOfAnalysts fields.
+            Optional[Dict[str, Any]]: The parsed `quoteSummary` result dictionary for the ticker when available; `None` if not found or on error.
+        """
+        if ticker_upper in _YAHOO_ANALYST_PAGE_CACHE:
+            data, timestamp = _YAHOO_ANALYST_PAGE_CACHE[ticker_upper]
+            if datetime.now().timestamp() - timestamp < _YAHOO_ANALYST_PAGE_CACHE_TTL:
+                return data
+
+        session = get_session()
+        try:
+            response = session.get(
+                f"https://finance.yahoo.com/quote/{ticker_upper}?p={ticker_upper}",
+                timeout=15,
+            )
+            if response.status_code != 200:
+                logger.warning("Yahoo analyst quote page returned %s for %s", response.status_code, ticker_upper)
+                return None
+
+            # This regex-based quoteSummary extraction is intentionally a fragile
+            # fallback for when yfinance fails. If Yahoo changes the HTML script
+            # attributes or payload shape, check both `pattern` and the
+            # follow-up `json.loads(body)` parsing here and update or remove the
+            # fallback accordingly.
+            pattern = re.compile(
+                rf'<script type="application/json" data-sveltekit-fetched data-url="https://query1\.finance\.yahoo\.com/v10/finance/quoteSummary/{re.escape(ticker_upper)}\?[^"]*modules=[^"]*financialData%2CrecommendationTrend[^"]*" data-ttl="1">(.*?)</script>',
+                re.DOTALL,
+            )
+            match = pattern.search(response.text)
+            if not match:
+                logger.warning("Yahoo analyst quote page did not contain quoteSummary payload for %s", ticker_upper)
+                return None
+
+            outer_payload = json.loads(match.group(1))
+            body = outer_payload.get('body')
+            if not isinstance(body, str):
+                return None
+
+            quote_summary = json.loads(body).get('quoteSummary', {}).get('result', [])
+            if not quote_summary:
+                return None
+
+            result = quote_summary[0]
+            _YAHOO_ANALYST_PAGE_CACHE[ticker_upper] = (result, datetime.now().timestamp())
+            return result
+        except Exception as exc:
+            logger.warning("Yahoo analyst quote page fallback failed for %s: %s", ticker_upper, exc)
+            return None
+
+    def _get_quote_page_recommendations(self, ticker_upper: str) -> Optional[List[Dict[str, Any]]]:
+        """
+        Extracts and normalizes analyst recommendation trends from a Yahoo quoteSummary payload for a ticker.
+        
+        @returns A list of dictionaries (one per period) with keys: `period` (str), `strong_buy` (int), `buy` (int), `hold` (int), `sell` (int), `strong_sell` (int), and `total_analysts` (int); returns `None` if no recommendation trend data is available.
+        """
+        quote_summary = self._get_yahoo_analyst_quote_summary(ticker_upper)
+        if not quote_summary:
+            return None
+
+        recommendation_trend = quote_summary.get('recommendationTrend', {})
+        trend = recommendation_trend.get('trend') if isinstance(recommendation_trend, dict) else None
+        if not isinstance(trend, list) or not trend:
+            return None
+
+        normalized: List[Dict[str, Any]] = []
+        for item in trend:
+            if not isinstance(item, dict):
+                continue
+
+            period = item.get('period')
+            if not period:
+                continue
+
+            strong_buy = int(item.get('strongBuy', item.get('strong_buy', 0)) or 0)
+            buy = int(item.get('buy', 0) or 0)
+            hold = int(item.get('hold', 0) or 0)
+            sell = int(item.get('sell', 0) or 0)
+            strong_sell = int(item.get('strongSell', item.get('strong_sell', 0)) or 0)
+
+            normalized.append({
+                'period': str(period),
+                'strong_buy': strong_buy,
+                'buy': buy,
+                'hold': hold,
+                'sell': sell,
+                'strong_sell': strong_sell,
+                'total_analysts': strong_buy + buy + hold + sell + strong_sell,
+            })
+
+        return normalized if normalized else None
+
+    def _get_quote_page_price_targets(self, ticker_upper: str) -> Optional[Dict[str, Any]]:
+        """
+        Extract price-target metrics and current price from a Yahoo quoteSummary financialData payload for the given ticker.
+        
+        Parses financialData fields (target mean/high/low, current price, and number of analyst opinions) and returns a normalized mapping when at least one target value is present; returns None if no usable target values are found or the quoteSummary is unavailable.
+        
+        Parameters:
+            ticker_upper (str): Uppercase ticker symbol (e.g., "AAPL").
+        
+        Returns:
+            dict or None: A dictionary with keys:
+                - 'current' (float|int|None): Current price if available.
+                - 'targetAvg' (float|int|None): Mean target price.
+                - 'targetHigh' (float|int|None): High target price.
+                - 'targetLow' (float|int|None): Low target price.
+                - 'numberOfAnalysts' (int|None): Number of analyst opinions.
+            Returns None if no target values are present or the financialData payload is missing.
+        """
+        quote_summary = self._get_yahoo_analyst_quote_summary(ticker_upper)
+        if not quote_summary:
+            return None
+
+        financial_data = quote_summary.get('financialData')
+        if not isinstance(financial_data, dict):
+            return None
+
+        target_avg = _extract_raw_finance_value(financial_data.get('targetMeanPrice'))
+        target_high = _extract_raw_finance_value(financial_data.get('targetHighPrice'))
+        target_low = _extract_raw_finance_value(financial_data.get('targetLowPrice'))
+        current = _extract_raw_finance_value(financial_data.get('currentPrice'))
+        num_analysts = _extract_raw_finance_value(financial_data.get('numberOfAnalystOpinions'))
+
+        if all(value is None for value in [target_avg, target_high, target_low]):
+            return None
+
+        return {
+            'current': current,
+            'targetAvg': target_avg,
+            'targetHigh': target_high,
+            'targetLow': target_low,
+            'numberOfAnalysts': num_analysts,
+        }
+
+    def get_price_targets(self, ticker: str) -> Optional[Dict[str, Any]]:
+        """
+        Retrieve analyst price targets for the given stock ticker, using available data sources and caching.
+        
+        Returns:
+            dict: Contains keys 'current', 'targetAvg', 'targetHigh', 'targetLow', and 'numberOfAnalysts'. May include a 'note' key when targets are derived from a fallback (e.g., 52-week range).
+            None: If no price target information is available from any source.
         """
         ticker_upper = ticker.upper()
         cache_file = f"price_targets_{ticker_upper}.json"
 
         cached = _load_file_cache(cache_file)
-        if cached is not None:
+        if _is_marked_cache_payload(cached, _PRICE_TARGETS_CACHE_KIND):
+            return _unwrap_price_targets_cache_value(cached)
+        if cached is not None and not _is_fallback_price_targets(cached):
             return cached
 
         if ticker_upper in _PRICE_TARGETS_CACHE:
             data, timestamp = _PRICE_TARGETS_CACHE[ticker_upper]
-            if datetime.now().timestamp() - timestamp < _PRICE_TARGETS_CACHE_TTL:
+            if datetime.now().timestamp() - timestamp < _get_price_targets_cache_ttl(data):
                 return data
 
         try:
             logger.info(f"[YFINANCE] Attempting to fetch price targets for {ticker_upper}")
-            yf = importlib.import_module('yfinance')
+            yf = _import_yfinance_with_csrf_strategy()
             yf_ticker = yf.Ticker(ticker_upper)
             logger.info(f"[YFINANCE] Calling info attribute for {ticker_upper}")
             info = getattr(yf_ticker, 'info', None)
@@ -942,11 +1320,17 @@ class StockService:
                         'numberOfAnalysts': num_analysts,
                     }
                     _PRICE_TARGETS_CACHE[ticker_upper] = (result, datetime.now().timestamp())
-                    _save_file_cache(cache_file, result, _PRICE_TARGETS_CACHE_TTL)
+                    _save_file_cache(cache_file, _wrap_price_targets_cache_value(result), _PRICE_TARGETS_CACHE_TTL)
                     return result
 
         except Exception as e:
             logger.error(f"Error fetching analyst price targets for {ticker}: {e}")
+
+        quote_page_targets = self._get_quote_page_price_targets(ticker_upper)
+        if quote_page_targets:
+            _PRICE_TARGETS_CACHE[ticker_upper] = (quote_page_targets, datetime.now().timestamp())
+            _save_file_cache(cache_file, _wrap_price_targets_cache_value(quote_page_targets), _PRICE_TARGETS_CACHE_TTL)
+            return quote_page_targets
 
         quote_data = self.get_quote_extended(ticker)
         if quote_data:
@@ -959,18 +1343,18 @@ class StockService:
                 'note': '52-week range (analyst targets unavailable)',
             }
             _PRICE_TARGETS_CACHE[ticker_upper] = (result, datetime.now().timestamp())
+            _save_file_cache(cache_file, _wrap_price_targets_cache_value(result), _PRICE_TARGETS_FALLBACK_CACHE_TTL)
             return result
 
         _PRICE_TARGETS_CACHE[ticker_upper] = (None, datetime.now().timestamp())
+        _save_file_cache(cache_file, _wrap_price_targets_cache_value(None), _PRICE_TARGETS_FALLBACK_CACHE_TTL)
         return None
 
     def get_latest_rating(self, ticker: str) -> Optional[Dict[str, Any]]:
-        """Retrieve the latest analyst rating for a stock.
-        
-        Args:
-            ticker: Stock ticker symbol.
+        """
+        Retrieve the latest analyst rating for a stock.
         
         Returns:
-            dict: Latest rating data, or None (not implemented).
+            dict: A dictionary containing the most recent analyst rating details (e.g., firm, rating, date, price target), or `None` if no rating is available.
         """
         return None

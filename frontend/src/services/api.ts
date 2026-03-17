@@ -1,5 +1,6 @@
 const API_BASE = '/api'
 export const AUTH_STORAGE_KEY = 'portfolioAuthUser'
+export const AUTH_EXPIRED_EVENT = 'portfolio-auth-expired'
 const SLOW_API_REQUEST_MS = 800
 const API_REQUEST_TIMEOUT_MS = 15000
 const encodePathSegment = (value: string) => encodeURIComponent(value)
@@ -42,6 +43,14 @@ export interface AuthUserProfile {
   is_guest: boolean
 }
 
+/**
+ * Check whether a value conforms to the AuthUser structure.
+ *
+ * Performs a runtime validation that the required AuthUser fields are present and have expected basic types/constraints: `id`, `username`, `is_guest`, and `token`.
+ *
+ * @param value - The value to validate as an AuthUser
+ * @returns `true` if `value` matches the AuthUser shape, `false` otherwise.
+ */
 function isAuthUser(value: unknown): value is AuthUser {
   if (!value || typeof value !== 'object') return false
   const candidate = value as Record<string, unknown>
@@ -57,7 +66,14 @@ function isAuthUser(value: unknown): value is AuthUser {
   )
 }
 
-function getStoredAuthUser(): AuthUser | null {
+/**
+ * Retrieves the stored authenticated user from local storage and validates its shape.
+ *
+ * If the stored value is missing, unparsable, or fails the AuthUser runtime check, it is removed from storage.
+ *
+ * @returns The stored `AuthUser` when present and valid, or `null` otherwise.
+ */
+export function getStoredAuthUser(): AuthUser | null {
   const raw = localStorage.getItem(AUTH_STORAGE_KEY)
   if (!raw) return null
   try {
@@ -74,14 +90,36 @@ function getStoredAuthUser(): AuthUser | null {
 }
 
 /**
- * Performs an HTTP request against the API and returns the parsed JSON response.
+ * Persist the authenticated user to browser local storage so subsequent requests can access authentication data.
  *
- * The function automatically prefixes `endpoint` with the module's API_BASE and, when a stored
- * authenticated user exists, adds an `Authorization: Bearer <token>` header to the request.
+ * @param authUser - The `AuthUser` object to persist; it will be saved under the `AUTH_STORAGE_KEY`
+ */
+export function setStoredAuthUser(authUser: AuthUser) {
+  localStorage.setItem(AUTH_STORAGE_KEY, JSON.stringify(authUser))
+}
+
+/**
+ * Removes the stored authentication user from localStorage.
  *
- * @param endpoint - The API path to request (appended to API_BASE), e.g. `/stocks` or `/auth/login`
- * @param options - Optional fetch RequestInit options (method, headers, body, etc.)
- * @returns The parsed JSON response from the API
+ * @param notify - If true and running in a browser, dispatches the `AUTH_EXPIRED_EVENT` on `window`
+ */
+export function clearStoredAuthUser(notify: boolean = false) {
+  localStorage.removeItem(AUTH_STORAGE_KEY)
+  if (notify && typeof window !== 'undefined') {
+    window.dispatchEvent(new Event(AUTH_EXPIRED_EVENT))
+  }
+}
+
+/**
+ * Perform an API request with timeout, auth header injection, and timing/logging behavior.
+ *
+ * The request URL is prefixed with API_BASE and, when a stored authenticated user exists,
+ * an `Authorization: Bearer <token>` header is added. If `options.signal` is provided it is
+ * used as the external abort signal for the request timeout.
+ *
+ * @param endpoint - The API path appended to API_BASE (e.g. `/stocks` or `/auth/login`)
+ * @param options - Optional fetch RequestInit options; `signal`, if present, is used as the external abort signal
+ * @returns The parsed JSON response body
  * @throws Error if the response has a non-OK status; the error message is taken from the response's `detail` field when available, otherwise `"Request failed"`
  */
 async function fetchAPI(endpoint: string, options?: RequestInit) {
@@ -116,6 +154,9 @@ async function fetchAPI(endpoint: string, options?: RequestInit) {
     }
 
     if (!response.ok) {
+      if (response.status === 401 && authUser) {
+        clearStoredAuthUser(true)
+      }
       const error = await response.json().catch(() => ({ detail: 'Unknown error' }))
       throw new Error(error.detail || 'Request failed')
     }
@@ -136,12 +177,21 @@ export interface Stock {
   logo: string | null
   purchase_price: number | null
   purchase_date: string | null
+  position_entries?: PositionEntry[]
   current_price: number | null
   previous_close: number | null
   dividend_yield: number | null
   dividend_per_share: number | null
   last_updated: string | null
   manual_dividends?: ManualDividend[]
+}
+
+export interface PositionEntry {
+  id: string
+  quantity: number
+  purchase_price: number | null
+  purchase_date: string | null
+  sell_date: string | null
 }
 
 export interface ManualDividend {
@@ -420,9 +470,9 @@ export const api = {
   stocks: {
     list: () => fetchAPI('/stocks') as Promise<Stock[]>,
     get: (ticker: string) => fetchAPI(`/stocks/${encodePathSegment(ticker)}`) as Promise<Stock>,
-    create: (data: { ticker: string; quantity: number; purchase_price?: number; purchase_date?: string }) => 
+    create: (data: { ticker: string; quantity: number; purchase_price?: number; purchase_date?: string; position_entries?: PositionEntry[] }) => 
       fetchAPI('/stocks', { method: 'POST', body: JSON.stringify(data) }) as Promise<Stock>,
-    update: (ticker: string, data: { quantity?: number; purchase_price?: number; purchase_date?: string | null }) =>
+    update: (ticker: string, data: { quantity?: number; purchase_price?: number; purchase_date?: string | null; position_entries?: PositionEntry[] }) =>
       fetchAPI(`/stocks/${encodePathSegment(ticker)}`, { method: 'PATCH', body: JSON.stringify(data) }) as Promise<Stock>,
     delete: (ticker: string) => fetchAPI(`/stocks/${encodePathSegment(ticker)}`, { method: 'DELETE' }),
     refresh: (ticker: string) => fetchAPI(`/stocks/${encodePathSegment(ticker)}/refresh`, { method: 'POST' }) as Promise<Stock>,

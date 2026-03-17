@@ -4,10 +4,11 @@ This module provides functionality to fetch and cache exchange rates
 from Yahoo Finance, supporting multiple currency pairs and conversions.
 """
 
-import yfinance as yf
 from typing import Dict, Optional
 from datetime import datetime
 import logging
+
+import requests
 
 logger = logging.getLogger(__name__)
 
@@ -58,6 +59,69 @@ EXCHANGE_PAIRS = {
 
 _cache: Dict[str, tuple] = {}
 _cache_ttl = 3600
+_session: Optional[requests.Session] = None
+
+
+def _get_session() -> requests.Session:
+    """
+    Provide a shared requests.Session configured with default headers.
+    
+    Creates and caches a singleton Session on first call and returns the same Session on subsequent calls. The session is preconfigured with common request headers (User-Agent, Accept, Accept-Language).
+    
+    Returns:
+        requests.Session: The shared HTTP session instance.
+    """
+    global _session
+    if _session is None:
+        _session = requests.Session()
+        _session.headers.update({
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+            'Accept': 'application/json, text/plain, */*',
+            'Accept-Language': 'en-US,en;q=0.9',
+        })
+    return _session
+
+
+def close_session() -> None:
+    """
+    Close and clear the module's persistent HTTP session.
+    
+    Closes the global requests.Session if one exists and sets the internal session reference to None.
+    """
+    global _session
+    if _session is not None:
+        _session.close()
+        _session = None
+
+
+def _fetch_latest_price(symbol: str) -> Optional[float]:
+    """
+    Retrieve the most recent available closing price for a Yahoo Finance symbol.
+    
+    Parameters:
+        symbol (str): Yahoo Finance symbol to query (for example, "EURSEK=X").
+    
+    Returns:
+        float: The last non-null closing price for the symbol, or `None` if no price is available or an error occurs.
+    """
+    session = _get_session()
+    try:
+        url = f"https://query1.finance.yahoo.com/v8/finance/chart/{symbol}?interval=1d&range=5d"
+        response = session.get(url, timeout=5)
+        response.raise_for_status()
+
+        data = response.json()
+        result = data.get('chart', {}).get('result')
+        if not result:
+            return None
+
+        quote = result[0].get('indicators', {}).get('quote', [{}])[0]
+        closes = quote.get('close', [])
+        prices = [price for price in closes if price is not None]
+        return float(prices[-1]) if prices else None
+    except Exception as e:
+        logger.error(f"Error fetching latest price for {symbol}: {e}")
+        return None
 
 
 class ExchangeRateService:
@@ -70,14 +134,15 @@ class ExchangeRateService:
     
     @staticmethod
     def get_rate(from_currency: str, to_currency: str) -> Optional[float]:
-        """Get exchange rate between two currencies.
+        """
+        Retrieve the exchange rate from one currency to another.
         
-        Args:
-            from_currency: Source currency code (e.g., 'USD').
-            to_currency: Target currency code (e.g., 'SEK').
+        Parameters:
+            from_currency (str): Source currency code, e.g., "USD".
+            to_currency (str): Target currency code, e.g., "SEK".
         
         Returns:
-            float: Exchange rate, or None if unavailable.
+            rate (Optional[float]): Exchange rate to convert an amount in `from_currency` to `to_currency`, or `None` if no rate is available.
         """
         key = f"{from_currency}_{to_currency}"
         
@@ -88,23 +153,21 @@ class ExchangeRateService:
         
         if key in EXCHANGE_PAIRS:
             try:
-                logger.info(f"[YFINANCE] Fetching exchange rate for {key} via {EXCHANGE_PAIRS[key]}")
-                ticker = yf.Ticker(EXCHANGE_PAIRS[key])
-                price = ticker.info.get('currentPrice') or ticker.info.get('regularMarketPrice')
+                logger.info(f"Fetching exchange rate for {key} via {EXCHANGE_PAIRS[key]}")
+                price = _fetch_latest_price(EXCHANGE_PAIRS[key])
                 if price:
-                    logger.info(f"[YFINANCE] Successfully got exchange rate for {key}: {price}")
+                    logger.info(f"Successfully got exchange rate for {key}: {price}")
                     _cache[key] = (float(price), datetime.now().timestamp())
                     return float(price)
                 else:
-                    logger.warning(f"[YFINANCE] No price returned for exchange rate {key}")
+                    logger.warning(f"No price returned for exchange rate {key}")
             except Exception as e:
-                logger.error(f"[YFINANCE] Error fetching exchange rate {key}: {e}")
+                logger.error(f"Error fetching exchange rate {key}: {e}")
         
         inverse_key = f"{to_currency}_{from_currency}"
         if inverse_key in EXCHANGE_PAIRS:
             try:
-                ticker = yf.Ticker(EXCHANGE_PAIRS[inverse_key])
-                price = ticker.info.get('currentPrice') or ticker.info.get('regularMarketPrice')
+                price = _fetch_latest_price(EXCHANGE_PAIRS[inverse_key])
                 if price:
                     rate = 1.0 / float(price)
                     _cache[key] = (rate, datetime.now().timestamp())
@@ -116,14 +179,17 @@ class ExchangeRateService:
 
     @staticmethod
     def get_rates_for_currencies(currencies: set, display_currency: str) -> Dict[str, Optional[float]]:
-        """Get exchange rates for multiple currencies to display currency.
+        """
+        Collects the exchange rates required to express each currency in `currencies` as the given `display_currency`.
         
-        Args:
-            currencies: Set of currency codes to convert from.
-            display_currency: Target currency code.
+        Determines which currency pairs are needed by preferring direct or inverse pairs defined in EXCHANGE_PAIRS and, when no direct mapping exists and neither currency is SEK, adding intermediary pairs that route through SEK. For each required pair the function returns a cached rate if it is still valid; otherwise it fetches the latest price and caches the result. If a rate cannot be obtained, the pair is included with value `None`.
+        
+        Parameters:
+            currencies (set): Set of ISO currency codes to convert from.
+            display_currency (str): Target ISO currency code to convert values into.
         
         Returns:
-            dict: Mapping of currency pairs to exchange rates.
+            Dict[str, Optional[float]]: Mapping from pair key strings like "USD_SEK" to the exchange rate as a float, or `None` if the rate is unavailable.
         """
         needed_pairs = set()
 
@@ -163,13 +229,12 @@ class ExchangeRateService:
                     continue
             
             try:
-                ticker = yf.Ticker(EXCHANGE_PAIRS[pair])
-                price = ticker.fast_info.last_price if hasattr(ticker, 'fast_info') else None
-                if not price:
-                    price = ticker.info.get('currentPrice') or ticker.info.get('regularMarketPrice')
+                price = _fetch_latest_price(EXCHANGE_PAIRS[pair])
                 if price:
                     rates[pair] = float(price)
                     _cache[pair] = (float(price), now)
+                else:
+                    rates[pair] = None
             except Exception as e:
                 logger.error(f"Error fetching {pair}: {e}")
                 rates[pair] = None

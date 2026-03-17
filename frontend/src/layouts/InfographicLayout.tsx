@@ -1,17 +1,17 @@
-import { useCallback, useEffect, useState } from 'react'
-import { Link, useLocation, Outlet } from 'react-router-dom'
+import { useCallback, useEffect, useRef, useState } from 'react'
+import { Link, Outlet, useLocation } from 'react-router-dom'
 import { useHeaderData } from '../contexts/HeaderDataContext'
 import { useSettings } from '../SettingsContext'
 import { getLocaleForLanguage, t } from '../i18n'
 import { useAuth } from '../AuthContext'
 
 /**
- * Format a Date as a localized 24-hour time string with two-digit hour, minute, and second.
+ * Format a Date as a locale-aware 24-hour time string with two-digit hour, minute, and second.
  *
  * @param d - The Date to format
- * @param locale - BCP 47 language tag or locale string used for localization
- * @param timezone - Optional IANA time zone identifier; if omitted, the system time zone is used and falls back to `UTC` if the system zone cannot be determined
- * @returns The time string formatted according to `locale` and the resolved time zone (e.g., "14:05:09")
+ * @param locale - BCP 47 language tag used for localization
+ * @param timezone - Optional IANA time zone name; if omitted the runtime's resolved time zone is used, and if that cannot be determined `'UTC'` is used as a fallback
+ * @returns The formatted time string in 24-hour `HH:MM:SS` form for the resolved time zone
  */
 function formatClock(d: Date, locale: string, timezone?: string) {
   const tz = timezone || Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC'
@@ -35,11 +35,11 @@ function formatClock(d: Date, locale: string, timezone?: string) {
 }
 
 /**
- * Renders a live-updating localized time string.
+ * Displays a live-updating clock formatted for the provided locale and optional timezone.
  *
- * @param locale - BCP 47 language tag used to localize the time display (e.g., "en-US")
- * @param timezone - Optional IANA time zone name (e.g., "Europe/Stockholm"); when omitted the display uses the resolved/system time zone (fallbacks are handled by the formatter)
- * @returns A <span> element containing the localized time that updates once per second
+ * @param locale - BCP 47 language tag used to format the time (for example, "en-US")
+ * @param timezone - Optional IANA timezone identifier (for example, "Europe/Stockholm"); when omitted a default or fallback timezone is used
+ * @returns A <span> element containing the current time formatted according to `locale` and `timezone`
  */
 function LiveClock({ locale, timezone }: { locale: string; timezone?: string }) {
   const [clock, setClock] = useState(() => new Date())
@@ -55,13 +55,13 @@ function LiveClock({ locale, timezone }: { locale: string; timezone?: string }) 
 }
 
 /**
- * Main layout component that renders the application's top bar, navigation bar, and content area.
+ * Render the main application layout containing the top bar, horizontal indices scroller, navigation, and content outlet.
  *
- * Renders a top bar with market indices, FX rates, a live localized clock, and user controls (including logout),
- * a horizontal navigation bar whose active link is determined from the current route, and a main content Outlet
- * for nested routes.
+ * The top bar displays a logo, a horizontally scrollable list of market indices and FX rates with scroll controls,
+ * a live clock, and user/logout controls. Navigation links reflect the current route and nested routes are rendered
+ * inside the main outlet.
  *
- * @returns The layout React element containing the top bar with market data and clock, the navigation bar, and the content Outlet.
+ * @returns The layout as a JSX element containing the topbar, navigation bar, and an <Outlet /> for nested routes.
  */
 export default function InfographicLayout() {
   const location = useLocation()
@@ -79,36 +79,41 @@ export default function InfographicLayout() {
   })())
   const [logoutError, setLogoutError] = useState<string | null>(null)
   const [isLoggingOut, setIsLoggingOut] = useState(false)
-  // Filter indices based on settings
+  const indicesScrollerRef = useRef<HTMLDivElement | null>(null)
+  const [canScrollIndicesLeft, setCanScrollIndicesLeft] = useState(false)
+  const [canScrollIndicesRight, setCanScrollIndicesRight] = useState(false)
+
   const hasValidHeaderIndices = Array.isArray(headerIndices) && headerIndices.length > 0
   const matched = hasValidHeaderIndices
-    ? allIndices.filter(idx => headerIndices.includes(idx.symbol))
+    ? headerIndices
+      .map((symbol) => allIndices.find((idx) => idx.symbol === symbol))
+      .filter((idx): idx is (typeof allIndices)[number] => idx !== undefined)
     : []
   const indices = matched.length > 0 ? matched : allIndices.slice(0, 5)
 
   const shortLabel = (symbol: string, name: string) => {
     switch (symbol) {
-      case '^OMXS30':    return 'OMX30'
-      case '^OMXS30GI':  return 'OMX30GI'
-      case '^OMXSPI':    return 'OMXSPI'
-      case '^GSPC':      return 'S&P500'
-      case '^IXIC':      return 'NASDAQ'
-      case '^DJI':       return 'DOW'
-      case '^FTSE':      return 'FTSE100'
-      case '^GDAXI':     return 'DAX'
-      default:           return (name || symbol).replace(/^[\^]/, '').substring(0, 8)
+      case '^OMXS30': return 'OMX30'
+      case '^OMXS30GI': return 'OMX30GI'
+      case '^OMXSPI': return 'OMXSPI'
+      case '^GSPC': return 'S&P500'
+      case '^IXIC': return 'NASDAQ'
+      case '^DJI': return 'DOW'
+      case '^FTSE': return 'FTSE100'
+      case '^GDAXI': return 'DAX'
+      default: return (name || symbol).replace(/^[\^]/, '').substring(0, 8)
     }
   }
 
   const links = [
-    { to: '/',                  label: t(language, 'nav.dashboard') },
-    { to: '/performance',       label: t(language, 'nav.performance') },
-    { to: '/analytics',         label: t(language, 'nav.analytics') },
+    { to: '/', label: t(language, 'nav.dashboard') },
+    { to: '/performance', label: t(language, 'nav.performance') },
+    { to: '/analytics', label: t(language, 'nav.analytics') },
     { to: '/dividends/history', label: t(language, 'nav.dividendsHistory') },
     { to: '/dividends/upcoming', label: t(language, 'nav.upcomingDividendsYear', { year: currentYear }) },
-    { to: '/stocks',            label: t(language, 'nav.stocks') },
-    { to: '/markets',           label: t(language, 'nav.markets') },
-    { to: '/settings',          label: t(language, 'nav.settings') },
+    { to: '/stocks', label: t(language, 'nav.stocks') },
+    { to: '/markets', label: t(language, 'nav.markets') },
+    { to: '/settings', label: t(language, 'nav.settings') },
   ]
 
   const isActive = (path: string) => {
@@ -128,77 +133,171 @@ export default function InfographicLayout() {
     }
   }, [language, logout])
 
+  const updateIndicesScrollState = useCallback(() => {
+    const element = indicesScrollerRef.current
+    if (!element) {
+      setCanScrollIndicesLeft(false)
+      setCanScrollIndicesRight(false)
+      return
+    }
+
+    const maxScrollLeft = Math.max(0, element.scrollWidth - element.clientWidth)
+    setCanScrollIndicesLeft(element.scrollLeft > 2)
+    setCanScrollIndicesRight(element.scrollLeft < maxScrollLeft - 2)
+  }, [])
+
+  const scrollIndicesByPage = useCallback((direction: 'left' | 'right') => {
+    const element = indicesScrollerRef.current
+    if (!element) return
+
+    const scrollAmount = Math.max(240, Math.floor(element.clientWidth * 0.75))
+    const behavior = window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth'
+    element.scrollBy({
+      left: direction === 'left' ? -scrollAmount : scrollAmount,
+      behavior,
+    })
+  }, [])
+
+  const handleIndicesWheel = useCallback((event: WheelEvent, element: HTMLDivElement) => {
+    if (!element || element.scrollWidth <= element.clientWidth) return
+
+    const deltaModeFactor = event.deltaMode === 1
+      ? 16
+      : event.deltaMode === 2
+        ? element.clientHeight
+        : 1
+    const normalizedDeltaX = event.deltaX * deltaModeFactor
+    const normalizedDeltaY = event.deltaY * deltaModeFactor
+    const delta = Math.abs(normalizedDeltaX) > Math.abs(normalizedDeltaY) ? normalizedDeltaX : normalizedDeltaY
+    if (delta === 0) return
+
+    const maxScrollLeft = Math.max(0, element.scrollWidth - element.clientWidth)
+    const canScrollForward = delta > 0 && element.scrollLeft < maxScrollLeft - 1
+    const canScrollBackward = delta < 0 && element.scrollLeft > 1
+    if (!canScrollForward && !canScrollBackward) return
+
+    event.preventDefault()
+    element.scrollBy({ left: delta, behavior: 'auto' })
+  }, [])
+
+  useEffect(() => {
+    updateIndicesScrollState()
+    const element = indicesScrollerRef.current
+    if (!element) return
+
+    const handleScroll = () => updateIndicesScrollState()
+    const handleResize = () => updateIndicesScrollState()
+    const handleWheel = (event: WheelEvent) => handleIndicesWheel(event, element)
+
+    element.addEventListener('scroll', handleScroll, { passive: true })
+    element.addEventListener('wheel', handleWheel, { passive: false })
+    window.addEventListener('resize', handleResize)
+
+    return () => {
+      element.removeEventListener('scroll', handleScroll)
+      element.removeEventListener('wheel', handleWheel)
+      window.removeEventListener('resize', handleResize)
+    }
+  }, [handleIndicesWheel, indices, updateIndicesScrollState])
+
   return (
     <div style={{ minHeight: '100vh', background: 'var(--bg)', color: 'var(--text)' }}>
-
-      {/* ── TOPBAR ── */}
       <div className="topbar">
         <div className="tb-logo">
           <img src="/logo.png" alt="Portfolio logo" className="tb-logo-mark" />
           <span className="tb-logo-word">PORTFOLIO</span>
         </div>
 
-        {/* Market indices strip */}
-        <div className="tb-indices">
-          {indices.map(idx => {
-            const safeChange = idx.change != null && Number.isFinite(Number(idx.change))
-              ? Number(idx.change) : null
-            const safeChangePct = idx.change_percent != null && Number.isFinite(Number(idx.change_percent))
-              ? Number(idx.change_percent) : null
-            const isPos = safeChange !== null
-              ? safeChange > 0
-              : safeChangePct !== null
-                ? safeChangePct > 0
-                : false
-            const isNeg = safeChange !== null
-              ? safeChange < 0
-              : safeChangePct !== null
-                ? safeChangePct < 0
-                : false
-            return (
-              <div key={idx.symbol} className="tb-idx">
-                <span className="ti-nm">{shortLabel(idx.symbol, idx.name)}</span>
-                <span className="ti-vl">
-                  {idx.price != null && Number.isFinite(Number(idx.price))
-                    ? Number(idx.price).toLocaleString(locale, { maximumFractionDigits: 0 })
-                    : '—'}
-                </span>
-                {safeChangePct !== null && (
-                  <span className={`ti-ch ${isPos ? 'up' : isNeg ? 'dn' : ''}`}>
-                    {isPos ? '↑' : isNeg ? '↓' : ''}
-                    {Math.abs(safeChangePct).toLocaleString(locale, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}%
-                  </span>
-                )}
-              </div>
-            )
-          })}
+        <div className="tb-indices-wrap">
+          <button
+            type="button"
+            className={`tb-scroll-btn left${canScrollIndicesLeft ? ' visible' : ''}`}
+            onClick={() => scrollIndicesByPage('left')}
+            aria-label={t(language, 'layout.scrollIndicesLeft')}
+            aria-hidden={!canScrollIndicesLeft}
+            disabled={!canScrollIndicesLeft}
+            tabIndex={canScrollIndicesLeft ? 0 : -1}
+          >
+            &lsaquo;
+          </button>
+          <div
+            ref={indicesScrollerRef}
+            className="tb-indices"
+          >
+            {indices.map((idx) => {
+              const safeChange = idx.change != null && Number.isFinite(Number(idx.change))
+                ? Number(idx.change)
+                : null
+              const safeChangePct = idx.change_percent != null && Number.isFinite(Number(idx.change_percent))
+                ? Number(idx.change_percent)
+                : null
+              const isPos = safeChange !== null
+                ? safeChange > 0
+                : safeChangePct !== null
+                  ? safeChangePct > 0
+                  : false
+              const isNeg = safeChange !== null
+                ? safeChange < 0
+                : safeChangePct !== null
+                  ? safeChangePct < 0
+                  : false
 
-          {/* FX rates */}
-          {(() => {
-            const usdSek = Number.isFinite(Number(exchangeRates.USD_SEK)) ? Number(exchangeRates.USD_SEK) : null
-            const eurSek = Number.isFinite(Number(exchangeRates.EUR_SEK)) ? Number(exchangeRates.EUR_SEK) : null
-            if (usdSek === null && eurSek === null) return null
+              return (
+                <div key={idx.symbol} className="tb-idx">
+                  <span className="ti-nm">{shortLabel(idx.symbol, idx.name)}</span>
+                  <span className="ti-vl">
+                    {idx.price != null && Number.isFinite(Number(idx.price))
+                      ? Number(idx.price).toLocaleString(locale, { maximumFractionDigits: 0 })
+                      : '-'}
+                  </span>
+                  {safeChangePct !== null && (
+                    <span className={`ti-ch ${isPos ? 'up' : isNeg ? 'dn' : ''}`}>
+                      {isPos ? '↑' : isNeg ? '↓' : ''}
+                      {Math.abs(safeChangePct).toLocaleString(locale, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}%
+                    </span>
+                  )}
+                </div>
+              )
+            })}
 
-            return (
-              <div className="tb-idx" style={{ gap: 12 }}>
-                {usdSek !== null && (
-                  <span style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
-                    <span className="ti-nm">USD/SEK</span>
-                    <span className="ti-vl">{usdSek.toLocaleString(locale, { minimumFractionDigits: 4, maximumFractionDigits: 4 })}</span>
-                  </span>
-                )}
-                {eurSek !== null && (
-                  <span style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
-                    <span className="ti-nm">EUR/SEK</span>
-                    <span className="ti-vl">{eurSek.toLocaleString(locale, { minimumFractionDigits: 4, maximumFractionDigits: 4 })}</span>
-                  </span>
-                )}
-              </div>
-            )
-          })()}
+            {(() => {
+              const usdSek = Number.isFinite(Number(exchangeRates.USD_SEK)) ? Number(exchangeRates.USD_SEK) : null
+              const eurSek = Number.isFinite(Number(exchangeRates.EUR_SEK)) ? Number(exchangeRates.EUR_SEK) : null
+              if (usdSek === null && eurSek === null) return null
+
+              return (
+                <div className="tb-idx" style={{ gap: 12 }}>
+                  {usdSek !== null && (
+                    <span style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
+                      <span className="ti-nm">USD/SEK</span>
+                      <span className="ti-vl">{usdSek.toLocaleString(locale, { minimumFractionDigits: 4, maximumFractionDigits: 4 })}</span>
+                    </span>
+                  )}
+                  {eurSek !== null && (
+                    <span style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
+                      <span className="ti-nm">EUR/SEK</span>
+                      <span className="ti-vl">{eurSek.toLocaleString(locale, { minimumFractionDigits: 4, maximumFractionDigits: 4 })}</span>
+                    </span>
+                  )}
+                </div>
+              )
+            })()}
+          </div>
+          <button
+            type="button"
+            className={`tb-scroll-btn right${canScrollIndicesRight ? ' visible' : ''}`}
+            onClick={() => scrollIndicesByPage('right')}
+            aria-label={t(language, 'layout.scrollIndicesRight')}
+            aria-hidden={!canScrollIndicesRight}
+            disabled={!canScrollIndicesRight}
+            tabIndex={canScrollIndicesRight ? 0 : -1}
+          >
+            &rsaquo;
+          </button>
+          <div className={`tb-indices-fade left${canScrollIndicesLeft ? ' visible' : ''}`} aria-hidden="true" />
+          <div className={`tb-indices-fade right${canScrollIndicesRight ? ' visible' : ''}`} aria-hidden="true" />
         </div>
 
-        {/* Clock + user */}
         <div className="tb-time">
           <span className="live-dot" />
           <LiveClock locale={locale} timezone={timezone} />
@@ -234,9 +333,8 @@ export default function InfographicLayout() {
         </div>
       </div>
 
-      {/* ── NAV BAR ── */}
       <nav className="appnav">
-        {links.map(link => (
+        {links.map((link) => (
           <Link
             key={link.to}
             to={link.to}
@@ -247,7 +345,6 @@ export default function InfographicLayout() {
         ))}
       </nav>
 
-      {/* ── CONTENT ── */}
       <main>
         <Outlet />
       </main>
