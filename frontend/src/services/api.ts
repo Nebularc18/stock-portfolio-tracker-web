@@ -1,5 +1,6 @@
 const API_BASE = '/api'
 export const AUTH_STORAGE_KEY = 'portfolioAuthUser'
+export const AUTH_EXPIRED_EVENT = 'portfolio-auth-expired'
 const SLOW_API_REQUEST_MS = 800
 const API_REQUEST_TIMEOUT_MS = 15000
 const encodePathSegment = (value: string) => encodeURIComponent(value)
@@ -73,6 +74,13 @@ function getStoredAuthUser(): AuthUser | null {
   }
 }
 
+export function clearStoredAuthUser(notify: boolean = false) {
+  localStorage.removeItem(AUTH_STORAGE_KEY)
+  if (notify && typeof window !== 'undefined') {
+    window.dispatchEvent(new Event(AUTH_EXPIRED_EVENT))
+  }
+}
+
 /**
  * Performs an HTTP request against the API and returns the parsed JSON response.
  *
@@ -116,6 +124,9 @@ async function fetchAPI(endpoint: string, options?: RequestInit) {
     }
 
     if (!response.ok) {
+      if (response.status === 401 && authUser) {
+        clearStoredAuthUser(true)
+      }
       const error = await response.json().catch(() => ({ detail: 'Unknown error' }))
       throw new Error(error.detail || 'Request failed')
     }

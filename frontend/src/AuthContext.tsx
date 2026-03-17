@@ -1,5 +1,5 @@
-import { createContext, useCallback, useContext, useMemo, useState, type ReactNode } from 'react'
-import { api, AUTH_STORAGE_KEY, type AuthUser } from './services/api'
+import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from 'react'
+import { api, AUTH_EXPIRED_EVENT, AUTH_STORAGE_KEY, clearStoredAuthUser, type AuthUser } from './services/api'
 
 interface AuthContextType {
   user: AuthUser | null
@@ -90,8 +90,19 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, [])
 
   const logout = useCallback(() => {
-    localStorage.removeItem(AUTH_STORAGE_KEY)
+    clearStoredAuthUser(false)
     setUser(null)
+  }, [])
+
+  useEffect(() => {
+    const handleAuthExpired = () => {
+      setUser(null)
+    }
+
+    window.addEventListener(AUTH_EXPIRED_EVENT, handleAuthExpired)
+    return () => {
+      window.removeEventListener(AUTH_EXPIRED_EVENT, handleAuthExpired)
+    }
   }, [])
 
   const value = useMemo(
