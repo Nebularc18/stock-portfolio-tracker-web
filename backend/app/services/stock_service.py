@@ -1045,6 +1045,7 @@ class StockService:
                 logger.warning("Yahoo analyst quote page returned %s for %s", response.status_code, ticker_upper)
                 return None
 
+            # Last verified: 2026-03-17 against Yahoo's analyst quote page HTML.
             # This regex-based quoteSummary extraction is intentionally a fragile
             # fallback for when yfinance fails. If Yahoo changes the HTML script
             # attributes or payload shape, check both `pattern` and the

@@ -797,10 +797,8 @@ def _looks_like_frontend_file_request(request_path: str) -> bool:
     if not last_segment:
         return False
 
-    if "." in last_segment:
-        return True
-
-    return Path(last_segment).suffix.lower() in {
+    suffix = Path(last_segment).suffix.lower()
+    return suffix in {
         ".css",
         ".gif",
         ".ico",
@@ -816,7 +814,7 @@ def _looks_like_frontend_file_request(request_path: str) -> bool:
         ".webp",
         ".woff",
         ".woff2",
-    }
+    } or "." in last_segment
 
 
 @app.middleware("http")

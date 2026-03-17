@@ -402,11 +402,14 @@ def create_stock(stock_data: StockCreate, db: Session = Depends(get_db), current
     
     logo = brandfetch_service.get_logo_url_for_ticker(ticker, info.get("name"))
     if stock_data.position_entries:
-        position_entries = validate_position_entries(stock_data.position_entries)
-        snapshot = calculate_position_snapshot(position_entries)
-        quantity = snapshot['quantity']
-        purchase_price = snapshot['purchase_price']
-        purchase_date = _parse_event_date(snapshot['purchase_date'])
+        try:
+            position_entries = validate_position_entries(stock_data.position_entries)
+            snapshot = calculate_position_snapshot(position_entries)
+            quantity = snapshot['quantity']
+            purchase_price = snapshot['purchase_price']
+            purchase_date = _parse_event_date(snapshot['purchase_date'])
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
     else:
         quantity = stock_data.quantity
         purchase_price = stock_data.purchase_price
@@ -468,12 +471,15 @@ def update_stock(ticker: str, stock_data: StockUpdate, db: Session = Depends(get
     provided_fields = getattr(stock_data, "model_fields_set", getattr(stock_data, "__fields_set__", set()))
 
     if "position_entries" in provided_fields:
-        position_entries = validate_position_entries(stock_data.position_entries or [])
-        snapshot = calculate_position_snapshot(position_entries)
-        stock.position_entries = snapshot['position_entries']
-        stock.quantity = snapshot['quantity']
-        stock.purchase_price = snapshot['purchase_price']
-        stock.purchase_date = _parse_event_date(snapshot['purchase_date'])
+        try:
+            position_entries = validate_position_entries(stock_data.position_entries or [])
+            snapshot = calculate_position_snapshot(position_entries)
+            stock.position_entries = snapshot['position_entries']
+            stock.quantity = snapshot['quantity']
+            stock.purchase_price = snapshot['purchase_price']
+            stock.purchase_date = _parse_event_date(snapshot['purchase_date'])
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
     else:
         if stock_data.quantity is not None:
             stock.quantity = stock_data.quantity
