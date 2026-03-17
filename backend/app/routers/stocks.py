@@ -473,16 +473,13 @@ def update_stock(ticker: str, stock_data: StockUpdate, db: Session = Depends(get
             stock.purchase_date = stock_data.purchase_date
         stock.position_entries = normalize_position_entries(getattr(stock, 'position_entries', None), stock.quantity, stock.purchase_price, stock.purchase_date)
         snapshot = calculate_position_snapshot(stock.position_entries)
+        stock.quantity = snapshot['quantity']
+        stock.purchase_price = snapshot['purchase_price']
+        stock.purchase_date = _parse_event_date(snapshot['purchase_date'])
         stock.position_entries = snapshot['position_entries']
     
     db.commit()
     db.refresh(stock)
-    stock.position_entries = normalize_position_entries(getattr(stock, 'position_entries', None), stock.quantity, stock.purchase_price, stock.purchase_date)
-    snapshot = calculate_position_snapshot(stock.position_entries)
-    stock.quantity = snapshot['quantity']
-    stock.purchase_price = snapshot['purchase_price']
-    stock.purchase_date = _parse_event_date(snapshot['purchase_date'])
-    stock.position_entries = snapshot['position_entries']
     return stock
 
 

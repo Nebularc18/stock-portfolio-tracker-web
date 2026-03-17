@@ -1,5 +1,5 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from 'react'
-import { api, AUTH_EXPIRED_EVENT, AUTH_STORAGE_KEY, clearStoredAuthUser, type AuthUser } from './services/api'
+import { api, AUTH_EXPIRED_EVENT, AUTH_STORAGE_KEY, clearStoredAuthUser, getStoredAuthUser, setStoredAuthUser, type AuthUser } from './services/api'
 
 interface AuthContextType {
   user: AuthUser | null
@@ -12,50 +12,12 @@ interface AuthContextType {
 
 const AuthContext = createContext<AuthContextType | null>(null)
 
-function readStoredUser(): AuthUser | null {
-  const raw = localStorage.getItem(AUTH_STORAGE_KEY)
-  if (!raw) return null
-  try {
-    const parsed: unknown = JSON.parse(raw)
-    if (!parsed || typeof parsed !== 'object') {
-      localStorage.removeItem(AUTH_STORAGE_KEY)
-      return null
-    }
-
-    const candidate = parsed as Record<string, unknown>
-    const isValid =
-      typeof candidate.id === 'number' &&
-      Number.isFinite(candidate.id) &&
-      candidate.id > 0 &&
-      typeof candidate.username === 'string' &&
-      candidate.username.trim().length > 0 &&
-      typeof candidate.is_guest === 'boolean' &&
-      typeof candidate.token === 'string' &&
-      candidate.token.trim().length > 0
-
-    if (!isValid) {
-      localStorage.removeItem(AUTH_STORAGE_KEY)
-      return null
-    }
-
-    return {
-      id: candidate.id as number,
-      username: candidate.username as string,
-      is_guest: candidate.is_guest as boolean,
-      token: candidate.token as string,
-    }
-  } catch {
-    localStorage.removeItem(AUTH_STORAGE_KEY)
-    return null
-  }
-}
-
 export function AuthProvider({ children }: { children: ReactNode }) {
-  const [user, setUser] = useState<AuthUser | null>(() => readStoredUser())
+  const [user, setUser] = useState<AuthUser | null>(() => getStoredAuthUser())
   const [loading, setLoading] = useState(false)
 
   const persistUser = (nextUser: AuthUser) => {
-    localStorage.setItem(AUTH_STORAGE_KEY, JSON.stringify(nextUser))
+    setStoredAuthUser(nextUser)
     setUser(nextUser)
   }
 
@@ -98,10 +60,20 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     const handleAuthExpired = () => {
       setUser(null)
     }
+    const handleStorageChange = (event: StorageEvent) => {
+      if (event.key !== AUTH_STORAGE_KEY && event.key !== null) return
+      if (!event.newValue) {
+        setUser(null)
+        return
+      }
+      setUser(getStoredAuthUser())
+    }
 
     window.addEventListener(AUTH_EXPIRED_EVENT, handleAuthExpired)
+    window.addEventListener('storage', handleStorageChange)
     return () => {
       window.removeEventListener(AUTH_EXPIRED_EVENT, handleAuthExpired)
+      window.removeEventListener('storage', handleStorageChange)
     }
   }, [])
 

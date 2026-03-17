@@ -270,6 +270,7 @@ export default function Dashboard() {
   const historyRequestIdRef = useRef(0)
   const dataRequestIdRef = useRef(0)
   const autoRefreshTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const isMountedRef = useRef(true)
   const { displayCurrency, timezone, language } = useSettings()
   const locale = getLocaleForLanguage(language)
   const { sortState: holdingsSortState, requestSort: requestHoldingsSort } = useTableSort<HoldingSortField>({ field: 'ticker', direction: 'asc' })
@@ -356,6 +357,7 @@ export default function Dashboard() {
   }, [historyRange, user?.id])
 
   useEffect(() => {
+    isMountedRef.current = true
     if (autoRefreshTimeoutRef.current) {
       clearTimeout(autoRefreshTimeoutRef.current)
       autoRefreshTimeoutRef.current = null
@@ -367,7 +369,9 @@ export default function Dashboard() {
           fetchData({ background: true }),
           fetchHistory(historyRange, { background: true }),
         ]).finally(() => {
-          scheduleNextRefresh()
+          if (isMountedRef.current) {
+            scheduleNextRefresh()
+          }
         })
       }, getNextDashboardRefreshDelayMs())
     }
@@ -375,6 +379,7 @@ export default function Dashboard() {
     scheduleNextRefresh()
 
     return () => {
+      isMountedRef.current = false
       if (autoRefreshTimeoutRef.current) {
         clearTimeout(autoRefreshTimeoutRef.current)
         autoRefreshTimeoutRef.current = null

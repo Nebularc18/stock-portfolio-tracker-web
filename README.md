@@ -74,20 +74,20 @@ services:
       timeout: 5s
       retries: 5
 
-  stock-tracker:
-    image: ghcr.io/nebularc18/stock-portfolio-tracker:latest
+  app:
+    image: ghcr.io/nebularc18/stock-portfolio-tracker:${IMAGE_TAG:-local}
     restart: unless-stopped
     ports:
       - "8080:8000"
     environment:
       DATABASE_URL: postgresql://portfolio:portfolio@postgres:5432/portfolio
-      AUTH_TOKEN_SECRET: change-me
-      DEFAULT_USERNAME: admin
-      DEFAULT_PASSWORD: admin123
-      GUEST_USERNAME: guest
-      GUEST_PASSWORD: guest-demo-password
-      FINNHUB_API_KEY: ""
-      MARKETSTACK_API_KEY: ""
+      AUTH_TOKEN_SECRET: <generate-a-secure-random-secret>
+      DEFAULT_USERNAME: <your-admin-username>
+      DEFAULT_PASSWORD: <strong-admin-password>
+      GUEST_USERNAME: <optional-guest-username>
+      GUEST_PASSWORD: <optional-guest-password>
+      FINNHUB_API_KEY: <your-finnhub-api-key>
+      MARKETSTACK_API_KEY: <your-marketstack-api-key>
     depends_on:
       postgres:
         condition: service_healthy
@@ -206,15 +206,15 @@ The application uses these environment variables:
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `DATABASE_URL` | `postgresql://portfolio:portfolio@postgres:5432/portfolio` | PostgreSQL connection string |
-| `FINNHUB_API_KEY` | - | Finnhub API key for company profile and market data |
-| `MARKETSTACK_API_KEY` | - | Marketstack API key for dividend verification and status |
-| `AUTH_TOKEN_SECRET` | - | Required signing secret for backend auth tokens |
-| `DEFAULT_USERNAME` | `admin` | Seeded default username for local setup |
-| `DEFAULT_PASSWORD` | `admin123` | Seeded default password for local setup |
-| `GUEST_USERNAME` | `guest` | Seeded guest username |
-| `GUEST_PASSWORD` | `guest-demo-password` | Seeded guest password |
+| `FINNHUB_API_KEY` | `<your-api-key>` | Finnhub API key for company profile and market data |
+| `MARKETSTACK_API_KEY` | `<your-api-key>` | Marketstack API key for dividend verification and status |
+| `AUTH_TOKEN_SECRET` | `<generate-a-secure-random-secret>` | Required signing secret for backend auth tokens |
+| `DEFAULT_USERNAME` | `<your-admin-username>` | Seeded default username for local setup |
+| `DEFAULT_PASSWORD` | `<strong-password>` | Seeded default password for local setup |
+| `GUEST_USERNAME` | `<optional-guest-username>` | Optional seeded guest username |
+| `GUEST_PASSWORD` | `<optional-guest-password>` | Optional seeded guest password; leave unset to auto-generate |
 
-Important: the seeded `DEFAULT_*` and `GUEST_*` credentials are for local development only. The backend auto-creates these accounts on startup when seeding is enabled, so do not keep the default values in production. Rotate or remove them and disable seeding before exposing the app publicly.
+Important: the seeded `DEFAULT_*` and `GUEST_*` credentials are for local development only. The backend auto-creates these accounts on startup when seeding is enabled, so do not keep placeholder or weak values in production. Rotate or remove them and disable seeding before exposing the app publicly.
 
 ### Timezone Settings
 
@@ -232,11 +232,11 @@ docker compose up -d --build
 # View logs
 docker compose logs -f
 
-# Pull latest image
+# Pull a published image after setting IMAGE_TAG
 docker compose pull
 
 # Rebuild locally after changes (tag must match docker-compose.yml)
-docker build -t ghcr.io/YOUR_USERNAME/stock-portfolio-tracker:latest .
+docker build -t ghcr.io/YOUR_USERNAME/stock-portfolio-tracker:local .
 docker compose up -d --build
 ```
 
@@ -249,7 +249,7 @@ Build and push a multi-architecture image locally with Buildx:
 ```bash
 docker buildx build \
   --platform linux/amd64,linux/arm64 \
-  -t ghcr.io/YOUR_USERNAME/stock-portfolio-tracker:latest \
+  -t ghcr.io/YOUR_USERNAME/stock-portfolio-tracker:<release-tag> \
   --push \
   .
 ```

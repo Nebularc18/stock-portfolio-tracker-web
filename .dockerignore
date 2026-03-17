@@ -2,6 +2,10 @@
 .gitignore
 .vscode
 .venv
+.env
+.env.*
+*.env
+!.env.example
 __pycache__/
 *.pyc
 backend/.pytest_cache

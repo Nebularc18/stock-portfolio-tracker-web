@@ -52,9 +52,13 @@ def normalize_position_entries(
 
         purchase_date = parse_position_date(entry.get('purchase_date'))
         sell_date = parse_position_date(entry.get('sell_date'))
+        entry_id = entry.get('id')
+        if not entry_id:
+            entry_id = str(uuid.uuid4())
+            entry['id'] = entry_id
 
         normalized.append({
-            'id': str(entry.get('id') or uuid.uuid4()),
+            'id': str(entry_id),
             'quantity': quantity,
             'purchase_price': purchase_price,
             'purchase_date': purchase_date.isoformat() if purchase_date else None,
@@ -84,9 +88,9 @@ def normalize_position_entries(
 
 
 def validate_position_entries(entries: Any) -> list[dict[str, Any]]:
-    normalized = normalize_position_entries(entries)
     if not isinstance(entries, list):
         raise ValueError('position_entries must be a list')
+    normalized = normalize_position_entries(entries)
 
     for entry in normalized:
         purchase_date = parse_position_date(entry.get('purchase_date'))
@@ -123,6 +127,12 @@ def calculate_position_snapshot(entries: Any) -> dict[str, Any]:
 
 
 def get_quantity_held_on_date(entries: Any, target_date: Any) -> float:
+    """Return quantity owned strictly before `resolved_target_date`.
+
+    Entries bought on `resolved_target_date` (`purchase_date >= resolved_target_date`)
+    or sold on `resolved_target_date` (`sell_date <= resolved_target_date`) are
+    excluded deliberately to preserve ex-date entitlement semantics.
+    """
     normalized = normalize_position_entries(entries)
     resolved_target_date = parse_position_date(target_date)
     if resolved_target_date is None:
@@ -133,6 +143,8 @@ def get_quantity_held_on_date(entries: Any, target_date: Any) -> float:
         purchase_date = parse_position_date(entry.get('purchase_date'))
         sell_date = parse_position_date(entry.get('sell_date'))
 
+        # Boundary dates are exclusive: ownership must begin before the target
+        # date and must not end on or before the target date.
         if purchase_date and purchase_date >= resolved_target_date:
             continue
         if sell_date and sell_date <= resolved_target_date:

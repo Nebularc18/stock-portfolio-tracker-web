@@ -77,18 +77,68 @@ _PRICE_TARGETS_CACHE_TTL = 43200
 _PRICE_TARGETS_FALLBACK_CACHE_TTL = 300
 _YAHOO_ANALYST_PAGE_CACHE: Dict[str, tuple] = {}
 _YAHOO_ANALYST_PAGE_CACHE_TTL = 3600
+_ANALYST_ALL_CACHE_KIND = "all_analyst_recommendations"
+_PRICE_TARGETS_CACHE_KIND = "price_targets"
 
 _session = None
 
 
+def _is_marked_cache_payload(value: Any, cache_kind: str) -> bool:
+    return (
+        isinstance(value, dict)
+        and value.get('cache_status') == 'hit'
+        and value.get('cache_kind') == cache_kind
+    )
+
+
+def _wrap_all_analyst_cache_value(
+    yfinance_recs: Optional[List[Dict[str, Any]]],
+    finnhub_recs: Optional[List[Dict[str, Any]]],
+) -> Dict[str, Any]:
+    return {
+        'cache_status': 'hit',
+        'cache_kind': _ANALYST_ALL_CACHE_KIND,
+        'has_recommendations': bool(yfinance_recs or finnhub_recs),
+        'yfinance': yfinance_recs,
+        'finnhub': finnhub_recs,
+    }
+
+
+def _unwrap_all_analyst_cache_value(value: Any) -> Dict[str, Optional[List[Dict[str, Any]]]]:
+    if _is_marked_cache_payload(value, _ANALYST_ALL_CACHE_KIND):
+        return {
+            'yfinance': value.get('yfinance'),
+            'finnhub': value.get('finnhub'),
+        }
+    return value
+
+
 def _has_any_analyst_recommendations(value: Any) -> bool:
+    value = _unwrap_all_analyst_cache_value(value)
     if not isinstance(value, dict):
         return False
     return bool(value.get('yfinance') or value.get('finnhub'))
 
 
 def _is_fallback_price_targets(value: Any) -> bool:
+    if _is_marked_cache_payload(value, _PRICE_TARGETS_CACHE_KIND):
+        value = value.get('value')
     return isinstance(value, dict) and bool(value.get('note'))
+
+
+def _wrap_price_targets_cache_value(value: Optional[Dict[str, Any]]) -> Dict[str, Any]:
+    return {
+        'cache_status': 'hit',
+        'cache_kind': _PRICE_TARGETS_CACHE_KIND,
+        'has_price_targets': value is not None,
+        'value': value,
+    }
+
+
+def _unwrap_price_targets_cache_value(value: Any) -> Optional[Dict[str, Any]]:
+    if _is_marked_cache_payload(value, _PRICE_TARGETS_CACHE_KIND):
+        return value.get('value')
+    return value
 
 
 def _get_single_analyst_cache_ttl(value: Any) -> int:
@@ -100,6 +150,7 @@ def _get_all_analyst_cache_ttl(value: Any) -> int:
 
 
 def _get_price_targets_cache_ttl(value: Any) -> int:
+    value = _unwrap_price_targets_cache_value(value)
     return _PRICE_TARGETS_CACHE_TTL if (value and not _is_fallback_price_targets(value)) else _PRICE_TARGETS_FALLBACK_CACHE_TTL
 
 
@@ -818,27 +869,25 @@ class StockService:
         cache_file = f"all_analyst_recs_{ticker_upper}.json"
         
         cached = _load_file_cache(cache_file)
+        if _is_marked_cache_payload(cached, _ANALYST_ALL_CACHE_KIND):
+            return _unwrap_all_analyst_cache_value(cached)
         if _has_any_analyst_recommendations(cached):
-            return cached
+            return _unwrap_all_analyst_cache_value(cached)
         
         if ticker_upper in _ANALYST_ALL_CACHE:
             data, timestamp = _ANALYST_ALL_CACHE[ticker_upper]
             if datetime.now().timestamp() - timestamp < _get_all_analyst_cache_ttl(data):
-                return data
+                return _unwrap_all_analyst_cache_value(data)
         
         yfinance_recs = self._get_yfinance_recommendations(ticker_upper)
         finnhub_recs = self._get_finnhub_recommendations(ticker_upper)
         
-        result = {
-            'yfinance': yfinance_recs,
-            'finnhub': finnhub_recs,
-        }
-
-        cache_ttl = _ANALYST_CACHE_TTL if (yfinance_recs or finnhub_recs) else _ANALYST_NEGATIVE_CACHE_TTL
+        result = _wrap_all_analyst_cache_value(yfinance_recs, finnhub_recs)
+        cache_ttl = _get_all_analyst_cache_ttl(result)
         _ANALYST_ALL_CACHE[ticker_upper] = (result, datetime.now().timestamp())
         _save_file_cache(cache_file, result, cache_ttl)
 
-        return result
+        return _unwrap_all_analyst_cache_value(result)
 
     def _get_yfinance_recommendations(self, ticker_upper: str) -> Optional[List[Dict[str, Any]]]:
         """Fetch analyst recommendations from yfinance library.
@@ -1077,6 +1126,8 @@ class StockService:
         cache_file = f"price_targets_{ticker_upper}.json"
 
         cached = _load_file_cache(cache_file)
+        if _is_marked_cache_payload(cached, _PRICE_TARGETS_CACHE_KIND):
+            return _unwrap_price_targets_cache_value(cached)
         if cached is not None and not _is_fallback_price_targets(cached):
             return cached
 
@@ -1110,7 +1161,7 @@ class StockService:
                         'numberOfAnalysts': num_analysts,
                     }
                     _PRICE_TARGETS_CACHE[ticker_upper] = (result, datetime.now().timestamp())
-                    _save_file_cache(cache_file, result, _PRICE_TARGETS_CACHE_TTL)
+                    _save_file_cache(cache_file, _wrap_price_targets_cache_value(result), _PRICE_TARGETS_CACHE_TTL)
                     return result
 
         except Exception as e:
@@ -1119,7 +1170,7 @@ class StockService:
         quote_page_targets = self._get_quote_page_price_targets(ticker_upper)
         if quote_page_targets:
             _PRICE_TARGETS_CACHE[ticker_upper] = (quote_page_targets, datetime.now().timestamp())
-            _save_file_cache(cache_file, quote_page_targets, _PRICE_TARGETS_CACHE_TTL)
+            _save_file_cache(cache_file, _wrap_price_targets_cache_value(quote_page_targets), _PRICE_TARGETS_CACHE_TTL)
             return quote_page_targets
 
         quote_data = self.get_quote_extended(ticker)
@@ -1133,11 +1184,11 @@ class StockService:
                 'note': '52-week range (analyst targets unavailable)',
             }
             _PRICE_TARGETS_CACHE[ticker_upper] = (result, datetime.now().timestamp())
-            _save_file_cache(cache_file, result, _PRICE_TARGETS_FALLBACK_CACHE_TTL)
+            _save_file_cache(cache_file, _wrap_price_targets_cache_value(result), _PRICE_TARGETS_FALLBACK_CACHE_TTL)
             return result
 
         _PRICE_TARGETS_CACHE[ticker_upper] = (None, datetime.now().timestamp())
-        _save_file_cache(cache_file, None, _PRICE_TARGETS_FALLBACK_CACHE_TTL)
+        _save_file_cache(cache_file, _wrap_price_targets_cache_value(None), _PRICE_TARGETS_FALLBACK_CACHE_TTL)
         return None
 
     def get_latest_rating(self, ticker: str) -> Optional[Dict[str, Any]]:

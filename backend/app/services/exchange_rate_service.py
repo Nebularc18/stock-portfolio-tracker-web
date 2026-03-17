@@ -59,20 +59,30 @@ EXCHANGE_PAIRS = {
 
 _cache: Dict[str, tuple] = {}
 _cache_ttl = 3600
+_session: Optional[requests.Session] = None
 
 
-def _build_session() -> requests.Session:
-    session = requests.Session()
-    session.headers.update({
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-        'Accept': 'application/json, text/plain, */*',
-        'Accept-Language': 'en-US,en;q=0.9',
-    })
-    return session
+def _get_session() -> requests.Session:
+    global _session
+    if _session is None:
+        _session = requests.Session()
+        _session.headers.update({
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+            'Accept': 'application/json, text/plain, */*',
+            'Accept-Language': 'en-US,en;q=0.9',
+        })
+    return _session
+
+
+def close_session() -> None:
+    global _session
+    if _session is not None:
+        _session.close()
+        _session = None
 
 
 def _fetch_latest_price(symbol: str) -> Optional[float]:
-    session = _build_session()
+    session = _get_session()
     try:
         url = f"https://query1.finance.yahoo.com/v8/finance/chart/{symbol}?interval=1d&range=5d"
         response = session.get(url, timeout=5)
@@ -90,8 +100,6 @@ def _fetch_latest_price(symbol: str) -> Optional[float]:
     except Exception as e:
         logger.error(f"Error fetching latest price for {symbol}: {e}")
         return None
-    finally:
-        session.close()
 
 
 class ExchangeRateService:

@@ -20,7 +20,7 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
-    image: ghcr.io/${GHCR_OWNER:-nebularc18}/stock-portfolio-tracker:latest
+    image: ghcr.io/${GHCR_OWNER:-nebularc18}/stock-portfolio-tracker:${IMAGE_TAG:-local}
     restart: unless-stopped
     ports:
       - "8000:8000"

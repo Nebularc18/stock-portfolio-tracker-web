@@ -727,6 +727,7 @@ async def lifespan(app: FastAPI):
     Yields:
         None
     """
+    from app.services.exchange_rate_service import close_session as close_exchange_rate_session
     from app.services.scheduler import start_scheduler, stop_scheduler
     validate_auth_token_secret()
     run_startup_schema_seed = os.getenv("RUN_STARTUP_SCHEMA_SEED", "1").lower() not in {"0", "false", "no"}
@@ -740,6 +741,7 @@ async def lifespan(app: FastAPI):
     logger.info("Application started")
     yield
     stop_scheduler()
+    close_exchange_rate_session()
     logger.info("Application shutdown")
 
 

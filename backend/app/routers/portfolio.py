@@ -7,6 +7,7 @@ performance, distribution analysis, and bulk refresh operations.
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.orm import Session
+from dataclasses import dataclass
 from datetime import date, datetime, timezone
 from typing import List, Optional
 import logging
@@ -67,14 +68,28 @@ def sort_event_date(value) -> date:
     return parsed if parsed is not None else date.max
 
 
-def apply_position_snapshot(stock: Stock) -> Stock:
-    stock.position_entries = normalize_position_entries(getattr(stock, 'position_entries', None), stock.quantity, stock.purchase_price, stock.purchase_date)
-    snapshot = calculate_position_snapshot(stock.position_entries)
-    stock.quantity = snapshot['quantity']
-    stock.purchase_price = snapshot['purchase_price']
-    stock.purchase_date = parse_event_date(snapshot['purchase_date'])
-    stock.position_entries = snapshot['position_entries']
-    return stock
+@dataclass(frozen=True)
+class PositionSnapshot:
+    quantity: float
+    purchase_price: Optional[float]
+    purchase_date: Optional[date]
+    position_entries: list[dict]
+
+
+def apply_position_snapshot(stock: Stock) -> PositionSnapshot:
+    position_entries = normalize_position_entries(
+        getattr(stock, 'position_entries', None),
+        stock.quantity,
+        stock.purchase_price,
+        stock.purchase_date,
+    )
+    snapshot = calculate_position_snapshot(position_entries)
+    return PositionSnapshot(
+        quantity=float(snapshot['quantity']),
+        purchase_price=snapshot['purchase_price'],
+        purchase_date=parse_event_date(snapshot['purchase_date']),
+        position_entries=snapshot['position_entries'],
+    )
 
 
 def normalize_dividend_event(raw_div: dict, event_type: str) -> dict:
@@ -317,9 +332,9 @@ def get_portfolio_summary(db: Session = Depends(get_db), current_user: User = De
     unconverted_stocks = []
     
     for stock in stocks:
-        apply_position_snapshot(stock)
-        if stock.current_price is not None and stock.quantity is not None:
-            current_value_native = stock.current_price * stock.quantity
+        snapshot = apply_position_snapshot(stock)
+        if stock.current_price is not None and snapshot.quantity is not None:
+            current_value_native = stock.current_price * snapshot.quantity
             current_value = convert_value(current_value_native, stock.currency, display_currency, rates)
             
             if current_value is None:
@@ -335,7 +350,7 @@ def get_portfolio_summary(db: Session = Depends(get_db), current_user: User = De
                 stock_data.append({
                     "ticker": stock.ticker,
                     "name": stock.name,
-                    "quantity": stock.quantity,
+                    "quantity": snapshot.quantity,
                     "current_price": stock.current_price,
                     "current_value": current_value_native,
                     "currency": stock.currency,
@@ -353,8 +368,8 @@ def get_portfolio_summary(db: Session = Depends(get_db), current_user: User = De
             cost_native = 0
             cost = 0
             cost_converted = False
-            if stock.purchase_price is not None:
-                cost_native = stock.purchase_price * stock.quantity
+            if snapshot.purchase_price is not None:
+                cost_native = snapshot.purchase_price * snapshot.quantity
                 cost = convert_value(cost_native, stock.currency, display_currency, rates)
                 if cost is None:
                     logger.warning(
@@ -382,7 +397,7 @@ def get_portfolio_summary(db: Session = Depends(get_db), current_user: User = De
             stock_data.append({
                 "ticker": stock.ticker,
                 "name": stock.name,
-                "quantity": stock.quantity,
+                "quantity": snapshot.quantity,
                 "current_price": stock.current_price,
                 "current_value": current_value,
                 "currency": stock.currency,
@@ -391,7 +406,7 @@ def get_portfolio_summary(db: Session = Depends(get_db), current_user: User = De
                 "gain_loss": gain_loss,
                 "gain_loss_percent": gain_loss_percent,
                 "current_value_converted": True,
-                "cost_converted": cost_converted if stock.purchase_price is not None else True,
+                "cost_converted": cost_converted if snapshot.purchase_price is not None else True,
             })
     
     total_gain_loss_percent = (total_gain_loss / total_cost * 100) if total_cost > 0 else 0
@@ -439,7 +454,7 @@ def refresh_all_prices(db: Session = Depends(get_db), current_user: User = Depen
     request_ts = utc_now()
     today = request_ts.replace(hour=0, minute=0, second=0, microsecond=0)
     for stock in stocks:
-        apply_position_snapshot(stock)
+        snapshot = apply_position_snapshot(stock)
         info = stock_service.get_stock_info(stock.ticker)
         if info:
             stock.current_price = info.get('current_price')
@@ -484,8 +499,8 @@ def refresh_all_prices(db: Session = Depends(get_db), current_user: User = Depen
             )
             db.execute(price_stmt)
         
-        if stock.current_price is not None and stock.quantity is not None:
-            value = stock.current_price * stock.quantity
+        if stock.current_price is not None and snapshot.quantity is not None:
+            value = stock.current_price * snapshot.quantity
             converted_value = convert_value(value, stock.currency, 'SEK', rates)
             if converted_value is not None:
                 total_value_sek += converted_value
@@ -598,17 +613,17 @@ def get_portfolio_distribution(db: Session = Depends(get_db), current_user: User
     by_stock = {}
     
     for stock in stocks:
-        apply_position_snapshot(stock)
-        if not has_position_history(getattr(stock, 'position_entries', None), stock.quantity):
+        snapshot = apply_position_snapshot(stock)
+        if not has_position_history(snapshot.position_entries, snapshot.quantity):
             continue
-        if stock.quantity is None or stock.quantity <= 0:
+        if snapshot.quantity is None or snapshot.quantity <= 0:
             continue
 
-        unit_price = stock.current_price if stock.current_price is not None else stock.purchase_price
+        unit_price = stock.current_price if stock.current_price is not None else snapshot.purchase_price
         if unit_price is None:
             continue
 
-        value_native = unit_price * stock.quantity
+        value_native = unit_price * snapshot.quantity
         by_currency[stock.currency] = by_currency.get(stock.currency, 0) + value_native
         value = convert_value(value_native, stock.currency, display_currency, rates)
         if value is None:
@@ -681,8 +696,8 @@ def get_upcoming_portfolio_dividends(db: Session = Depends(get_db), current_user
     current_year = now.year
 
     for stock in stocks:
-        apply_position_snapshot(stock)
-        if not has_position_history(getattr(stock, 'position_entries', None), stock.quantity):
+        snapshot = apply_position_snapshot(stock)
+        if not has_position_history(snapshot.position_entries, snapshot.quantity):
             continue
         avanza_mapping = avanza_service.get_mapping_by_ticker(stock.ticker)
         no_avanza_mapping = avanza_mapping is None or not avanza_mapping.instrument_id
@@ -719,7 +734,7 @@ def get_upcoming_portfolio_dividends(db: Session = Depends(get_db), current_user
                 continue
 
             entitlement_date = ex_date_parsed or payout_date_parsed
-            quantity_on_entitlement = get_quantity_held_on_date(getattr(stock, 'position_entries', None), entitlement_date)
+            quantity_on_entitlement = get_quantity_held_on_date(snapshot.position_entries, entitlement_date)
             if quantity_on_entitlement <= 0:
                 continue
 

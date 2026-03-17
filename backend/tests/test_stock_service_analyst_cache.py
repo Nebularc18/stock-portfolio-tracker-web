@@ -71,6 +71,36 @@ def test_legacy_empty_aggregate_cache_is_ignored(monkeypatch):
     assert result["yfinance"] is not None
 
 
+def test_marked_empty_aggregate_cache_is_respected(monkeypatch):
+    service = StockService()
+    stock_service._ANALYST_ALL_CACHE.clear()
+
+    monkeypatch.setattr(
+        "app.services.stock_service._load_file_cache",
+        lambda _filename: {
+            "cache_status": "hit",
+            "cache_kind": stock_service._ANALYST_ALL_CACHE_KIND,
+            "has_recommendations": False,
+            "yfinance": None,
+            "finnhub": None,
+        },
+    )
+    monkeypatch.setattr(
+        service,
+        "_get_yfinance_recommendations",
+        lambda _ticker: (_ for _ in ()).throw(AssertionError("should not refetch yfinance recommendations")),
+    )
+    monkeypatch.setattr(
+        service,
+        "_get_finnhub_recommendations",
+        lambda _ticker: (_ for _ in ()).throw(AssertionError("should not refetch finnhub recommendations")),
+    )
+
+    result = service.get_all_analyst_recommendations("MSFT")
+
+    assert result == {"yfinance": None, "finnhub": None}
+
+
 def test_price_target_fallback_uses_short_cache_ttl(monkeypatch):
     service = StockService()
     stock_service._PRICE_TARGETS_CACHE.clear()
@@ -106,6 +136,34 @@ def test_price_target_fallback_uses_short_cache_ttl(monkeypatch):
         "note": "52-week range (analyst targets unavailable)",
     }
     assert saved[-1][2] == stock_service._PRICE_TARGETS_FALLBACK_CACHE_TTL
+
+
+def test_marked_empty_price_target_cache_is_respected(monkeypatch):
+    service = StockService()
+    stock_service._PRICE_TARGETS_CACHE.clear()
+
+    monkeypatch.setattr(
+        "app.services.stock_service._load_file_cache",
+        lambda _filename: {
+            "cache_status": "hit",
+            "cache_kind": stock_service._PRICE_TARGETS_CACHE_KIND,
+            "has_price_targets": False,
+            "value": None,
+        },
+    )
+    monkeypatch.setattr(
+        "app.services.stock_service.importlib.import_module",
+        lambda _name: (_ for _ in ()).throw(AssertionError("should not refetch yfinance price targets")),
+    )
+    monkeypatch.setattr(
+        service,
+        "get_quote_extended",
+        lambda _ticker: (_ for _ in ()).throw(AssertionError("should not refetch fallback price targets")),
+    )
+
+    result = service.get_price_targets("MSFT")
+
+    assert result is None
 
 
 def test_quote_page_fallback_extracts_recommendations_and_targets(monkeypatch):

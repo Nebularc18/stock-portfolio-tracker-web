@@ -137,8 +137,20 @@ export default function InfographicLayout() {
     const element = indicesScrollerRef.current
     if (!element || element.scrollWidth <= element.clientWidth) return
 
-    const delta = Math.abs(event.deltaX) > Math.abs(event.deltaY) ? event.deltaX : event.deltaY
+    const deltaModeFactor = event.deltaMode === 1
+      ? 16
+      : event.deltaMode === 2
+        ? element.clientHeight
+        : 1
+    const normalizedDeltaX = event.deltaX * deltaModeFactor
+    const normalizedDeltaY = event.deltaY * deltaModeFactor
+    const delta = Math.abs(normalizedDeltaX) > Math.abs(normalizedDeltaY) ? normalizedDeltaX : normalizedDeltaY
     if (delta === 0) return
+
+    const maxScrollLeft = Math.max(0, element.scrollWidth - element.clientWidth)
+    const canScrollForward = delta > 0 && element.scrollLeft < maxScrollLeft - 1
+    const canScrollBackward = delta < 0 && element.scrollLeft > 1
+    if (!canScrollForward && !canScrollBackward) return
 
     event.preventDefault()
     element.scrollBy({ left: delta, behavior: 'auto' })
@@ -175,6 +187,8 @@ export default function InfographicLayout() {
             className={`tb-scroll-btn left${canScrollIndicesLeft ? ' visible' : ''}`}
             onClick={() => scrollIndicesByPage('left')}
             aria-label="Scroll market indices left"
+            aria-hidden={!canScrollIndicesLeft}
+            disabled={!canScrollIndicesLeft}
             tabIndex={canScrollIndicesLeft ? 0 : -1}
           >
             &lsaquo;
@@ -248,6 +262,8 @@ export default function InfographicLayout() {
             className={`tb-scroll-btn right${canScrollIndicesRight ? ' visible' : ''}`}
             onClick={() => scrollIndicesByPage('right')}
             aria-label="Scroll market indices right"
+            aria-hidden={!canScrollIndicesRight}
+            disabled={!canScrollIndicesRight}
             tabIndex={canScrollIndicesRight ? 0 : -1}
           >
             &rsaquo;

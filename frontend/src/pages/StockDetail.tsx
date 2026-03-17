@@ -547,6 +547,7 @@ export default function StockDetail() {
   useEffect(() => {
     setStock(null)
     setError(null)
+    setRefreshing(false)
     setCompanyProfile(null)
     setFinancialMetrics(null)
     setPeers([])

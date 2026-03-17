@@ -58,7 +58,7 @@ function isAuthUser(value: unknown): value is AuthUser {
   )
 }
 
-function getStoredAuthUser(): AuthUser | null {
+export function getStoredAuthUser(): AuthUser | null {
   const raw = localStorage.getItem(AUTH_STORAGE_KEY)
   if (!raw) return null
   try {
@@ -72,6 +72,10 @@ function getStoredAuthUser(): AuthUser | null {
     localStorage.removeItem(AUTH_STORAGE_KEY)
     return null
   }
+}
+
+export function setStoredAuthUser(authUser: AuthUser) {
+  localStorage.setItem(AUTH_STORAGE_KEY, JSON.stringify(authUser))
 }
 
 export function clearStoredAuthUser(notify: boolean = false) {

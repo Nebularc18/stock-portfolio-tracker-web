@@ -215,14 +215,14 @@ type SortField =
         purchase_date: entry.purchase_date || null,
         sell_date: entry.sell_date || null,
       }))
-      .filter((entry) => Number.isFinite(entry.quantity) && entry.quantity > 0)
 
     const hasInvalidEntry = normalizedEntries.some((entry) => {
+      const quantityValid = Number.isFinite(entry.quantity) && entry.quantity > 0
       const purchaseDateValid = !entry.purchase_date || (validDateFormat.test(entry.purchase_date) && entry.purchase_date <= maxPurchaseDate)
       const sellDateValid = !entry.sell_date || (validDateFormat.test(entry.sell_date) && entry.sell_date <= maxPurchaseDate)
       const purchasePriceValid = entry.purchase_price === null || (Number.isFinite(entry.purchase_price) && entry.purchase_price >= 0)
       const sellAfterPurchase = !entry.sell_date || !entry.purchase_date || entry.sell_date >= entry.purchase_date
-      return !purchaseDateValid || !sellDateValid || !purchasePriceValid || !sellAfterPurchase
+      return !quantityValid || !purchaseDateValid || !sellDateValid || !purchasePriceValid || !sellAfterPurchase
     })
 
     if (hasInvalidEntry) {
@@ -522,7 +522,7 @@ type SortField =
                   <div key={entry.id} style={{ padding: 12, border: '1px solid var(--border)', borderRadius: 8, background: 'rgba(255,255,255,0.02)', display: 'grid', gap: 10 }}>
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                       <span style={{ fontSize: 11, fontWeight: 700, color: 'var(--muted)', letterSpacing: '0.08em', textTransform: 'uppercase' }}>
-                        Lot {index + 1}
+                        {t(language, 'stocks.lot', { index: index + 1 })}
                       </span>
                       <button
                         type="button"
@@ -531,7 +531,7 @@ type SortField =
                         onClick={() => setEditEntries((current) => current.filter((candidate) => candidate.id !== entry.id))}
                         disabled={editEntries.length === 1}
                       >
-                        Remove
+                        {t(language, 'stocks.remove')}
                       </button>
                     </div>
                     <div>
@@ -578,7 +578,7 @@ type SortField =
                     </div>
                     <div>
                       <label style={{ display: 'block', marginBottom: 6, color: 'var(--muted)', fontSize: 11, fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase' }}>
-                        Sell Date
+                        {t(language, 'stocks.sellDate')}
                       </label>
                       <input
                         id={index === 0 ? editPurchasePriceInputId : undefined}
@@ -592,7 +592,7 @@ type SortField =
                   </div>
                 ))}
                 <button type="button" className="btn btn-secondary" onClick={() => setEditEntries((current) => [...current, createEmptyPositionEntry()])}>
-                  Add Lot
+                  {t(language, 'stocks.addLot')}
                 </button>
               </div>
               {editError && (
