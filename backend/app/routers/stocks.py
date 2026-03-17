@@ -4,9 +4,9 @@ This module provides API endpoints for managing stocks in a portfolio,
 including CRUD operations, dividend tracking, and analyst data.
 """
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Body, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
-from pydantic import BaseModel
+from pydantic import BaseModel, ValidationError
 from typing import Optional
 import uuid
 import logging
@@ -369,14 +369,14 @@ def get_stock(ticker: str, db: Session = Depends(get_db), current_user: User = D
 
 
 @router.post("", response_model=StockResponse)
-def create_stock(stock_data: StockCreate, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
+def create_stock(payload: dict = Body(...), db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
     """
     Create and persist a new stock record in the portfolio.
     
     Validates the provided ticker, fetches market metadata and a logo, sets timestamps, and saves the new Stock to the database.
     
     Parameters:
-        stock_data (StockCreate): Creation data containing at least `ticker`, `quantity`, and `purchase_price`.
+        payload (dict): Raw request body used to construct `StockCreate` inside the handler.
     
     Returns:
         Stock: The newly created stock record.
@@ -388,6 +388,17 @@ def create_stock(stock_data: StockCreate, db: Session = Depends(get_db), current
     from app.services.brandfetch_service import brandfetch_service
     stock_service = StockService()
     
+    try:
+        stock_data = StockCreate(**payload)
+    except ValidationError as exc:
+        raise HTTPException(
+            status_code=400,
+            detail={
+                "message": "Invalid stock create payload",
+                "errors": exc.errors(),
+            },
+        ) from exc
+
     ticker = stock_data.ticker.upper()
     logger.info(f"Attempting to add stock: {ticker}")
     
@@ -412,6 +423,11 @@ def create_stock(stock_data: StockCreate, db: Session = Depends(get_db), current
     
     logo = brandfetch_service.get_logo_url_for_ticker(ticker, info.get("name"))
     if stock_data.position_entries:
+        if {"quantity", "purchase_price", "purchase_date"} & set(payload):
+            raise HTTPException(
+                status_code=400,
+                detail="Provide either position_entries or scalar fields quantity, purchase_price, and purchase_date, not both.",
+            )
         try:
             position_entries = validate_position_entries(stock_data.position_entries)
             snapshot = calculate_position_snapshot(position_entries)
@@ -481,6 +497,11 @@ def update_stock(ticker: str, stock_data: StockUpdate, db: Session = Depends(get
     provided_fields = getattr(stock_data, "model_fields_set", getattr(stock_data, "__fields_set__", set()))
 
     if "position_entries" in provided_fields:
+        if {"quantity", "purchase_price", "purchase_date"} & set(provided_fields):
+            raise HTTPException(
+                status_code=400,
+                detail="Provide either position_entries or scalar fields quantity, purchase_price, and purchase_date, not both.",
+            )
         try:
             position_entries = validate_position_entries(stock_data.position_entries or [])
             snapshot = calculate_position_snapshot(position_entries)
