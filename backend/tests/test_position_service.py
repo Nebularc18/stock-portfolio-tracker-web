@@ -1,6 +1,6 @@
 import pytest
 
-from app.services.position_service import normalize_position_entries, validate_position_entries
+from app.services.position_service import get_quantity_held_on_date, normalize_position_entries, validate_position_entries
 
 
 def test_validate_position_entries_requires_list():
@@ -41,3 +41,15 @@ def test_validate_position_entries_rejects_invalid_dates():
             "purchase_date": "not-a-date",
             "sell_date": None,
         }])
+
+
+def test_get_quantity_held_on_date_uses_fallback_position():
+    quantity = get_quantity_held_on_date(
+        None,
+        "2024-02-01",
+        fallback_quantity=3,
+        fallback_purchase_price=10,
+        fallback_purchase_date="2024-01-01",
+    )
+
+    assert quantity == 3

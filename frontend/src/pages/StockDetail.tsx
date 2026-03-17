@@ -640,8 +640,8 @@ export default function StockDetail() {
 
   const loadMarketstackStatus = useCallback((force: boolean = false) => {
     if (!ticker) return Promise.resolve()
-    if (!force && (marketstackStatus || marketstackRequestRef.current)) return Promise.resolve()
     if (marketstackRequestRef.current) return marketstackRequestRef.current
+    if (!force && marketstackStatus) return Promise.resolve()
 
     const activeTicker = ticker
     const request = api.marketstack.status()
@@ -1061,7 +1061,7 @@ export default function StockDetail() {
     (div) => `${div.ex_date}|${div.payment_date ?? ''}|${div.source ?? ''}`
   )
   const sortedHistoryDividends = sortTableItems(
-    dividends.slice(0, 20),
+    dividends,
     historySortState,
     {
       date: (div) => div.date,
@@ -1069,7 +1069,7 @@ export default function StockDetail() {
     },
     locale,
     (div) => `${div.date}|${div.amount}|${div.currency ?? stock.currency}`
-  )
+  ).slice(0, 20)
   const sortedVerificationDiscrepancies = sortTableItems(
     verificationResult?.discrepancies ?? [],
     verificationSortState,

@@ -483,18 +483,20 @@ def update_stock(ticker: str, stock_data: StockUpdate, db: Session = Depends(get
             stock.purchase_date = stock_data.purchase_date
         scalar_patch_fields = {"quantity", "purchase_price", "purchase_date"} & set(provided_fields)
         if scalar_patch_fields and isinstance(getattr(stock, 'position_entries', None), list):
-            historical_entries = [
-                entry
-                for entry in normalize_position_entries(stock.position_entries)
-                if entry.get('sell_date')
-            ]
-            stock.position_entries = [{
-                'id': str(uuid.uuid4()),
-                'quantity': stock.quantity,
-                'purchase_price': stock.purchase_price,
-                'purchase_date': stock.purchase_date,
-                'sell_date': None,
-            }, *historical_entries]
+            updated_entries = []
+            for entry in stock.position_entries:
+                if not isinstance(entry, dict):
+                    continue
+                updated_entry = dict(entry)
+                if not updated_entry.get('sell_date'):
+                    if "quantity" in scalar_patch_fields:
+                        updated_entry['quantity'] = stock.quantity
+                    if "purchase_price" in scalar_patch_fields:
+                        updated_entry['purchase_price'] = stock.purchase_price
+                    if "purchase_date" in scalar_patch_fields:
+                        updated_entry['purchase_date'] = stock.purchase_date
+                updated_entries.append(updated_entry)
+            stock.position_entries = updated_entries
         stock.position_entries = normalize_position_entries(getattr(stock, 'position_entries', None), stock.quantity, stock.purchase_price, stock.purchase_date)
         snapshot = calculate_position_snapshot(stock.position_entries)
         stock.quantity = snapshot['quantity']
@@ -667,9 +669,10 @@ def get_upcoming_dividends(ticker: str, db: Session = Depends(get_db), current_u
     
     started_at = time.perf_counter()
     normalized_ticker = stock.ticker or ticker.upper()
+    ownership_entries = _get_normalized_stock_position_entries(stock)
     historical_dividends = [
         div for div in (stock_service.get_dividends(normalized_ticker, 2) or [])
-        if get_quantity_held_on_date(getattr(stock, 'position_entries', None), div.get('date')) > 0
+        if get_quantity_held_on_date(ownership_entries, div.get('date')) > 0
     ]
     historical_event_keys = {
         (
@@ -700,7 +703,7 @@ def get_upcoming_dividends(ticker: str, db: Session = Depends(get_db), current_u
                 )
                 if event_key in seen_event_keys:
                     continue
-                if get_quantity_held_on_date(getattr(stock, 'position_entries', None), div.ex_date) <= 0:
+                if get_quantity_held_on_date(ownership_entries, div.ex_date) <= 0:
                     continue
                 cutoff_date = _parse_event_date(div.payment_date or div.ex_date)
                 if cutoff_date and cutoff_date <= today:
@@ -726,7 +729,7 @@ def get_upcoming_dividends(ticker: str, db: Session = Depends(get_db), current_u
                 )
                 if event_key in seen_event_keys:
                     continue
-                if get_quantity_held_on_date(getattr(stock, 'position_entries', None), div.get('ex_date')) <= 0:
+                if get_quantity_held_on_date(ownership_entries, div.get('ex_date')) <= 0:
                     continue
                 cutoff_date = _parse_event_date(div.get('payment_date') or div.get('ex_date'))
                 if cutoff_date and cutoff_date <= today:
@@ -745,7 +748,7 @@ def get_upcoming_dividends(ticker: str, db: Session = Depends(get_db), current_u
     upcoming = stock_service.get_upcoming_dividends(normalized_ticker) or []
     filtered_upcoming = [
         div for div in upcoming
-        if get_quantity_held_on_date(getattr(stock, 'position_entries', None), div.get('ex_date')) > 0
+        if get_quantity_held_on_date(ownership_entries, div.get('ex_date')) > 0
         and not (
             (cutoff_date := _parse_event_date(div.get('payment_date') or div.get('ex_date')))
             and cutoff_date <= today

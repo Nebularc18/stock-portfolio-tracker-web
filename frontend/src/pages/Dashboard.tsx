@@ -38,11 +38,19 @@ function isHistoryRangeKey(value: string | null): value is HistoryRangeKey {
 }
 
 function getStoredHistoryRange(userId?: number | null): HistoryRangeKey {
-  const userKey = userId ? `${DASHBOARD_HISTORY_RANGE_STORAGE_KEY}:${userId}` : null
-  const storedValue = userKey ? localStorage.getItem(userKey) : null
-  if (isHistoryRangeKey(storedValue)) return storedValue
-  const legacyValue = localStorage.getItem(DASHBOARD_HISTORY_RANGE_STORAGE_KEY)
-  return isHistoryRangeKey(legacyValue) ? legacyValue : DEFAULT_HISTORY_RANGE
+  try {
+    const storage = typeof window !== 'undefined' ? window.localStorage : null
+    if (!storage) return DEFAULT_HISTORY_RANGE
+    const userKey = userId !== null && userId !== undefined
+      ? `${DASHBOARD_HISTORY_RANGE_STORAGE_KEY}:${userId}`
+      : null
+    const storedValue = userKey ? storage.getItem(userKey) : null
+    if (isHistoryRangeKey(storedValue)) return storedValue
+    const legacyValue = storage.getItem(DASHBOARD_HISTORY_RANGE_STORAGE_KEY)
+    return isHistoryRangeKey(legacyValue) ? legacyValue : DEFAULT_HISTORY_RANGE
+  } catch {
+    return DEFAULT_HISTORY_RANGE
+  }
 }
 
 function getNextDashboardRefreshDelayMs(now: number = Date.now()): number {
@@ -350,9 +358,15 @@ export default function Dashboard() {
   }, [user?.id])
 
   useEffect(() => {
-    localStorage.setItem(DASHBOARD_HISTORY_RANGE_STORAGE_KEY, historyRange)
-    if (user?.id) {
-      localStorage.setItem(`${DASHBOARD_HISTORY_RANGE_STORAGE_KEY}:${user.id}`, historyRange)
+    try {
+      const storage = typeof window !== 'undefined' ? window.localStorage : null
+      if (!storage) return
+      storage.setItem(DASHBOARD_HISTORY_RANGE_STORAGE_KEY, historyRange)
+      if (user?.id !== null && user?.id !== undefined) {
+        storage.setItem(`${DASHBOARD_HISTORY_RANGE_STORAGE_KEY}:${user.id}`, historyRange)
+      }
+    } catch {
+      // Ignore storage write failures.
     }
   }, [historyRange, user?.id])
 

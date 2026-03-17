@@ -29,6 +29,12 @@ def normalize_position_entries(
     fallback_purchase_price: Optional[float] = None,
     fallback_purchase_date: Any = None,
 ) -> list[dict[str, Any]]:
+    """Normalize lot entries and synthesize a fallback open lot when needed.
+
+    This function may mutate input entry dicts by assigning `entry['id']` when
+    an entry is missing an ID so repeated normalization returns a stable ID.
+    Callers that require immutability should pass copies before calling.
+    """
     normalized: list[dict[str, Any]] = []
 
     raw_entries = entries if isinstance(entries, list) else []
@@ -160,14 +166,25 @@ def calculate_position_snapshot(entries: Any) -> dict[str, Any]:
     }
 
 
-def get_quantity_held_on_date(entries: Any, target_date: Any) -> float:
+def get_quantity_held_on_date(
+    entries: Any,
+    target_date: Any,
+    fallback_quantity: Optional[float] = None,
+    fallback_purchase_price: Optional[float] = None,
+    fallback_purchase_date: Any = None,
+) -> float:
     """Return quantity owned strictly before `resolved_target_date`.
 
     Entries bought on `resolved_target_date` (`purchase_date >= resolved_target_date`)
     or sold on `resolved_target_date` (`sell_date <= resolved_target_date`) are
     excluded deliberately to preserve ex-date entitlement semantics.
     """
-    normalized = normalize_position_entries(entries)
+    normalized = normalize_position_entries(
+        entries,
+        fallback_quantity=fallback_quantity,
+        fallback_purchase_price=fallback_purchase_price,
+        fallback_purchase_date=fallback_purchase_date,
+    )
     resolved_target_date = parse_position_date(target_date)
     if resolved_target_date is None:
         return sum(float(entry['quantity']) for entry in normalized if not entry.get('sell_date'))
