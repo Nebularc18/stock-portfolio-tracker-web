@@ -239,6 +239,16 @@ docker build -t ghcr.io/YOUR_USERNAME/stock-portfolio-tracker:latest .
 docker compose up -d
 ```
 
+### Publishing to GHCR from GitHub Actions
+
+Merges and direct pushes to `main` now trigger the `.github/workflows/publish-ghcr.yml` workflow, which builds the root `Dockerfile` and publishes:
+
+- `ghcr.io/<owner>/stock-portfolio-tracker:latest`
+- `ghcr.io/<owner>/stock-portfolio-tracker:main`
+- `ghcr.io/<owner>/stock-portfolio-tracker:sha-<commit>`
+
+The workflow uses the repository `GITHUB_TOKEN`, so the repository needs GitHub Actions enabled and package publishing permissions available for the token.
+
 ### Database Migrations
 
 When adding new columns to the database:
