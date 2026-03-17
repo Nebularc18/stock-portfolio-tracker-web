@@ -30,6 +30,7 @@ A modern web-based stock portfolio tracker built with React, FastAPI, and Postgr
 ## Prerequisites
 
 - Docker and Docker Compose
+- Docker Buildx for multi-architecture image builds
 - Git
 
 ## Quick Start
@@ -46,9 +47,65 @@ A modern web-based stock portfolio tracker built with React, FastAPI, and Postgr
    ```
 
 3. **Access the application**
-   - Frontend: http://localhost:3000
+   - App (frontend + API): http://localhost:8000
    - Backend API: http://localhost:8000
    - API Documentation: http://localhost:8000/docs
+
+## Server Compose (Copy/Paste)
+
+Create a `docker-compose.yml` on your server with this content:
+
+```yaml
+version: "3.8"
+
+services:
+  postgres:
+    image: postgres:15-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  app:
+    image: ghcr.io/nebularc18/stock-portfolio-tracker:${IMAGE_TAG}
+    restart: unless-stopped
+    ports:
+      - "8080:8000"
+    environment:
+      DATABASE_URL: ${DATABASE_URL}
+      AUTH_TOKEN_SECRET: ${AUTH_TOKEN_SECRET}
+      DEFAULT_USERNAME: ${DEFAULT_USERNAME}
+      DEFAULT_PASSWORD: ${DEFAULT_PASSWORD}
+      GUEST_USERNAME: ${GUEST_USERNAME}
+      GUEST_PASSWORD: ${GUEST_PASSWORD}
+      FINNHUB_API_KEY: ${FINNHUB_API_KEY}
+      MARKETSTACK_API_KEY: ${MARKETSTACK_API_KEY}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    volumes:
+      - cache_data:/app/data/cache
+
+volumes:
+  postgres_data:
+  cache_data:
+```
+
+Then run:
+
+```bash
+export IMAGE_TAG=<published-tag>
+docker compose pull
+docker compose up -d
+```
 
 ## Usage
 
@@ -150,15 +207,15 @@ The application uses these environment variables:
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `DATABASE_URL` | `postgresql://portfolio:portfolio@postgres:5432/portfolio` | PostgreSQL connection string |
-| `FINNHUB_API_KEY` | - | Finnhub API key for company profile and market data |
-| `MARKETSTACK_API_KEY` | - | Marketstack API key for dividend verification and status |
-| `AUTH_TOKEN_SECRET` | - | Required signing secret for backend auth tokens |
-| `DEFAULT_USERNAME` | `admin` | Seeded default username for local setup |
-| `DEFAULT_PASSWORD` | `admin123` | Seeded default password for local setup |
-| `GUEST_USERNAME` | `guest` | Seeded guest username |
-| `GUEST_PASSWORD` | `guest-demo-password` | Seeded guest password |
+| `FINNHUB_API_KEY` | `<your-api-key>` | Finnhub API key for company profile and market data |
+| `MARKETSTACK_API_KEY` | `<your-api-key>` | Marketstack API key for dividend verification and status |
+| `AUTH_TOKEN_SECRET` | `<generate-a-secure-random-secret>` | Required signing secret for backend auth tokens |
+| `DEFAULT_USERNAME` | `<your-admin-username>` | Seeded default username for local setup |
+| `DEFAULT_PASSWORD` | `<strong-password>` | Seeded default password for local setup |
+| `GUEST_USERNAME` | `<optional-guest-username>` | Optional seeded guest username |
+| `GUEST_PASSWORD` | `<optional-guest-password>` | Optional seeded guest password; leave unset to auto-generate |
 
-Important: the seeded `DEFAULT_*` and `GUEST_*` credentials are for local development only. The backend auto-creates these accounts on startup when seeding is enabled, so do not keep the default values in production. Rotate or remove them and disable seeding before exposing the app publicly.
+Important: the seeded `DEFAULT_*` and `GUEST_*` credentials are for local development only. The backend auto-creates these accounts on startup when seeding is enabled, so do not keep placeholder or weak values in production. Rotate or remove them and disable seeding before exposing the app publicly.
 
 ### Timezone Settings
 
@@ -170,15 +227,37 @@ Important: the seeded `DEFAULT_*` and `GUEST_*` credentials are for local develo
 ### Running in Development Mode
 
 ```bash
-# Start services
-docker compose up -d
+# Start services (builds a local image first)
+docker compose up -d --build
 
 # View logs
 docker compose logs -f
 
-# Rebuild after changes
+# Pull a published image after setting IMAGE_TAG
+docker compose pull
+
+# Rebuild locally after changes (tag must match docker-compose.yml)
+docker build -t ghcr.io/YOUR_USERNAME/stock-portfolio-tracker:local .
 docker compose up -d --build
 ```
+
+### Multi-Architecture Builds
+
+The root `Dockerfile` and `frontend/Dockerfile` are compatible with both `linux/amd64` and `linux/arm64`.
+
+Build and push a multi-architecture image locally with Buildx:
+
+```bash
+docker buildx build \
+  --platform linux/amd64,linux/arm64 \
+  -t ghcr.io/YOUR_USERNAME/stock-portfolio-tracker:<release-tag> \
+  --push \
+  .
+```
+
+This repository also includes a GitHub Actions workflow that publishes a multi-architecture GHCR image for the default branch and version tags.
+
+For local development, `docker compose` now builds the app image from the checked-out source so it works even if the remote GHCR tag has not been published for your CPU architecture yet.
 
 ### Database Migrations
 
@@ -191,16 +270,30 @@ docker exec stock-portfolio-tracker-web-postgres-1 psql -U portfolio -d portfoli
 For the `stocks.logo` column migration in this repository, run:
 
 ```bash
-docker compose exec backend python backend/migrations/20260304_add_stocks_logo_column.py upgrade
+docker compose exec app python migrations/20260304_add_stocks_logo_column.py upgrade
 ```
 
 Run this migration during deployment before starting new backend code that reads/writes `stock.logo`.
+
+For the `stocks.position_entries` migration in this repository, run:
+
+```bash
+docker compose exec app python migrations/20260317_add_stocks_position_entries.py upgrade
+```
+
+Deploy this migration before starting backend code that reads or writes lot-level `position_entries`.
 
 For the timezone migration (`backend/migrations/20260305_add_timezone_to_datetime_columns.py`):
 
 - Validate first on a staging copy of production.
 - Run during a maintenance/low-traffic window because `ALTER COLUMN TYPE` can acquire strong table locks.
 - Prepare rollback by running the same script with `downgrade`.
+
+For rollout safety with the `position_entries` schema change:
+
+- Validate the migration first on a staging copy of production.
+- Run `docker compose exec app python migrations/20260317_add_stocks_position_entries.py upgrade` during a maintenance or low-traffic window before deploying the new backend.
+- Prepare rollback with `docker compose exec app python migrations/20260317_add_stocks_position_entries.py downgrade`.
 
 ## Project Structure
 

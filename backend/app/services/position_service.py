@@ -1,0 +1,228 @@
+from __future__ import annotations
+
+from datetime import date, datetime
+from typing import Any, Optional
+import uuid
+
+
+def parse_position_date(value: Any) -> Optional[date]:
+    if value in (None, ''):
+        return None
+    if isinstance(value, date) and not isinstance(value, datetime):
+        return value
+    if isinstance(value, datetime):
+        return value.date()
+    if isinstance(value, str):
+        try:
+            return date.fromisoformat(value)
+        except ValueError:
+            try:
+                return datetime.fromisoformat(value).date()
+            except ValueError:
+                return None
+    return None
+
+
+def normalize_position_entries(
+    entries: Any,
+    fallback_quantity: Optional[float] = None,
+    fallback_purchase_price: Optional[float] = None,
+    fallback_purchase_date: Any = None,
+) -> list[dict[str, Any]]:
+    """Normalize lot entries and synthesize a fallback open lot when needed.
+
+    This function may mutate input entry dicts by assigning `entry['id']` when
+    an entry is missing an ID so repeated normalization returns a stable ID.
+    Callers that require immutability should pass copies before calling.
+    """
+    normalized: list[dict[str, Any]] = []
+
+    raw_entries = entries if isinstance(entries, list) else []
+    for index, entry in enumerate(raw_entries):
+        if not isinstance(entry, dict):
+            continue
+
+        quantity_raw = entry.get('quantity')
+        try:
+            quantity = float(quantity_raw)
+        except (TypeError, ValueError):
+            continue
+        if quantity <= 0:
+            continue
+
+        purchase_price_raw = entry.get('purchase_price')
+        try:
+            purchase_price = None if purchase_price_raw in (None, '') else float(purchase_price_raw)
+        except (TypeError, ValueError):
+            purchase_price = None
+
+        purchase_date = parse_position_date(entry.get('purchase_date'))
+        sell_date = parse_position_date(entry.get('sell_date'))
+        entry_id = entry.get('id')
+        if not entry_id:
+            entry_id = str(uuid.uuid5(
+                uuid.NAMESPACE_URL,
+                "|".join([
+                    "position-entry",
+                    str(index),
+                    str(quantity),
+                    str(purchase_price),
+                    purchase_date.isoformat() if purchase_date else "",
+                    sell_date.isoformat() if sell_date else "",
+                ]),
+            ))
+            entry['id'] = entry_id
+
+        normalized.append({
+            'id': str(entry_id),
+            'quantity': quantity,
+            'purchase_price': purchase_price,
+            'purchase_date': purchase_date.isoformat() if purchase_date else None,
+            'sell_date': sell_date.isoformat() if sell_date else None,
+        })
+
+    if normalized:
+        normalized.sort(key=lambda item: (item.get('purchase_date') or '9999-12-31', item.get('sell_date') or '9999-12-31', item['id']))
+        return normalized
+
+    try:
+        fallback_qty = float(fallback_quantity) if fallback_quantity is not None else 0.0
+    except (TypeError, ValueError):
+        fallback_qty = 0.0
+
+    if fallback_qty > 0:
+        fallback_date = parse_position_date(fallback_purchase_date)
+        return [{
+            'id': str(uuid.uuid5(
+                uuid.NAMESPACE_URL,
+                "|".join([
+                    "fallback-position-entry",
+                    str(fallback_qty),
+                    str(fallback_purchase_price),
+                    fallback_date.isoformat() if fallback_date else "",
+                ]),
+            )),
+            'quantity': fallback_qty,
+            'purchase_price': fallback_purchase_price,
+            'purchase_date': fallback_date.isoformat() if fallback_date else None,
+            'sell_date': None,
+        }]
+
+    return []
+
+
+def validate_position_entries(entries: Any) -> list[dict[str, Any]]:
+    if not isinstance(entries, list):
+        raise ValueError('position_entries must be a list')
+
+    for entry in entries:
+        if not isinstance(entry, dict):
+            raise ValueError('each position entry must be an object')
+
+        for required_key in ('quantity', 'purchase_price', 'purchase_date'):
+            if required_key not in entry:
+                raise ValueError(f'position entry missing required field: {required_key}')
+
+        quantity_raw = entry.get('quantity')
+        try:
+            quantity = float(quantity_raw)
+        except (TypeError, ValueError):
+            raise ValueError('quantity must be a number') from None
+        if quantity <= 0:
+            raise ValueError('quantity must be greater than zero')
+
+        purchase_price_raw = entry.get('purchase_price')
+        if purchase_price_raw not in (None, ''):
+            try:
+                purchase_price = float(purchase_price_raw)
+            except (TypeError, ValueError):
+                raise ValueError('purchase_price must be a number') from None
+            if purchase_price < 0:
+                raise ValueError('purchase_price must be greater than or equal to zero')
+
+        purchase_date_raw = entry.get('purchase_date')
+        if purchase_date_raw not in (None, '') and parse_position_date(purchase_date_raw) is None:
+            raise ValueError('purchase_date must be a valid date')
+
+        sell_date_raw = entry.get('sell_date')
+        if sell_date_raw not in (None, '') and parse_position_date(sell_date_raw) is None:
+            raise ValueError('sell_date must be a valid date')
+
+    normalized = normalize_position_entries(entries)
+
+    for entry in normalized:
+        purchase_date = parse_position_date(entry.get('purchase_date'))
+        sell_date = parse_position_date(entry.get('sell_date'))
+        if sell_date and purchase_date and sell_date < purchase_date:
+            raise ValueError('sell date cannot be earlier than purchase date')
+
+    return normalized
+
+
+def calculate_position_snapshot(entries: Any) -> dict[str, Any]:
+    normalized = normalize_position_entries(entries)
+    open_entries = [entry for entry in normalized if not entry.get('sell_date')]
+    quantity = sum(float(entry['quantity']) for entry in open_entries)
+
+    total_cost = 0.0
+    total_quantity_for_cost = 0.0
+    purchase_dates: list[str] = []
+
+    for entry in open_entries:
+        purchase_dates.append(entry.get('purchase_date') or '')
+        purchase_price = entry.get('purchase_price')
+        if purchase_price is None:
+            continue
+        total_cost += float(purchase_price) * float(entry['quantity'])
+        total_quantity_for_cost += float(entry['quantity'])
+
+    return {
+        'quantity': quantity,
+        'purchase_price': (total_cost / total_quantity_for_cost) if total_quantity_for_cost > 0 else None,
+        'purchase_date': min((value for value in purchase_dates if value), default=None),
+        'position_entries': normalized,
+    }
+
+
+def get_quantity_held_on_date(
+    entries: Any,
+    target_date: Any,
+    fallback_quantity: Optional[float] = None,
+    fallback_purchase_price: Optional[float] = None,
+    fallback_purchase_date: Any = None,
+) -> float:
+    """Return quantity owned strictly before `resolved_target_date`.
+
+    Entries bought on `resolved_target_date` (`purchase_date >= resolved_target_date`)
+    are excluded deliberately to preserve ex-date entitlement semantics. Entries
+    sold on `resolved_target_date` remain included.
+    """
+    normalized = normalize_position_entries(
+        entries,
+        fallback_quantity=fallback_quantity,
+        fallback_purchase_price=fallback_purchase_price,
+        fallback_purchase_date=fallback_purchase_date,
+    )
+    resolved_target_date = parse_position_date(target_date)
+    if resolved_target_date is None:
+        return sum(float(entry['quantity']) for entry in normalized if not entry.get('sell_date'))
+
+    quantity = 0.0
+    for entry in normalized:
+        purchase_date = parse_position_date(entry.get('purchase_date'))
+        sell_date = parse_position_date(entry.get('sell_date'))
+
+        # Boundary dates are exclusive for purchases but inclusive for same-day
+        # sells so ex-date lookups still count positions sold on the target date.
+        if purchase_date and purchase_date >= resolved_target_date:
+            continue
+        if sell_date and sell_date < resolved_target_date:
+            continue
+        quantity += float(entry['quantity'])
+
+    return quantity
+
+
+def has_position_history(entries: Any, fallback_quantity: Optional[float] = None) -> bool:
+    normalized = normalize_position_entries(entries, fallback_quantity=fallback_quantity)
+    return bool(normalized)

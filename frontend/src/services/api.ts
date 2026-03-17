@@ -1,5 +1,6 @@
 const API_BASE = '/api'
 export const AUTH_STORAGE_KEY = 'portfolioAuthUser'
+export const AUTH_EXPIRED_EVENT = 'portfolio-auth-expired'
 const SLOW_API_REQUEST_MS = 800
 const API_REQUEST_TIMEOUT_MS = 15000
 const encodePathSegment = (value: string) => encodeURIComponent(value)
@@ -57,7 +58,7 @@ function isAuthUser(value: unknown): value is AuthUser {
   )
 }
 
-function getStoredAuthUser(): AuthUser | null {
+export function getStoredAuthUser(): AuthUser | null {
   const raw = localStorage.getItem(AUTH_STORAGE_KEY)
   if (!raw) return null
   try {
@@ -70,6 +71,17 @@ function getStoredAuthUser(): AuthUser | null {
   } catch {
     localStorage.removeItem(AUTH_STORAGE_KEY)
     return null
+  }
+}
+
+export function setStoredAuthUser(authUser: AuthUser) {
+  localStorage.setItem(AUTH_STORAGE_KEY, JSON.stringify(authUser))
+}
+
+export function clearStoredAuthUser(notify: boolean = false) {
+  localStorage.removeItem(AUTH_STORAGE_KEY)
+  if (notify && typeof window !== 'undefined') {
+    window.dispatchEvent(new Event(AUTH_EXPIRED_EVENT))
   }
 }
 
@@ -116,6 +128,9 @@ async function fetchAPI(endpoint: string, options?: RequestInit) {
     }
 
     if (!response.ok) {
+      if (response.status === 401 && authUser) {
+        clearStoredAuthUser(true)
+      }
       const error = await response.json().catch(() => ({ detail: 'Unknown error' }))
       throw new Error(error.detail || 'Request failed')
     }
@@ -136,12 +151,21 @@ export interface Stock {
   logo: string | null
   purchase_price: number | null
   purchase_date: string | null
+  position_entries?: PositionEntry[]
   current_price: number | null
   previous_close: number | null
   dividend_yield: number | null
   dividend_per_share: number | null
   last_updated: string | null
   manual_dividends?: ManualDividend[]
+}
+
+export interface PositionEntry {
+  id: string
+  quantity: number
+  purchase_price: number | null
+  purchase_date: string | null
+  sell_date: string | null
 }
 
 export interface ManualDividend {
@@ -420,9 +444,9 @@ export const api = {
   stocks: {
     list: () => fetchAPI('/stocks') as Promise<Stock[]>,
     get: (ticker: string) => fetchAPI(`/stocks/${encodePathSegment(ticker)}`) as Promise<Stock>,
-    create: (data: { ticker: string; quantity: number; purchase_price?: number; purchase_date?: string }) => 
+    create: (data: { ticker: string; quantity: number; purchase_price?: number; purchase_date?: string; position_entries?: PositionEntry[] }) => 
       fetchAPI('/stocks', { method: 'POST', body: JSON.stringify(data) }) as Promise<Stock>,
-    update: (ticker: string, data: { quantity?: number; purchase_price?: number; purchase_date?: string | null }) =>
+    update: (ticker: string, data: { quantity?: number; purchase_price?: number; purchase_date?: string | null; position_entries?: PositionEntry[] }) =>
       fetchAPI(`/stocks/${encodePathSegment(ticker)}`, { method: 'PATCH', body: JSON.stringify(data) }) as Promise<Stock>,
     delete: (ticker: string) => fetchAPI(`/stocks/${encodePathSegment(ticker)}`, { method: 'DELETE' }),
     refresh: (ticker: string) => fetchAPI(`/stocks/${encodePathSegment(ticker)}/refresh`, { method: 'POST' }) as Promise<Stock>,

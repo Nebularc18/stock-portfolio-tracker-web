@@ -1,7 +1,11 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useMemo } from 'react'
 import { api, TickerMapping, Stock } from '../services/api'
 import { useSettings } from '../SettingsContext'
-import { t } from '../i18n'
+import { getLocaleForLanguage, t } from '../i18n'
+import SortableHeader from './SortableHeader'
+import { sortTableItems, useTableSort } from '../utils/tableSort'
+
+type SortField = 'avanzaName' | 'yahooTicker' | 'instrumentId'
 
 /**
  * Renders the Avanza-to-Yahoo ticker mappings management UI.
@@ -10,6 +14,7 @@ import { t } from '../i18n'
  */
 export default function AvanzaMappings() {
   const { language } = useSettings()
+  const locale = getLocaleForLanguage(language)
   const [mappings, setMappings] = useState<TickerMapping[]>([])
   const [stocks, setStocks] = useState<Stock[]>([])
   const [loading, setLoading] = useState(true)
@@ -24,10 +29,25 @@ export default function AvanzaMappings() {
     instrument_id: ''
   })
   const [saving, setSaving] = useState(false)
+  const { sortState, requestSort } = useTableSort<SortField>({ field: 'yahooTicker', direction: 'asc' })
 
   const unmappedStocks = stocks
     .filter(s => !mappings.some(m => m.yahoo_ticker.toUpperCase() === s.ticker.toUpperCase()))
     .sort((a, b) => a.ticker.localeCompare(b.ticker))
+
+  const sortedMappings = useMemo(() => (
+    sortTableItems(
+      mappings,
+      sortState,
+      {
+        avanzaName: (mapping) => mapping.avanza_name,
+        yahooTicker: (mapping) => mapping.yahoo_ticker,
+        instrumentId: (mapping) => mapping.instrument_id,
+      },
+      locale,
+      (mapping) => mapping.yahoo_ticker
+    )
+  ), [locale, mappings, sortState])
 
   useEffect(() => {
     fetchData()
@@ -283,14 +303,14 @@ export default function AvanzaMappings() {
         <table style={{ width: '100%' }}>
           <thead>
             <tr>
-              <th>{t(language, 'avanzaMappings.colAvanzaName')}</th>
-              <th>{t(language, 'avanzaMappings.colYahooTicker')}</th>
-              <th>{t(language, 'avanzaMappings.colInstrumentId')}</th>
+              <SortableHeader field="avanzaName" label={t(language, 'avanzaMappings.colAvanzaName')} sortState={sortState} onSort={requestSort} />
+              <SortableHeader field="yahooTicker" label={t(language, 'avanzaMappings.colYahooTicker')} sortState={sortState} onSort={requestSort} />
+              <SortableHeader field="instrumentId" label={t(language, 'avanzaMappings.colInstrumentId')} sortState={sortState} onSort={requestSort} />
               <th style={{ textAlign: 'right' }}>{t(language, 'common.actions')}</th>
             </tr>
           </thead>
           <tbody>
-            {mappings.map((mapping) => (
+            {sortedMappings.map((mapping) => (
               <tr key={mapping.avanza_name}>
                 <td style={{ fontWeight: '600' }}>{mapping.avanza_name}</td>
                 <td>
