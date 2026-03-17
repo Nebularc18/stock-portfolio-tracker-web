@@ -3,7 +3,9 @@ import { Link } from 'react-router-dom'
 import { api, Stock } from '../services/api'
 import { getLocaleForLanguage, t } from '../i18n'
 import { useSettings } from '../SettingsContext'
+import SortableHeader from '../components/SortableHeader'
 import { convertCurrencyToSEK } from '../utils/currency'
+import { sortTableItems, useTableSort } from '../utils/tableSort'
 
 /**
  * Format a numeric amount as a localized currency string.
@@ -61,8 +63,17 @@ function sanitizeCsvCell(value: string | number | null | undefined): string {
   return `"${escaped}"`
 }
 
-type SortField = 'ticker' | 'name' | 'value' | 'cost' | 'gain' | 'gainPercent' | 'dailyChange' | 'dailyChangePercent'
-type SortOrder = 'asc' | 'desc'
+type SortField =
+  | 'ticker'
+  | 'name'
+  | 'quantity'
+  | 'currency'
+  | 'value'
+  | 'cost'
+  | 'gain'
+  | 'gainPercent'
+  | 'dailyChange'
+  | 'dailyChangePercent'
 
 interface PerformanceData {
   ticker: string
@@ -94,7 +105,7 @@ interface PerformanceData {
  * @param onSort - Callback invoked with `field` when the header is clicked.
  * @returns The table header cell (<th>) element showing the label and an ascending/descending indicator when active.
  */
-function SortHeader({
+export function SortHeader({
   field,
   label,
   sortField,
@@ -104,7 +115,7 @@ function SortHeader({
   field: SortField
   label: string
   sortField: SortField
-  sortOrder: SortOrder
+  sortOrder: 'asc' | 'desc'
   onSort: (field: SortField) => void
 }) {
   const isActive = sortField === field
@@ -143,8 +154,7 @@ export default function Performance() {
   const [exchangeRates, setExchangeRates] = useState<Record<string, number | null>>({})
   const [loading, setLoading] = useState(true)
   const [loadError, setLoadError] = useState<Error | null>(null)
-  const [sortField, setSortField] = useState<SortField>('gainPercent')
-  const [sortOrder, setSortOrder] = useState<SortOrder>('desc')
+  const { sortState, requestSort } = useTableSort<SortField>({ field: 'ticker', direction: 'asc' })
   const { language } = useSettings()
   const locale = getLocaleForLanguage(language)
   const latestFetchIdRef = useRef(0)
@@ -225,64 +235,25 @@ export default function Performance() {
   ), [stocks, exchangeRates])
 
   const sortedData = useMemo(() => (
-    [...performanceData].sort((a, b) => {
-      let aVal: number | string | null = 0
-      let bVal: number | string | null = 0
-
-      switch (sortField) {
-        case 'ticker':
-          aVal = a.ticker
-          bVal = b.ticker
-          break
-        case 'name':
-          aVal = a.name || a.ticker || ''
-          bVal = b.name || b.ticker || ''
-          break
-        case 'value':
-          aVal = a.valueSEK
-          bVal = b.valueSEK
-          break
-        case 'cost':
-          aVal = a.costSEK
-          bVal = b.costSEK
-          break
-        case 'gain':
-          aVal = a.gainSEK
-          bVal = b.gainSEK
-          break
-        case 'gainPercent':
-          aVal = a.gainPercent
-          bVal = b.gainPercent
-          break
-        case 'dailyChange':
-          aVal = a.dailyChangeSEK
-          bVal = b.dailyChangeSEK
-          break
-        case 'dailyChangePercent':
-          aVal = a.dailyChangePercent ?? null
-          bVal = b.dailyChangePercent ?? null
-          break
-      }
-
-      if (typeof aVal === 'string' && typeof bVal === 'string') {
-        return sortOrder === 'asc' ? aVal.localeCompare(bVal) : bVal.localeCompare(aVal)
-      }
-      if (aVal === null && bVal === null) return 0
-      if (aVal === null) return 1
-      if (bVal === null) return -1
-
-      return sortOrder === 'asc' ? (aVal as number) - (bVal as number) : (bVal as number) - (aVal as number)
-    })
-  ), [performanceData, sortField, sortOrder])
-
-  const handleSort = (field: SortField) => {
-    if (sortField === field) {
-      setSortOrder(sortOrder === 'asc' ? 'desc' : 'asc')
-    } else {
-      setSortField(field)
-      setSortOrder('desc')
-    }
-  }
+    sortTableItems(
+      performanceData,
+      sortState,
+      {
+        ticker: (item) => item.ticker,
+        name: (item) => item.name || item.ticker,
+        quantity: (item) => item.quantity,
+        currency: (item) => item.currency,
+        value: (item) => item.valueSEK,
+        cost: (item) => item.costSEK,
+        gain: (item) => item.gainSEK,
+        gainPercent: (item) => item.gainPercent,
+        dailyChange: (item) => item.dailyChangeSEK,
+        dailyChangePercent: (item) => item.dailyChangePercent,
+      },
+      locale,
+      (item) => item.ticker
+    )
+  ), [locale, performanceData, sortState])
 
   const { bestPerformers, worstPerformers } = useMemo(() => {
     const comparable = performanceData.filter((stock) => stock.gainPercent !== null)
@@ -510,16 +481,16 @@ export default function Performance() {
           <table>
             <thead>
               <tr>
-                <SortHeader field="name" label={t(language, 'performance.name')} sortField={sortField} sortOrder={sortOrder} onSort={handleSort} />
-                <SortHeader field="ticker" label={t(language, 'performance.ticker')} sortField={sortField} sortOrder={sortOrder} onSort={handleSort} />
-                <th scope="col">{t(language, 'performance.qty')}</th>
-                <th scope="col">{t(language, 'performance.currency')}</th>
-                <SortHeader field="cost" label={t(language, 'performance.costSek')} sortField={sortField} sortOrder={sortOrder} onSort={handleSort} />
-                <SortHeader field="value" label={t(language, 'performance.valueSek')} sortField={sortField} sortOrder={sortOrder} onSort={handleSort} />
-                <SortHeader field="gain" label={t(language, 'performance.gainLoss')} sortField={sortField} sortOrder={sortOrder} onSort={handleSort} />
-                <SortHeader field="gainPercent" label={t(language, 'performance.returnPercent')} sortField={sortField} sortOrder={sortOrder} onSort={handleSort} />
-                <SortHeader field="dailyChange" label={t(language, 'performance.dailySek')} sortField={sortField} sortOrder={sortOrder} onSort={handleSort} />
-                <SortHeader field="dailyChangePercent" label={t(language, 'performance.dailyPercent')} sortField={sortField} sortOrder={sortOrder} onSort={handleSort} />
+                <SortableHeader field="name" label={t(language, 'performance.name')} sortState={sortState} onSort={requestSort} />
+                <SortableHeader field="ticker" label={t(language, 'performance.ticker')} sortState={sortState} onSort={requestSort} />
+                <SortableHeader field="quantity" label={t(language, 'performance.qty')} sortState={sortState} onSort={requestSort} align="right" />
+                <SortableHeader field="currency" label={t(language, 'performance.currency')} sortState={sortState} onSort={requestSort} />
+                <SortableHeader field="cost" label={t(language, 'performance.costSek')} sortState={sortState} onSort={requestSort} align="right" />
+                <SortableHeader field="value" label={t(language, 'performance.valueSek')} sortState={sortState} onSort={requestSort} align="right" />
+                <SortableHeader field="gain" label={t(language, 'performance.gainLoss')} sortState={sortState} onSort={requestSort} align="right" />
+                <SortableHeader field="gainPercent" label={t(language, 'performance.returnPercent')} sortState={sortState} onSort={requestSort} align="right" />
+                <SortableHeader field="dailyChange" label={t(language, 'performance.dailySek')} sortState={sortState} onSort={requestSort} align="right" />
+                <SortableHeader field="dailyChangePercent" label={t(language, 'performance.dailyPercent')} sortState={sortState} onSort={requestSort} align="right" />
               </tr>
             </thead>
             <tbody>

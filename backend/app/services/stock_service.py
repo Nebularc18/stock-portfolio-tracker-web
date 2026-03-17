@@ -2,6 +2,7 @@ import requests
 import json
 import importlib
 import os
+import re
 from datetime import datetime, timezone, timedelta
 from typing import Optional, Dict, Any, List
 import logging
@@ -66,13 +67,59 @@ _DIVIDEND_CACHE_TTL = 86400 * 30
 
 _sector_cache: Dict[str, Optional[str]] = {}
 
-_ANALYST_CACHE: Dict[str, tuple] = {}
+_ANALYST_SINGLE_CACHE: Dict[str, tuple] = {}
+_ANALYST_ALL_CACHE: Dict[str, tuple] = {}
 _ANALYST_CACHE_TTL = 43200
+_ANALYST_NEGATIVE_CACHE_TTL = 300
 
 _PRICE_TARGETS_CACHE: Dict[str, tuple] = {}
 _PRICE_TARGETS_CACHE_TTL = 43200
+_PRICE_TARGETS_FALLBACK_CACHE_TTL = 300
+_YAHOO_ANALYST_PAGE_CACHE: Dict[str, tuple] = {}
+_YAHOO_ANALYST_PAGE_CACHE_TTL = 3600
 
 _session = None
+
+
+def _has_any_analyst_recommendations(value: Any) -> bool:
+    if not isinstance(value, dict):
+        return False
+    return bool(value.get('yfinance') or value.get('finnhub'))
+
+
+def _is_fallback_price_targets(value: Any) -> bool:
+    return isinstance(value, dict) and bool(value.get('note'))
+
+
+def _get_single_analyst_cache_ttl(value: Any) -> int:
+    return _ANALYST_CACHE_TTL if value else _ANALYST_NEGATIVE_CACHE_TTL
+
+
+def _get_all_analyst_cache_ttl(value: Any) -> int:
+    return _ANALYST_CACHE_TTL if _has_any_analyst_recommendations(value) else _ANALYST_NEGATIVE_CACHE_TTL
+
+
+def _get_price_targets_cache_ttl(value: Any) -> int:
+    return _PRICE_TARGETS_CACHE_TTL if (value and not _is_fallback_price_targets(value)) else _PRICE_TARGETS_FALLBACK_CACHE_TTL
+
+
+def _extract_raw_finance_value(value: Any) -> Any:
+    if isinstance(value, dict):
+        return value.get('raw')
+    return value
+
+
+def _import_yfinance_with_csrf_strategy():
+    yf = importlib.import_module('yfinance')
+    try:
+        from yfinance.data import YfData
+
+        # In some environments fc.yahoo.com resolves to 0.0.0.0, which breaks
+        # yfinance's default basic cookie bootstrap before it can fall back.
+        YfData()._set_cookie_strategy('csrf')
+    except Exception as exc:
+        logger.debug("Unable to force yfinance csrf cookie strategy: %s", exc)
+    return yf
 
 def get_session():
     """Get or create a shared requests session with default headers.
@@ -534,7 +581,7 @@ class StockService:
             logger.debug(f"Swedish ticker {ticker} has no Avanza mapping or instrument_id, falling back to yfinance")
         
         try:
-            yf = importlib.import_module('yfinance')
+            yf = _import_yfinance_with_csrf_strategy()
             yf_ticker = yf.Ticker(ticker)
 
             def _to_date_str(value: Any) -> Optional[str]:
@@ -740,9 +787,9 @@ class StockService:
         if cached is not None:
             return cached
 
-        if ticker_upper in _ANALYST_CACHE:
-            data, timestamp = _ANALYST_CACHE[ticker_upper]
-            if datetime.now().timestamp() - timestamp < _ANALYST_CACHE_TTL:
+        if ticker_upper in _ANALYST_SINGLE_CACHE:
+            data, timestamp = _ANALYST_SINGLE_CACHE[ticker_upper]
+            if datetime.now().timestamp() - timestamp < _get_single_analyst_cache_ttl(data):
                 return data
 
         normalized = self._get_yfinance_recommendations(ticker_upper)
@@ -751,11 +798,11 @@ class StockService:
             normalized = self._get_finnhub_recommendations(ticker_upper)
 
         if normalized:
-            _ANALYST_CACHE[ticker_upper] = (normalized, datetime.now().timestamp())
+            _ANALYST_SINGLE_CACHE[ticker_upper] = (normalized, datetime.now().timestamp())
             _save_file_cache(cache_file, normalized, _ANALYST_CACHE_TTL)
             return normalized
 
-        _ANALYST_CACHE[ticker_upper] = (None, datetime.now().timestamp())
+        _ANALYST_SINGLE_CACHE[ticker_upper] = (None, datetime.now().timestamp())
         return None
 
     def get_all_analyst_recommendations(self, ticker: str) -> Dict[str, Optional[List[Dict[str, Any]]]]:
@@ -771,12 +818,12 @@ class StockService:
         cache_file = f"all_analyst_recs_{ticker_upper}.json"
         
         cached = _load_file_cache(cache_file)
-        if cached is not None:
+        if _has_any_analyst_recommendations(cached):
             return cached
         
-        if ticker_upper in _ANALYST_CACHE:
-            data, timestamp = _ANALYST_CACHE[ticker_upper]
-            if datetime.now().timestamp() - timestamp < _ANALYST_CACHE_TTL:
+        if ticker_upper in _ANALYST_ALL_CACHE:
+            data, timestamp = _ANALYST_ALL_CACHE[ticker_upper]
+            if datetime.now().timestamp() - timestamp < _get_all_analyst_cache_ttl(data):
                 return data
         
         yfinance_recs = self._get_yfinance_recommendations(ticker_upper)
@@ -786,10 +833,11 @@ class StockService:
             'yfinance': yfinance_recs,
             'finnhub': finnhub_recs,
         }
-        
-        _ANALYST_CACHE[ticker_upper] = (result, datetime.now().timestamp())
-        _save_file_cache(cache_file, result, _ANALYST_CACHE_TTL)
-        
+
+        cache_ttl = _ANALYST_CACHE_TTL if (yfinance_recs or finnhub_recs) else _ANALYST_NEGATIVE_CACHE_TTL
+        _ANALYST_ALL_CACHE[ticker_upper] = (result, datetime.now().timestamp())
+        _save_file_cache(cache_file, result, cache_ttl)
+
         return result
 
     def _get_yfinance_recommendations(self, ticker_upper: str) -> Optional[List[Dict[str, Any]]]:
@@ -804,7 +852,7 @@ class StockService:
         """
         logger.info(f"[YFINANCE] Attempting to fetch recommendations for {ticker_upper}")
         try:
-            yf = importlib.import_module('yfinance')
+            yf = _import_yfinance_with_csrf_strategy()
             yf_ticker = yf.Ticker(ticker_upper)
             
             logger.info(f"[YFINANCE] Calling recommendations attribute for {ticker_upper}")
@@ -815,6 +863,10 @@ class StockService:
 
             if recs_df is None or (hasattr(recs_df, 'empty') and recs_df.empty):
                 logger.warning(f"[YFINANCE] No recommendations data returned for {ticker_upper}")
+                quote_page_recs = self._get_quote_page_recommendations(ticker_upper)
+                if quote_page_recs:
+                    logger.info(f"[YAHOO PAGE] Using quote page recommendations fallback for {ticker_upper}")
+                    return quote_page_recs
                 return None
             
             logger.info(f"[YFINANCE] Successfully got recommendations for {ticker_upper}")
@@ -856,10 +908,22 @@ class StockService:
                     'total_analysts': strong_buy + buy + hold + sell + strong_sell,
                 })
 
-            return normalized if normalized else None
+            if normalized:
+                return normalized
+
+            quote_page_recs = self._get_quote_page_recommendations(ticker_upper)
+            if quote_page_recs:
+                logger.info(f"[YAHOO PAGE] Using quote page recommendations fallback for {ticker_upper}")
+                return quote_page_recs
+
+            return None
 
         except Exception as e:
             logger.warning(f"yfinance recommendations failed for {ticker_upper}: {e}")
+            quote_page_recs = self._get_quote_page_recommendations(ticker_upper)
+            if quote_page_recs:
+                logger.info(f"[YAHOO PAGE] Using quote page recommendations fallback for {ticker_upper}")
+                return quote_page_recs
             return None
 
     def _get_finnhub_recommendations(self, ticker_upper: str) -> Optional[List[Dict[str, Any]]]:
@@ -895,6 +959,110 @@ class StockService:
             logger.warning(f"Finnhub recommendations failed for {ticker_upper}: {e}")
             return None
 
+    def _get_yahoo_analyst_quote_summary(self, ticker_upper: str) -> Optional[Dict[str, Any]]:
+        if ticker_upper in _YAHOO_ANALYST_PAGE_CACHE:
+            data, timestamp = _YAHOO_ANALYST_PAGE_CACHE[ticker_upper]
+            if datetime.now().timestamp() - timestamp < _YAHOO_ANALYST_PAGE_CACHE_TTL:
+                return data
+
+        session = get_session()
+        try:
+            response = session.get(
+                f"https://finance.yahoo.com/quote/{ticker_upper}?p={ticker_upper}",
+                timeout=15,
+            )
+            if response.status_code != 200:
+                logger.warning("Yahoo analyst quote page returned %s for %s", response.status_code, ticker_upper)
+                return None
+
+            pattern = re.compile(
+                rf'<script type="application/json" data-sveltekit-fetched data-url="https://query1\.finance\.yahoo\.com/v10/finance/quoteSummary/{re.escape(ticker_upper)}\?[^"]*modules=[^"]*financialData%2CrecommendationTrend[^"]*" data-ttl="1">(.*?)</script>',
+                re.DOTALL,
+            )
+            match = pattern.search(response.text)
+            if not match:
+                logger.warning("Yahoo analyst quote page did not contain quoteSummary payload for %s", ticker_upper)
+                return None
+
+            outer_payload = json.loads(match.group(1))
+            body = outer_payload.get('body')
+            if not isinstance(body, str):
+                return None
+
+            quote_summary = json.loads(body).get('quoteSummary', {}).get('result', [])
+            if not quote_summary:
+                return None
+
+            result = quote_summary[0]
+            _YAHOO_ANALYST_PAGE_CACHE[ticker_upper] = (result, datetime.now().timestamp())
+            return result
+        except Exception as exc:
+            logger.warning("Yahoo analyst quote page fallback failed for %s: %s", ticker_upper, exc)
+            return None
+
+    def _get_quote_page_recommendations(self, ticker_upper: str) -> Optional[List[Dict[str, Any]]]:
+        quote_summary = self._get_yahoo_analyst_quote_summary(ticker_upper)
+        if not quote_summary:
+            return None
+
+        recommendation_trend = quote_summary.get('recommendationTrend', {})
+        trend = recommendation_trend.get('trend') if isinstance(recommendation_trend, dict) else None
+        if not isinstance(trend, list) or not trend:
+            return None
+
+        normalized: List[Dict[str, Any]] = []
+        for item in trend:
+            if not isinstance(item, dict):
+                continue
+
+            period = item.get('period')
+            if not period:
+                continue
+
+            strong_buy = int(item.get('strongBuy', item.get('strong_buy', 0)) or 0)
+            buy = int(item.get('buy', 0) or 0)
+            hold = int(item.get('hold', 0) or 0)
+            sell = int(item.get('sell', 0) or 0)
+            strong_sell = int(item.get('strongSell', item.get('strong_sell', 0)) or 0)
+
+            normalized.append({
+                'period': str(period),
+                'strong_buy': strong_buy,
+                'buy': buy,
+                'hold': hold,
+                'sell': sell,
+                'strong_sell': strong_sell,
+                'total_analysts': strong_buy + buy + hold + sell + strong_sell,
+            })
+
+        return normalized if normalized else None
+
+    def _get_quote_page_price_targets(self, ticker_upper: str) -> Optional[Dict[str, Any]]:
+        quote_summary = self._get_yahoo_analyst_quote_summary(ticker_upper)
+        if not quote_summary:
+            return None
+
+        financial_data = quote_summary.get('financialData')
+        if not isinstance(financial_data, dict):
+            return None
+
+        target_avg = _extract_raw_finance_value(financial_data.get('targetMeanPrice'))
+        target_high = _extract_raw_finance_value(financial_data.get('targetHighPrice'))
+        target_low = _extract_raw_finance_value(financial_data.get('targetLowPrice'))
+        current = _extract_raw_finance_value(financial_data.get('currentPrice'))
+        num_analysts = _extract_raw_finance_value(financial_data.get('numberOfAnalystOpinions'))
+
+        if all(value is None for value in [target_avg, target_high, target_low]):
+            return None
+
+        return {
+            'current': current,
+            'targetAvg': target_avg,
+            'targetHigh': target_high,
+            'targetLow': target_low,
+            'numberOfAnalysts': num_analysts,
+        }
+
     def get_price_targets(self, ticker: str) -> Optional[Dict[str, Any]]:
         """Retrieve analyst price targets for a stock.
         
@@ -909,17 +1077,17 @@ class StockService:
         cache_file = f"price_targets_{ticker_upper}.json"
 
         cached = _load_file_cache(cache_file)
-        if cached is not None:
+        if cached is not None and not _is_fallback_price_targets(cached):
             return cached
 
         if ticker_upper in _PRICE_TARGETS_CACHE:
             data, timestamp = _PRICE_TARGETS_CACHE[ticker_upper]
-            if datetime.now().timestamp() - timestamp < _PRICE_TARGETS_CACHE_TTL:
+            if datetime.now().timestamp() - timestamp < _get_price_targets_cache_ttl(data):
                 return data
 
         try:
             logger.info(f"[YFINANCE] Attempting to fetch price targets for {ticker_upper}")
-            yf = importlib.import_module('yfinance')
+            yf = _import_yfinance_with_csrf_strategy()
             yf_ticker = yf.Ticker(ticker_upper)
             logger.info(f"[YFINANCE] Calling info attribute for {ticker_upper}")
             info = getattr(yf_ticker, 'info', None)
@@ -948,6 +1116,12 @@ class StockService:
         except Exception as e:
             logger.error(f"Error fetching analyst price targets for {ticker}: {e}")
 
+        quote_page_targets = self._get_quote_page_price_targets(ticker_upper)
+        if quote_page_targets:
+            _PRICE_TARGETS_CACHE[ticker_upper] = (quote_page_targets, datetime.now().timestamp())
+            _save_file_cache(cache_file, quote_page_targets, _PRICE_TARGETS_CACHE_TTL)
+            return quote_page_targets
+
         quote_data = self.get_quote_extended(ticker)
         if quote_data:
             result = {
@@ -959,9 +1133,11 @@ class StockService:
                 'note': '52-week range (analyst targets unavailable)',
             }
             _PRICE_TARGETS_CACHE[ticker_upper] = (result, datetime.now().timestamp())
+            _save_file_cache(cache_file, result, _PRICE_TARGETS_FALLBACK_CACHE_TTL)
             return result
 
         _PRICE_TARGETS_CACHE[ticker_upper] = (None, datetime.now().timestamp())
+        _save_file_cache(cache_file, None, _PRICE_TARGETS_FALLBACK_CACHE_TTL)
         return None
 
     def get_latest_rating(self, ticker: str) -> Optional[Dict[str, Any]]:

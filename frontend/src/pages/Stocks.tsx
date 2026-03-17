@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef, useId } from 'react'
+import { useState, useEffect, useCallback, useRef, useId, useMemo } from 'react'
 import { Link } from 'react-router-dom'
 import { api, PositionEntry, Stock } from '../services/api'
 import { useSettings } from '../SettingsContext'
@@ -7,6 +7,8 @@ import { resolveBackendAssetUrl } from '../utils/assets'
 import { getLocaleForLanguage, t } from '../i18n'
 import supportedExchanges from '../config/supportedExchanges.json'
 import { useModalFocusTrap } from '../hooks/useModalFocusTrap'
+import SortableHeader from '../components/SortableHeader'
+import { sortTableItems, useTableSort } from '../utils/tableSort'
 
 /**
  * Formats a numeric value as a localized currency string or returns "-" when the value is null.
@@ -54,6 +56,17 @@ function createEmptyPositionEntry(): PositionEntry {
   }
 }
 
+type SortField =
+  | 'ticker'
+  | 'name'
+  | 'quantity'
+  | 'currency'
+  | 'purchasePrice'
+  | 'purchaseDate'
+  | 'currentPrice'
+  | 'dailyChangePercent'
+  | 'dividendYield'
+
 /**
  * Display and manage the user's stock positions with controls to view, add, edit, and remove entries localized to the current language and timezone.
  *
@@ -88,6 +101,7 @@ function createEmptyPositionEntry(): PositionEntry {
   const { timezone, language } = useSettings()
   const locale = getLocaleForLanguage(language)
   const maxPurchaseDate = getLocalDateInputValue()
+  const { sortState, requestSort } = useTableSort<SortField>({ field: 'ticker', direction: 'asc' })
 
   const closeEditModal = useCallback(() => setEditStock(null), [])
 
@@ -232,6 +246,30 @@ function createEmptyPositionEntry(): PositionEntry {
   }
 
   const selectedExchangeData = EXCHANGES.find(e => e.code === selectedExchange)
+  const sortedStocks = useMemo(() => (
+    sortTableItems(
+      stocks,
+      sortState,
+      {
+        ticker: (stock) => stock.ticker,
+        name: (stock) => stock.name || stock.ticker,
+        quantity: (stock) => stock.quantity,
+        currency: (stock) => stock.currency,
+        purchasePrice: (stock) => stock.purchase_price,
+        purchaseDate: (stock) => stock.purchase_date,
+        currentPrice: (stock) => stock.current_price,
+        dailyChangePercent: (stock) => {
+          if (stock.current_price === null || stock.previous_close === null || stock.previous_close === 0) {
+            return null
+          }
+          return ((stock.current_price - stock.previous_close) / stock.previous_close) * 100
+        },
+        dividendYield: (stock) => stock.dividend_yield,
+      },
+      locale,
+      (stock) => stock.ticker
+    )
+  ), [locale, sortState, stocks])
 
   if (loading) {
     return <div className="loading-state">{t(language, 'common.loading')}</div>
@@ -366,20 +404,20 @@ function createEmptyPositionEntry(): PositionEntry {
             <table>
               <thead>
                 <tr>
-                  <th>{t(language, 'stocks.tableTicker')}</th>
-                  <th>{t(language, 'stocks.tableName')}</th>
-                  <th>{t(language, 'stocks.tableQty')}</th>
-                  <th>{t(language, 'stocks.tableCurr')}</th>
-                  <th style={{ textAlign: 'right' }}>{t(language, 'stocks.tablePurchase')}</th>
-                  <th>{t(language, 'stocks.purchaseDate')}</th>
-                  <th style={{ textAlign: 'right' }}>{t(language, 'stocks.tablePrice')}</th>
-                  <th style={{ textAlign: 'right' }}>{t(language, 'stocks.tableChange')}</th>
-                  <th style={{ textAlign: 'right' }}>{t(language, 'stocks.tableDivYield')}</th>
+                  <SortableHeader field="ticker" label={t(language, 'stocks.tableTicker')} sortState={sortState} onSort={requestSort} />
+                  <SortableHeader field="name" label={t(language, 'stocks.tableName')} sortState={sortState} onSort={requestSort} />
+                  <SortableHeader field="quantity" label={t(language, 'stocks.tableQty')} sortState={sortState} onSort={requestSort} align="right" />
+                  <SortableHeader field="currency" label={t(language, 'stocks.tableCurr')} sortState={sortState} onSort={requestSort} />
+                  <SortableHeader field="purchasePrice" label={t(language, 'stocks.tablePurchase')} sortState={sortState} onSort={requestSort} align="right" />
+                  <SortableHeader field="purchaseDate" label={t(language, 'stocks.purchaseDate')} sortState={sortState} onSort={requestSort} />
+                  <SortableHeader field="currentPrice" label={t(language, 'stocks.tablePrice')} sortState={sortState} onSort={requestSort} align="right" />
+                  <SortableHeader field="dailyChangePercent" label={t(language, 'stocks.tableChange')} sortState={sortState} onSort={requestSort} align="right" />
+                  <SortableHeader field="dividendYield" label={t(language, 'stocks.tableDivYield')} sortState={sortState} onSort={requestSort} align="right" />
                   <th>{t(language, 'stocks.tableActions')}</th>
                 </tr>
               </thead>
               <tbody>
-                {stocks.map((stock) => {
+                {sortedStocks.map((stock) => {
                   const logoUrl = resolveBackendAssetUrl(stock.logo)
                   const dailyChange = stock.current_price !== null && stock.previous_close !== null
                     ? stock.current_price - stock.previous_close
