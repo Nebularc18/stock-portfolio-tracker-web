@@ -3,6 +3,9 @@ import { Link } from 'react-router-dom'
 import { api, Dividend, Stock } from '../services/api'
 import { getLocaleForLanguage, t, type Language } from '../i18n'
 import { useSettings } from '../SettingsContext'
+import { getQuantityHeldOnDate } from '../utils/positions'
+import SortableHeader from '../components/SortableHeader'
+import { sortTableItems, useTableSort } from '../utils/tableSort'
 
 /**
  * Produces the locale-formatted short name for a given month.
@@ -55,6 +58,8 @@ interface YearlyData {
   months: Record<number, DividendWithStock[]>
 }
 
+type SortField = 'name' | 'date' | 'perShare' | 'totalSek'
+
 const DIVIDEND_BATCH_SIZE = 25
 const MAX_DIVIDEND_YEARS = 10
 
@@ -76,6 +81,7 @@ export default function HistoricalDividends() {
   const [dividendsLoadFailed, setDividendsLoadFailed] = useState(false)
   const [showDividendRangeWarning, setShowDividendRangeWarning] = useState(false)
   const [fetchError, setFetchError] = useState<string | null>(null)
+  const { sortState, requestSort } = useTableSort<SortField>({ field: 'name', direction: 'asc' })
 
   const loadStocks = useCallback(async () => {
     try {
@@ -162,14 +168,15 @@ export default function HistoricalDividends() {
         const allDividends: DividendWithStock[] = stocks.flatMap((stock) => {
           const stockDividends = (dividendsByTicker[stock.ticker] || []) as Dividend[]
           return stockDividends.flatMap((div: Dividend) => {
-            if (stock.purchase_date && div.date < stock.purchase_date) {
+            const quantityHeld = getQuantityHeldOnDate(stock.position_entries || [], div.date, stock.quantity)
+            if (quantityHeld <= 0) {
               return []
             }
             return [{
               ticker: stock.ticker,
               name: stock.name,
               currency: stock.currency,
-              quantity: stock.quantity,
+              quantity: quantityHeld,
               purchaseDate: stock.purchase_date,
               date: div.date,
               paymentDate: div.payment_date ?? div.date,
@@ -428,16 +435,25 @@ export default function HistoricalDividends() {
                     <table>
                       <thead>
                         <tr>
-                          <th>{t(language, 'performance.name')}</th>
-                          <th>{t(language, 'history.date')}</th>
-                          <th style={{ textAlign: 'right' }}>{t(language, 'history.perShare')}</th>
-                          <th style={{ textAlign: 'right' }}>{t(language, 'history.totalSek')}</th>
+                          <SortableHeader field="name" label={t(language, 'performance.name')} sortState={sortState} onSort={requestSort} />
+                          <SortableHeader field="date" label={t(language, 'history.date')} sortState={sortState} onSort={requestSort} />
+                          <SortableHeader field="perShare" label={t(language, 'history.perShare')} sortState={sortState} onSort={requestSort} align="right" />
+                          <SortableHeader field="totalSek" label={t(language, 'history.totalSek')} sortState={sortState} onSort={requestSort} align="right" />
                         </tr>
                       </thead>
                       <tbody>
-                        {[...monthDivs]
-                          .sort((a, b) => a.date.localeCompare(b.date))
-                          .map((div) => {
+                        {sortTableItems(
+                          monthDivs,
+                          sortState,
+                          {
+                            name: (div) => div.name || div.ticker,
+                            date: (div) => div.date,
+                            perShare: (div) => div.amount,
+                            totalSek: (div) => convertToSEK(div.amount * div.quantity, div.dividendCurrency, div.paymentDate),
+                          },
+                          locale,
+                          (div) => div.ticker
+                        ).map((div) => {
                             const totalSEK = convertToSEK(div.amount * div.quantity, div.dividendCurrency, div.paymentDate)
                             const rowKey = [
                               div.ticker,

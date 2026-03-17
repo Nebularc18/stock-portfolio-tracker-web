@@ -4,6 +4,7 @@ import { api, Dividend, DistributionResponse, DividendsByTicker } from '../servi
 import { useSettings } from '../SettingsContext'
 import { getLocaleForLanguage, t } from '../i18n'
 import { formatDisplayName } from '../utils/displayName'
+import { getQuantityHeldOnDate } from '../utils/positions'
 
 const STOCK_COLORS = ['#7c3aed', '#06b6d4', '#22c55e', '#f59e0b', '#f43f5e', '#8b5cf6', '#14b8a6', '#3b82f6']
 const SECTOR_COLORS = ['#f97316', '#eab308', '#84cc16', '#06b6d4', '#3b82f6', '#8b5cf6', '#ec4899', '#ef4444']
@@ -15,6 +16,7 @@ type DividendComparisonRow = {
 } & Record<string, number | string>
 
 type DistributionDatum = {
+  id?: string
   name: string
   value: number
 }
@@ -114,7 +116,7 @@ function renderDistributionLegend(data: DistributionDatum[], colors: string[], l
     const share = total > 0 ? entry.value / total : 0
     return (
       <div
-        key={entry.name}
+        key={entry.id || `${entry.name}-${index}`}
         style={{
           display: 'flex',
           alignItems: 'center',
@@ -230,7 +232,8 @@ export default function Analytics() {
 
         for (const { stock, dividends } of dividendResults) {
           for (const div of dividends) {
-            if (stock.purchase_date && div.date < stock.purchase_date) continue
+            const quantityAtPayout = getQuantityHeldOnDate(stock.position_entries || [], div.date, stock.quantity)
+            if (quantityAtPayout <= 0) continue
             const payoutDate = div.payment_date || div.date
             if (!payoutDate) continue
             const year = Number(payoutDate.slice(0, 4))
@@ -244,7 +247,7 @@ export default function Analytics() {
             dividendEvents.push({
               year,
               monthIndex,
-              value: convertedAmount * stock.quantity,
+              value: convertedAmount * quantityAtPayout,
             })
           }
         }
@@ -313,15 +316,14 @@ export default function Analytics() {
   const rawStockData = distribution?.by_stock
     ? Object.entries(distribution.by_stock).map(([ticker, value]) => {
         const label = stockNamesByTicker[ticker] || ticker
-        const shouldAppendTicker = label.trim().toUpperCase() !== ticker.trim().toUpperCase()
-        return { name: shouldAppendTicker ? `${label} (${ticker})` : ticker, value }
+        return { id: ticker, name: label, value }
       })
     : []
 
   const othersLabel = t(language, 'analytics.others')
   const sectorData = aggregateDistributionData(rawSectorData, othersLabel)
   const countryData = aggregateDistributionData(rawCountryData, othersLabel)
-  const stockData = aggregateDistributionData(rawStockData, othersLabel)
+  const stockData = aggregateDistributionData(rawStockData, othersLabel).sort((a, b) => b.value - a.value)
 
   const handleToggleComparisonYear = (year: number) => {
     setSelectedComparisonYears((currentYears) => {

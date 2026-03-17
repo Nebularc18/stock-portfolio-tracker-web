@@ -27,11 +27,12 @@ from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from dotenv import load_dotenv
 from passlib.context import CryptContext
 from passlib.exc import UnknownHashError
-from pydantic import BaseModel, field_validator
-from sqlalchemy import create_engine, Column, Integer, String, Float, Date, DateTime, ForeignKey, JSON, Boolean, text, UniqueConstraint
+from pydantic import BaseModel, field_validator, model_validator
+from sqlalchemy import create_engine, Column, Integer, String, Float, Date, DateTime, ForeignKey, JSON, Boolean, text, UniqueConstraint, bindparam
 from sqlalchemy.orm import sessionmaker, relationship, declarative_base
 from sqlalchemy.pool import NullPool
 from app.utils.time import utc_now
+from app.services.position_service import calculate_position_snapshot, normalize_position_entries
 
 ROOT_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..'))
 load_dotenv(os.path.join(ROOT_DIR, '.env'))
@@ -228,6 +229,7 @@ class Stock(Base):
         sector: Company sector.
         logo: URL to company logo image.
         purchase_price: Average purchase price per share.
+        position_entries: Historical buy lots with optional sell dates.
         current_price: Current market price.
         previous_close: Previous day's closing price.
         dividend_yield: Annual dividend yield percentage.
@@ -251,6 +253,7 @@ class Stock(Base):
     logo = Column(String, nullable=True)
     purchase_price = Column(Float, nullable=True)
     purchase_date = Column(Date, nullable=True)
+    position_entries = Column(JSON, default=list)
     current_price = Column(Float, nullable=True)
     previous_close = Column(Float, nullable=True)
     dividend_yield = Column(Float, nullable=True)
@@ -398,6 +401,7 @@ def ensure_account_schema_and_seed() -> None:
 
         conn.execute(text("ALTER TABLE stocks ADD COLUMN IF NOT EXISTS user_id INTEGER"))
         conn.execute(text("ALTER TABLE stocks ADD COLUMN IF NOT EXISTS purchase_date DATE"))
+        conn.execute(text("ALTER TABLE stocks ADD COLUMN IF NOT EXISTS position_entries JSON"))
         conn.execute(text("ALTER TABLE user_settings ADD COLUMN IF NOT EXISTS user_id INTEGER"))
         conn.execute(text("ALTER TABLE portfolio_history ADD COLUMN IF NOT EXISTS user_id INTEGER"))
         conn.execute(text("ALTER TABLE stock_price_history ADD COLUMN IF NOT EXISTS user_id INTEGER"))
@@ -529,17 +533,121 @@ def ensure_account_schema_and_seed() -> None:
                 "dividend_yield": 1.6,
                 "dividend_per_share": 2.2,
             },
+            {
+                "ticker": "ASML.AS",
+                "name": "ASML Holding",
+                "quantity": 4.0,
+                "currency": "EUR",
+                "sector": "Basic Materials",
+                "purchase_price": 812.0,
+                "purchase_date": date(2024, 8, 19),
+                "current_price": 864.2,
+                "previous_close": 859.6,
+                "dividend_yield": 0.9,
+                "dividend_per_share": 6.1,
+            },
+            {
+                "ticker": "SHEL.L",
+                "name": "Shell plc",
+                "quantity": 24.0,
+                "currency": "GBP",
+                "sector": "Energy",
+                "purchase_price": 25.1,
+                "purchase_date": date(2024, 7, 8),
+                "current_price": 27.4,
+                "previous_close": 27.2,
+                "dividend_yield": 4.0,
+                "dividend_per_share": 1.36,
+            },
+            {
+                "ticker": "NESN.SW",
+                "name": "Nestle SA",
+                "quantity": 9.0,
+                "currency": "CHF",
+                "sector": "Consumer Defensive",
+                "purchase_price": 96.5,
+                "purchase_date": date(2024, 5, 6),
+                "current_price": 103.8,
+                "previous_close": 103.1,
+                "dividend_yield": 2.8,
+                "dividend_per_share": 3.05,
+            },
+            {
+                "ticker": "SHOP.TO",
+                "name": "Shopify Inc.",
+                "quantity": 11.0,
+                "currency": "CAD",
+                "sector": "Technology",
+                "purchase_price": 98.4,
+                "purchase_date": date(2024, 9, 12),
+                "current_price": 112.6,
+                "previous_close": 111.4,
+                "dividend_yield": 0.0,
+                "dividend_per_share": 0.0,
+            },
+            {
+                "ticker": "RIO.AX",
+                "name": "Rio Tinto",
+                "quantity": 14.0,
+                "currency": "AUD",
+                "sector": "Technology",
+                "purchase_price": 118.0,
+                "purchase_date": date(2024, 3, 21),
+                "current_price": 126.4,
+                "previous_close": 125.7,
+                "dividend_yield": 4.3,
+                "dividend_per_share": 5.2,
+            },
+            {
+                "ticker": "OR.PA",
+                "name": "L'Oreal",
+                "quantity": 6.0,
+                "currency": "EUR",
+                "sector": "Consumer Defensive",
+                "purchase_price": 421.0,
+                "purchase_date": date(2024, 6, 17),
+                "current_price": 446.7,
+                "previous_close": 444.2,
+                "dividend_yield": 1.3,
+                "dividend_per_share": 6.6,
+            },
+            {
+                "ticker": "MSFT",
+                "name": "Microsoft Corp.",
+                "quantity": 7.0,
+                "currency": "USD",
+                "sector": "Technology",
+                "purchase_price": 398.0,
+                "purchase_date": date(2024, 4, 11),
+                "current_price": 426.5,
+                "previous_close": 424.7,
+                "dividend_yield": 0.7,
+                "dividend_per_share": 3.0,
+            },
         ]
+
+        guest_tickers = [stock["ticker"] for stock in guest_stocks]
+        conn.execute(text("DELETE FROM stocks WHERE user_id = :user_id AND ticker NOT IN :tickers").bindparams(bindparam("tickers", expanding=True)), {
+            "user_id": guest_user_id,
+            "tickers": guest_tickers,
+        })
+
         for stock in guest_stocks:
+            position_snapshot = calculate_position_snapshot([{
+                "quantity": stock["quantity"],
+                "purchase_price": stock["purchase_price"],
+                "purchase_date": stock["purchase_date"],
+                "sell_date": None,
+            }])
             conn.execute(text("""
                 INSERT INTO stocks (
                     user_id, ticker, name, quantity, currency, sector, purchase_price,
-                    purchase_date,
+                    purchase_date, position_entries,
                     current_price, previous_close, dividend_yield, dividend_per_share,
                     last_updated, manual_dividends, suppressed_dividends
                 ) VALUES (
                     :user_id, :ticker, :name, :quantity, :currency, :sector, :purchase_price,
-                    :purchase_date,
+                    :purchase_date, :position_entries,
                     :current_price, :previous_close, :dividend_yield, :dividend_per_share,
                     :last_updated, '[]'::json, '[]'::json
                 )
@@ -550,6 +658,7 @@ def ensure_account_schema_and_seed() -> None:
                     sector = EXCLUDED.sector,
                     purchase_price = EXCLUDED.purchase_price,
                     purchase_date = EXCLUDED.purchase_date,
+                    position_entries = EXCLUDED.position_entries,
                     current_price = EXCLUDED.current_price,
                     previous_close = EXCLUDED.previous_close,
                     dividend_yield = EXCLUDED.dividend_yield,
@@ -566,6 +675,7 @@ def ensure_account_schema_and_seed() -> None:
                 "sector": stock["sector"],
                 "purchase_price": stock["purchase_price"],
                 "purchase_date": stock["purchase_date"],
+                "position_entries": json.dumps(position_snapshot["position_entries"]),
                 "current_price": stock["current_price"],
                 "previous_close": stock["previous_close"],
                 "dividend_yield": stock["dividend_yield"],
@@ -617,6 +727,7 @@ async def lifespan(app: FastAPI):
     Yields:
         None
     """
+    from app.services.exchange_rate_service import close_session as close_exchange_rate_session
     from app.services.scheduler import start_scheduler, stop_scheduler
     validate_auth_token_secret()
     run_startup_schema_seed = os.getenv("RUN_STARTUP_SCHEMA_SEED", "1").lower() not in {"0", "false", "no"}
@@ -630,6 +741,7 @@ async def lifespan(app: FastAPI):
     logger.info("Application started")
     yield
     stop_scheduler()
+    close_exchange_rate_session()
     logger.info("Application shutdown")
 
 
@@ -680,6 +792,31 @@ def _resolve_frontend_path(request_path: str) -> Optional[str]:
     return None
 
 
+def _looks_like_frontend_file_request(request_path: str) -> bool:
+    last_segment = Path(request_path).name.lower()
+    if not last_segment:
+        return False
+
+    suffix = Path(last_segment).suffix.lower()
+    return suffix in {
+        ".css",
+        ".gif",
+        ".ico",
+        ".jpeg",
+        ".jpg",
+        ".js",
+        ".json",
+        ".map",
+        ".mjs",
+        ".png",
+        ".svg",
+        ".txt",
+        ".webp",
+        ".woff",
+        ".woff2",
+    }
+
+
 @app.middleware("http")
 async def log_request_timing(request: Request, call_next):
     """
@@ -723,15 +860,44 @@ async def log_request_timing(request: Request, call_next):
 
 class StockCreate(BaseModel):
     ticker: str
-    quantity: float
+    quantity: Optional[float] = None
     purchase_price: Optional[float] = None
     purchase_date: Optional[date] = None
+    position_entries: Optional[List[dict]] = None
+
+    @model_validator(mode="after")
+    def validate_create_payload(self) -> "StockCreate":
+        has_position_entries = isinstance(self.position_entries, list) and len(self.position_entries) > 0
+
+        if has_position_entries:
+            return self
+
+        if self.quantity is None:
+            raise ValueError(
+                "StockCreate validation failed for create_stock payload (/api/stocks): "
+                "provide non-empty position_entries or a positive quantity."
+            )
+
+        if self.quantity <= 0:
+            raise ValueError(
+                "StockCreate validation failed for create_stock payload (/api/stocks): "
+                "quantity must be greater than zero when position_entries is omitted."
+            )
+
+        if self.purchase_price is not None and self.purchase_price < 0:
+            raise ValueError(
+                "StockCreate validation failed for create_stock payload (/api/stocks): "
+                "purchase_price must be greater than or equal to zero."
+            )
+
+        return self
 
 
 class StockUpdate(BaseModel):
     quantity: Optional[float] = None
     purchase_price: Optional[float] = None
     purchase_date: Optional[date] = None
+    position_entries: Optional[List[dict]] = None
 
 
 class StockResponse(BaseModel):
@@ -744,6 +910,7 @@ class StockResponse(BaseModel):
     logo: Optional[str] = None
     purchase_price: Optional[float]
     purchase_date: Optional[date]
+    position_entries: Optional[List[dict]] = []
     current_price: Optional[float]
     previous_close: Optional[float]
     dividend_yield: Optional[float]
@@ -849,6 +1016,9 @@ def serve_frontend(full_path: str):
     file_path = _resolve_frontend_path(full_path)
     if file_path:
         return FileResponse(file_path)
+
+    if _looks_like_frontend_file_request(full_path):
+        raise HTTPException(status_code=404, detail="Not Found")
 
     if FRONTEND_INDEX_READY:
         return FileResponse(FRONTEND_INDEX_PATH)

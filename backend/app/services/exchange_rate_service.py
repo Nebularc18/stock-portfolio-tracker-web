@@ -4,10 +4,11 @@ This module provides functionality to fetch and cache exchange rates
 from Yahoo Finance, supporting multiple currency pairs and conversions.
 """
 
-import yfinance as yf
 from typing import Dict, Optional
 from datetime import datetime
 import logging
+
+import requests
 
 logger = logging.getLogger(__name__)
 
@@ -58,6 +59,47 @@ EXCHANGE_PAIRS = {
 
 _cache: Dict[str, tuple] = {}
 _cache_ttl = 3600
+_session: Optional[requests.Session] = None
+
+
+def _get_session() -> requests.Session:
+    global _session
+    if _session is None:
+        _session = requests.Session()
+        _session.headers.update({
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+            'Accept': 'application/json, text/plain, */*',
+            'Accept-Language': 'en-US,en;q=0.9',
+        })
+    return _session
+
+
+def close_session() -> None:
+    global _session
+    if _session is not None:
+        _session.close()
+        _session = None
+
+
+def _fetch_latest_price(symbol: str) -> Optional[float]:
+    session = _get_session()
+    try:
+        url = f"https://query1.finance.yahoo.com/v8/finance/chart/{symbol}?interval=1d&range=5d"
+        response = session.get(url, timeout=5)
+        response.raise_for_status()
+
+        data = response.json()
+        result = data.get('chart', {}).get('result')
+        if not result:
+            return None
+
+        quote = result[0].get('indicators', {}).get('quote', [{}])[0]
+        closes = quote.get('close', [])
+        prices = [price for price in closes if price is not None]
+        return float(prices[-1]) if prices else None
+    except Exception as e:
+        logger.error(f"Error fetching latest price for {symbol}: {e}")
+        return None
 
 
 class ExchangeRateService:
@@ -88,23 +130,21 @@ class ExchangeRateService:
         
         if key in EXCHANGE_PAIRS:
             try:
-                logger.info(f"[YFINANCE] Fetching exchange rate for {key} via {EXCHANGE_PAIRS[key]}")
-                ticker = yf.Ticker(EXCHANGE_PAIRS[key])
-                price = ticker.info.get('currentPrice') or ticker.info.get('regularMarketPrice')
+                logger.info(f"Fetching exchange rate for {key} via {EXCHANGE_PAIRS[key]}")
+                price = _fetch_latest_price(EXCHANGE_PAIRS[key])
                 if price:
-                    logger.info(f"[YFINANCE] Successfully got exchange rate for {key}: {price}")
+                    logger.info(f"Successfully got exchange rate for {key}: {price}")
                     _cache[key] = (float(price), datetime.now().timestamp())
                     return float(price)
                 else:
-                    logger.warning(f"[YFINANCE] No price returned for exchange rate {key}")
+                    logger.warning(f"No price returned for exchange rate {key}")
             except Exception as e:
-                logger.error(f"[YFINANCE] Error fetching exchange rate {key}: {e}")
+                logger.error(f"Error fetching exchange rate {key}: {e}")
         
         inverse_key = f"{to_currency}_{from_currency}"
         if inverse_key in EXCHANGE_PAIRS:
             try:
-                ticker = yf.Ticker(EXCHANGE_PAIRS[inverse_key])
-                price = ticker.info.get('currentPrice') or ticker.info.get('regularMarketPrice')
+                price = _fetch_latest_price(EXCHANGE_PAIRS[inverse_key])
                 if price:
                     rate = 1.0 / float(price)
                     _cache[key] = (rate, datetime.now().timestamp())
@@ -163,17 +203,62 @@ class ExchangeRateService:
                     continue
             
             try:
-                ticker = yf.Ticker(EXCHANGE_PAIRS[pair])
-                price = ticker.fast_info.last_price if hasattr(ticker, 'fast_info') else None
-                if not price:
-                    price = ticker.info.get('currentPrice') or ticker.info.get('regularMarketPrice')
+                price = _fetch_latest_price(EXCHANGE_PAIRS[pair])
                 if price:
                     rates[pair] = float(price)
                     _cache[pair] = (float(price), now)
+                else:
+                    rates[pair] = None
             except Exception as e:
                 logger.error(f"Error fetching {pair}: {e}")
                 rates[pair] = None
-        
+
+        def get_rate_value(from_currency: str, to_currency: str) -> Optional[float]:
+            if from_currency == to_currency:
+                return 1.0
+
+            key = f"{from_currency}_{to_currency}"
+            if key in rates and rates[key] is not None:
+                return rates[key]
+            if key in _cache:
+                cached_rate, timestamp = _cache[key]
+                if now - timestamp < _cache_ttl:
+                    return cached_rate
+
+            inverse_key = f"{to_currency}_{from_currency}"
+            if inverse_key in rates and rates[inverse_key]:
+                return 1.0 / rates[inverse_key]
+            if inverse_key in _cache:
+                cached_rate, timestamp = _cache[inverse_key]
+                if now - timestamp < _cache_ttl and cached_rate:
+                    return 1.0 / cached_rate
+
+            return None
+
+        for currency in currencies:
+            if currency == display_currency:
+                continue
+
+            direct_key = f"{currency}_{display_currency}"
+            direct_rate = get_rate_value(currency, display_currency)
+            if direct_rate is not None:
+                rates[direct_key] = direct_rate
+                _cache[direct_key] = (direct_rate, now)
+                continue
+
+            if currency == "SEK" or display_currency == "SEK":
+                rates.setdefault(direct_key, None)
+                continue
+
+            first_leg = get_rate_value(currency, "SEK")
+            second_leg = get_rate_value("SEK", display_currency)
+            if first_leg is not None and second_leg is not None:
+                combined_rate = first_leg * second_leg
+                rates[direct_key] = combined_rate
+                _cache[direct_key] = (combined_rate, now)
+            else:
+                rates.setdefault(direct_key, None)
+
         return rates
 
     @staticmethod

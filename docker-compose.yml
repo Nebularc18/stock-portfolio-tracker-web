@@ -3,33 +3,36 @@ services:
     image: postgres:15-alpine
     restart: unless-stopped
     environment:
-      POSTGRES_USER: portfolio
-      POSTGRES_PASSWORD: portfolio
-      POSTGRES_DB: portfolio
+      POSTGRES_USER: ${POSTGRES_USER:?POSTGRES_USER is required}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}
+      POSTGRES_DB: ${POSTGRES_DB:?POSTGRES_DB is required}
     volumes:
       - postgres_data:/var/lib/postgresql/data
     ports:
       - "5432:5432"
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U portfolio"]
+      test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB"]
       interval: 5s
       timeout: 5s
       retries: 5
 
   app:
-    image: ghcr.io/${GHCR_OWNER:-nebularc18}/stock-portfolio-tracker:latest
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: ghcr.io/${GHCR_OWNER:-nebularc18}/stock-portfolio-tracker:${IMAGE_TAG:-local}
     restart: unless-stopped
     ports:
       - "8000:8000"
     environment:
-      DATABASE_URL: postgresql://portfolio:portfolio@postgres:5432/portfolio
+      DATABASE_URL: ${DATABASE_URL:?DATABASE_URL is required}
       FINNHUB_API_KEY: ${FINNHUB_API_KEY:-}
       MARKETSTACK_API_KEY: ${MARKETSTACK_API_KEY:-}
-      DEFAULT_USERNAME: ${DEFAULT_USERNAME:-admin}
-      DEFAULT_PASSWORD: ${DEFAULT_PASSWORD:-admin123}
+      DEFAULT_USERNAME: ${DEFAULT_USERNAME:?DEFAULT_USERNAME is required}
+      DEFAULT_PASSWORD: ${DEFAULT_PASSWORD:?DEFAULT_PASSWORD is required}
       GUEST_USERNAME: ${GUEST_USERNAME:-guest}
-      GUEST_PASSWORD: ${GUEST_PASSWORD:-guest-demo-password}
-      AUTH_TOKEN_SECRET: ${AUTH_TOKEN_SECRET:-dev-local-auth-token-secret}
+      GUEST_PASSWORD: ${GUEST_PASSWORD:-}
+      AUTH_TOKEN_SECRET: ${AUTH_TOKEN_SECRET:?AUTH_TOKEN_SECRET is required}
       AUTH_TOKEN_TTL_SECONDS: ${AUTH_TOKEN_TTL_SECONDS:-43200}
     depends_on:
       postgres:
