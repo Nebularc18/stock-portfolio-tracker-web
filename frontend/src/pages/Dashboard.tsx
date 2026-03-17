@@ -484,18 +484,16 @@ export default function Dashboard() {
     })
     .filter((p): p is ChartPoint => p !== null)
 
-  const chartData = rawChartData
-
   const rangeTargetPoints = getRangeTargetPoints(historyRange)
-  const displayedChartData = rangeTargetPoints ? downsampleChartData(chartData, rangeTargetPoints) : chartData
-  const hasChartData = chartData.length > 0
+  const displayedChartData = rangeTargetPoints ? downsampleChartData(rawChartData, rangeTargetPoints) : rawChartData
+  const hasChartData = rawChartData.length > 0
 
   let minValue = 0, maxValue = 0
   if (hasChartData) {
-    minValue = chartData[0].value; maxValue = chartData[0].value
-    for (let i = 1; i < chartData.length; i++) {
-      if (chartData[i].value < minValue) minValue = chartData[i].value
-      if (chartData[i].value > maxValue) maxValue = chartData[i].value
+    minValue = rawChartData[0].value; maxValue = rawChartData[0].value
+    for (let i = 1; i < rawChartData.length; i++) {
+      if (rawChartData[i].value < minValue) minValue = rawChartData[i].value
+      if (rawChartData[i].value > maxValue) maxValue = rawChartData[i].value
     }
   }
   const valueRange = maxValue - minValue || 1

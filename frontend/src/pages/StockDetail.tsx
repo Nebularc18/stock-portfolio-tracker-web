@@ -161,10 +161,24 @@ function recalculateYearlyDividendState(
   })
 
   const aggregateYearlyTotal = (targetStatus: 'paid' | 'upcoming'): number | null => {
+    return aggregateDividendTotal(yearDividends, targetStatus)
+  }
+
+  return {
+    yearDividends,
+    yearReceived: aggregateYearlyTotal('paid'),
+    yearRemaining: aggregateYearlyTotal('upcoming'),
+  }
+}
+
+function aggregateDividendTotal(
+  items: UpcomingDividend[],
+  targetStatus: 'paid' | 'upcoming'
+): number | null {
     let total = 0
     let hasMissingConversion = false
 
-    for (const div of yearDividends) {
+    for (const div of items) {
       if (div.status !== targetStatus) continue
       if (div.total_converted === null) {
         hasMissingConversion = true
@@ -174,13 +188,6 @@ function recalculateYearlyDividendState(
     }
 
     return hasMissingConversion ? null : total
-  }
-
-  return {
-    yearDividends,
-    yearReceived: aggregateYearlyTotal('paid'),
-    yearRemaining: aggregateYearlyTotal('upcoming'),
-  }
 }
 
 /**
@@ -290,6 +297,7 @@ export default function StockDetail() {
   const { sortState: manualSortState, requestSort: requestManualSort } = useTableSort<ManualDividendSortField>({ field: 'date', direction: 'asc' })
   const { sortState: yearSortState, requestSort: requestYearSort } = useTableSort<YearDividendSortField>({ field: 'exDate', direction: 'asc' })
   const { sortState: historySortState, requestSort: requestHistorySort } = useTableSort<HistorySortField>({ field: 'date', direction: 'asc' })
+  const { sortState: suppressedSortState, requestSort: requestSuppressedSort } = useTableSort<HistorySortField>({ field: 'date', direction: 'asc' })
   const { sortState: verificationSortState, requestSort: requestVerificationSort } = useTableSort<VerificationSortField>({ field: 'date', direction: 'asc' })
   const tabs = ['overview', 'profile', 'dividends', 'analyst'] as const
   const tabLabels: Record<(typeof tabs)[number], string> = {
@@ -758,12 +766,11 @@ export default function StockDetail() {
       const updatedFilteredDividends = filterDividends(allDividends, updated.purchase_date)
       const recalculatedAllYearDividends = recalculateYearlyDividendState(allYearDividends, updated, exchangeRates).yearDividends
       const updatedFilteredYearDividends = recalculatedAllYearDividends.filter((div) => div.quantity > 0)
-      const yearlyState = recalculateYearlyDividendState(updatedFilteredYearDividends, updated, exchangeRates)
       setDividends(updatedFilteredDividends)
       setAllYearDividends(recalculatedAllYearDividends)
-      setYearDividends(yearlyState.yearDividends)
-      setYearReceived(yearlyState.yearReceived)
-      setYearRemaining(yearlyState.yearRemaining)
+      setYearDividends(updatedFilteredYearDividends)
+      setYearReceived(aggregateDividendTotal(updatedFilteredYearDividends, 'paid'))
+      setYearRemaining(aggregateDividendTotal(updatedFilteredYearDividends, 'upcoming'))
       setShowEditModal(false)
     } catch (err) {
       setEditError(err instanceof Error ? err.message : String(err))
@@ -1085,7 +1092,7 @@ export default function StockDetail() {
   )
   const sortedSuppressedDividends = sortTableItems(
     suppressedDividends,
-    historySortState,
+    suppressedSortState,
     {
       date: (div) => div.date,
       amount: (div) => div.amount,
@@ -1407,8 +1414,8 @@ export default function StockDetail() {
               <table style={{ margin: 0 }}>
                 <thead>
                   <tr>
-                    <SortableHeader field="date" label={t(language, 'stockDetail.date')} sortState={historySortState} onSort={requestHistorySort} />
-                    <SortableHeader field="amount" label={t(language, 'stockDetail.amount')} sortState={historySortState} onSort={requestHistorySort} align="right" />
+                    <SortableHeader field="date" label={t(language, 'stockDetail.date')} sortState={suppressedSortState} onSort={requestSuppressedSort} />
+                    <SortableHeader field="amount" label={t(language, 'stockDetail.amount')} sortState={suppressedSortState} onSort={requestSuppressedSort} align="right" />
                     <th>{t(language, 'common.actions')}</th>
                   </tr>
                 </thead>

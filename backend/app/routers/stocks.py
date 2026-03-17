@@ -484,18 +484,32 @@ def update_stock(ticker: str, stock_data: StockUpdate, db: Session = Depends(get
         scalar_patch_fields = {"quantity", "purchase_price", "purchase_date"} & set(provided_fields)
         if scalar_patch_fields and isinstance(getattr(stock, 'position_entries', None), list):
             updated_entries = []
+            open_entry_indexes = []
             for entry in stock.position_entries:
                 if not isinstance(entry, dict):
                     continue
                 updated_entry = dict(entry)
-                if not updated_entry.get('sell_date'):
-                    if "quantity" in scalar_patch_fields:
-                        updated_entry['quantity'] = stock.quantity
-                    if "purchase_price" in scalar_patch_fields:
-                        updated_entry['purchase_price'] = stock.purchase_price
-                    if "purchase_date" in scalar_patch_fields:
-                        updated_entry['purchase_date'] = stock.purchase_date
                 updated_entries.append(updated_entry)
+                if not updated_entry.get('sell_date'):
+                    open_entry_indexes.append(len(updated_entries) - 1)
+
+            if not open_entry_indexes:
+                updated_entries.append({
+                    'quantity': stock.quantity,
+                    'purchase_price': stock.purchase_price,
+                    'purchase_date': stock.purchase_date,
+                    'sell_date': None,
+                })
+                open_entry_indexes = [len(updated_entries) - 1]
+
+            first_open_entry = updated_entries[open_entry_indexes[0]]
+            if "quantity" in scalar_patch_fields:
+                first_open_entry['quantity'] = stock.quantity
+            if len(open_entry_indexes) == 1:
+                if "purchase_price" in scalar_patch_fields:
+                    first_open_entry['purchase_price'] = stock.purchase_price
+                if "purchase_date" in scalar_patch_fields:
+                    first_open_entry['purchase_date'] = stock.purchase_date
             stock.position_entries = updated_entries
         stock.position_entries = normalize_position_entries(getattr(stock, 'position_entries', None), stock.quantity, stock.purchase_price, stock.purchase_date)
         snapshot = calculate_position_snapshot(stock.position_entries)
