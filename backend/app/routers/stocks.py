@@ -73,6 +73,21 @@ def _resolve_stock_purchase_date(stock: Stock) -> Optional[date]:
     return _parse_event_date(purchase_date) if purchase_date else stock.purchase_date
 
 
+def _apply_stock_position_snapshot(stock: Stock) -> Stock:
+    stock.position_entries = normalize_position_entries(
+        getattr(stock, 'position_entries', None),
+        stock.quantity,
+        stock.purchase_price,
+        stock.purchase_date,
+    )
+    snapshot = calculate_position_snapshot(stock.position_entries)
+    stock.quantity = snapshot['quantity']
+    stock.purchase_price = snapshot['purchase_price']
+    stock.purchase_date = _parse_event_date(snapshot['purchase_date'])
+    stock.position_entries = snapshot['position_entries']
+    return stock
+
+
 def _get_merged_stock_dividends(stock: Stock, ticker: str, years: int, stock_service, avanza_service) -> list[dict]:
     """
     Builds a merged, deduplicated list of dividend records for a stock by combining local service dividends and Avanza-derived dividends.
@@ -227,12 +242,7 @@ def get_stocks(db: Session = Depends(get_db), current_user: User = Depends(get_c
             db.refresh(stock)
 
     for stock in stocks:
-        stock.position_entries = normalize_position_entries(getattr(stock, 'position_entries', None), stock.quantity, stock.purchase_price, stock.purchase_date)
-        snapshot = calculate_position_snapshot(stock.position_entries)
-        stock.quantity = snapshot['quantity']
-        stock.purchase_price = snapshot['purchase_price']
-        stock.purchase_date = _parse_event_date(snapshot['purchase_date'])
-        stock.position_entries = snapshot['position_entries']
+        _apply_stock_position_snapshot(stock)
 
     return stocks
 
@@ -355,7 +365,7 @@ def get_stock(ticker: str, db: Session = Depends(get_db), current_user: User = D
     ).first()
     if not stock:
         raise HTTPException(status_code=404, detail="Stock not found")
-    return stock
+    return _apply_stock_position_snapshot(stock)
 
 
 @router.post("", response_model=StockResponse)
@@ -481,6 +491,17 @@ def update_stock(ticker: str, stock_data: StockUpdate, db: Session = Depends(get
         except ValueError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
     else:
+        if "quantity" in provided_fields and (stock_data.quantity is None or stock_data.quantity <= 0):
+            raise HTTPException(status_code=400, detail="quantity must be greater than zero")
+        if "purchase_price" in provided_fields and (stock_data.purchase_price is None or stock_data.purchase_price < 0):
+            raise HTTPException(status_code=400, detail="purchase_price must be greater than or equal to zero")
+        if (
+            "purchase_date" in provided_fields
+            and stock_data.purchase_date is not None
+            and _parse_event_date(stock_data.purchase_date.isoformat()) is None
+        ):
+            raise HTTPException(status_code=400, detail="purchase_date must be a valid date")
+
         if stock_data.quantity is not None:
             stock.quantity = stock_data.quantity
         if stock_data.purchase_price is not None:

@@ -814,7 +814,7 @@ def _looks_like_frontend_file_request(request_path: str) -> bool:
         ".webp",
         ".woff",
         ".woff2",
-    } or "." in last_segment
+    }
 
 
 @app.middleware("http")
