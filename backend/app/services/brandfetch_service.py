@@ -33,6 +33,8 @@ MAX_LOGO_BYTES = 5 * 1024 * 1024
 _LOGO_CACHE: dict[str, tuple[Optional[str], float]] = {}
 _CURATED_LOGO_QUERIES: dict[str, list[str]] = {
     "VOLV-B.ST": ["volvogroup.com", "Volvo Group"],
+    "RIO.AX": ["riotinto.com", "Rio Tinto"],
+    "OR.PA": ["loreal.com", "L'Oreal"],
 }
 
 _session: Optional[requests.Session] = None

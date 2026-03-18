@@ -2,12 +2,17 @@ import { useState, useEffect, useCallback, useRef } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { ResponsiveContainer, Tooltip, AreaChart, Area, XAxis, YAxis, CartesianGrid } from 'recharts'
 import { api, PortfolioSummary, Stock, UpcomingDividend } from '../services/api'
+import { useAuth } from '../AuthContext'
 import { useSettings } from '../SettingsContext'
 import { formatTimeInTimezone } from '../utils/time'
 import { resolveBackendAssetUrl } from '../utils/assets'
 import { getLocaleForLanguage, t, type Language, type TranslationKey } from '../i18n'
+import { formatDisplayName } from '../utils/displayName'
+import SortableHeader from '../components/SortableHeader'
+import { sortTableItems, useTableSort } from '../utils/tableSort'
 
 type HistoryRangeKey = '1D' | '1W' | '1M' | 'YTD' | '1Y' | 'SINCE_START'
+type FetchOptions = { background?: boolean }
 
 const HISTORY_RANGE_OPTIONS: Array<{ key: HistoryRangeKey; labelKey: TranslationKey; query: string }> = [
   { key: '1D', labelKey: 'dashboard.range1D', query: '1d' },
@@ -19,6 +24,42 @@ const HISTORY_RANGE_OPTIONS: Array<{ key: HistoryRangeKey; labelKey: Translation
 ]
 
 type ChartPoint = { date: string; value: number }
+const DEFAULT_HISTORY_RANGE: HistoryRangeKey = '1M'
+const DASHBOARD_HISTORY_RANGE_STORAGE_KEY = 'dashboard.historyRange'
+const DASHBOARD_AUTO_REFRESH_INTERVAL_MS = 10 * 60 * 1000
+const DASHBOARD_AUTO_REFRESH_BUFFER_MS = 5_000
+const DASHBOARD_AUTO_REFRESH_MIN_DELAY_MS = 5_000
+
+type HoldingSortField = 'ticker' | 'name' | 'quantity' | 'price' | 'value' | 'gainLoss' | 'gainLossPercent'
+type UpcomingSortField = 'name' | 'exDate' | 'paymentDate' | 'perShare' | 'total' | 'source'
+
+function isHistoryRangeKey(value: string | null): value is HistoryRangeKey {
+  return value !== null && HISTORY_RANGE_OPTIONS.some((option) => option.key === value)
+}
+
+function getStoredHistoryRange(userId?: number | null): HistoryRangeKey {
+  try {
+    const storage = typeof window !== 'undefined' ? window.localStorage : null
+    if (!storage) return DEFAULT_HISTORY_RANGE
+    const userKey = userId !== null && userId !== undefined
+      ? `${DASHBOARD_HISTORY_RANGE_STORAGE_KEY}:${userId}`
+      : null
+    const storedValue = userKey ? storage.getItem(userKey) : null
+    if (isHistoryRangeKey(storedValue)) return storedValue
+    const legacyValue = storage.getItem(DASHBOARD_HISTORY_RANGE_STORAGE_KEY)
+    return isHistoryRangeKey(legacyValue) ? legacyValue : DEFAULT_HISTORY_RANGE
+  } catch {
+    return DEFAULT_HISTORY_RANGE
+  }
+}
+
+function getNextDashboardRefreshDelayMs(now: number = Date.now()): number {
+  const nextRefreshAt = Math.ceil(now / DASHBOARD_AUTO_REFRESH_INTERVAL_MS) * DASHBOARD_AUTO_REFRESH_INTERVAL_MS
+  return Math.max(
+    nextRefreshAt - now + DASHBOARD_AUTO_REFRESH_BUFFER_MS,
+    DASHBOARD_AUTO_REFRESH_MIN_DELAY_MS,
+  )
+}
 
 /**
  * Format a numeric amount as a localized currency string.
@@ -143,55 +184,22 @@ function parseHistoryDate(value: string): Date {
 }
 
 /**
- * Retains only data points that occur on the same UTC calendar day as a reference date.
- *
- * If `referenceDate` is omitted, the function uses the latest parsable date found in `data`.
- * Points with unparsable dates are excluded.
- *
- * @param referenceDate - Optional date to use as the UTC day reference; if omitted the latest valid date in `data` is used
- * @returns An array of `ChartPoint` entries whose year, month, and day in UTC match the resolved reference date
- */
-function filterToCurrentUtcDay(data: ChartPoint[], referenceDate?: Date): ChartPoint[] {
-  if (data.length === 0) return data
-  const resolvedReference = referenceDate ?? (() => {
-    for (let index = data.length - 1; index >= 0; index -= 1) {
-      const parsed = parseHistoryDate(data[index].date)
-      if (!Number.isNaN(parsed.getTime())) return parsed
-    }
-    return null
-  })()
-
-  if (!resolvedReference || Number.isNaN(resolvedReference.getTime())) return []
-
-  const referenceYear = resolvedReference.getUTCFullYear()
-  const referenceMonth = resolvedReference.getUTCMonth()
-  const referenceDay = resolvedReference.getUTCDate()
-
-  return data.filter((point) => {
-    const parsed = parseHistoryDate(point.date)
-    if (Number.isNaN(parsed.getTime())) return false
-    return parsed.getUTCFullYear() === referenceYear
-      && parsed.getUTCMonth() === referenceMonth
-      && parsed.getUTCDate() === referenceDay
-  })
-}
-
-/**
  * Format an x-axis tick label for portfolio history charts according to the selected range and locale.
  *
  * @param dateValue - Date or date-like string representing the tick's timestamp
  * @param range - History range key that determines the label granularity
  * @param locale - BCP 47 locale string used for localization of the label
+ * @param timezone - IANA timezone identifier used for display formatting
  * @returns A localized label string for the tick, or an empty string if the date is invalid
  */
-function formatXAxisTick(dateValue: string, range: HistoryRangeKey, locale: string): string {
+function formatXAxisTick(dateValue: string, range: HistoryRangeKey, locale: string, timezone: string): string {
   const date = parseHistoryDate(dateValue)
   if (Number.isNaN(date.getTime())) return ''
-  if (range === '1D') return date.toLocaleTimeString(locale, { hour: '2-digit', minute: '2-digit', hour12: false, timeZone: 'UTC' })
-  if (range === '1W') return date.toLocaleDateString(locale, { weekday: 'short', day: 'numeric', timeZone: 'UTC' })
-  if (range === '1M') return date.toLocaleDateString(locale, { month: 'short', day: 'numeric', timeZone: 'UTC' })
-  if (range === 'YTD' || range === '1Y') return date.toLocaleDateString(locale, { month: 'short', timeZone: 'UTC' })
-  return date.toLocaleDateString(locale, { month: 'short', year: '2-digit', timeZone: 'UTC' })
+  if (range === '1D') return date.toLocaleTimeString(locale, { hour: '2-digit', minute: '2-digit', hour12: false, timeZone: timezone })
+  if (range === '1W') return date.toLocaleDateString(locale, { weekday: 'short', day: 'numeric', timeZone: timezone })
+  if (range === '1M') return date.toLocaleDateString(locale, { month: 'short', day: 'numeric', timeZone: timezone })
+  if (range === 'YTD' || range === '1Y') return date.toLocaleDateString(locale, { month: 'short', timeZone: timezone })
+  return date.toLocaleDateString(locale, { month: 'short', year: '2-digit', timeZone: timezone })
 }
 
 /**
@@ -200,15 +208,16 @@ function formatXAxisTick(dateValue: string, range: HistoryRangeKey, locale: stri
  * @param dateValue - The raw history date value (ISO, epoch seconds, or other supported formats)
  * @param range - The selected history range which determines whether the time component is included
  * @param locale - BCP 47 locale used for localized month/day/weekday labels
+ * @param timezone - IANA timezone identifier used for display formatting
  * @returns A localized, human-readable date string; returns `dateValue` unchanged when the input cannot be parsed as a date
  */
-function formatTooltipDate(dateValue: string, range: HistoryRangeKey, locale: string): string {
+function formatTooltipDate(dateValue: string, range: HistoryRangeKey, locale: string, timezone: string): string {
   const date = parseHistoryDate(dateValue)
   if (Number.isNaN(date.getTime())) return dateValue
   if (range === '1D' || range === '1W') {
-    return date.toLocaleDateString(locale, { weekday: 'short', month: 'short', day: 'numeric', year: 'numeric', hour: '2-digit', minute: '2-digit', hour12: false, timeZone: 'UTC' })
+    return date.toLocaleDateString(locale, { weekday: 'short', month: 'short', day: 'numeric', year: 'numeric', hour: '2-digit', minute: '2-digit', hour12: false, timeZone: timezone })
   }
-  return date.toLocaleDateString(locale, { weekday: 'short', month: 'short', day: 'numeric', year: 'numeric', timeZone: 'UTC' })
+  return date.toLocaleDateString(locale, { weekday: 'short', month: 'short', day: 'numeric', year: 'numeric', timeZone: timezone })
 }
 
 /**
@@ -253,13 +262,14 @@ function getRangeTargetPoints(range: HistoryRangeKey): number | null {
  */
 export default function Dashboard() {
   const navigate = useNavigate()
+  const { user } = useAuth()
   const [summary, setSummary] = useState<PortfolioSummary | null>(null)
   const [upcomingDividends, setUpcomingDividends] = useState<UpcomingDividend[]>([])
   const [totalRemainingDividends, setTotalRemainingDividends] = useState(0)
   const [stocks, setStocks] = useState<Stock[]>([])
   const [exchangeRates, setExchangeRates] = useState<Record<string, number | null>>({})
   const [portfolioHistory, setPortfolioHistory] = useState<{ date: string; value: number }[]>([])
-  const [historyRange, setHistoryRange] = useState<HistoryRangeKey>('1M')
+  const [historyRange, setHistoryRange] = useState<HistoryRangeKey>(() => getStoredHistoryRange(user?.id))
   const [failedLogos, setFailedLogos] = useState<Record<string, boolean>>({})
   const [loading, setLoading] = useState(true)
   const [historyLoading, setHistoryLoading] = useState(true)
@@ -267,33 +277,46 @@ export default function Dashboard() {
   const [error, setError] = useState<string | null>(null)
   const historyRequestIdRef = useRef(0)
   const dataRequestIdRef = useRef(0)
+  const autoRefreshTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const lastAutoRefreshRunRef = useRef<symbol | null>(null)
   const { displayCurrency, timezone, language } = useSettings()
   const locale = getLocaleForLanguage(language)
+  const { sortState: holdingsSortState, requestSort: requestHoldingsSort } = useTableSort<HoldingSortField>({ field: 'ticker', direction: 'asc' })
+  const { sortState: upcomingSortState, requestSort: requestUpcomingSort } = useTableSort<UpcomingSortField>({ field: 'name', direction: 'asc' })
 
-  const fetchHistory = useCallback(async (range: HistoryRangeKey) => {
+  const fetchHistory = useCallback(async (range: HistoryRangeKey, options: FetchOptions = {}) => {
+    const { background = false } = options
     const requestId = historyRequestIdRef.current + 1
     historyRequestIdRef.current = requestId
-    setHistoryLoading(true)
-    setHistoryError(null)
+    if (!background) {
+      setHistoryLoading(true)
+      setHistoryError(null)
+    }
     const rangeQuery = HISTORY_RANGE_OPTIONS.find((o) => o.key === range)?.query || '1m'
     try {
       const historyData = await api.portfolio.history({ range: rangeQuery })
       if (requestId !== historyRequestIdRef.current) return
       setPortfolioHistory(historyData)
+      setHistoryError(null)
     } catch (error) {
       if (requestId !== historyRequestIdRef.current) return
       console.error('Failed to load portfolio history:', error)
-      setHistoryError(error instanceof Error ? error : new Error(String(error)))
+      if (!background) {
+        setHistoryError(error instanceof Error ? error : new Error(String(error)))
+      }
     } finally {
-      if (requestId === historyRequestIdRef.current) setHistoryLoading(false)
+      if (requestId === historyRequestIdRef.current && !background) setHistoryLoading(false)
     }
   }, [])
 
-  const fetchData = useCallback(async () => {
+  const fetchData = useCallback(async (options: FetchOptions = {}) => {
+    const { background = false } = options
     const requestId = dataRequestIdRef.current + 1
     dataRequestIdRef.current = requestId
     try {
-      setLoading(true)
+      if (!background) {
+        setLoading(true)
+      }
       const [summaryData, stocksData, ratesData, upcomingDivsData] = await Promise.all([
         api.portfolio.summary(),
         api.stocks.list(),
@@ -308,11 +331,14 @@ export default function Dashboard() {
       setTotalRemainingDividends(upcomingDivsData.total_remaining)
       setFailedLogos({})
       setError(null)
-    } catch {
+    } catch (error) {
       if (requestId !== dataRequestIdRef.current) return
-      setError(t(language, 'dashboard.failedLoad'))
+      console.error('Failed to load dashboard data:', error)
+      if (!background) {
+        setError(t(language, 'dashboard.failedLoad'))
+      }
     } finally {
-      if (requestId === dataRequestIdRef.current) setLoading(false)
+      if (requestId === dataRequestIdRef.current && !background) setLoading(false)
     }
   }, [displayCurrency, language])
 
@@ -325,6 +351,80 @@ export default function Dashboard() {
     fetchHistory(historyRange)
     return () => { historyRequestIdRef.current += 1 }
   }, [fetchHistory, historyRange])
+
+  useEffect(() => {
+    const storedRange = getStoredHistoryRange(user?.id)
+    setHistoryRange((currentRange) => currentRange === storedRange ? currentRange : storedRange)
+  }, [user?.id])
+
+  useEffect(() => {
+    try {
+      const storage = typeof window !== 'undefined' ? window.localStorage : null
+      if (!storage) return
+      storage.setItem(DASHBOARD_HISTORY_RANGE_STORAGE_KEY, historyRange)
+      if (user?.id !== null && user?.id !== undefined) {
+        storage.setItem(`${DASHBOARD_HISTORY_RANGE_STORAGE_KEY}:${user.id}`, historyRange)
+      }
+    } catch {
+      // Ignore storage write failures.
+    }
+  }, [historyRange, user?.id])
+
+  useEffect(() => {
+    const runId = Symbol('dashboard-auto-refresh')
+    lastAutoRefreshRunRef.current = runId
+    if (autoRefreshTimeoutRef.current) {
+      clearTimeout(autoRefreshTimeoutRef.current)
+      autoRefreshTimeoutRef.current = null
+    }
+
+    const scheduleNextRefresh = () => {
+      if (lastAutoRefreshRunRef.current !== runId) return
+      autoRefreshTimeoutRef.current = setTimeout(() => {
+        Promise.allSettled([
+          fetchData({ background: true }),
+          fetchHistory(historyRange, { background: true }),
+        ]).finally(() => {
+          if (lastAutoRefreshRunRef.current === runId) {
+            scheduleNextRefresh()
+          }
+        })
+      }, getNextDashboardRefreshDelayMs())
+    }
+
+    scheduleNextRefresh()
+
+    return () => {
+      if (lastAutoRefreshRunRef.current === runId) {
+        lastAutoRefreshRunRef.current = null
+      }
+      if (autoRefreshTimeoutRef.current) {
+        clearTimeout(autoRefreshTimeoutRef.current)
+        autoRefreshTimeoutRef.current = null
+      }
+    }
+  }, [fetchData, fetchHistory, historyRange])
+
+  useEffect(() => {
+    let lastResumeRefreshAt = 0
+
+    const refreshAfterReturn = () => {
+      if (document.visibilityState !== 'visible') return
+      const now = Date.now()
+      if (now - lastResumeRefreshAt < DASHBOARD_AUTO_REFRESH_MIN_DELAY_MS) return
+      lastResumeRefreshAt = now
+      void fetchData({ background: true })
+      void fetchHistory(historyRange, { background: true })
+    }
+
+    document.addEventListener('visibilitychange', refreshAfterReturn)
+    window.addEventListener('focus', refreshAfterReturn)
+
+    return () => {
+      document.removeEventListener('visibilitychange', refreshAfterReturn)
+      window.removeEventListener('focus', refreshAfterReturn)
+    }
+  }, [fetchData, fetchHistory, historyRange])
 
   const tryConvertToCurrency = (amount: number, currency: string): number | null => {
     if (currency === displayCurrency) return amount
@@ -372,21 +472,6 @@ export default function Dashboard() {
     return stock.last_updated > max ? stock.last_updated : max
   }, null)
 
-  if (loading) {
-    return <div className="loading-state">{t(language, 'common.loading')}</div>
-  }
-
-  if (error) {
-    return (
-      <div style={{ padding: '28px' }}>
-        <div className="card" style={{ textAlign: 'center', padding: '40px' }}>
-          <p style={{ color: 'var(--red)', marginBottom: '16px' }}>{error}</p>
-          <button className="btn btn-primary" onClick={fetchData}>{t(language, 'common.retry')}</button>
-        </div>
-      </div>
-    )
-  }
-
   const currency = summary?.display_currency || displayCurrency
   const gainLoss = summary?.total_gain_loss ?? 0
   const gainLossIsPos = gainLoss >= 0
@@ -399,18 +484,16 @@ export default function Dashboard() {
     })
     .filter((p): p is ChartPoint => p !== null)
 
-  const chartData = historyRange === '1D' ? filterToCurrentUtcDay(rawChartData) : rawChartData
-
   const rangeTargetPoints = getRangeTargetPoints(historyRange)
-  const displayedChartData = rangeTargetPoints ? downsampleChartData(chartData, rangeTargetPoints) : chartData
-  const hasChartData = chartData.length > 0
+  const displayedChartData = rangeTargetPoints ? downsampleChartData(rawChartData, rangeTargetPoints) : rawChartData
+  const hasChartData = rawChartData.length > 0
 
   let minValue = 0, maxValue = 0
   if (hasChartData) {
-    minValue = chartData[0].value; maxValue = chartData[0].value
-    for (let i = 1; i < chartData.length; i++) {
-      if (chartData[i].value < minValue) minValue = chartData[i].value
-      if (chartData[i].value > maxValue) maxValue = chartData[i].value
+    minValue = rawChartData[0].value; maxValue = rawChartData[0].value
+    for (let i = 1; i < rawChartData.length; i++) {
+      if (rawChartData[i].value < minValue) minValue = rawChartData[i].value
+      if (rawChartData[i].value > maxValue) maxValue = rawChartData[i].value
     }
   }
   const valueRange = maxValue - minValue || 1
@@ -448,7 +531,21 @@ export default function Dashboard() {
       return a.localeCompare(b)
     })
     .map(([monthKey, items]) => ({
-      monthKey, items,
+      monthKey,
+      items: sortTableItems(
+        items,
+        upcomingSortState,
+        {
+          name: (item) => item.name || item.ticker,
+          exDate: (item) => item.ex_date,
+          paymentDate: (item) => item.payment_date,
+          perShare: (item) => item.amount_per_share,
+          total: (item) => getDisplayedDividendAmount(item).amount,
+          source: (item) => item.source,
+        },
+        locale,
+        (item) => item.ticker
+      ),
       subtotalsByCurrency: items.reduce((acc, item) => {
         const displayed = getDisplayedDividendAmount(item)
         if (!Number.isFinite(displayed.amount)) return acc
@@ -456,6 +553,39 @@ export default function Dashboard() {
         return acc
       }, {} as Record<string, number>),
     }))
+
+  const sortedSummaryStocks = sortTableItems(
+    summary?.stocks ?? [],
+    holdingsSortState,
+    {
+      ticker: (stock) => stock.ticker,
+      name: (stock) => formatDisplayName(stock.name, stock.ticker),
+      quantity: (stock) => stock.quantity,
+      price: (stock) => tryConvertToCurrency(stock.current_price, stock.currency),
+      value: (stock) => stock.current_value_converted
+        ? stock.current_value
+        : tryConvertToCurrency(stock.current_value, stock.currency),
+      gainLoss: (stock) => stock.gain_loss,
+      gainLossPercent: (stock) => stock.gain_loss_percent,
+    },
+    locale,
+    (stock) => stock.ticker
+  )
+
+  if (loading) {
+    return <div className="loading-state">{t(language, 'common.loading')}</div>
+  }
+
+  if (error) {
+    return (
+      <div style={{ padding: '28px' }}>
+        <div className="card" style={{ textAlign: 'center', padding: '40px' }}>
+          <p style={{ color: 'var(--red)', marginBottom: '16px' }}>{error}</p>
+          <button className="btn btn-primary" onClick={() => { void fetchData() }}>{t(language, 'common.retry')}</button>
+        </div>
+      </div>
+    )
+  }
 
   // ── HERO STATS ──
   const heroStats = [
@@ -619,7 +749,7 @@ export default function Dashboard() {
                       minTickGap={32}
                       tickLine={false}
                       axisLine={false}
-                      tickFormatter={(v) => formatXAxisTick(String(v), historyRange, locale)}
+                      tickFormatter={(v) => formatXAxisTick(String(v), historyRange, locale, timezone)}
                     />
                     <YAxis
                       stroke="var(--border2)"
@@ -640,7 +770,7 @@ export default function Dashboard() {
                         const sign = percentChange >= 0 ? '+' : ''
                         return (
                           <div style={{ background: 'var(--bg3)', border: '1px solid var(--border2)', borderRadius: 8, padding: '10px 14px', fontSize: 12, boxShadow: '0 4px 16px rgba(0,0,0,0.4)' }}>
-                            <div style={{ color: 'var(--muted)', marginBottom: 6, fontSize: 11 }}>{formatTooltipDate(String(label), historyRange, locale)}</div>
+                            <div style={{ color: 'var(--muted)', marginBottom: 6, fontSize: 11 }}>{formatTooltipDate(String(label), historyRange, locale, timezone)}</div>
                             <div style={{ color: 'var(--text)', fontWeight: 700, marginBottom: 4, fontFamily: "'Fira Code', monospace" }}>{formatCurrency(currentValue, locale, currency)}</div>
                             <div style={{ color: changeColor, fontWeight: 600, fontFamily: "'Fira Code', monospace" }}>
                               {sign}{formatCurrency(absoluteChange, locale, currency)} ({sign}{percentChange.toFixed(2)}%)
@@ -683,18 +813,19 @@ export default function Dashboard() {
             <table>
               <thead>
                 <tr>
-                  <th>{t(language, 'performance.ticker')}</th>
-                  <th>{t(language, 'dashboard.name')}</th>
-                  <th style={{ textAlign: 'right' }}>{t(language, 'dashboard.qty')}</th>
-                  <th style={{ textAlign: 'right' }}>{t(language, 'dashboard.price')} ({currency})</th>
-                  <th style={{ textAlign: 'right' }}>{t(language, 'dashboard.value')} ({currency})</th>
-                  <th style={{ textAlign: 'right' }}>{t(language, 'dashboard.gainLoss')}</th>
-                  <th style={{ textAlign: 'right' }}>{t(language, 'dashboard.returnPercent')}</th>
+                  <SortableHeader field="ticker" label={t(language, 'performance.ticker')} sortState={holdingsSortState} onSort={requestHoldingsSort} />
+                  <SortableHeader field="name" label={t(language, 'dashboard.name')} sortState={holdingsSortState} onSort={requestHoldingsSort} />
+                  <SortableHeader field="quantity" label={t(language, 'dashboard.qty')} sortState={holdingsSortState} onSort={requestHoldingsSort} align="right" />
+                  <SortableHeader field="price" label={`${t(language, 'dashboard.price')} (${currency})`} sortState={holdingsSortState} onSort={requestHoldingsSort} align="right" />
+                  <SortableHeader field="value" label={`${t(language, 'dashboard.value')} (${currency})`} sortState={holdingsSortState} onSort={requestHoldingsSort} align="right" />
+                  <SortableHeader field="gainLoss" label={t(language, 'dashboard.gainLoss')} sortState={holdingsSortState} onSort={requestHoldingsSort} align="right" />
+                  <SortableHeader field="gainLossPercent" label={t(language, 'dashboard.returnPercent')} sortState={holdingsSortState} onSort={requestHoldingsSort} align="right" />
                 </tr>
               </thead>
               <tbody>
-                {summary?.stocks?.map((stock) => {
+                {sortedSummaryStocks.map((stock) => {
                   const logoUrl = resolveBackendAssetUrl(stock.logo)
+                  const displayName = formatDisplayName(stock.name, stock.ticker)
                   return <tr
                     key={stock.ticker}
                     onClick={() => navigate(`/stocks/${encodeURIComponent(stock.ticker)}`)}
@@ -709,7 +840,7 @@ export default function Dashboard() {
                         {logoUrl && !failedLogos[stock.ticker] ? (
                           <img
                             src={logoUrl}
-                            alt={stock.name || stock.ticker}
+                            alt={displayName}
                             style={{ width: 22, height: 22, borderRadius: 4, objectFit: 'contain', background: 'var(--bg3)', padding: 2 }}
                             onError={(e) => {
                               ;(e.target as HTMLImageElement).style.display = 'none'
@@ -718,13 +849,13 @@ export default function Dashboard() {
                           />
                         ) : (
                           <span style={{ width: 22, height: 22, borderRadius: 4, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', fontSize: 11, fontWeight: 700, color: 'var(--muted)', background: 'var(--bg3)' }}>
-                            {(stock.name || stock.ticker || '?').charAt(0).toUpperCase()}
+                            {(displayName || stock.ticker || '?').charAt(0).toUpperCase()}
                           </span>
                         )}
                         {stock.ticker}
                       </Link>
                     </td>
-                    <td style={{ color: 'var(--text2)' }}>{stock.name || '-'}</td>
+                    <td style={{ color: 'var(--text2)' }}>{displayName}</td>
                     <td style={{ textAlign: 'right', fontFamily: "'Fira Code', monospace", color: 'var(--text2)' }}>{stock.quantity}</td>
                     <td style={{ textAlign: 'right', fontFamily: "'Fira Code', monospace", color: 'var(--text2)' }}>{renderConvertedAmount(stock.current_price, stock.currency)}</td>
                     <td style={{ textAlign: 'right', fontFamily: "'Fira Code', monospace", color: 'var(--text2)' }}>
@@ -773,12 +904,12 @@ export default function Dashboard() {
                   <table style={{ width: '100%', tableLayout: 'fixed' }}>
                     <thead>
                       <tr>
-                        <th style={{ width: '18%' }}>{t(language, 'performance.name')}</th>
-                        <th style={{ width: '14%' }}>{t(language, 'dashboard.exDate')}</th>
-                        <th style={{ width: '16%' }}>{t(language, 'dashboard.dividendDate')}</th>
-                        <th style={{ width: '18%', textAlign: 'right' }}>{t(language, 'dashboard.perShare')}</th>
-                        <th style={{ width: '18%', textAlign: 'right' }}>{t(language, 'dashboard.total')}</th>
-                        <th style={{ width: '16%' }}>{t(language, 'dashboard.source')}</th>
+                        <SortableHeader field="name" label={t(language, 'performance.name')} sortState={upcomingSortState} onSort={requestUpcomingSort} style={{ width: '18%' }} />
+                        <SortableHeader field="exDate" label={t(language, 'dashboard.exDate')} sortState={upcomingSortState} onSort={requestUpcomingSort} style={{ width: '14%' }} />
+                        <SortableHeader field="paymentDate" label={t(language, 'dashboard.dividendDate')} sortState={upcomingSortState} onSort={requestUpcomingSort} style={{ width: '16%' }} />
+                        <SortableHeader field="perShare" label={t(language, 'dashboard.perShare')} sortState={upcomingSortState} onSort={requestUpcomingSort} align="right" style={{ width: '18%' }} />
+                        <SortableHeader field="total" label={t(language, 'dashboard.total')} sortState={upcomingSortState} onSort={requestUpcomingSort} align="right" style={{ width: '18%' }} />
+                        <SortableHeader field="source" label={t(language, 'dashboard.source')} sortState={upcomingSortState} onSort={requestUpcomingSort} style={{ width: '16%' }} />
                       </tr>
                     </thead>
                     <tbody>

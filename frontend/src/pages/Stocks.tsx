@@ -1,12 +1,14 @@
-import { useState, useEffect, useCallback, useRef, useId } from 'react'
+import { useState, useEffect, useCallback, useRef, useId, useMemo } from 'react'
 import { Link } from 'react-router-dom'
-import { api, Stock } from '../services/api'
+import { api, PositionEntry, Stock } from '../services/api'
 import { useSettings } from '../SettingsContext'
 import { formatTimeInTimezone, getLatestTimestamp } from '../utils/time'
 import { resolveBackendAssetUrl } from '../utils/assets'
 import { getLocaleForLanguage, t } from '../i18n'
 import supportedExchanges from '../config/supportedExchanges.json'
 import { useModalFocusTrap } from '../hooks/useModalFocusTrap'
+import SortableHeader from '../components/SortableHeader'
+import { sortTableItems, useTableSort } from '../utils/tableSort'
 
 /**
  * Formats a numeric value as a localized currency string or returns "-" when the value is null.
@@ -44,6 +46,27 @@ function getLocalDateInputValue(value: Date = new Date()): string {
   return `${year}-${month}-${day}`
 }
 
+function createEmptyPositionEntry(): PositionEntry {
+  return {
+    id: crypto.randomUUID(),
+    quantity: 0,
+    purchase_price: null,
+    purchase_date: null,
+    sell_date: null,
+  }
+}
+
+type SortField =
+  | 'ticker'
+  | 'name'
+  | 'quantity'
+  | 'currency'
+  | 'purchasePrice'
+  | 'purchaseDate'
+  | 'currentPrice'
+  | 'dailyChangePercent'
+  | 'dividendYield'
+
 /**
  * Display and manage the user's stock positions with controls to view, add, edit, and remove entries localized to the current language and timezone.
  *
@@ -64,9 +87,7 @@ function getLocalDateInputValue(value: Date = new Date()): string {
   const [error, setError] = useState<string | null>(null)
   const [validationStatus, setValidationStatus] = useState<'idle' | 'checking' | 'valid' | 'invalid'>('idle')
   const [editStock, setEditStock] = useState<Stock | null>(null)
-  const [editQuantity, setEditQuantity] = useState('')
-  const [editPurchasePrice, setEditPurchasePrice] = useState('')
-  const [editPurchaseDate, setEditPurchaseDate] = useState('')
+  const [editEntries, setEditEntries] = useState<PositionEntry[]>([])
   const [saving, setSaving] = useState(false)
   const [editError, setEditError] = useState<string | null>(null)
   const [lastUpdate, setLastUpdate] = useState<string | null>(null)
@@ -80,6 +101,7 @@ function getLocalDateInputValue(value: Date = new Date()): string {
   const { timezone, language } = useSettings()
   const locale = getLocaleForLanguage(language)
   const maxPurchaseDate = getLocalDateInputValue()
+  const { sortState, requestSort } = useTableSort<SortField>({ field: 'ticker', direction: 'asc' })
 
   const closeEditModal = useCallback(() => setEditStock(null), [])
 
@@ -168,42 +190,51 @@ function getLocalDateInputValue(value: Date = new Date()): string {
   const openEditModal = (stock: Stock) => {
     setEditError(null)
     setEditStock(stock)
-    setEditQuantity(stock.quantity.toString())
-    setEditPurchasePrice(stock.purchase_price?.toString() || '')
-    setEditPurchaseDate(stock.purchase_date || '')
+    setEditEntries(
+      stock.position_entries && stock.position_entries.length > 0
+        ? stock.position_entries
+        : [{
+            id: crypto.randomUUID(),
+            quantity: stock.quantity,
+            purchase_price: stock.purchase_price,
+            purchase_date: stock.purchase_date,
+            sell_date: null,
+          }]
+    )
   }
 
   const handleSaveEdit = async () => {
     if (!editStock) return
-    const quantityValue = editQuantity.trim()
-    const purchasePriceValue = editPurchasePrice.trim()
-    const parsedQuantity = Number(quantityValue)
-    const parsedPurchasePrice = Number(purchasePriceValue)
-    const quantity = quantityValue === '' ? undefined : parsedQuantity
-    const purchasePrice = purchasePriceValue === '' ? undefined : parsedPurchasePrice
     const validDateFormat = /^\d{4}-\d{2}-\d{2}$/
-    const parsedDate = editPurchaseDate === '' ? null : new Date(`${editPurchaseDate}T00:00:00Z`)
-    const isValidPurchaseDate = editPurchaseDate === '' || (
-      validDateFormat.test(editPurchaseDate)
-      && Number.isFinite(parsedDate?.getTime())
-      && editPurchaseDate <= maxPurchaseDate
-    )
 
-    if (
-      (quantity !== undefined && (!Number.isFinite(quantity) || quantity < 0))
-      || (purchasePrice !== undefined && (!Number.isFinite(purchasePrice) || purchasePrice < 0))
-      || !isValidPurchaseDate
-    ) {
+    const normalizedEntries = editEntries
+      .map((entry) => ({
+        ...entry,
+        quantity: Number(entry.quantity),
+        purchase_price: entry.purchase_price === null || entry.purchase_price === undefined ? null : Number(entry.purchase_price),
+        purchase_date: entry.purchase_date || null,
+        sell_date: entry.sell_date || null,
+      }))
+
+    const hasInvalidEntry = normalizedEntries.some((entry) => {
+      const quantityValid = Number.isFinite(entry.quantity) && entry.quantity > 0
+      const purchaseDateValid = !entry.purchase_date || (validDateFormat.test(entry.purchase_date) && entry.purchase_date <= maxPurchaseDate)
+      const sellDateValid = !entry.sell_date || (validDateFormat.test(entry.sell_date) && entry.sell_date <= maxPurchaseDate)
+      const purchasePriceValid = entry.purchase_price === null || (Number.isFinite(entry.purchase_price) && entry.purchase_price >= 0)
+      const sellAfterPurchase = !entry.sell_date || !entry.purchase_date || entry.sell_date >= entry.purchase_date
+      return !quantityValid || !purchaseDateValid || !sellDateValid || !purchasePriceValid || !sellAfterPurchase
+    })
+
+    if (hasInvalidEntry) {
       setEditError(t(language, 'stocks.invalidEditValues'))
       return
     }
+
     try {
       setEditError(null)
       setSaving(true)
       await api.stocks.update(editStock.ticker, {
-        quantity,
-        purchase_price: purchasePrice,
-        purchase_date: editPurchaseDate === '' ? null : editPurchaseDate,
+        position_entries: normalizedEntries,
       })
       setEditStock(null)
       await fetchStocks()
@@ -215,6 +246,30 @@ function getLocalDateInputValue(value: Date = new Date()): string {
   }
 
   const selectedExchangeData = EXCHANGES.find(e => e.code === selectedExchange)
+  const sortedStocks = useMemo(() => (
+    sortTableItems(
+      stocks,
+      sortState,
+      {
+        ticker: (stock) => stock.ticker,
+        name: (stock) => stock.name || stock.ticker,
+        quantity: (stock) => stock.quantity,
+        currency: (stock) => stock.currency,
+        purchasePrice: (stock) => stock.purchase_price,
+        purchaseDate: (stock) => stock.purchase_date,
+        currentPrice: (stock) => stock.current_price,
+        dailyChangePercent: (stock) => {
+          if (stock.current_price === null || stock.previous_close === null || stock.previous_close === 0) {
+            return null
+          }
+          return ((stock.current_price - stock.previous_close) / stock.previous_close) * 100
+        },
+        dividendYield: (stock) => stock.dividend_yield,
+      },
+      locale,
+      (stock) => stock.ticker
+    )
+  ), [locale, sortState, stocks])
 
   if (loading) {
     return <div className="loading-state">{t(language, 'common.loading')}</div>
@@ -349,20 +404,20 @@ function getLocalDateInputValue(value: Date = new Date()): string {
             <table>
               <thead>
                 <tr>
-                  <th>{t(language, 'stocks.tableTicker')}</th>
-                  <th>{t(language, 'stocks.tableName')}</th>
-                  <th>{t(language, 'stocks.tableQty')}</th>
-                  <th>{t(language, 'stocks.tableCurr')}</th>
-                  <th style={{ textAlign: 'right' }}>{t(language, 'stocks.tablePurchase')}</th>
-                  <th>{t(language, 'stocks.purchaseDate')}</th>
-                  <th style={{ textAlign: 'right' }}>{t(language, 'stocks.tablePrice')}</th>
-                  <th style={{ textAlign: 'right' }}>{t(language, 'stocks.tableChange')}</th>
-                  <th style={{ textAlign: 'right' }}>{t(language, 'stocks.tableDivYield')}</th>
+                  <SortableHeader field="ticker" label={t(language, 'stocks.tableTicker')} sortState={sortState} onSort={requestSort} />
+                  <SortableHeader field="name" label={t(language, 'stocks.tableName')} sortState={sortState} onSort={requestSort} />
+                  <SortableHeader field="quantity" label={t(language, 'stocks.tableQty')} sortState={sortState} onSort={requestSort} align="right" />
+                  <SortableHeader field="currency" label={t(language, 'stocks.tableCurr')} sortState={sortState} onSort={requestSort} />
+                  <SortableHeader field="purchasePrice" label={t(language, 'stocks.tablePurchase')} sortState={sortState} onSort={requestSort} align="right" />
+                  <SortableHeader field="purchaseDate" label={t(language, 'stocks.purchaseDate')} sortState={sortState} onSort={requestSort} />
+                  <SortableHeader field="currentPrice" label={t(language, 'stocks.tablePrice')} sortState={sortState} onSort={requestSort} align="right" />
+                  <SortableHeader field="dailyChangePercent" label={t(language, 'stocks.tableChange')} sortState={sortState} onSort={requestSort} align="right" />
+                  <SortableHeader field="dividendYield" label={t(language, 'stocks.tableDivYield')} sortState={sortState} onSort={requestSort} align="right" />
                   <th>{t(language, 'stocks.tableActions')}</th>
                 </tr>
               </thead>
               <tbody>
-                {stocks.map((stock) => {
+                {sortedStocks.map((stock) => {
                   const logoUrl = resolveBackendAssetUrl(stock.logo)
                   const dailyChange = stock.current_price !== null && stock.previous_close !== null
                     ? stock.current_price - stock.previous_close
@@ -462,23 +517,91 @@ function getLocalDateInputValue(value: Date = new Date()): string {
               <button type="button" aria-label="Close" style={{ background: 'none', border: 'none', color: 'var(--muted)', cursor: 'pointer', fontSize: 18, lineHeight: 1 }} onClick={() => setEditStock(null)}>×</button>
             </div>
             <div style={{ padding: '20px' }}>
-              <div style={{ marginBottom: 16 }}>
-                <label htmlFor={editQuantityInputId} style={{ display: 'block', marginBottom: 6, color: 'var(--muted)', fontSize: 11, fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase' }}>
-                  {t(language, 'stocks.quantity')}
-                </label>
-                <input id={editQuantityInputId} ref={editQuantityInputRef} type="number" step="0.01" min="0" value={editQuantity} onChange={(e) => setEditQuantity(e.target.value)} style={{ width: '100%' }} />
-              </div>
-              <div style={{ marginBottom: 16 }}>
-                <label htmlFor={editPurchasePriceInputId} style={{ display: 'block', marginBottom: 6, color: 'var(--muted)', fontSize: 11, fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase' }}>
-                  {t(language, 'stocks.purchasePrice')} ({editStock.currency})
-                </label>
-                <input id={editPurchasePriceInputId} type="number" step="0.01" min="0" value={editPurchasePrice} onChange={(e) => setEditPurchasePrice(e.target.value)} placeholder={t(language, 'stocks.placeholderPrice')} style={{ width: '100%' }} />
-              </div>
-              <div style={{ marginBottom: 24 }}>
-                <label htmlFor={editPurchaseDateInputId} style={{ display: 'block', marginBottom: 6, color: 'var(--muted)', fontSize: 11, fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase' }}>
-                  {t(language, 'stocks.purchaseDate')}
-                </label>
-                <input id={editPurchaseDateInputId} type="date" value={editPurchaseDate} onChange={(e) => setEditPurchaseDate(e.target.value)} max={maxPurchaseDate} style={{ width: '100%' }} />
+              <div style={{ marginBottom: 24, display: 'grid', gap: 12 }}>
+                {editEntries.map((entry, index) => {
+                  const quantityInputId = index === 0 ? editQuantityInputId : `quantity-${entry.id}`
+                  const purchasePriceInputId = index === 0 ? editPurchasePriceInputId : `purchasePrice-${entry.id}`
+                  const purchaseDateInputId = index === 0 ? editPurchaseDateInputId : `purchaseDate-${entry.id}`
+                  const sellDateInputId = `sellDate-${entry.id}`
+
+                  return (
+                  <div key={entry.id} style={{ padding: 12, border: '1px solid var(--border)', borderRadius: 8, background: 'rgba(255,255,255,0.02)', display: 'grid', gap: 10 }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                      <span style={{ fontSize: 11, fontWeight: 700, color: 'var(--muted)', letterSpacing: '0.08em', textTransform: 'uppercase' }}>
+                        {t(language, 'stocks.lot', { index: index + 1 })}
+                      </span>
+                      <button
+                        type="button"
+                        className="btn btn-secondary"
+                        style={{ padding: '4px 10px', fontSize: 11 }}
+                        onClick={() => setEditEntries((current) => current.filter((candidate) => candidate.id !== entry.id))}
+                        disabled={editEntries.length === 1}
+                      >
+                        {t(language, 'stocks.remove')}
+                      </button>
+                    </div>
+                    <div>
+                      <label htmlFor={quantityInputId} style={{ display: 'block', marginBottom: 6, color: 'var(--muted)', fontSize: 11, fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase' }}>
+                        {t(language, 'stocks.quantity')}
+                      </label>
+                      <input
+                        id={quantityInputId}
+                        ref={index === 0 ? editQuantityInputRef : undefined}
+                        type="number"
+                        step="0.01"
+                        min="0"
+                        value={entry.quantity}
+                        onChange={(e) => setEditEntries((current) => current.map((candidate) => candidate.id === entry.id ? { ...candidate, quantity: Number(e.target.value) } : candidate))}
+                        style={{ width: '100%' }}
+                      />
+                    </div>
+                    <div>
+                      <label htmlFor={purchasePriceInputId} style={{ display: 'block', marginBottom: 6, color: 'var(--muted)', fontSize: 11, fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase' }}>
+                        {t(language, 'stocks.purchasePrice')} ({editStock.currency})
+                      </label>
+                      <input
+                        id={purchasePriceInputId}
+                        type="number"
+                        step="0.01"
+                        min="0"
+                        value={entry.purchase_price ?? ''}
+                        onChange={(e) => setEditEntries((current) => current.map((candidate) => candidate.id === entry.id ? { ...candidate, purchase_price: e.target.value === '' ? null : Number(e.target.value) } : candidate))}
+                        placeholder={t(language, 'stocks.placeholderPrice')}
+                        style={{ width: '100%' }}
+                      />
+                    </div>
+                    <div>
+                      <label htmlFor={purchaseDateInputId} style={{ display: 'block', marginBottom: 6, color: 'var(--muted)', fontSize: 11, fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase' }}>
+                        {t(language, 'stocks.purchaseDate')}
+                      </label>
+                      <input
+                        id={purchaseDateInputId}
+                        type="date"
+                        value={entry.purchase_date || ''}
+                        onChange={(e) => setEditEntries((current) => current.map((candidate) => candidate.id === entry.id ? { ...candidate, purchase_date: e.target.value || null } : candidate))}
+                        max={maxPurchaseDate}
+                        style={{ width: '100%' }}
+                      />
+                    </div>
+                    <div>
+                      <label htmlFor={sellDateInputId} style={{ display: 'block', marginBottom: 6, color: 'var(--muted)', fontSize: 11, fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase' }}>
+                        {t(language, 'stocks.sellDate')}
+                      </label>
+                      <input
+                        id={sellDateInputId}
+                        type="date"
+                        value={entry.sell_date || ''}
+                        onChange={(e) => setEditEntries((current) => current.map((candidate) => candidate.id === entry.id ? { ...candidate, sell_date: e.target.value || null } : candidate))}
+                        max={maxPurchaseDate}
+                        style={{ width: '100%' }}
+                      />
+                    </div>
+                  </div>
+                  )
+                })}
+                <button type="button" className="btn btn-secondary" onClick={() => setEditEntries((current) => [...current, createEmptyPositionEntry()])}>
+                  {t(language, 'stocks.addLot')}
+                </button>
               </div>
               {editError && (
                 <p style={{ color: 'var(--red)', fontSize: 12, marginBottom: 16 }}>{editError}</p>
