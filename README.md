@@ -75,7 +75,7 @@ services:
       retries: 5
 
   app:
-    image: ghcr.io/nebularc18/stock-portfolio-tracker:${IMAGE_TAG}
+    image: ghcr.io/nebularc18/stock-portfolio-tracker-web:${IMAGE_TAG}
     restart: unless-stopped
     ports:
       - "8080:8000"
@@ -237,7 +237,7 @@ docker compose logs -f
 docker compose pull
 
 # Rebuild locally after changes (tag must match docker-compose.yml)
-docker build -t ghcr.io/YOUR_USERNAME/stock-portfolio-tracker:local .
+docker build -t ghcr.io/YOUR_USERNAME/stock-portfolio-tracker-web:local .
 docker compose up -d --build
 ```
 
@@ -250,7 +250,7 @@ Build and push a multi-architecture image locally with Buildx:
 ```bash
 docker buildx build \
   --platform linux/amd64,linux/arm64 \
-  -t ghcr.io/YOUR_USERNAME/stock-portfolio-tracker:<release-tag> \
+  -t ghcr.io/YOUR_USERNAME/stock-portfolio-tracker-web:<release-tag> \
   --push \
   .
 ```
