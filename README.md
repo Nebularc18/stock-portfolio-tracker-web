@@ -50,6 +50,65 @@ A modern web-based stock portfolio tracker built with React, FastAPI, and Postgr
    - Backend API: http://localhost:8000
    - API Documentation: http://localhost:8000/docs
 
+<<<<<<< Updated upstream
+=======
+## Server Compose (Copy/Paste)
+
+Create a `docker-compose.yml` on your server with this content:
+
+```yaml
+version: "3.8"
+
+services:
+  postgres:
+    image: postgres:15-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  app:
+    image: ghcr.io/nebularc18/stock-portfolio-tracker-web:${IMAGE_TAG}
+    restart: unless-stopped
+    ports:
+      - "8080:8000"
+    environment:
+      DATABASE_URL: ${DATABASE_URL}
+      AUTH_TOKEN_SECRET: ${AUTH_TOKEN_SECRET}
+      DEFAULT_USERNAME: ${DEFAULT_USERNAME}
+      DEFAULT_PASSWORD: ${DEFAULT_PASSWORD}
+      GUEST_USERNAME: ${GUEST_USERNAME}
+      GUEST_PASSWORD: ${GUEST_PASSWORD}
+      FINNHUB_API_KEY: ${FINNHUB_API_KEY}
+      MARKETSTACK_API_KEY: ${MARKETSTACK_API_KEY}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    volumes:
+      - cache_data:/app/data/cache
+
+volumes:
+  postgres_data:
+  cache_data:
+```
+
+Then run:
+
+```bash
+export IMAGE_TAG=<published-tag>
+docker compose pull
+docker compose up -d
+```
+
+>>>>>>> Stashed changes
 ## Usage
 
 ### Adding Stocks
@@ -176,10 +235,39 @@ docker compose up -d
 # View logs
 docker compose logs -f
 
+<<<<<<< Updated upstream
 # Rebuild after changes
 docker compose up -d --build
 ```
 
+=======
+# Pull a published image after setting IMAGE_TAG
+docker compose pull
+
+# Rebuild locally after changes (tag must match docker-compose.yml)
+docker build -t ghcr.io/YOUR_USERNAME/stock-portfolio-tracker-web:local .
+docker compose up -d --build
+```
+
+### Multi-Architecture Builds
+
+The root `Dockerfile` and `frontend/Dockerfile` are compatible with both `linux/amd64` and `linux/arm64`.
+
+Build and push a multi-architecture image locally with Buildx:
+
+```bash
+docker buildx build \
+  --platform linux/amd64,linux/arm64 \
+  -t ghcr.io/YOUR_USERNAME/stock-portfolio-tracker-web:<release-tag> \
+  --push \
+  .
+```
+
+This repository also includes a GitHub Actions workflow that publishes a multi-architecture GHCR image for the default branch and version tags.
+
+For local development, `docker compose` now builds the app image from the checked-out source so it works even if the remote GHCR tag has not been published for your CPU architecture yet.
+
+>>>>>>> Stashed changes
 ### Database Migrations
 
 When adding new columns to the database:
