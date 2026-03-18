@@ -63,9 +63,9 @@ services:
     image: postgres:15-alpine
     restart: unless-stopped
     environment:
-      POSTGRES_USER: ${POSTGRES_USER}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
-      POSTGRES_DB: ${POSTGRES_DB}
+      POSTGRES_USER: ${POSTGRES_USER:?POSTGRES_USER is required}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}
+      POSTGRES_DB: ${POSTGRES_DB:?POSTGRES_DB is required}
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
@@ -75,19 +75,20 @@ services:
       retries: 5
 
   app:
-    image: ghcr.io/nebularc18/stock-portfolio-tracker-web:${IMAGE_TAG}
+    image: ghcr.io/${GHCR_OWNER:-nebularc18}/stock-portfolio-tracker-web:${IMAGE_TAG:?IMAGE_TAG is required}
     restart: unless-stopped
     ports:
       - "8080:8000"
     environment:
-      DATABASE_URL: ${DATABASE_URL}
-      AUTH_TOKEN_SECRET: ${AUTH_TOKEN_SECRET}
-      DEFAULT_USERNAME: ${DEFAULT_USERNAME}
-      DEFAULT_PASSWORD: ${DEFAULT_PASSWORD}
-      GUEST_USERNAME: ${GUEST_USERNAME}
-      GUEST_PASSWORD: ${GUEST_PASSWORD}
-      FINNHUB_API_KEY: ${FINNHUB_API_KEY}
-      MARKETSTACK_API_KEY: ${MARKETSTACK_API_KEY}
+      DATABASE_URL: ${DATABASE_URL:?DATABASE_URL is required}
+      AUTH_TOKEN_SECRET: ${AUTH_TOKEN_SECRET:?AUTH_TOKEN_SECRET is required}
+      DEFAULT_USERNAME: ${DEFAULT_USERNAME:?DEFAULT_USERNAME is required}
+      DEFAULT_PASSWORD: ${DEFAULT_PASSWORD:?DEFAULT_PASSWORD is required}
+      GUEST_USERNAME: ${GUEST_USERNAME:-guest}
+      GUEST_PASSWORD: ${GUEST_PASSWORD:-}
+      FINNHUB_API_KEY: ${FINNHUB_API_KEY:-}
+      MARKETSTACK_API_KEY: ${MARKETSTACK_API_KEY:-}
+      AUTH_TOKEN_TTL_SECONDS: ${AUTH_TOKEN_TTL_SECONDS:-43200}
     depends_on:
       postgres:
         condition: service_healthy
@@ -99,10 +100,27 @@ volumes:
   cache_data:
 ```
 
+Then create a `.env` file on the server with at least:
+
+```env
+IMAGE_TAG=latest
+POSTGRES_USER=portfolio
+POSTGRES_PASSWORD=replace_me
+POSTGRES_DB=portfolio
+DATABASE_URL=postgresql://portfolio:replace_me@postgres:5432/portfolio
+DEFAULT_USERNAME=admin
+DEFAULT_PASSWORD=replace_me
+AUTH_TOKEN_SECRET=replace_with_a_long_random_secret
+GUEST_USERNAME=guest
+GUEST_PASSWORD=
+FINNHUB_API_KEY=
+MARKETSTACK_API_KEY=
+AUTH_TOKEN_TTL_SECONDS=43200
+```
+
 Then run:
 
 ```bash
-export IMAGE_TAG=<published-tag>
 docker compose pull
 docker compose up -d
 ```
