@@ -925,7 +925,6 @@ class StockResponse(BaseModel):
     sector: Optional[str]
     logo: Optional[str] = None
     purchase_price: Optional[float]
-    courtage: Optional[float] = None
     purchase_date: Optional[date]
     position_entries: Optional[List[dict]] = []
     current_price: Optional[float]

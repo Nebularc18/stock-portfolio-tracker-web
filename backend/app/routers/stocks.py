@@ -517,14 +517,14 @@ def update_stock(ticker: str, stock_data: StockUpdate, db: Session = Depends(get
             raise HTTPException(status_code=400, detail="quantity must be greater than zero")
         if "purchase_price" in provided_fields and (stock_data.purchase_price is None or stock_data.purchase_price < 0):
             raise HTTPException(status_code=400, detail="purchase_price must be greater than or equal to zero")
-        if "courtage" in provided_fields and (stock_data.courtage is None or stock_data.courtage < 0):
+        if "courtage" in provided_fields and stock_data.courtage is not None and stock_data.courtage < 0:
             raise HTTPException(status_code=400, detail="courtage must be greater than or equal to zero")
         effective_purchase_price = (
             stock_data.purchase_price
             if "purchase_price" in provided_fields
             else stock.purchase_price
         )
-        if "courtage" in provided_fields and stock_data.courtage and effective_purchase_price is None:
+        if "courtage" in provided_fields and stock_data.courtage not in (None, 0) and effective_purchase_price is None:
             raise HTTPException(status_code=400, detail="courtage requires purchase_price")
         if (
             "purchase_date" in provided_fields

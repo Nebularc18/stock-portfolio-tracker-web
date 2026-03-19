@@ -873,7 +873,7 @@ def get_index_sparklines():
                 chart_symbol = SPARKLINE_SYMBOL_OVERRIDES.get(symbol, symbol)
                 prices, dates = fetch_chart_series(chart_symbol, "1d", "30d")
                 if len(prices) < 2:
-                    prices, dates = fetch_chart_series(symbol, "5m", "1d")
+                    prices, dates = fetch_chart_series(chart_symbol, "5m", "1d")
 
                 if len(prices) < 2:
                     continue

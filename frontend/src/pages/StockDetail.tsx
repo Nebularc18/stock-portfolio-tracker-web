@@ -715,13 +715,13 @@ export default function StockDetail() {
     const parsedCourtage = Number(courtageValue)
     const nextQuantity = quantityValue === '' ? undefined : parsedQuantity
     const nextPurchasePrice = purchasePriceValue === '' ? undefined : parsedPurchasePrice
-    const nextCourtage = courtageValue === '' ? undefined : parsedCourtage
+    const nextCourtage = courtageValue === '' ? null : parsedCourtage
 
     if (
       (nextQuantity !== undefined && (!Number.isFinite(nextQuantity) || nextQuantity < 0))
       || (nextPurchasePrice !== undefined && (!Number.isFinite(nextPurchasePrice) || nextPurchasePrice < 0))
-      || (nextCourtage !== undefined && (!Number.isFinite(nextCourtage) || nextCourtage < 0))
-      || (nextCourtage !== undefined && nextCourtage > 0 && nextPurchasePrice === undefined && stock.purchase_price == null)
+      || (nextCourtage !== null && (!Number.isFinite(nextCourtage) || nextCourtage < 0))
+      || (nextCourtage !== null && nextCourtage > 0 && nextPurchasePrice === undefined && stock.purchase_price == null)
     ) {
       setEditError(t(language, 'stockDetail.invalidPositionValues'))
       return

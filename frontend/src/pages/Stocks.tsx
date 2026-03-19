@@ -154,6 +154,13 @@ type SortField =
     if (!newTicker || !newQuantity) return
 
     const fullTicker = getFullTicker(newTicker, selectedExchange)
+    const parsedPurchasePrice = newPurchasePrice ? parseFloat(newPurchasePrice) : null
+    const parsedCourtage = newCourtage ? parseFloat(newCourtage) : null
+
+    if (parsedCourtage !== null && parsedCourtage > 0 && (parsedPurchasePrice === null || !Number.isFinite(parsedPurchasePrice) || parsedPurchasePrice <= 0)) {
+      setError(t(language, 'stocks.invalidEditValues'))
+      return
+    }
 
     try {
       setAdding(true)
@@ -161,8 +168,8 @@ type SortField =
       await api.stocks.create({
         ticker: fullTicker,
         quantity: parseFloat(newQuantity),
-        purchase_price: newPurchasePrice ? parseFloat(newPurchasePrice) : undefined,
-        courtage: newCourtage ? parseFloat(newCourtage) : undefined,
+        purchase_price: parsedPurchasePrice ?? undefined,
+        courtage: parsedCourtage ?? undefined,
         purchase_date: newPurchaseDate || undefined,
       })
       setNewTicker('')
