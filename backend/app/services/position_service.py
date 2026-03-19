@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import date, datetime
+import math
 from typing import Any, Callable, Optional
 import uuid
 
@@ -12,7 +13,7 @@ def _parse_optional_float(value: Any) -> Optional[float]:
         parsed = float(value)
     except (TypeError, ValueError):
         return None
-    if not parsed or parsed <= 0:
+    if not math.isfinite(parsed) or parsed <= 0:
         return None
     return parsed
 
@@ -24,6 +25,23 @@ def _normalize_exchange_rate_currency(value: Any) -> Optional[str]:
     if len(normalized) != 3 or not normalized.isalpha():
         return None
     return normalized
+
+
+def _resolve_courtage_currency(entry: dict[str, Any]) -> Optional[str]:
+    normalized = _normalize_exchange_rate_currency(entry.get('courtage_currency'))
+    return normalized
+
+
+def _parse_non_negative_float(value: Any) -> Optional[float]:
+    if value in (None, ''):
+        return None
+    try:
+        parsed = float(value)
+    except (TypeError, ValueError):
+        return None
+    if parsed < 0:
+        return None
+    return parsed
 
 
 def parse_position_date(value: Any) -> Optional[date]:
@@ -85,6 +103,7 @@ def normalize_position_entries(
             courtage = 0.0
         if courtage < 0:
             courtage = 0.0
+        courtage_currency = _resolve_courtage_currency(entry)
 
         purchase_date = parse_position_date(entry.get('purchase_date'))
         sell_date = parse_position_date(entry.get('sell_date'))
@@ -102,6 +121,7 @@ def normalize_position_entries(
                     str(quantity),
                     str(purchase_price),
                     str(courtage),
+                    courtage_currency or "",
                     purchase_date.isoformat() if purchase_date else "",
                     sell_date.isoformat() if sell_date else "",
                     str(exchange_rate),
@@ -115,6 +135,7 @@ def normalize_position_entries(
             'quantity': quantity,
             'purchase_price': purchase_price,
             'courtage': courtage,
+            'courtage_currency': courtage_currency,
             'purchase_date': purchase_date.isoformat() if purchase_date else None,
             'sell_date': sell_date.isoformat() if sell_date else None,
             'exchange_rate': exchange_rate,
@@ -152,6 +173,7 @@ def normalize_position_entries(
             'quantity': fallback_qty,
             'purchase_price': fallback_purchase_price,
             'courtage': fallback_fee,
+            'courtage_currency': None,
             'purchase_date': fallback_date.isoformat() if fallback_date else None,
             'sell_date': None,
             'exchange_rate': None,
@@ -202,6 +224,12 @@ def validate_position_entries(entries: Any) -> list[dict[str, Any]]:
             if purchase_price is None and courtage > 0:
                 raise ValueError('courtage requires purchase_price')
 
+        courtage_currency = entry.get('courtage_currency')
+        if courtage_currency not in (None, ''):
+            normalized_currency = str(courtage_currency).strip().upper()
+            if len(normalized_currency) != 3 or not normalized_currency.isalpha():
+                raise ValueError('courtage_currency must be a 3-letter currency code')
+
         exchange_rate_raw = entry.get('exchange_rate')
         exchange_rate = None
         if exchange_rate_raw not in (None, ''):
@@ -209,7 +237,7 @@ def validate_position_entries(entries: Any) -> list[dict[str, Any]]:
                 exchange_rate = float(exchange_rate_raw)
             except (TypeError, ValueError):
                 raise ValueError('exchange_rate must be a number') from None
-            if exchange_rate <= 0:
+            if not math.isfinite(exchange_rate) or exchange_rate <= 0:
                 raise ValueError('exchange_rate must be greater than zero')
 
         exchange_rate_currency = entry.get('exchange_rate_currency')
@@ -255,9 +283,17 @@ def calculate_position_snapshot(entries: Any) -> dict[str, Any]:
         purchase_dates.append(entry.get('purchase_date') or '')
         purchase_price = entry.get('purchase_price')
         courtage = entry.get('courtage') or 0.0
+        courtage_currency = _resolve_courtage_currency(entry)
         if purchase_price is None:
             continue
-        total_cost += float(purchase_price) * float(entry['quantity']) + float(courtage)
+
+        native_courtage = float(courtage)
+        if native_courtage and courtage_currency and courtage_currency != entry.get('exchange_rate_currency'):
+            native_courtage = 0.0
+        elif native_courtage and courtage_currency and entry.get('exchange_rate') and courtage_currency == entry.get('exchange_rate_currency'):
+            native_courtage = native_courtage / float(entry['exchange_rate'])
+
+        total_cost += float(purchase_price) * float(entry['quantity']) + native_courtage
         total_quantity_for_cost += float(entry['quantity'])
 
     return {
@@ -294,20 +330,43 @@ def calculate_position_cost_basis(
         if purchase_price is None:
             continue
 
-        entry_cost_native = (float(purchase_price) * float(entry['quantity'])) + float(entry.get('courtage') or 0.0)
+        trade_cost_native = float(purchase_price) * float(entry['quantity'])
         if position_currency == target_currency:
-            converted_cost = entry_cost_native
+            converted_trade_cost = trade_cost_native
         elif entry.get('exchange_rate') is not None and entry.get('exchange_rate_currency') == target_currency:
-            converted_cost = entry_cost_native * float(entry['exchange_rate'])
+            converted_trade_cost = trade_cost_native * float(entry['exchange_rate'])
         elif conversion_callback is not None:
-            converted_cost = conversion_callback(entry_cost_native, position_currency, target_currency)
+            converted_trade_cost = conversion_callback(trade_cost_native, position_currency, target_currency)
         else:
             return None
 
-        if converted_cost is None:
+        if converted_trade_cost is None:
             return None
 
-        total_cost += float(converted_cost)
+        courtage_amount = float(entry.get('courtage') or 0.0)
+        courtage_currency = _resolve_courtage_currency(entry) or position_currency
+        if courtage_amount == 0:
+            converted_courtage = 0.0
+        elif courtage_currency == target_currency:
+            converted_courtage = courtage_amount
+        elif courtage_currency == position_currency:
+            if position_currency == target_currency:
+                converted_courtage = courtage_amount
+            elif entry.get('exchange_rate') is not None and entry.get('exchange_rate_currency') == target_currency:
+                converted_courtage = courtage_amount * float(entry['exchange_rate'])
+            elif conversion_callback is not None:
+                converted_courtage = conversion_callback(courtage_amount, position_currency, target_currency)
+            else:
+                return None
+        elif conversion_callback is not None:
+            converted_courtage = conversion_callback(courtage_amount, courtage_currency, target_currency)
+        else:
+            return None
+
+        if converted_courtage is None:
+            return None
+
+        total_cost += float(converted_trade_cost) + float(converted_courtage)
         has_cost_basis = True
 
     return total_cost if has_cost_basis else None

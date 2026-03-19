@@ -137,6 +137,34 @@ def test_validate_position_entries_requires_exchange_rate_currency_when_rate_pre
         }])
 
 
+@pytest.mark.parametrize("invalid_exchange_rate", [float("nan"), float("inf"), float("-inf")])
+def test_validate_position_entries_rejects_non_finite_exchange_rate(invalid_exchange_rate):
+    with pytest.raises(ValueError, match="exchange_rate must be greater than zero"):
+        validate_position_entries([{
+            "quantity": 1,
+            "purchase_price": 10,
+            "exchange_rate": invalid_exchange_rate,
+            "exchange_rate_currency": "SEK",
+            "purchase_date": "2024-01-01",
+            "sell_date": None,
+        }])
+
+
+@pytest.mark.parametrize("invalid_exchange_rate", [float("nan"), float("inf"), float("-inf")])
+def test_normalize_position_entries_drops_non_finite_exchange_rate(invalid_exchange_rate):
+    normalized = normalize_position_entries([{
+        "quantity": 1,
+        "purchase_price": 10,
+        "exchange_rate": invalid_exchange_rate,
+        "exchange_rate_currency": "SEK",
+        "purchase_date": "2024-01-01",
+        "sell_date": None,
+    }])
+
+    assert normalized[0]["exchange_rate"] is None
+    assert normalized[0]["exchange_rate_currency"] is None
+
+
 def test_normalize_position_entries_preserves_exchange_rate_fields():
     normalized = normalize_position_entries([{
         "quantity": 1,
@@ -168,3 +196,23 @@ def test_calculate_position_cost_basis_prefers_stored_exchange_rate_for_target_c
     )
 
     assert total_cost == pytest.approx(2100.0)
+
+
+def test_calculate_position_cost_basis_handles_brokerage_in_target_currency_with_explicit_rate():
+    total_cost = calculate_position_cost_basis(
+        [{
+            "quantity": 10,
+            "purchase_price": 66.39,
+            "courtage": 14.23,
+            "courtage_currency": "SEK",
+            "exchange_rate": 10.7148,
+            "exchange_rate_currency": "SEK",
+            "purchase_date": "2024-01-01",
+            "sell_date": None,
+        }],
+        "USD",
+        "SEK",
+        conversion_callback=lambda amount, from_currency, to_currency: None,
+    )
+
+    assert total_cost == pytest.approx(7127.78572)

@@ -65,6 +65,7 @@ export function calculatePositionCostInCurrency(
         quantity: fallbackQuantity,
         purchase_price: fallbackPurchasePrice ?? null,
         courtage: 0,
+        courtage_currency: null,
         exchange_rate: null,
         exchange_rate_currency: null,
         purchase_date: null,
@@ -80,9 +81,10 @@ export function calculatePositionCostInCurrency(
     const quantity = parseQuantity(entry.quantity)
     const purchasePrice = parseOptionalNumber(entry.purchase_price)
     const courtage = parseOptionalNumber(entry.courtage) ?? 0
+    const courtageCurrency = entry.courtage_currency?.trim().toUpperCase() || positionCurrency
     if (quantity <= 0 || purchasePrice === null) continue
 
-    const nativeCost = (purchasePrice * quantity) + courtage
+    const nativeCost = purchasePrice * quantity
     let convertedCost: number | null = null
 
     if (positionCurrency === targetCurrency) {
@@ -99,7 +101,30 @@ export function calculatePositionCostInCurrency(
 
     if (convertedCost === null) return null
 
-    totalCost += convertedCost
+    let convertedCourtage: number | null = 0
+    if (courtage === 0) {
+      convertedCourtage = 0
+    } else if (courtageCurrency === targetCurrency) {
+      convertedCourtage = courtage
+    } else if (courtageCurrency === positionCurrency) {
+      if (positionCurrency === targetCurrency) {
+        convertedCourtage = courtage
+      } else {
+        const historicalRate = parseOptionalNumber(entry.exchange_rate)
+        const historicalRateCurrency = entry.exchange_rate_currency?.trim().toUpperCase() || null
+        if (historicalRate !== null && historicalRateCurrency === targetCurrency) {
+          convertedCourtage = courtage * historicalRate
+        } else {
+          convertedCourtage = convertCurrencyValue(courtage, positionCurrency, targetCurrency, exchangeRates)
+        }
+      }
+    } else {
+      convertedCourtage = convertCurrencyValue(courtage, courtageCurrency, targetCurrency, exchangeRates)
+    }
+
+    if (convertedCourtage === null) return null
+
+    totalCost += convertedCost + convertedCourtage
     hasCostBasis = true
   }
 

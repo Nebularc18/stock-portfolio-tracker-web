@@ -676,7 +676,9 @@ class BrandfetchService:
 
         return None
 
-    def _get_finnhub_logo(self, ticker: str) -> Optional[str]:
+    def _get_finnhub_logo(self, ticker: str, force_refresh: bool = False) -> Optional[str]:
+        if force_refresh:
+            finnhub_service.clear_cache(ticker)
         profile = finnhub_service.get_company_profile(ticker)
         if not isinstance(profile, dict):
             return None
@@ -687,10 +689,7 @@ class BrandfetchService:
             'icon': profile.get('logo'),
             'domain': website_domain or logo_domain,
         }
-        try:
-            return self._persist_candidate_logo(candidate, ticker)
-        except LogoDownloadTransientError:
-            return None
+        return self._persist_candidate_logo(candidate, ticker)
 
     def get_logo_url_for_ticker(
         self,
@@ -764,7 +763,10 @@ class BrandfetchService:
             except OSError as exc:
                 logger.warning("Failed to clear stale logo cache for %s: %s", ticker_upper, exc)
 
-        logo_url = self._get_finnhub_logo(ticker_upper)
+        try:
+            logo_url = self._get_finnhub_logo(ticker_upper, force_refresh=force_refresh)
+        except LogoDownloadTransientError:
+            return existing_logo if existing_logo and not self.should_refresh_logo(existing_logo) else None
         if logo_url:
             _LOGO_CACHE[ticker_upper] = (logo_url, datetime.now().timestamp())
             _save_file_cache(cache_file, logo_url)

@@ -10,6 +10,7 @@ from pydantic import BaseModel, ValidationError
 from typing import Optional
 import uuid
 import logging
+import math
 import time
 from datetime import date, datetime
 
@@ -37,6 +38,13 @@ def _parse_event_date(value: Optional[str]) -> Optional[date]:
                 return date.fromisoformat(value.split('T', 1)[0])
             except ValueError:
                 return None
+
+
+def _normalize_optional_currency_code(value: Optional[str]) -> Optional[str]:
+    if value in (None, ''):
+        return None
+    normalized = str(value).strip().upper()
+    return normalized or None
 
 
 def _is_after_purchase_date(event_date: Optional[str], purchase_date: Optional[date]) -> bool:
@@ -90,7 +98,7 @@ def _apply_stock_position_snapshot(stock: Stock) -> Stock:
 
 def _build_position_snapshot_from_stock_data(stock_data: StockCreate | StockUpdate, payload_fields: set[str]) -> dict:
     if stock_data.position_entries:
-        if {"quantity", "purchase_price", "purchase_date", "courtage", "exchange_rate", "exchange_rate_currency"} & payload_fields:
+        if {"quantity", "purchase_price", "purchase_date", "courtage", "courtage_currency", "exchange_rate", "exchange_rate_currency"} & payload_fields:
             raise HTTPException(
                 status_code=400,
                 detail="Provide either position_entries or scalar fields quantity, purchase_price, purchase_date, courtage, and exchange_rate, not both.",
@@ -111,6 +119,7 @@ def _build_position_snapshot_from_stock_data(stock_data: StockCreate | StockUpda
             'quantity': getattr(stock_data, 'quantity', None),
             'purchase_price': purchase_price,
             'courtage': courtage,
+            'courtage_currency': getattr(stock_data, 'courtage_currency', None),
             'exchange_rate': getattr(stock_data, 'exchange_rate', None),
             'exchange_rate_currency': getattr(stock_data, 'exchange_rate_currency', None),
             'purchase_date': getattr(stock_data, 'purchase_date', None),
@@ -521,7 +530,7 @@ def update_stock(ticker: str, stock_data: StockUpdate, db: Session = Depends(get
     provided_fields = getattr(stock_data, "model_fields_set", getattr(stock_data, "__fields_set__", set()))
 
     if "position_entries" in provided_fields:
-        if {"quantity", "purchase_price", "purchase_date", "courtage", "exchange_rate", "exchange_rate_currency"} & set(provided_fields):
+        if {"quantity", "purchase_price", "purchase_date", "courtage", "courtage_currency", "exchange_rate", "exchange_rate_currency"} & set(provided_fields):
             raise HTTPException(
                 status_code=400,
                 detail="Provide either position_entries or scalar fields quantity, purchase_price, purchase_date, courtage, and exchange_rate, not both.",
@@ -542,7 +551,15 @@ def update_stock(ticker: str, stock_data: StockUpdate, db: Session = Depends(get
             raise HTTPException(status_code=400, detail="purchase_price must be greater than or equal to zero")
         if "courtage" in provided_fields and stock_data.courtage is not None and stock_data.courtage < 0:
             raise HTTPException(status_code=400, detail="courtage must be greater than or equal to zero")
-        if "exchange_rate" in provided_fields and stock_data.exchange_rate is not None and stock_data.exchange_rate <= 0:
+        if "courtage_currency" in provided_fields and stock_data.courtage_currency not in (None, ''):
+            normalized_courtage_currency = _normalize_optional_currency_code(stock_data.courtage_currency)
+            if len(normalized_courtage_currency) != 3 or not normalized_courtage_currency.isalpha():
+                raise HTTPException(status_code=400, detail="courtage_currency must be a 3-letter currency code")
+        if (
+            "exchange_rate" in provided_fields
+            and stock_data.exchange_rate is not None
+            and (not math.isfinite(stock_data.exchange_rate) or stock_data.exchange_rate <= 0)
+        ):
             raise HTTPException(status_code=400, detail="exchange_rate must be greater than zero")
         effective_purchase_price = (
             stock_data.purchase_price
@@ -567,14 +584,25 @@ def update_stock(ticker: str, stock_data: StockUpdate, db: Session = Depends(get
             else (existing_open_entry.get('exchange_rate') if existing_open_entry else None)
         )
         effective_exchange_rate_currency = (
-            stock_data.exchange_rate_currency.strip().upper()
-            if "exchange_rate_currency" in provided_fields and stock_data.exchange_rate_currency not in (None, '')
+            _normalize_optional_currency_code(stock_data.exchange_rate_currency)
+            if "exchange_rate_currency" in provided_fields
             else (
                 None
                 if "exchange_rate_currency" in provided_fields
-                else (existing_open_entry.get('exchange_rate_currency') if existing_open_entry else None)
+                else _normalize_optional_currency_code(existing_open_entry.get('exchange_rate_currency') if existing_open_entry else None)
             )
         )
+        effective_courtage_currency = (
+            _normalize_optional_currency_code(stock_data.courtage_currency)
+            if "courtage_currency" in provided_fields
+            else (
+                None
+                if "courtage_currency" in provided_fields
+                else _normalize_optional_currency_code(existing_open_entry.get('courtage_currency') if existing_open_entry else None)
+            )
+        )
+        if effective_exchange_rate is not None and (not math.isfinite(effective_exchange_rate) or effective_exchange_rate <= 0):
+            raise HTTPException(status_code=400, detail="exchange_rate must be greater than zero")
         if (
             ("exchange_rate" in provided_fields or "exchange_rate_currency" in provided_fields)
             and (effective_exchange_rate is not None or effective_exchange_rate_currency is not None)
@@ -592,7 +620,7 @@ def update_stock(ticker: str, stock_data: StockUpdate, db: Session = Depends(get
             stock.purchase_price = stock_data.purchase_price
         if "purchase_date" in provided_fields:
             stock.purchase_date = stock_data.purchase_date
-        scalar_patch_fields = {"quantity", "purchase_price", "purchase_date", "courtage", "exchange_rate", "exchange_rate_currency"} & set(provided_fields)
+        scalar_patch_fields = {"quantity", "purchase_price", "purchase_date", "courtage", "courtage_currency", "exchange_rate", "exchange_rate_currency"} & set(provided_fields)
         if scalar_patch_fields and isinstance(getattr(stock, 'position_entries', None), list):
             updated_entries = []
             open_entry_indexes = []
@@ -618,6 +646,7 @@ def update_stock(ticker: str, stock_data: StockUpdate, db: Session = Depends(get
                     'quantity': stock.quantity,
                     'purchase_price': stock.purchase_price,
                     'courtage': stock_data.courtage if "courtage" in scalar_patch_fields else 0,
+                    'courtage_currency': effective_courtage_currency,
                     'exchange_rate': stock_data.exchange_rate if "exchange_rate" in scalar_patch_fields else None,
                     'exchange_rate_currency': effective_exchange_rate_currency if "exchange_rate_currency" in scalar_patch_fields or "exchange_rate" in scalar_patch_fields else None,
                     'purchase_date': stock.purchase_date,
@@ -633,6 +662,8 @@ def update_stock(ticker: str, stock_data: StockUpdate, db: Session = Depends(get
                     first_open_entry['purchase_price'] = stock.purchase_price
                 if "courtage" in scalar_patch_fields:
                     first_open_entry['courtage'] = stock_data.courtage
+                if "courtage_currency" in scalar_patch_fields:
+                    first_open_entry['courtage_currency'] = effective_courtage_currency
                 if "purchase_date" in scalar_patch_fields:
                     first_open_entry['purchase_date'] = stock.purchase_date
                 if "exchange_rate" in scalar_patch_fields:

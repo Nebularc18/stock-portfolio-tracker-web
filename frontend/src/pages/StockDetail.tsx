@@ -239,6 +239,7 @@ export default function StockDetail() {
   const [editPurchasePrice, setEditPurchasePrice] = useState('')
   const [editCourtage, setEditCourtage] = useState('')
   const [editExchangeRate, setEditExchangeRate] = useState('')
+  const [editExchangeRateCurrency, setEditExchangeRateCurrency] = useState('')
   const [editPurchaseDate, setEditPurchaseDate] = useState('')
   const [saving, setSaving] = useState(false)
   const [showDividendModal, setShowDividendModal] = useState(false)
@@ -703,6 +704,7 @@ export default function StockDetail() {
       setEditPurchasePrice(editableEntry?.purchase_price?.toString() || stock.purchase_price?.toString() || '')
       setEditCourtage(editableEntry?.courtage?.toString() || '')
       setEditExchangeRate(editableEntry?.exchange_rate?.toString() || '')
+      setEditExchangeRateCurrency(editableEntry?.exchange_rate_currency || displayCurrency)
       setEditPurchaseDate(stock.purchase_date || '')
       setShowEditModal(true)
     }
@@ -757,8 +759,9 @@ export default function StockDetail() {
         quantity: nextQuantity,
         purchase_price: nextPurchasePrice,
         courtage: nextCourtage,
+        courtage_currency: nextCourtage !== null ? (stock.currency !== displayCurrency ? displayCurrency : stock.currency) : null,
         exchange_rate: nextExchangeRate,
-        exchange_rate_currency: nextExchangeRate !== null ? displayCurrency : null,
+        exchange_rate_currency: nextExchangeRate !== null ? editExchangeRateCurrency : null,
         purchase_date: editPurchaseDate || null,
       })
       const data = await loadStockPageData(ticker)
@@ -1618,13 +1621,15 @@ export default function StockDetail() {
               <input id={editPurchasePriceInputId} type="number" step="0.01" min="0" value={editPurchasePrice} onChange={(e) => setEditPurchasePrice(e.target.value)} style={{ width: '100%' }} placeholder="e.g. 150.00" />
             </div>
             <div style={{ marginBottom: 14 }}>
-              <label htmlFor={editCourtageInputId} style={{ display: 'block', marginBottom: 6, color: 'var(--muted)', fontSize: 12 }}>{t(language, 'stockDetail.courtage')} ({stock?.currency})</label>
+              <label htmlFor={editCourtageInputId} style={{ display: 'block', marginBottom: 6, color: 'var(--muted)', fontSize: 12 }}>{t(language, 'stockDetail.courtage')} ({stock?.currency !== displayCurrency ? displayCurrency : stock?.currency})</label>
               <input id={editCourtageInputId} type="number" step="0.01" min="0" value={editCourtage} onChange={(e) => setEditCourtage(e.target.value)} style={{ width: '100%' }} placeholder="e.g. 9.00" />
             </div>
+            {(stock?.currency !== displayCurrency || editExchangeRate) && (
             <div style={{ marginBottom: 14 }}>
-              <label htmlFor={editExchangeRateInputId} style={{ display: 'block', marginBottom: 6, color: 'var(--muted)', fontSize: 12 }}>{t(language, 'stockDetail.exchangeRate')} (1 {stock?.currency} = ? {stock?.position_entries?.find((entry) => !entry.sell_date)?.exchange_rate_currency || displayCurrency})</label>
+              <label htmlFor={editExchangeRateInputId} style={{ display: 'block', marginBottom: 6, color: 'var(--muted)', fontSize: 12 }}>{t(language, 'stockDetail.exchangeRate')} (1 {stock?.currency} = ? {editExchangeRateCurrency || displayCurrency})</label>
               <input id={editExchangeRateInputId} type="number" step="0.0001" min="0" value={editExchangeRate} onChange={(e) => setEditExchangeRate(e.target.value)} style={{ width: '100%' }} placeholder="e.g. 10.50" />
             </div>
+            )}
             <div style={{ marginBottom: 22 }}>
               <label htmlFor={editPurchaseDateInputId} style={{ display: 'block', marginBottom: 6, color: 'var(--muted)', fontSize: 12 }}>{t(language, 'stockDetail.purchaseDate')}</label>
               <input id={editPurchaseDateInputId} type="date" value={editPurchaseDate} onChange={(e) => setEditPurchaseDate(e.target.value)} style={{ width: '100%' }} />
