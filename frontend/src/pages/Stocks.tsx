@@ -39,6 +39,12 @@ const EXCHANGES = [
   ...supportedExchanges,
 ]
 
+/**
+ * Formats a Date as a local `YYYY-MM-DD` string suitable for date input values.
+ *
+ * @param value - Date to format; defaults to the current local date
+ * @returns The date formatted as `YYYY-MM-DD` using local date components
+ */
 function getLocalDateInputValue(value: Date = new Date()): string {
   const year = value.getFullYear()
   const month = `${value.getMonth() + 1}`.padStart(2, '0')
@@ -46,9 +52,29 @@ function getLocalDateInputValue(value: Date = new Date()): string {
   return `${year}-${month}-${day}`
 }
 
+/**
+ * Create a unique client-side identifier for new position entries.
+ *
+ * Prefers a cryptographically random UUID when available; otherwise returns a timestamp-based fallback with a short random suffix.
+ *
+ * @returns A string identifier suitable for client-generated position entries (UUID when available, otherwise a timestamp-random fallback)
+ */
+function generateClientId(): string {
+  if (typeof globalThis.crypto?.randomUUID === 'function') {
+    return globalThis.crypto.randomUUID()
+  }
+
+  return `entry-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`
+}
+
+/**
+ * Create a new position entry populated with default/empty values and a client-generated id.
+ *
+ * @returns A `PositionEntry` with `id` set to a client-generated identifier, `quantity` 0, `purchase_price` `null`, `courtage` 0, and `purchase_date` and `sell_date` set to `null`.
+ */
 function createEmptyPositionEntry(): PositionEntry {
   return {
-    id: crypto.randomUUID(),
+    id: generateClientId(),
     quantity: 0,
     purchase_price: null,
     courtage: 0,
@@ -69,9 +95,9 @@ type SortField =
   | 'dividendYield'
 
 /**
- * Display and manage the user's stock positions with controls to view, add, edit, and remove entries localized to the current language and timezone.
+ * Stocks page component that displays and manages the user's stock positions.
  *
- * Loads the user's stocks on mount, shows current prices and daily changes, and allows recording or updating a purchase price and purchase date for each position.
+ * Provides a localized interface to view current prices and daily changes, add new positions, edit existing position entries (lots), and remove holdings. Loads stocks on mount and exposes sorting, validation, and modal editing behaviour consistent with the current language and timezone settings.
  *
  * @returns A React element containing the Stocks management user interface.
  */
@@ -205,7 +231,7 @@ type SortField =
       stock.position_entries && stock.position_entries.length > 0
         ? stock.position_entries
         : [{
-            id: crypto.randomUUID(),
+            id: generateClientId(),
             quantity: stock.quantity,
             purchase_price: stock.purchase_price,
             courtage: 0,
@@ -522,7 +548,7 @@ type SortField =
         <div
           style={{
             position: 'fixed', top: 0, left: 0, right: 0, bottom: 0,
-            background: 'rgba(0,0,0,0.7)', backdropFilter: 'blur(4px)',
+            background: 'rgba(5, 8, 15, 0.82)',
             display: 'flex', alignItems: 'flex-start', justifyContent: 'center', zIndex: 1000,
             padding: '16px',
             overflowY: 'auto',
@@ -538,14 +564,14 @@ type SortField =
             style={{
               width: 420,
               maxWidth: '100%',
-              maxHeight: 'calc(100dvh - 32px)',
+              maxHeight: 'calc(100vh - 32px)',
               background: 'var(--bg2)',
               border: '1px solid var(--border2)',
               borderRadius: 10,
               overflow: 'hidden',
               display: 'flex',
               flexDirection: 'column',
-              margin: 'auto 0',
+              marginTop: 24,
             }}
             onClick={(e) => e.stopPropagation()}
           >

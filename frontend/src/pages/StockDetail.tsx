@@ -210,11 +210,11 @@ type VerificationSortField = 'date' | 'type' | 'yahoo' | 'marketstack' | 'differ
 /**
  * Render the detailed stock page and manage its data and user interactions.
  *
- * Loads stock, dividend (historical and upcoming), suppressed dividend, exchange rate,
- * company profile, financial metrics, peers, and analyst data; provides UI actions to
- * edit or delete the position, add/edit/delete manual dividends, suppress/restore dividends,
- * and verify dividends via Marketstack. Dates and currency values are formatted for the
- * current locale/timezone and SEK conversions are shown when exchange rates are available.
+ * Handles loading and presenting stock, dividend (historical and upcoming), suppressed dividend,
+ * exchange-rate, company profile, financial metrics, peers, and analyst data. Provides actions for
+ * editing or deleting the position, adding/editing/deleting manual dividends, suppressing/restoring
+ * dividends, refreshing data, and verifying dividends via Marketstack. Formats dates and currencies
+ * for the current locale and shows SEK conversions when exchange rates are available.
  *
  * @returns The React element for the stock detail page.
  */
@@ -1587,7 +1587,7 @@ export default function StockDetail() {
       {/* Edit position modal */}
       {showEditModal && (
         <div
-          style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.7)', backdropFilter: 'blur(4px)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000 }}
+          style={{ position: 'fixed', inset: 0, background: 'rgba(5, 8, 15, 0.82)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000 }}
           onClick={closeEditModal}
         >
           <div
@@ -1632,7 +1632,7 @@ export default function StockDetail() {
       {/* Add/edit dividend modal */}
       {showDividendModal && (
         <div
-          style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.7)', backdropFilter: 'blur(4px)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000 }}
+          style={{ position: 'fixed', inset: 0, background: 'rgba(5, 8, 15, 0.82)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000 }}
           onClick={closeDividendModal}
         >
           <div
