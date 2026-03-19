@@ -1,4 +1,5 @@
 import pytest
+import logging
 
 from app.services.position_service import (
     calculate_position_cost_basis,
@@ -124,6 +125,71 @@ def test_calculate_position_snapshot_includes_courtage_in_effective_purchase_pri
     }])
 
     assert snapshot["purchase_price"] == pytest.approx(105.0)
+
+
+def test_calculate_position_snapshot_converts_courtage_from_exchange_rate_currency():
+    snapshot = calculate_position_snapshot([{
+        "quantity": 2,
+        "purchase_price": 100,
+        "courtage": 10,
+        "courtage_currency": "SEK",
+        "exchange_rate": 10,
+        "exchange_rate_currency": "SEK",
+        "purchase_date": "2024-01-01",
+        "sell_date": None,
+    }])
+
+    assert snapshot["purchase_price"] == pytest.approx(100.5)
+
+
+def test_calculate_position_snapshot_warns_and_keeps_unconverted_courtage(caplog):
+    with caplog.at_level(logging.WARNING):
+        snapshot = calculate_position_snapshot([{
+            "quantity": 2,
+            "purchase_price": 100,
+            "courtage": 10,
+            "courtage_currency": "EUR",
+            "purchase_date": "2024-01-01",
+            "sell_date": None,
+        }])
+
+    assert snapshot["purchase_price"] == pytest.approx(105.0)
+    assert "Unable to convert courtage for position snapshot" in caplog.text
+
+
+def test_calculate_position_snapshot_uses_conversion_callback_for_courtage():
+    snapshot = calculate_position_snapshot(
+        [{
+            "quantity": 1,
+            "purchase_price": 100,
+            "courtage": 10,
+            "courtage_currency": "EUR",
+            "purchase_date": "2024-01-01",
+            "sell_date": None,
+        }],
+        position_currency="USD",
+        conversion_callback=lambda amount, from_currency, to_currency: 11.0 if (amount, from_currency, to_currency) == (10.0, "EUR", "USD") else None,
+    )
+
+    assert snapshot["purchase_price"] == pytest.approx(111.0)
+
+
+def test_calculate_position_snapshot_keeps_native_courtage_without_warning(caplog):
+    with caplog.at_level(logging.WARNING):
+        snapshot = calculate_position_snapshot(
+            [{
+                "quantity": 1,
+                "purchase_price": 100,
+                "courtage": 10,
+                "courtage_currency": "USD",
+                "purchase_date": "2024-01-01",
+                "sell_date": None,
+            }],
+            position_currency="USD",
+        )
+
+    assert snapshot["purchase_price"] == pytest.approx(110.0)
+    assert "Unable to convert courtage for position snapshot" not in caplog.text
 
 
 def test_validate_position_entries_requires_exchange_rate_currency_when_rate_present():

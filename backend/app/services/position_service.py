@@ -2,8 +2,11 @@ from __future__ import annotations
 
 from datetime import date, datetime
 import math
+import logging
 from typing import Any, Callable, Optional
 import uuid
+
+logger = logging.getLogger(__name__)
 
 
 def _parse_optional_float(value: Any) -> Optional[float]:
@@ -30,18 +33,6 @@ def _normalize_exchange_rate_currency(value: Any) -> Optional[str]:
 def _resolve_courtage_currency(entry: dict[str, Any]) -> Optional[str]:
     normalized = _normalize_exchange_rate_currency(entry.get('courtage_currency'))
     return normalized
-
-
-def _parse_non_negative_float(value: Any) -> Optional[float]:
-    if value in (None, ''):
-        return None
-    try:
-        parsed = float(value)
-    except (TypeError, ValueError):
-        return None
-    if parsed < 0:
-        return None
-    return parsed
 
 
 def parse_position_date(value: Any) -> Optional[date]:
@@ -270,7 +261,11 @@ def validate_position_entries(entries: Any) -> list[dict[str, Any]]:
     return normalized
 
 
-def calculate_position_snapshot(entries: Any) -> dict[str, Any]:
+def calculate_position_snapshot(
+    entries: Any,
+    position_currency: Optional[str] = None,
+    conversion_callback: Optional[Callable[[float, str, str], Optional[float]]] = None,
+) -> dict[str, Any]:
     normalized = normalize_position_entries(entries)
     open_entries = [entry for entry in normalized if not entry.get('sell_date')]
     quantity = sum(float(entry['quantity']) for entry in open_entries)
@@ -288,10 +283,25 @@ def calculate_position_snapshot(entries: Any) -> dict[str, Any]:
             continue
 
         native_courtage = float(courtage)
-        if native_courtage and courtage_currency and courtage_currency != entry.get('exchange_rate_currency'):
-            native_courtage = 0.0
-        elif native_courtage and courtage_currency and entry.get('exchange_rate') and courtage_currency == entry.get('exchange_rate_currency'):
-            native_courtage = native_courtage / float(entry['exchange_rate'])
+        exchange_rate = entry.get('exchange_rate')
+        exchange_rate_currency = entry.get('exchange_rate_currency')
+        if native_courtage and courtage_currency:
+            converted_courtage = native_courtage if position_currency and courtage_currency == position_currency else None
+            if converted_courtage is None and exchange_rate is not None and courtage_currency == exchange_rate_currency:
+                converted_courtage = native_courtage / float(exchange_rate)
+            elif converted_courtage is None and conversion_callback is not None and position_currency:
+                converted_courtage = conversion_callback(native_courtage, courtage_currency, position_currency)
+
+            if converted_courtage is not None:
+                native_courtage = float(converted_courtage)
+            else:
+                logger.warning(
+                    "Unable to convert courtage for position snapshot; using original amount courtage=%s courtage_currency=%s position_currency=%s exchange_rate_currency=%s",
+                    native_courtage,
+                    courtage_currency,
+                    position_currency,
+                    exchange_rate_currency,
+                )
 
         total_cost += float(purchase_price) * float(entry['quantity']) + native_courtage
         total_quantity_for_cost += float(entry['quantity'])

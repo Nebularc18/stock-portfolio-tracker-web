@@ -83,7 +83,7 @@ def apply_position_snapshot(stock: Stock) -> PositionSnapshot:
         stock.purchase_price,
         stock.purchase_date,
     )
-    snapshot = calculate_position_snapshot(position_entries)
+    snapshot = calculate_position_snapshot(position_entries, position_currency=stock.currency)
     return PositionSnapshot(
         quantity=float(snapshot['quantity']),
         purchase_price=snapshot['purchase_price'],

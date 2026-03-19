@@ -76,7 +76,7 @@ def _get_normalized_stock_position_entries(stock: Stock) -> list[dict]:
 
 
 def _resolve_stock_purchase_date(stock: Stock) -> Optional[date]:
-    snapshot = calculate_position_snapshot(_get_normalized_stock_position_entries(stock))
+    snapshot = calculate_position_snapshot(_get_normalized_stock_position_entries(stock), position_currency=stock.currency)
     purchase_date = snapshot.get('purchase_date')
     return _parse_event_date(purchase_date) if purchase_date else stock.purchase_date
 
@@ -88,7 +88,7 @@ def _apply_stock_position_snapshot(stock: Stock) -> Stock:
         stock.purchase_price,
         stock.purchase_date,
     )
-    snapshot = calculate_position_snapshot(stock.position_entries)
+    snapshot = calculate_position_snapshot(stock.position_entries, position_currency=stock.currency)
     stock.quantity = snapshot['quantity']
     stock.purchase_price = snapshot['purchase_price']
     stock.purchase_date = _parse_event_date(snapshot['purchase_date'])
@@ -537,7 +537,7 @@ def update_stock(ticker: str, stock_data: StockUpdate, db: Session = Depends(get
             )
         try:
             position_entries = validate_position_entries(stock_data.position_entries or [])
-            snapshot = calculate_position_snapshot(position_entries)
+            snapshot = calculate_position_snapshot(position_entries, position_currency=stock.currency)
             stock.position_entries = snapshot['position_entries']
             stock.quantity = snapshot['quantity']
             stock.purchase_price = snapshot['purchase_price']
@@ -680,7 +680,7 @@ def update_stock(ticker: str, stock_data: StockUpdate, db: Session = Depends(get
             stock.purchase_date,
             stock_data.courtage if "courtage" in scalar_patch_fields else None,
         )
-        snapshot = calculate_position_snapshot(stock.position_entries)
+        snapshot = calculate_position_snapshot(stock.position_entries, position_currency=stock.currency)
         stock.quantity = snapshot['quantity']
         stock.purchase_price = snapshot['purchase_price']
         stock.purchase_date = _parse_event_date(snapshot['purchase_date'])

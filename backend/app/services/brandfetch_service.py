@@ -446,6 +446,15 @@ class BrandfetchService:
         return parts[0]
 
     def _extract_domain_from_url(self, value: str) -> str:
+        """
+        Extract the hostname/domain from a URL or bare host string.
+        
+        Parameters:
+            value (str): URL or host-like value such as "https://example.com/path" or "example.com".
+        
+        Returns:
+            str: The extracted lowercase host/domain, or an empty string for falsy input. For example, "https://example.com/path" becomes "example.com".
+        """
         if not value:
             return ""
         parsed = urlparse(value if "://" in value else f"https://{value}")

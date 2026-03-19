@@ -640,7 +640,7 @@ def ensure_account_schema_and_seed() -> None:
                 "purchase_price": stock["purchase_price"],
                 "purchase_date": stock["purchase_date"],
                 "sell_date": None,
-            }])
+            }], position_currency=stock.get("currency"))
             conn.execute(text("""
                 INSERT INTO stocks (
                     user_id, ticker, name, quantity, currency, sector, purchase_price,
