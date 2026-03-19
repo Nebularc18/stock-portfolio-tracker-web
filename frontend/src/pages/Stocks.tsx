@@ -157,7 +157,7 @@ type SortField =
     const parsedPurchasePrice = newPurchasePrice ? parseFloat(newPurchasePrice) : null
     const parsedCourtage = newCourtage ? parseFloat(newCourtage) : null
 
-    if (parsedCourtage !== null && parsedCourtage > 0 && (parsedPurchasePrice === null || !Number.isFinite(parsedPurchasePrice) || parsedPurchasePrice < 0)) {
+    if (parsedCourtage !== null && parsedCourtage > 0 && (parsedPurchasePrice === null || !Number.isFinite(parsedPurchasePrice) || parsedPurchasePrice <= 0)) {
       setError(t(language, 'stocks.invalidEditValues'))
       return
     }

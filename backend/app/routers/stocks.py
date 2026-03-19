@@ -449,6 +449,9 @@ def create_stock(payload: dict = Body(...), db: Session = Depends(get_db), curre
             'purchase_date': purchase_date,
             'sell_date': None,
         }])
+        quantity = snapshot['quantity']
+        purchase_price = snapshot['purchase_price']
+        purchase_date = _parse_event_date(snapshot['purchase_date'])
     
     stock = Stock(
         user_id=current_user.id,
