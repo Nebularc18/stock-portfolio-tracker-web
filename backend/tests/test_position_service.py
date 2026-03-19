@@ -1,6 +1,11 @@
 import pytest
 
-from app.services.position_service import get_quantity_held_on_date, normalize_position_entries, validate_position_entries
+from app.services.position_service import (
+    calculate_position_snapshot,
+    get_quantity_held_on_date,
+    normalize_position_entries,
+    validate_position_entries,
+)
 
 
 def test_validate_position_entries_requires_list():
@@ -84,3 +89,37 @@ def test_get_quantity_held_on_date_includes_lot_sold_on_target_date():
     )
 
     assert quantity == 5
+
+
+def test_validate_position_entries_rejects_negative_courtage():
+    with pytest.raises(ValueError, match="courtage must be greater than or equal to zero"):
+        validate_position_entries([{
+            "quantity": 1,
+            "purchase_price": 10,
+            "courtage": -1,
+            "purchase_date": "2024-01-01",
+            "sell_date": None,
+        }])
+
+
+def test_validate_position_entries_requires_purchase_price_when_courtage_present():
+    with pytest.raises(ValueError, match="courtage requires purchase_price"):
+        validate_position_entries([{
+            "quantity": 1,
+            "purchase_price": None,
+            "courtage": 5,
+            "purchase_date": "2024-01-01",
+            "sell_date": None,
+        }])
+
+
+def test_calculate_position_snapshot_includes_courtage_in_effective_purchase_price():
+    snapshot = calculate_position_snapshot([{
+        "quantity": 2,
+        "purchase_price": 100,
+        "courtage": 10,
+        "purchase_date": "2024-01-01",
+        "sell_date": None,
+    }])
+
+    assert snapshot["purchase_price"] == pytest.approx(105.0)

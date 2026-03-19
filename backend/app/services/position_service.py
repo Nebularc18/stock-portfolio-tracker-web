@@ -28,6 +28,7 @@ def normalize_position_entries(
     fallback_quantity: Optional[float] = None,
     fallback_purchase_price: Optional[float] = None,
     fallback_purchase_date: Any = None,
+    fallback_courtage: Optional[float] = None,
 ) -> list[dict[str, Any]]:
     """Normalize lot entries and synthesize a fallback open lot when needed.
 
@@ -56,6 +57,14 @@ def normalize_position_entries(
         except (TypeError, ValueError):
             purchase_price = None
 
+        courtage_raw = entry.get('courtage', 0)
+        try:
+            courtage = 0.0 if courtage_raw in (None, '') else float(courtage_raw)
+        except (TypeError, ValueError):
+            courtage = 0.0
+        if courtage < 0:
+            courtage = 0.0
+
         purchase_date = parse_position_date(entry.get('purchase_date'))
         sell_date = parse_position_date(entry.get('sell_date'))
         entry_id = entry.get('id')
@@ -67,6 +76,7 @@ def normalize_position_entries(
                     str(index),
                     str(quantity),
                     str(purchase_price),
+                    str(courtage),
                     purchase_date.isoformat() if purchase_date else "",
                     sell_date.isoformat() if sell_date else "",
                 ]),
@@ -77,6 +87,7 @@ def normalize_position_entries(
             'id': str(entry_id),
             'quantity': quantity,
             'purchase_price': purchase_price,
+            'courtage': courtage,
             'purchase_date': purchase_date.isoformat() if purchase_date else None,
             'sell_date': sell_date.isoformat() if sell_date else None,
         })
@@ -92,6 +103,12 @@ def normalize_position_entries(
 
     if fallback_qty > 0:
         fallback_date = parse_position_date(fallback_purchase_date)
+        try:
+            fallback_fee = 0.0 if fallback_courtage in (None, '') else float(fallback_courtage)
+        except (TypeError, ValueError):
+            fallback_fee = 0.0
+        if fallback_fee < 0:
+            fallback_fee = 0.0
         return [{
             'id': str(uuid.uuid5(
                 uuid.NAMESPACE_URL,
@@ -99,11 +116,13 @@ def normalize_position_entries(
                     "fallback-position-entry",
                     str(fallback_qty),
                     str(fallback_purchase_price),
+                    str(fallback_fee),
                     fallback_date.isoformat() if fallback_date else "",
                 ]),
             )),
             'quantity': fallback_qty,
             'purchase_price': fallback_purchase_price,
+            'courtage': fallback_fee,
             'purchase_date': fallback_date.isoformat() if fallback_date else None,
             'sell_date': None,
         }]
@@ -132,6 +151,7 @@ def validate_position_entries(entries: Any) -> list[dict[str, Any]]:
             raise ValueError('quantity must be greater than zero')
 
         purchase_price_raw = entry.get('purchase_price')
+        purchase_price = None
         if purchase_price_raw not in (None, ''):
             try:
                 purchase_price = float(purchase_price_raw)
@@ -139,6 +159,17 @@ def validate_position_entries(entries: Any) -> list[dict[str, Any]]:
                 raise ValueError('purchase_price must be a number') from None
             if purchase_price < 0:
                 raise ValueError('purchase_price must be greater than or equal to zero')
+
+        courtage_raw = entry.get('courtage', 0)
+        if courtage_raw not in (None, ''):
+            try:
+                courtage = float(courtage_raw)
+            except (TypeError, ValueError):
+                raise ValueError('courtage must be a number') from None
+            if courtage < 0:
+                raise ValueError('courtage must be greater than or equal to zero')
+            if purchase_price is None and courtage > 0:
+                raise ValueError('courtage requires purchase_price')
 
         purchase_date_raw = entry.get('purchase_date')
         if purchase_date_raw not in (None, '') and parse_position_date(purchase_date_raw) is None:
@@ -171,9 +202,10 @@ def calculate_position_snapshot(entries: Any) -> dict[str, Any]:
     for entry in open_entries:
         purchase_dates.append(entry.get('purchase_date') or '')
         purchase_price = entry.get('purchase_price')
+        courtage = entry.get('courtage') or 0.0
         if purchase_price is None:
             continue
-        total_cost += float(purchase_price) * float(entry['quantity'])
+        total_cost += float(purchase_price) * float(entry['quantity']) + float(courtage)
         total_quantity_for_cost += float(entry['quantity'])
 
     return {
@@ -190,6 +222,7 @@ def get_quantity_held_on_date(
     fallback_quantity: Optional[float] = None,
     fallback_purchase_price: Optional[float] = None,
     fallback_purchase_date: Any = None,
+    fallback_courtage: Optional[float] = None,
 ) -> float:
     """Return quantity owned strictly before `resolved_target_date`.
 
@@ -202,6 +235,7 @@ def get_quantity_held_on_date(
         fallback_quantity=fallback_quantity,
         fallback_purchase_price=fallback_purchase_price,
         fallback_purchase_date=fallback_purchase_date,
+        fallback_courtage=fallback_courtage,
     )
     resolved_target_date = parse_position_date(target_date)
     if resolved_target_date is None:

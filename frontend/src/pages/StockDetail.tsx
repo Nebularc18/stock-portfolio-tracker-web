@@ -237,6 +237,7 @@ export default function StockDetail() {
   const [showEditModal, setShowEditModal] = useState(false)
   const [editQuantity, setEditQuantity] = useState('')
   const [editPurchasePrice, setEditPurchasePrice] = useState('')
+  const [editCourtage, setEditCourtage] = useState('')
   const [editPurchaseDate, setEditPurchaseDate] = useState('')
   const [saving, setSaving] = useState(false)
   const [showDividendModal, setShowDividendModal] = useState(false)
@@ -269,6 +270,7 @@ export default function StockDetail() {
   const dividendModalHeadingId = useId()
   const editQuantityInputId = useId()
   const editPurchasePriceInputId = useId()
+  const editCourtageInputId = useId()
   const editPurchaseDateInputId = useId()
   const dividendDateInputId = useId()
   const dividendAmountInputId = useId()
@@ -693,9 +695,11 @@ export default function StockDetail() {
 
   const openEditModal = () => {
     if (stock) {
+      const editableEntry = stock.position_entries?.find((entry) => !entry.sell_date) ?? stock.position_entries?.[0]
       setEditError(null)
       setEditQuantity(stock.quantity.toString())
-      setEditPurchasePrice(stock.purchase_price?.toString() || '')
+      setEditPurchasePrice(editableEntry?.purchase_price?.toString() || stock.purchase_price?.toString() || '')
+      setEditCourtage(editableEntry?.courtage?.toString() || '')
       setEditPurchaseDate(stock.purchase_date || '')
       setShowEditModal(true)
     }
@@ -705,14 +709,19 @@ export default function StockDetail() {
     if (!ticker || !stock) return
     const quantityValue = editQuantity.trim()
     const purchasePriceValue = editPurchasePrice.trim()
+    const courtageValue = editCourtage.trim()
     const parsedQuantity = Number(quantityValue)
     const parsedPurchasePrice = Number(purchasePriceValue)
+    const parsedCourtage = Number(courtageValue)
     const nextQuantity = quantityValue === '' ? undefined : parsedQuantity
     const nextPurchasePrice = purchasePriceValue === '' ? undefined : parsedPurchasePrice
+    const nextCourtage = courtageValue === '' ? undefined : parsedCourtage
 
     if (
       (nextQuantity !== undefined && (!Number.isFinite(nextQuantity) || nextQuantity < 0))
       || (nextPurchasePrice !== undefined && (!Number.isFinite(nextPurchasePrice) || nextPurchasePrice < 0))
+      || (nextCourtage !== undefined && (!Number.isFinite(nextCourtage) || nextCourtage < 0))
+      || (nextCourtage !== undefined && nextCourtage > 0 && nextPurchasePrice === undefined && stock.purchase_price == null)
     ) {
       setEditError(t(language, 'stockDetail.invalidPositionValues'))
       return
@@ -740,6 +749,7 @@ export default function StockDetail() {
       await api.stocks.update(ticker, {
         quantity: nextQuantity,
         purchase_price: nextPurchasePrice,
+        courtage: nextCourtage,
         purchase_date: editPurchaseDate || null,
       })
       const data = await loadStockPageData(ticker)
@@ -1597,6 +1607,10 @@ export default function StockDetail() {
             <div style={{ marginBottom: 14 }}>
               <label htmlFor={editPurchasePriceInputId} style={{ display: 'block', marginBottom: 6, color: 'var(--muted)', fontSize: 12 }}>{t(language, 'stockDetail.purchasePrice')} ({stock?.currency})</label>
               <input id={editPurchasePriceInputId} type="number" step="0.01" min="0" value={editPurchasePrice} onChange={(e) => setEditPurchasePrice(e.target.value)} style={{ width: '100%' }} placeholder="e.g. 150.00" />
+            </div>
+            <div style={{ marginBottom: 14 }}>
+              <label htmlFor={editCourtageInputId} style={{ display: 'block', marginBottom: 6, color: 'var(--muted)', fontSize: 12 }}>{t(language, 'stockDetail.courtage')} ({stock?.currency})</label>
+              <input id={editCourtageInputId} type="number" step="0.01" min="0" value={editCourtage} onChange={(e) => setEditCourtage(e.target.value)} style={{ width: '100%' }} placeholder="e.g. 9.00" />
             </div>
             <div style={{ marginBottom: 22 }}>
               <label htmlFor={editPurchaseDateInputId} style={{ display: 'block', marginBottom: 6, color: 'var(--muted)', fontSize: 12 }}>{t(language, 'stockDetail.purchaseDate')}</label>

@@ -150,6 +150,7 @@ export interface Stock {
   sector: string | null
   logo: string | null
   purchase_price: number | null
+  courtage?: number | null
   purchase_date: string | null
   position_entries?: PositionEntry[]
   current_price: number | null
@@ -164,6 +165,7 @@ export interface PositionEntry {
   id: string
   quantity: number
   purchase_price: number | null
+  courtage?: number | null
   purchase_date: string | null
   sell_date: string | null
 }
@@ -444,9 +446,9 @@ export const api = {
   stocks: {
     list: () => fetchAPI('/stocks') as Promise<Stock[]>,
     get: (ticker: string) => fetchAPI(`/stocks/${encodePathSegment(ticker)}`) as Promise<Stock>,
-    create: (data: { ticker: string; quantity: number; purchase_price?: number; purchase_date?: string; position_entries?: PositionEntry[] }) => 
+    create: (data: { ticker: string; quantity: number; purchase_price?: number; courtage?: number; purchase_date?: string; position_entries?: PositionEntry[] }) => 
       fetchAPI('/stocks', { method: 'POST', body: JSON.stringify(data) }) as Promise<Stock>,
-    update: (ticker: string, data: { quantity?: number; purchase_price?: number; purchase_date?: string | null; position_entries?: PositionEntry[] }) =>
+    update: (ticker: string, data: { quantity?: number; purchase_price?: number; courtage?: number; purchase_date?: string | null; position_entries?: PositionEntry[] }) =>
       fetchAPI(`/stocks/${encodePathSegment(ticker)}`, { method: 'PATCH', body: JSON.stringify(data) }) as Promise<Stock>,
     delete: (ticker: string) => fetchAPI(`/stocks/${encodePathSegment(ticker)}`, { method: 'DELETE' }),
     refresh: (ticker: string) => fetchAPI(`/stocks/${encodePathSegment(ticker)}/refresh`, { method: 'POST' }) as Promise<Stock>,
