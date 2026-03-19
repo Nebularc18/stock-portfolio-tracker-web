@@ -78,6 +78,8 @@ function createEmptyPositionEntry(): PositionEntry {
     quantity: 0,
     purchase_price: null,
     courtage: 0,
+    exchange_rate: null,
+    exchange_rate_currency: null,
     purchase_date: null,
     sell_date: null,
   }
@@ -109,6 +111,7 @@ type SortField =
   const [newQuantity, setNewQuantity] = useState('')
   const [newPurchasePrice, setNewPurchasePrice] = useState('')
   const [newCourtage, setNewCourtage] = useState('')
+  const [newExchangeRate, setNewExchangeRate] = useState('')
   const [newPurchaseDate, setNewPurchaseDate] = useState('')
   const [selectedExchange, setSelectedExchange] = useState('ST')
   const [adding, setAdding] = useState(false)
@@ -126,7 +129,7 @@ type SortField =
   const editQuantityInputId = useId()
   const editPurchasePriceInputId = useId()
   const editPurchaseDateInputId = useId()
-  const { timezone, language } = useSettings()
+  const { timezone, language, displayCurrency } = useSettings()
   const locale = getLocaleForLanguage(language)
   const maxPurchaseDate = getLocalDateInputValue()
   const { sortState, requestSort } = useTableSort<SortField>({ field: 'ticker', direction: 'asc' })
@@ -182,8 +185,13 @@ type SortField =
     const fullTicker = getFullTicker(newTicker, selectedExchange)
     const parsedPurchasePrice = newPurchasePrice ? parseFloat(newPurchasePrice) : null
     const parsedCourtage = newCourtage ? parseFloat(newCourtage) : null
+    const parsedExchangeRate = newExchangeRate ? parseFloat(newExchangeRate) : null
 
     if (parsedCourtage !== null && parsedCourtage > 0 && (parsedPurchasePrice === null || !Number.isFinite(parsedPurchasePrice) || parsedPurchasePrice <= 0)) {
+      setError(t(language, 'stocks.invalidEditValues'))
+      return
+    }
+    if (parsedExchangeRate !== null && (!Number.isFinite(parsedExchangeRate) || parsedExchangeRate <= 0)) {
       setError(t(language, 'stocks.invalidEditValues'))
       return
     }
@@ -196,12 +204,15 @@ type SortField =
         quantity: parseFloat(newQuantity),
         purchase_price: parsedPurchasePrice ?? undefined,
         courtage: parsedCourtage ?? undefined,
+        exchange_rate: parsedExchangeRate ?? undefined,
+        exchange_rate_currency: parsedExchangeRate !== null ? displayCurrency : undefined,
         purchase_date: newPurchaseDate || undefined,
       })
       setNewTicker('')
       setNewQuantity('')
       setNewPurchasePrice('')
       setNewCourtage('')
+      setNewExchangeRate('')
       setNewPurchaseDate('')
       setValidationStatus('idle')
       setShowAddForm(false)
@@ -235,6 +246,8 @@ type SortField =
             quantity: stock.quantity,
             purchase_price: stock.purchase_price,
             courtage: 0,
+            exchange_rate: null,
+            exchange_rate_currency: null,
             purchase_date: stock.purchase_date,
             sell_date: null,
           }]
@@ -251,6 +264,8 @@ type SortField =
         quantity: Number(entry.quantity),
         purchase_price: entry.purchase_price === null || entry.purchase_price === undefined ? null : Number(entry.purchase_price),
         courtage: entry.courtage === null || entry.courtage === undefined ? 0 : Number(entry.courtage),
+        exchange_rate: entry.exchange_rate === null || entry.exchange_rate === undefined ? null : Number(entry.exchange_rate),
+        exchange_rate_currency: entry.exchange_rate ? (entry.exchange_rate_currency || displayCurrency) : null,
         purchase_date: entry.purchase_date || null,
         sell_date: entry.sell_date || null,
       }))
@@ -261,9 +276,11 @@ type SortField =
       const sellDateValid = !entry.sell_date || (validDateFormat.test(entry.sell_date) && entry.sell_date <= maxPurchaseDate)
       const purchasePriceValid = entry.purchase_price === null || (Number.isFinite(entry.purchase_price) && entry.purchase_price >= 0)
       const courtageValid = Number.isFinite(entry.courtage) && entry.courtage >= 0
+      const exchangeRateValid = entry.exchange_rate === null || (Number.isFinite(entry.exchange_rate) && entry.exchange_rate > 0)
       const courtageHasPrice = entry.courtage === 0 || (entry.purchase_price !== null && entry.purchase_price > 0)
       const sellAfterPurchase = !entry.sell_date || !entry.purchase_date || entry.sell_date >= entry.purchase_date
-      return !quantityValid || !purchaseDateValid || !sellDateValid || !purchasePriceValid || !courtageValid || !courtageHasPrice || !sellAfterPurchase
+      const exchangeRatePairValid = entry.exchange_rate === null || !!entry.exchange_rate_currency
+      return !quantityValid || !purchaseDateValid || !sellDateValid || !purchasePriceValid || !courtageValid || !exchangeRateValid || !courtageHasPrice || !sellAfterPurchase || !exchangeRatePairValid
     })
 
     if (hasInvalidEntry) {
@@ -420,6 +437,17 @@ type SortField =
                     value={newCourtage}
                     onChange={(e) => setNewCourtage(e.target.value)}
                     placeholder="0.00"
+                  />
+                </div>
+                <div>
+                  <label style={{ display: 'block', marginBottom: 6, color: 'var(--muted)', fontSize: 11, fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase' }}>
+                    {t(language, 'stocks.exchangeRate')} (1 {selectedExchangeData?.currency} = ? {displayCurrency})
+                  </label>
+                  <input
+                    type="number" step="0.0001" min="0"
+                    value={newExchangeRate}
+                    onChange={(e) => setNewExchangeRate(e.target.value)}
+                    placeholder="10.50"
                   />
                 </div>
                 <div>
@@ -648,6 +676,24 @@ type SortField =
                         value={entry.courtage ?? 0}
                         onChange={(e) => setEditEntries((current) => current.map((candidate) => candidate.id === entry.id ? { ...candidate, courtage: e.target.value === '' ? 0 : Number(e.target.value) } : candidate))}
                         placeholder="0.00"
+                        style={{ width: '100%' }}
+                      />
+                    </div>
+                    <div>
+                      <label style={{ display: 'block', marginBottom: 6, color: 'var(--muted)', fontSize: 11, fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase' }}>
+                        {t(language, 'stocks.exchangeRate')} (1 {editStock.currency} = ? {entry.exchange_rate_currency || displayCurrency})
+                      </label>
+                      <input
+                        type="number"
+                        step="0.0001"
+                        min="0"
+                        value={entry.exchange_rate ?? ''}
+                        onChange={(e) => setEditEntries((current) => current.map((candidate) => candidate.id === entry.id ? {
+                          ...candidate,
+                          exchange_rate: e.target.value === '' ? null : Number(e.target.value),
+                          exchange_rate_currency: e.target.value === '' ? null : (candidate.exchange_rate_currency || displayCurrency),
+                        } : candidate))}
+                        placeholder="10.50"
                         style={{ width: '100%' }}
                       />
                     </div>

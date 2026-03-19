@@ -1,6 +1,7 @@
 import pytest
 
 from app.services.position_service import (
+    calculate_position_cost_basis,
     calculate_position_snapshot,
     get_quantity_held_on_date,
     normalize_position_entries,
@@ -123,3 +124,47 @@ def test_calculate_position_snapshot_includes_courtage_in_effective_purchase_pri
     }])
 
     assert snapshot["purchase_price"] == pytest.approx(105.0)
+
+
+def test_validate_position_entries_requires_exchange_rate_currency_when_rate_present():
+    with pytest.raises(ValueError, match="exchange_rate requires exchange_rate_currency"):
+        validate_position_entries([{
+            "quantity": 1,
+            "purchase_price": 10,
+            "exchange_rate": 10.5,
+            "purchase_date": "2024-01-01",
+            "sell_date": None,
+        }])
+
+
+def test_normalize_position_entries_preserves_exchange_rate_fields():
+    normalized = normalize_position_entries([{
+        "quantity": 1,
+        "purchase_price": 10,
+        "exchange_rate": 10.5,
+        "exchange_rate_currency": "sek",
+        "purchase_date": "2024-01-01",
+        "sell_date": None,
+    }])
+
+    assert normalized[0]["exchange_rate"] == pytest.approx(10.5)
+    assert normalized[0]["exchange_rate_currency"] == "SEK"
+
+
+def test_calculate_position_cost_basis_prefers_stored_exchange_rate_for_target_currency():
+    total_cost = calculate_position_cost_basis(
+        [{
+            "quantity": 2,
+            "purchase_price": 100,
+            "courtage": 10,
+            "exchange_rate": 10.0,
+            "exchange_rate_currency": "SEK",
+            "purchase_date": "2024-01-01",
+            "sell_date": None,
+        }],
+        "USD",
+        "SEK",
+        conversion_callback=lambda amount, from_currency, to_currency: None,
+    )
+
+    assert total_cost == pytest.approx(2100.0)

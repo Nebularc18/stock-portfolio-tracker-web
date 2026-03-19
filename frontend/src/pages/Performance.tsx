@@ -5,6 +5,7 @@ import { getLocaleForLanguage, t } from '../i18n'
 import { useSettings } from '../SettingsContext'
 import SortableHeader from '../components/SortableHeader'
 import { convertCurrencyToSEK } from '../utils/currency'
+import { calculatePositionCostInCurrency } from '../utils/positions'
 import { sortTableItems, useTableSort } from '../utils/tableSort'
 
 /**
@@ -199,7 +200,14 @@ export default function Performance() {
   const performanceData: PerformanceData[] = useMemo(() => (
     stocks.map(stock => {
       const value = stock.current_price != null ? stock.current_price * stock.quantity : null
-      const cost = stock.purchase_price != null ? stock.purchase_price * stock.quantity : null
+      const cost = calculatePositionCostInCurrency(
+        stock.position_entries,
+        stock.quantity,
+        stock.purchase_price,
+        stock.currency,
+        stock.currency,
+        exchangeRates,
+      )
       const gain = value != null && cost != null ? value - cost : null
       const gainPercent = gain != null && cost != null && cost !== 0 ? (gain / cost) * 100 : null
       const dailyChange = stock.current_price != null && stock.previous_close != null
@@ -210,7 +218,14 @@ export default function Performance() {
         : null
 
       const valueSEK = convertCurrencyToSEK(value, stock.currency, exchangeRates)
-      const costSEK = convertCurrencyToSEK(cost, stock.currency, exchangeRates)
+      const costSEK = calculatePositionCostInCurrency(
+        stock.position_entries,
+        stock.quantity,
+        stock.purchase_price,
+        stock.currency,
+        'SEK',
+        exchangeRates,
+      )
 
       return {
         ticker: stock.ticker,

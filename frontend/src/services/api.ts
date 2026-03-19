@@ -165,6 +165,8 @@ export interface PositionEntry {
   quantity: number
   purchase_price: number | null
   courtage?: number | null
+  exchange_rate?: number | null
+  exchange_rate_currency?: string | null
   purchase_date: string | null
   sell_date: string | null
 }
@@ -445,9 +447,9 @@ export const api = {
   stocks: {
     list: () => fetchAPI('/stocks') as Promise<Stock[]>,
     get: (ticker: string) => fetchAPI(`/stocks/${encodePathSegment(ticker)}`) as Promise<Stock>,
-    create: (data: { ticker: string; quantity: number; purchase_price?: number; courtage?: number; purchase_date?: string; position_entries?: PositionEntry[] }) => 
+    create: (data: { ticker: string; quantity: number; purchase_price?: number; courtage?: number; exchange_rate?: number; exchange_rate_currency?: string; purchase_date?: string; position_entries?: PositionEntry[] }) => 
       fetchAPI('/stocks', { method: 'POST', body: JSON.stringify(data) }) as Promise<Stock>,
-    update: (ticker: string, data: { quantity?: number; purchase_price?: number; courtage?: number | null; purchase_date?: string | null; position_entries?: PositionEntry[] }) =>
+    update: (ticker: string, data: { quantity?: number; purchase_price?: number; courtage?: number | null; exchange_rate?: number | null; exchange_rate_currency?: string | null; purchase_date?: string | null; position_entries?: PositionEntry[] }) =>
       fetchAPI(`/stocks/${encodePathSegment(ticker)}`, { method: 'PATCH', body: JSON.stringify(data) }) as Promise<Stock>,
     delete: (ticker: string) => fetchAPI(`/stocks/${encodePathSegment(ticker)}`, { method: 'DELETE' }),
     refresh: (ticker: string) => fetchAPI(`/stocks/${encodePathSegment(ticker)}/refresh`, { method: 'POST' }) as Promise<Stock>,

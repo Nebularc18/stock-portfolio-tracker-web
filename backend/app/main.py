@@ -865,6 +865,8 @@ class StockCreate(BaseModel):
     quantity: Optional[float] = None
     purchase_price: Optional[float] = None
     courtage: Optional[float] = None
+    exchange_rate: Optional[float] = None
+    exchange_rate_currency: Optional[str] = None
     purchase_date: Optional[date] = None
     position_entries: Optional[List[dict]] = None
 
@@ -905,6 +907,31 @@ class StockCreate(BaseModel):
                 "courtage requires purchase_price."
             )
 
+        if self.exchange_rate is not None and self.exchange_rate <= 0:
+            raise ValueError(
+                "StockCreate validation failed for create_stock payload (/api/stocks): "
+                "exchange_rate must be greater than zero."
+            )
+
+        if self.exchange_rate is not None:
+            if not self.exchange_rate_currency:
+                raise ValueError(
+                    "StockCreate validation failed for create_stock payload (/api/stocks): "
+                    "exchange_rate requires exchange_rate_currency."
+                )
+            normalized_currency = self.exchange_rate_currency.strip().upper()
+            if len(normalized_currency) != 3 or not normalized_currency.isalpha():
+                raise ValueError(
+                    "StockCreate validation failed for create_stock payload (/api/stocks): "
+                    "exchange_rate_currency must be a 3-letter currency code."
+                )
+            self.exchange_rate_currency = normalized_currency
+        elif self.exchange_rate_currency is not None:
+            raise ValueError(
+                "StockCreate validation failed for create_stock payload (/api/stocks): "
+                "exchange_rate_currency requires exchange_rate."
+            )
+
         return self
 
 
@@ -912,6 +939,8 @@ class StockUpdate(BaseModel):
     quantity: Optional[float] = None
     purchase_price: Optional[float] = None
     courtage: Optional[float] = None
+    exchange_rate: Optional[float] = None
+    exchange_rate_currency: Optional[str] = None
     purchase_date: Optional[date] = None
     position_entries: Optional[List[dict]] = None
 

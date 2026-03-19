@@ -238,6 +238,7 @@ export default function StockDetail() {
   const [editQuantity, setEditQuantity] = useState('')
   const [editPurchasePrice, setEditPurchasePrice] = useState('')
   const [editCourtage, setEditCourtage] = useState('')
+  const [editExchangeRate, setEditExchangeRate] = useState('')
   const [editPurchaseDate, setEditPurchaseDate] = useState('')
   const [saving, setSaving] = useState(false)
   const [showDividendModal, setShowDividendModal] = useState(false)
@@ -271,11 +272,12 @@ export default function StockDetail() {
   const editQuantityInputId = useId()
   const editPurchasePriceInputId = useId()
   const editCourtageInputId = useId()
+  const editExchangeRateInputId = useId()
   const editPurchaseDateInputId = useId()
   const dividendDateInputId = useId()
   const dividendAmountInputId = useId()
   const dividendNoteInputId = useId()
-  const { timezone, language } = useSettings()
+  const { timezone, language, displayCurrency } = useSettings()
   const locale = getLocaleForLanguage(language)
   const { sortState: manualSortState, requestSort: requestManualSort } = useTableSort<ManualDividendSortField>({ field: 'date', direction: 'asc' })
   const { sortState: yearSortState, requestSort: requestYearSort } = useTableSort<YearDividendSortField>({ field: 'exDate', direction: 'asc' })
@@ -700,6 +702,7 @@ export default function StockDetail() {
       setEditQuantity(stock.quantity.toString())
       setEditPurchasePrice(editableEntry?.purchase_price?.toString() || stock.purchase_price?.toString() || '')
       setEditCourtage(editableEntry?.courtage?.toString() || '')
+      setEditExchangeRate(editableEntry?.exchange_rate?.toString() || '')
       setEditPurchaseDate(stock.purchase_date || '')
       setShowEditModal(true)
     }
@@ -710,17 +713,21 @@ export default function StockDetail() {
     const quantityValue = editQuantity.trim()
     const purchasePriceValue = editPurchasePrice.trim()
     const courtageValue = editCourtage.trim()
+    const exchangeRateValue = editExchangeRate.trim()
     const parsedQuantity = Number(quantityValue)
     const parsedPurchasePrice = Number(purchasePriceValue)
     const parsedCourtage = Number(courtageValue)
+    const parsedExchangeRate = Number(exchangeRateValue)
     const nextQuantity = quantityValue === '' ? undefined : parsedQuantity
     const nextPurchasePrice = purchasePriceValue === '' ? undefined : parsedPurchasePrice
     const nextCourtage = courtageValue === '' ? null : parsedCourtage
+    const nextExchangeRate = exchangeRateValue === '' ? null : parsedExchangeRate
 
     if (
       (nextQuantity !== undefined && (!Number.isFinite(nextQuantity) || nextQuantity < 0))
       || (nextPurchasePrice !== undefined && (!Number.isFinite(nextPurchasePrice) || nextPurchasePrice < 0))
       || (nextCourtage !== null && (!Number.isFinite(nextCourtage) || nextCourtage < 0))
+      || (nextExchangeRate !== null && (!Number.isFinite(nextExchangeRate) || nextExchangeRate <= 0))
       || (nextCourtage !== null && nextCourtage > 0 && nextPurchasePrice === undefined && stock.purchase_price == null)
     ) {
       setEditError(t(language, 'stockDetail.invalidPositionValues'))
@@ -750,6 +757,8 @@ export default function StockDetail() {
         quantity: nextQuantity,
         purchase_price: nextPurchasePrice,
         courtage: nextCourtage,
+        exchange_rate: nextExchangeRate,
+        exchange_rate_currency: nextExchangeRate !== null ? displayCurrency : null,
         purchase_date: editPurchaseDate || null,
       })
       const data = await loadStockPageData(ticker)
@@ -1611,6 +1620,10 @@ export default function StockDetail() {
             <div style={{ marginBottom: 14 }}>
               <label htmlFor={editCourtageInputId} style={{ display: 'block', marginBottom: 6, color: 'var(--muted)', fontSize: 12 }}>{t(language, 'stockDetail.courtage')} ({stock?.currency})</label>
               <input id={editCourtageInputId} type="number" step="0.01" min="0" value={editCourtage} onChange={(e) => setEditCourtage(e.target.value)} style={{ width: '100%' }} placeholder="e.g. 9.00" />
+            </div>
+            <div style={{ marginBottom: 14 }}>
+              <label htmlFor={editExchangeRateInputId} style={{ display: 'block', marginBottom: 6, color: 'var(--muted)', fontSize: 12 }}>{t(language, 'stockDetail.exchangeRate')} (1 {stock?.currency} = ? {stock?.position_entries?.find((entry) => !entry.sell_date)?.exchange_rate_currency || displayCurrency})</label>
+              <input id={editExchangeRateInputId} type="number" step="0.0001" min="0" value={editExchangeRate} onChange={(e) => setEditExchangeRate(e.target.value)} style={{ width: '100%' }} placeholder="e.g. 10.50" />
             </div>
             <div style={{ marginBottom: 22 }}>
               <label htmlFor={editPurchaseDateInputId} style={{ display: 'block', marginBottom: 6, color: 'var(--muted)', fontSize: 12 }}>{t(language, 'stockDetail.purchaseDate')}</label>

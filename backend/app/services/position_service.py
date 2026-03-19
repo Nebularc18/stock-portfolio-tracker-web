@@ -1,8 +1,29 @@
 from __future__ import annotations
 
 from datetime import date, datetime
-from typing import Any, Optional
+from typing import Any, Callable, Optional
 import uuid
+
+
+def _parse_optional_float(value: Any) -> Optional[float]:
+    if value in (None, ''):
+        return None
+    try:
+        parsed = float(value)
+    except (TypeError, ValueError):
+        return None
+    if not parsed or parsed <= 0:
+        return None
+    return parsed
+
+
+def _normalize_exchange_rate_currency(value: Any) -> Optional[str]:
+    if value in (None, ''):
+        return None
+    normalized = str(value).strip().upper()
+    if len(normalized) != 3 or not normalized.isalpha():
+        return None
+    return normalized
 
 
 def parse_position_date(value: Any) -> Optional[date]:
@@ -67,6 +88,10 @@ def normalize_position_entries(
 
         purchase_date = parse_position_date(entry.get('purchase_date'))
         sell_date = parse_position_date(entry.get('sell_date'))
+        exchange_rate = _parse_optional_float(entry.get('exchange_rate'))
+        exchange_rate_currency = _normalize_exchange_rate_currency(entry.get('exchange_rate_currency'))
+        if exchange_rate is None:
+            exchange_rate_currency = None
         entry_id = entry.get('id')
         if not entry_id:
             entry_id = str(uuid.uuid5(
@@ -79,6 +104,8 @@ def normalize_position_entries(
                     str(courtage),
                     purchase_date.isoformat() if purchase_date else "",
                     sell_date.isoformat() if sell_date else "",
+                    str(exchange_rate),
+                    exchange_rate_currency or "",
                 ]),
             ))
             entry['id'] = entry_id
@@ -90,6 +117,8 @@ def normalize_position_entries(
             'courtage': courtage,
             'purchase_date': purchase_date.isoformat() if purchase_date else None,
             'sell_date': sell_date.isoformat() if sell_date else None,
+            'exchange_rate': exchange_rate,
+            'exchange_rate_currency': exchange_rate_currency,
         })
 
     if normalized:
@@ -125,6 +154,8 @@ def normalize_position_entries(
             'courtage': fallback_fee,
             'purchase_date': fallback_date.isoformat() if fallback_date else None,
             'sell_date': None,
+            'exchange_rate': None,
+            'exchange_rate_currency': None,
         }]
 
     return []
@@ -171,6 +202,27 @@ def validate_position_entries(entries: Any) -> list[dict[str, Any]]:
             if purchase_price is None and courtage > 0:
                 raise ValueError('courtage requires purchase_price')
 
+        exchange_rate_raw = entry.get('exchange_rate')
+        exchange_rate = None
+        if exchange_rate_raw not in (None, ''):
+            try:
+                exchange_rate = float(exchange_rate_raw)
+            except (TypeError, ValueError):
+                raise ValueError('exchange_rate must be a number') from None
+            if exchange_rate <= 0:
+                raise ValueError('exchange_rate must be greater than zero')
+
+        exchange_rate_currency = entry.get('exchange_rate_currency')
+        if exchange_rate_currency not in (None, ''):
+            normalized_currency = str(exchange_rate_currency).strip().upper()
+            if len(normalized_currency) != 3 or not normalized_currency.isalpha():
+                raise ValueError('exchange_rate_currency must be a 3-letter currency code')
+        elif exchange_rate is not None:
+            raise ValueError('exchange_rate requires exchange_rate_currency')
+
+        if exchange_rate is None and exchange_rate_currency not in (None, ''):
+            raise ValueError('exchange_rate_currency requires exchange_rate')
+
         purchase_date_raw = entry.get('purchase_date')
         if purchase_date_raw not in (None, '') and parse_position_date(purchase_date_raw) is None:
             raise ValueError('purchase_date must be a valid date')
@@ -214,6 +266,51 @@ def calculate_position_snapshot(entries: Any) -> dict[str, Any]:
         'purchase_date': min((value for value in purchase_dates if value), default=None),
         'position_entries': normalized,
     }
+
+
+def calculate_position_cost_basis(
+    entries: Any,
+    position_currency: str,
+    target_currency: str,
+    conversion_callback: Optional[Callable[[float, str, str], Optional[float]]] = None,
+    fallback_quantity: Optional[float] = None,
+    fallback_purchase_price: Optional[float] = None,
+    fallback_purchase_date: Any = None,
+    fallback_courtage: Optional[float] = None,
+) -> Optional[float]:
+    normalized = normalize_position_entries(
+        entries,
+        fallback_quantity=fallback_quantity,
+        fallback_purchase_price=fallback_purchase_price,
+        fallback_purchase_date=fallback_purchase_date,
+        fallback_courtage=fallback_courtage,
+    )
+    open_entries = [entry for entry in normalized if not entry.get('sell_date')]
+
+    total_cost = 0.0
+    has_cost_basis = False
+    for entry in open_entries:
+        purchase_price = entry.get('purchase_price')
+        if purchase_price is None:
+            continue
+
+        entry_cost_native = (float(purchase_price) * float(entry['quantity'])) + float(entry.get('courtage') or 0.0)
+        if position_currency == target_currency:
+            converted_cost = entry_cost_native
+        elif entry.get('exchange_rate') is not None and entry.get('exchange_rate_currency') == target_currency:
+            converted_cost = entry_cost_native * float(entry['exchange_rate'])
+        elif conversion_callback is not None:
+            converted_cost = conversion_callback(entry_cost_native, position_currency, target_currency)
+        else:
+            return None
+
+        if converted_cost is None:
+            return None
+
+        total_cost += float(converted_cost)
+        has_cost_basis = True
+
+    return total_cost if has_cost_basis else None
 
 
 def get_quantity_held_on_date(

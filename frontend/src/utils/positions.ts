@@ -1,4 +1,5 @@
 import { PositionEntry } from '../services/api'
+import { convertCurrencyValue } from './currency'
 
 function normalizeDate(value: string | null | undefined): string | null {
   if (!value) return null
@@ -26,6 +27,11 @@ function parseQuantity(value: PositionEntry['quantity']): number {
   return Number.isFinite(parsed) ? parsed : 0
 }
 
+function parseOptionalNumber(value: unknown): number | null {
+  const parsed = typeof value === 'number' ? value : Number.parseFloat(String(value ?? ''))
+  return Number.isFinite(parsed) ? parsed : null
+}
+
 export function getQuantityHeldOnDate(entries: PositionEntry[] | null | undefined, targetDate: string | null | undefined, fallbackQuantity: number): number {
   if (!entries || entries.length === 0) return fallbackQuantity
   const normalizedTargetDate = normalizeDate(targetDate)
@@ -42,4 +48,60 @@ export function getQuantityHeldOnDate(entries: PositionEntry[] | null | undefine
     if (sellDate && sellDate < normalizedTargetDate) return sum
     return sum + parseQuantity(entry.quantity)
   }, 0)
+}
+
+export function calculatePositionCostInCurrency(
+  entries: PositionEntry[] | null | undefined,
+  fallbackQuantity: number,
+  fallbackPurchasePrice: number | null | undefined,
+  positionCurrency: string,
+  targetCurrency: string,
+  exchangeRates: Record<string, number | null>,
+): number | null {
+  const effectiveEntries = entries && entries.length > 0
+    ? entries
+    : [{
+        id: 'fallback',
+        quantity: fallbackQuantity,
+        purchase_price: fallbackPurchasePrice ?? null,
+        courtage: 0,
+        exchange_rate: null,
+        exchange_rate_currency: null,
+        purchase_date: null,
+        sell_date: null,
+      }]
+
+  let totalCost = 0
+  let hasCostBasis = false
+
+  for (const entry of effectiveEntries) {
+    if (normalizeDate(entry.sell_date)) continue
+
+    const quantity = parseQuantity(entry.quantity)
+    const purchasePrice = parseOptionalNumber(entry.purchase_price)
+    const courtage = parseOptionalNumber(entry.courtage) ?? 0
+    if (quantity <= 0 || purchasePrice === null) continue
+
+    const nativeCost = (purchasePrice * quantity) + courtage
+    let convertedCost: number | null = null
+
+    if (positionCurrency === targetCurrency) {
+      convertedCost = nativeCost
+    } else {
+      const historicalRate = parseOptionalNumber(entry.exchange_rate)
+      const historicalRateCurrency = entry.exchange_rate_currency?.trim().toUpperCase() || null
+      if (historicalRate !== null && historicalRateCurrency === targetCurrency) {
+        convertedCost = nativeCost * historicalRate
+      } else {
+        convertedCost = convertCurrencyValue(nativeCost, positionCurrency, targetCurrency, exchangeRates)
+      }
+    }
+
+    if (convertedCost === null) return null
+
+    totalCost += convertedCost
+    hasCostBasis = true
+  }
+
+  return hasCostBasis ? totalCost : null
 }
