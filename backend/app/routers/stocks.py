@@ -440,6 +440,8 @@ def create_stock(payload: dict = Body(...), db: Session = Depends(get_db), curre
         quantity = stock_data.quantity
         purchase_price = stock_data.purchase_price
         purchase_date = stock_data.purchase_date
+        if stock_data.courtage not in (None, 0) and (purchase_price is None or purchase_price <= 0):
+            raise HTTPException(status_code=400, detail="courtage requires purchase_price")
         snapshot = calculate_position_snapshot([{
             'quantity': quantity,
             'purchase_price': purchase_price,
