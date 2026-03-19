@@ -423,10 +423,10 @@ def create_stock(payload: dict = Body(...), db: Session = Depends(get_db), curre
     
     logo = brandfetch_service.get_logo_url_for_ticker(ticker, info.get("name"))
     if stock_data.position_entries:
-        if {"quantity", "purchase_price", "purchase_date"} & set(payload):
+        if {"quantity", "purchase_price", "purchase_date", "courtage"} & set(payload):
             raise HTTPException(
                 status_code=400,
-                detail="Provide either position_entries or scalar fields quantity, purchase_price, and purchase_date, not both.",
+                detail="Provide either position_entries or scalar fields quantity, purchase_price, purchase_date, and courtage, not both.",
             )
         try:
             position_entries = validate_position_entries(stock_data.position_entries)
@@ -440,12 +440,18 @@ def create_stock(payload: dict = Body(...), db: Session = Depends(get_db), curre
         quantity = stock_data.quantity
         purchase_price = stock_data.purchase_price
         purchase_date = stock_data.purchase_date
+        if stock_data.courtage not in (None, 0) and (purchase_price is None or purchase_price <= 0):
+            raise HTTPException(status_code=400, detail="courtage requires purchase_price")
         snapshot = calculate_position_snapshot([{
             'quantity': quantity,
             'purchase_price': purchase_price,
+            'courtage': stock_data.courtage,
             'purchase_date': purchase_date,
             'sell_date': None,
         }])
+        quantity = snapshot['quantity']
+        purchase_price = snapshot['purchase_price']
+        purchase_date = _parse_event_date(snapshot['purchase_date'])
     
     stock = Stock(
         user_id=current_user.id,
@@ -497,10 +503,10 @@ def update_stock(ticker: str, stock_data: StockUpdate, db: Session = Depends(get
     provided_fields = getattr(stock_data, "model_fields_set", getattr(stock_data, "__fields_set__", set()))
 
     if "position_entries" in provided_fields:
-        if {"quantity", "purchase_price", "purchase_date"} & set(provided_fields):
+        if {"quantity", "purchase_price", "purchase_date", "courtage"} & set(provided_fields):
             raise HTTPException(
                 status_code=400,
-                detail="Provide either position_entries or scalar fields quantity, purchase_price, and purchase_date, not both.",
+                detail="Provide either position_entries or scalar fields quantity, purchase_price, purchase_date, and courtage, not both.",
             )
         try:
             position_entries = validate_position_entries(stock_data.position_entries or [])
@@ -516,6 +522,15 @@ def update_stock(ticker: str, stock_data: StockUpdate, db: Session = Depends(get
             raise HTTPException(status_code=400, detail="quantity must be greater than zero")
         if "purchase_price" in provided_fields and (stock_data.purchase_price is None or stock_data.purchase_price < 0):
             raise HTTPException(status_code=400, detail="purchase_price must be greater than or equal to zero")
+        if "courtage" in provided_fields and stock_data.courtage is not None and stock_data.courtage < 0:
+            raise HTTPException(status_code=400, detail="courtage must be greater than or equal to zero")
+        effective_purchase_price = (
+            stock_data.purchase_price
+            if "purchase_price" in provided_fields
+            else stock.purchase_price
+        )
+        if "courtage" in provided_fields and stock_data.courtage not in (None, 0) and (effective_purchase_price is None or effective_purchase_price <= 0):
+            raise HTTPException(status_code=400, detail="courtage requires purchase_price")
         if (
             "purchase_date" in provided_fields
             and stock_data.purchase_date is not None
@@ -529,7 +544,7 @@ def update_stock(ticker: str, stock_data: StockUpdate, db: Session = Depends(get
             stock.purchase_price = stock_data.purchase_price
         if "purchase_date" in provided_fields:
             stock.purchase_date = stock_data.purchase_date
-        scalar_patch_fields = {"quantity", "purchase_price", "purchase_date"} & set(provided_fields)
+        scalar_patch_fields = {"quantity", "purchase_price", "purchase_date", "courtage"} & set(provided_fields)
         if scalar_patch_fields and isinstance(getattr(stock, 'position_entries', None), list):
             updated_entries = []
             open_entry_indexes = []
@@ -554,6 +569,7 @@ def update_stock(ticker: str, stock_data: StockUpdate, db: Session = Depends(get
                 updated_entries.append({
                     'quantity': stock.quantity,
                     'purchase_price': stock.purchase_price,
+                    'courtage': stock_data.courtage if "courtage" in scalar_patch_fields else 0,
                     'purchase_date': stock.purchase_date,
                     'sell_date': None,
                 })
@@ -565,10 +581,18 @@ def update_stock(ticker: str, stock_data: StockUpdate, db: Session = Depends(get
             if len(open_entry_indexes) == 1:
                 if "purchase_price" in scalar_patch_fields:
                     first_open_entry['purchase_price'] = stock.purchase_price
+                if "courtage" in scalar_patch_fields:
+                    first_open_entry['courtage'] = stock_data.courtage
                 if "purchase_date" in scalar_patch_fields:
                     first_open_entry['purchase_date'] = stock.purchase_date
             stock.position_entries = updated_entries
-        stock.position_entries = normalize_position_entries(getattr(stock, 'position_entries', None), stock.quantity, stock.purchase_price, stock.purchase_date)
+        stock.position_entries = normalize_position_entries(
+            getattr(stock, 'position_entries', None),
+            stock.quantity,
+            stock.purchase_price,
+            stock.purchase_date,
+            stock_data.courtage if "courtage" in scalar_patch_fields else None,
+        )
         snapshot = calculate_position_snapshot(stock.position_entries)
         stock.quantity = snapshot['quantity']
         stock.purchase_price = snapshot['purchase_price']

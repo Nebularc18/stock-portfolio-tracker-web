@@ -484,8 +484,10 @@ def ensure_account_schema_and_seed() -> None:
             )
 
         conn.execute(text("ALTER TABLE stocks DROP CONSTRAINT IF EXISTS stocks_ticker_key"))
+        conn.execute(text("DROP INDEX IF EXISTS ix_stocks_ticker"))
         conn.execute(text("ALTER TABLE portfolio_history DROP CONSTRAINT IF EXISTS portfolio_history_date_key"))
 
+        conn.execute(text("CREATE INDEX IF NOT EXISTS ix_stocks_ticker ON stocks(ticker)"))
         conn.execute(text("CREATE UNIQUE INDEX IF NOT EXISTS ux_stocks_user_ticker ON stocks(user_id, ticker)"))
         conn.execute(text("CREATE UNIQUE INDEX IF NOT EXISTS ux_portfolio_history_user_date ON portfolio_history(user_id, date)"))
         conn.execute(text("CREATE UNIQUE INDEX IF NOT EXISTS ux_stock_price_history_user_ticker_date ON stock_price_history(user_id, ticker, recorded_at)"))
@@ -862,6 +864,7 @@ class StockCreate(BaseModel):
     ticker: str
     quantity: Optional[float] = None
     purchase_price: Optional[float] = None
+    courtage: Optional[float] = None
     purchase_date: Optional[date] = None
     position_entries: Optional[List[dict]] = None
 
@@ -890,12 +893,25 @@ class StockCreate(BaseModel):
                 "purchase_price must be greater than or equal to zero."
             )
 
+        if self.courtage is not None and self.courtage < 0:
+            raise ValueError(
+                "StockCreate validation failed for create_stock payload (/api/stocks): "
+                "courtage must be greater than or equal to zero."
+            )
+
+        if self.courtage and self.purchase_price is None:
+            raise ValueError(
+                "StockCreate validation failed for create_stock payload (/api/stocks): "
+                "courtage requires purchase_price."
+            )
+
         return self
 
 
 class StockUpdate(BaseModel):
     quantity: Optional[float] = None
     purchase_price: Optional[float] = None
+    courtage: Optional[float] = None
     purchase_date: Optional[date] = None
     position_entries: Optional[List[dict]] = None
 

@@ -46,6 +46,9 @@ INDICES_CACHE_TTL = 900  # 15 minutes
 EXCHANGE_RATES_CACHE_TTL = _get_int_env('EXCHANGE_RATES_CACHE_TTL', 900)
 HISTORICAL_EXCHANGE_RATES_CACHE_TTL = _get_int_env('HISTORICAL_EXCHANGE_RATES_CACHE_TTL', 86400 * 30)
 EXCHANGE_RATE_FETCH_WORKERS = _get_int_env('EXCHANGE_RATE_FETCH_WORKERS', 6)
+SPARKLINE_SYMBOL_OVERRIDES = {
+    "^OMXS30": "^OMX",
+}
 
 
 @lru_cache(maxsize=1)
@@ -837,46 +840,56 @@ def get_index_sparklines():
     """
     session = get_session()
     sparklines = {}
+
+    def fetch_chart_series(symbol: str, interval: str, range_value: str) -> tuple[list[float], list[str]]:
+        url = f"https://query1.finance.yahoo.com/v8/finance/chart/{symbol}?interval={interval}&range={range_value}"
+        response = session.get(url, timeout=10)
+
+        if response.status_code != 200:
+            return [], []
+
+        data = response.json()
+        if 'chart' not in data or 'result' not in data['chart'] or not data['chart']['result']:
+            return [], []
+
+        result = data['chart']['result'][0]
+        quote = result.get('indicators', {}).get('quote', [{}])[0]
+        timestamps = result.get('timestamp', [])
+        closes = quote.get('close', [])
+
+        prices: list[float] = []
+        dates: list[str] = []
+        for ts, price in zip(timestamps, closes, strict=False):
+            if price is None:
+                continue
+            prices.append(price)
+            dates.append(datetime.fromtimestamp(ts, tz=timezone.utc).isoformat())
+
+        return prices, dates
     
     try:
         for symbol in HEADER_INDICES.keys():
             try:
-                url = f"https://query1.finance.yahoo.com/v8/finance/chart/{symbol}?interval=1d&range=30d"
-                response = session.get(url, timeout=10)
-                
-                if response.status_code != 200:
+                chart_symbol = SPARKLINE_SYMBOL_OVERRIDES.get(symbol, symbol)
+                prices, dates = fetch_chart_series(chart_symbol, "1d", "30d")
+                if len(prices) < 2:
+                    prices, dates = fetch_chart_series(chart_symbol, "5m", "1d")
+
+                if len(prices) < 2:
                     continue
-                
-                data = response.json()
-                
-                if 'chart' not in data or 'result' not in data['chart'] or not data['chart']['result']:
-                    continue
-                
-                result = data['chart']['result'][0]
-                quote = result.get('indicators', {}).get('quote', [{}])[0]
-                timestamps = result.get('timestamp', [])
-                closes = quote.get('close', [])
-                
-                prices = []
-                dates = []
-                for ts, price in zip(timestamps, closes, strict=False):
-                    if price is not None:
-                        prices.append(price)
-                        dates.append(datetime.fromtimestamp(ts, tz=timezone.utc).strftime('%Y-%m-%d'))
-                
-                if len(prices) >= 2:
-                    start_price = prices[0]
-                    end_price = prices[-1]
-                    change_percent = ((end_price - start_price) / start_price) * 100 if start_price else 0
-                    
-                    sparklines[symbol] = {
-                        "prices": prices,
-                        "dates": dates,
-                        "is_positive": end_price >= start_price,
-                        "start_value": start_price,
-                        "end_value": end_price,
-                        "change_percent": change_percent,
-                    }
+
+                start_price = prices[0]
+                end_price = prices[-1]
+                change_percent = ((end_price - start_price) / start_price) * 100 if start_price else 0
+
+                sparklines[symbol] = {
+                    "prices": prices,
+                    "dates": dates,
+                    "is_positive": end_price >= start_price,
+                    "start_value": start_price,
+                    "end_value": end_price,
+                    "change_percent": change_percent,
+                }
             except Exception:
                 logger.exception("Error fetching sparkline for %s", symbol)
                 continue

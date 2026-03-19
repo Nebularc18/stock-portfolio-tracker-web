@@ -51,6 +51,7 @@ function createEmptyPositionEntry(): PositionEntry {
     id: crypto.randomUUID(),
     quantity: 0,
     purchase_price: null,
+    courtage: 0,
     purchase_date: null,
     sell_date: null,
   }
@@ -81,6 +82,7 @@ type SortField =
   const [newTicker, setNewTicker] = useState('')
   const [newQuantity, setNewQuantity] = useState('')
   const [newPurchasePrice, setNewPurchasePrice] = useState('')
+  const [newCourtage, setNewCourtage] = useState('')
   const [newPurchaseDate, setNewPurchaseDate] = useState('')
   const [selectedExchange, setSelectedExchange] = useState('ST')
   const [adding, setAdding] = useState(false)
@@ -152,6 +154,13 @@ type SortField =
     if (!newTicker || !newQuantity) return
 
     const fullTicker = getFullTicker(newTicker, selectedExchange)
+    const parsedPurchasePrice = newPurchasePrice ? parseFloat(newPurchasePrice) : null
+    const parsedCourtage = newCourtage ? parseFloat(newCourtage) : null
+
+    if (parsedCourtage !== null && parsedCourtage > 0 && (parsedPurchasePrice === null || !Number.isFinite(parsedPurchasePrice) || parsedPurchasePrice <= 0)) {
+      setError(t(language, 'stocks.invalidEditValues'))
+      return
+    }
 
     try {
       setAdding(true)
@@ -159,12 +168,14 @@ type SortField =
       await api.stocks.create({
         ticker: fullTicker,
         quantity: parseFloat(newQuantity),
-        purchase_price: newPurchasePrice ? parseFloat(newPurchasePrice) : undefined,
+        purchase_price: parsedPurchasePrice ?? undefined,
+        courtage: parsedCourtage ?? undefined,
         purchase_date: newPurchaseDate || undefined,
       })
       setNewTicker('')
       setNewQuantity('')
       setNewPurchasePrice('')
+      setNewCourtage('')
       setNewPurchaseDate('')
       setValidationStatus('idle')
       setShowAddForm(false)
@@ -197,6 +208,7 @@ type SortField =
             id: crypto.randomUUID(),
             quantity: stock.quantity,
             purchase_price: stock.purchase_price,
+            courtage: 0,
             purchase_date: stock.purchase_date,
             sell_date: null,
           }]
@@ -212,6 +224,7 @@ type SortField =
         ...entry,
         quantity: Number(entry.quantity),
         purchase_price: entry.purchase_price === null || entry.purchase_price === undefined ? null : Number(entry.purchase_price),
+        courtage: entry.courtage === null || entry.courtage === undefined ? 0 : Number(entry.courtage),
         purchase_date: entry.purchase_date || null,
         sell_date: entry.sell_date || null,
       }))
@@ -221,8 +234,10 @@ type SortField =
       const purchaseDateValid = !entry.purchase_date || (validDateFormat.test(entry.purchase_date) && entry.purchase_date <= maxPurchaseDate)
       const sellDateValid = !entry.sell_date || (validDateFormat.test(entry.sell_date) && entry.sell_date <= maxPurchaseDate)
       const purchasePriceValid = entry.purchase_price === null || (Number.isFinite(entry.purchase_price) && entry.purchase_price >= 0)
+      const courtageValid = Number.isFinite(entry.courtage) && entry.courtage >= 0
+      const courtageHasPrice = entry.courtage === 0 || (entry.purchase_price !== null && entry.purchase_price > 0)
       const sellAfterPurchase = !entry.sell_date || !entry.purchase_date || entry.sell_date >= entry.purchase_date
-      return !quantityValid || !purchaseDateValid || !sellDateValid || !purchasePriceValid || !sellAfterPurchase
+      return !quantityValid || !purchaseDateValid || !sellDateValid || !purchasePriceValid || !courtageValid || !courtageHasPrice || !sellAfterPurchase
     })
 
     if (hasInvalidEntry) {
@@ -372,6 +387,17 @@ type SortField =
                 </div>
                 <div>
                   <label style={{ display: 'block', marginBottom: 6, color: 'var(--muted)', fontSize: 11, fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase' }}>
+                    {t(language, 'stocks.courtage')} ({selectedExchangeData?.currency})
+                  </label>
+                  <input
+                    type="number" step="0.01" min="0"
+                    value={newCourtage}
+                    onChange={(e) => setNewCourtage(e.target.value)}
+                    placeholder="0.00"
+                  />
+                </div>
+                <div>
+                  <label style={{ display: 'block', marginBottom: 6, color: 'var(--muted)', fontSize: 11, fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase' }}>
                     {t(language, 'stocks.purchaseDate')}
                   </label>
                   <input
@@ -497,7 +523,9 @@ type SortField =
           style={{
             position: 'fixed', top: 0, left: 0, right: 0, bottom: 0,
             background: 'rgba(0,0,0,0.7)', backdropFilter: 'blur(4px)',
-            display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000,
+            display: 'flex', alignItems: 'flex-start', justifyContent: 'center', zIndex: 1000,
+            padding: '16px',
+            overflowY: 'auto',
           }}
           onClick={() => setEditStock(null)}
         >
@@ -507,7 +535,18 @@ type SortField =
             aria-modal="true"
             aria-labelledby={editModalHeadingId}
             tabIndex={-1}
-            style={{ width: 420, maxWidth: '90%', background: 'var(--bg2)', border: '1px solid var(--border2)', borderRadius: 10, overflow: 'hidden' }}
+            style={{
+              width: 420,
+              maxWidth: '100%',
+              maxHeight: 'calc(100dvh - 32px)',
+              background: 'var(--bg2)',
+              border: '1px solid var(--border2)',
+              borderRadius: 10,
+              overflow: 'hidden',
+              display: 'flex',
+              flexDirection: 'column',
+              margin: 'auto 0',
+            }}
             onClick={(e) => e.stopPropagation()}
           >
             <div style={{ padding: '16px 20px', borderBottom: '1px solid var(--border)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
@@ -516,11 +555,12 @@ type SortField =
               </span>
               <button type="button" aria-label="Close" style={{ background: 'none', border: 'none', color: 'var(--muted)', cursor: 'pointer', fontSize: 18, lineHeight: 1 }} onClick={() => setEditStock(null)}>×</button>
             </div>
-            <div style={{ padding: '20px' }}>
+            <div style={{ padding: '20px', overflowY: 'auto' }}>
               <div style={{ marginBottom: 24, display: 'grid', gap: 12 }}>
                 {editEntries.map((entry, index) => {
                   const quantityInputId = index === 0 ? editQuantityInputId : `quantity-${entry.id}`
                   const purchasePriceInputId = index === 0 ? editPurchasePriceInputId : `purchasePrice-${entry.id}`
+                  const courtageInputId = `courtage-${entry.id}`
                   const purchaseDateInputId = index === 0 ? editPurchaseDateInputId : `purchaseDate-${entry.id}`
                   const sellDateInputId = `sellDate-${entry.id}`
 
@@ -567,6 +607,21 @@ type SortField =
                         value={entry.purchase_price ?? ''}
                         onChange={(e) => setEditEntries((current) => current.map((candidate) => candidate.id === entry.id ? { ...candidate, purchase_price: e.target.value === '' ? null : Number(e.target.value) } : candidate))}
                         placeholder={t(language, 'stocks.placeholderPrice')}
+                        style={{ width: '100%' }}
+                      />
+                    </div>
+                    <div>
+                      <label htmlFor={courtageInputId} style={{ display: 'block', marginBottom: 6, color: 'var(--muted)', fontSize: 11, fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase' }}>
+                        {t(language, 'stocks.courtage')} ({editStock.currency})
+                      </label>
+                      <input
+                        id={courtageInputId}
+                        type="number"
+                        step="0.01"
+                        min="0"
+                        value={entry.courtage ?? 0}
+                        onChange={(e) => setEditEntries((current) => current.map((candidate) => candidate.id === entry.id ? { ...candidate, courtage: e.target.value === '' ? 0 : Number(e.target.value) } : candidate))}
+                        placeholder="0.00"
                         style={{ width: '100%' }}
                       />
                     </div>
