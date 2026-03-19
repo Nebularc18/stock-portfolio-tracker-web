@@ -235,7 +235,7 @@ type SortField =
       const sellDateValid = !entry.sell_date || (validDateFormat.test(entry.sell_date) && entry.sell_date <= maxPurchaseDate)
       const purchasePriceValid = entry.purchase_price === null || (Number.isFinite(entry.purchase_price) && entry.purchase_price >= 0)
       const courtageValid = Number.isFinite(entry.courtage) && entry.courtage >= 0
-      const courtageHasPrice = entry.purchase_price !== null || entry.courtage === 0
+      const courtageHasPrice = entry.courtage === 0 || (entry.purchase_price !== null && entry.purchase_price > 0)
       const sellAfterPurchase = !entry.sell_date || !entry.purchase_date || entry.sell_date >= entry.purchase_date
       return !quantityValid || !purchaseDateValid || !sellDateValid || !purchasePriceValid || !courtageValid || !courtageHasPrice || !sellAfterPurchase
     })

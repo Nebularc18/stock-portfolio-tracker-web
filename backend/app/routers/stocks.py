@@ -529,7 +529,7 @@ def update_stock(ticker: str, stock_data: StockUpdate, db: Session = Depends(get
             if "purchase_price" in provided_fields
             else stock.purchase_price
         )
-        if "courtage" in provided_fields and stock_data.courtage not in (None, 0) and effective_purchase_price is None:
+        if "courtage" in provided_fields and stock_data.courtage not in (None, 0) and (effective_purchase_price is None or effective_purchase_price <= 0):
             raise HTTPException(status_code=400, detail="courtage requires purchase_price")
         if (
             "purchase_date" in provided_fields
