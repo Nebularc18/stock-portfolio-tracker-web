@@ -1587,7 +1587,7 @@ export default function StockDetail() {
       {/* Edit position modal */}
       {showEditModal && (
         <div
-          style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.7)', backdropFilter: 'blur(4px)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000 }}
+          style={{ position: 'fixed', inset: 0, background: 'rgba(5, 8, 15, 0.82)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000 }}
           onClick={closeEditModal}
         >
           <div
@@ -1632,7 +1632,7 @@ export default function StockDetail() {
       {/* Add/edit dividend modal */}
       {showDividendModal && (
         <div
-          style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.7)', backdropFilter: 'blur(4px)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000 }}
+          style={{ position: 'fixed', inset: 0, background: 'rgba(5, 8, 15, 0.82)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000 }}
           onClick={closeDividendModal}
         >
           <div

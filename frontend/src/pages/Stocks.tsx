@@ -46,9 +46,17 @@ function getLocalDateInputValue(value: Date = new Date()): string {
   return `${year}-${month}-${day}`
 }
 
+function generateClientId(): string {
+  if (typeof globalThis.crypto?.randomUUID === 'function') {
+    return globalThis.crypto.randomUUID()
+  }
+
+  return `entry-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`
+}
+
 function createEmptyPositionEntry(): PositionEntry {
   return {
-    id: crypto.randomUUID(),
+    id: generateClientId(),
     quantity: 0,
     purchase_price: null,
     courtage: 0,
@@ -205,7 +213,7 @@ type SortField =
       stock.position_entries && stock.position_entries.length > 0
         ? stock.position_entries
         : [{
-            id: crypto.randomUUID(),
+            id: generateClientId(),
             quantity: stock.quantity,
             purchase_price: stock.purchase_price,
             courtage: 0,
@@ -522,8 +530,8 @@ type SortField =
         <div
           style={{
             position: 'fixed', top: 0, left: 0, right: 0, bottom: 0,
-            background: 'rgba(0,0,0,0.7)', backdropFilter: 'blur(4px)',
-            display: 'flex', alignItems: 'flex-start', justifyContent: 'center', zIndex: 1000,
+            background: 'rgba(5, 8, 15, 0.82)',
+            display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000,
             padding: '16px',
             overflowY: 'auto',
           }}
@@ -538,14 +546,14 @@ type SortField =
             style={{
               width: 420,
               maxWidth: '100%',
-              maxHeight: 'calc(100dvh - 32px)',
+              maxHeight: 'calc(100vh - 32px)',
               background: 'var(--bg2)',
               border: '1px solid var(--border2)',
               borderRadius: 10,
               overflow: 'hidden',
               display: 'flex',
               flexDirection: 'column',
-              margin: 'auto 0',
+              margin: 0,
             }}
             onClick={(e) => e.stopPropagation()}
           >
