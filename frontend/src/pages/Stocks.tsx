@@ -531,7 +531,7 @@ type SortField =
           style={{
             position: 'fixed', top: 0, left: 0, right: 0, bottom: 0,
             background: 'rgba(5, 8, 15, 0.82)',
-            display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000,
+            display: 'flex', alignItems: 'flex-start', justifyContent: 'center', zIndex: 1000,
             padding: '16px',
             overflowY: 'auto',
           }}
@@ -553,7 +553,7 @@ type SortField =
               overflow: 'hidden',
               display: 'flex',
               flexDirection: 'column',
-              margin: 0,
+              marginTop: 24,
             }}
             onClick={(e) => e.stopPropagation()}
           >
