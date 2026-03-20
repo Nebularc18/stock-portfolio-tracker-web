@@ -75,6 +75,7 @@ def _build_upcoming_dividends_cache_fingerprint(
     stocks: list[Stock],
     display_currency: str,
     current_day: date,
+    rates_snapshot: dict[str, float | None],
 ) -> str:
     normalized_stocks = []
     for stock in sorted(stocks, key=lambda item: item.ticker or ''):
@@ -94,10 +95,16 @@ def _build_upcoming_dividends_cache_fingerprint(
             ),
         })
 
+    normalized_rates = {
+        currency_pair: rates_snapshot[currency_pair]
+        for currency_pair in sorted(rates_snapshot)
+    }
+
     serialized = json.dumps({
         'stocks': normalized_stocks,
         'display_currency': display_currency,
         'current_day': current_day.isoformat(),
+        'rates_snapshot': normalized_rates,
     }, sort_keys=True, separators=(',', ':'))
     return hashlib.sha256(serialized.encode('utf-8')).hexdigest()
 
@@ -389,10 +396,13 @@ def get_portfolio_summary(db: Session = Depends(get_db), current_user: User = De
                 ticker (str), name (str), quantity (number), current_price (number),
                 current_value (number): value in display currency when convertible, otherwise native value,
                 currency (str), sector (str), logo (str),
+                total_cost (number or None): purchase cost in display currency when convertible, otherwise native value.
                 gain_loss (number or None): per-stock gain/loss in display currency when both value and cost convertible,
                 gain_loss_percent (number or None): per-stock percent gain when computable,
                 current_value_converted (bool): whether current_value is converted to display currency,
-                cost_converted (bool): whether purchase cost was converted to display currency.
+                total_cost_converted (bool): whether purchase cost was converted to display currency,
+                daily_change (number or None): position daily change in display currency when convertible, otherwise native value,
+                daily_change_converted (bool): whether daily_change is converted to display currency.
             stock_count (int): Number of stocks retrieved for the user.
             unconverted_stocks (list): Entries for stocks omitted or partially omitted from totals due to missing exchange rates;
                 each entry includes ticker, currency, and reason.
@@ -430,6 +440,22 @@ def get_portfolio_summary(db: Session = Depends(get_db), current_user: User = De
             display_price_converted = display_price is not None
             if display_price is None:
                 display_price = stock.current_price
+
+            daily_change_native = (
+                (stock.current_price - stock.previous_close) * snapshot.quantity
+                if stock.previous_close is not None
+                else None
+            )
+            daily_change_converted = (
+                convert_value(daily_change_native, stock.currency, display_currency, rates)
+                if daily_change_native is not None
+                else None
+            )
+            stock_cost_native = (
+                snapshot.purchase_price * snapshot.quantity
+                if snapshot.purchase_price is not None
+                else None
+            )
             
             if current_value is None:
                 total_value_partial = True
@@ -453,18 +479,19 @@ def get_portfolio_summary(db: Session = Depends(get_db), current_user: User = De
                     "currency": stock.currency,
                     "sector": stock.sector,
                     "logo": stock.logo,
+                    "total_cost": stock_cost_native,
+                    "total_cost_converted": False,
                     "gain_loss": None,
                     "gain_loss_percent": None,
                     "current_value_converted": False,
-                    "cost_converted": False,
+                    "daily_change": daily_change_native,
+                    "daily_change_converted": False,
                 })
                 continue
             
             total_value += current_value
 
-            if stock.previous_close is not None:
-                daily_change_native = (stock.current_price - stock.previous_close) * snapshot.quantity
-                daily_change_converted = convert_value(daily_change_native, stock.currency, display_currency, rates)
+            if daily_change_native is not None:
                 if daily_change_converted is None:
                     daily_change_partial = True
                 else:
@@ -481,12 +508,10 @@ def get_portfolio_summary(db: Session = Depends(get_db), current_user: User = De
             else:
                 dividend_yield_partial = True
             
-            cost_native = 0
-            cost = 0
+            cost = None
             cost_converted = False
-            if snapshot.purchase_price is not None:
-                cost_native = snapshot.purchase_price * snapshot.quantity
-                cost = convert_value(cost_native, stock.currency, display_currency, rates)
+            if stock_cost_native is not None:
+                cost = convert_value(stock_cost_native, stock.currency, display_currency, rates)
                 if cost is None:
                     logger.warning(
                         f"Skipping {stock.ticker} cost in totals: no conversion rate for "
@@ -521,10 +546,13 @@ def get_portfolio_summary(db: Session = Depends(get_db), current_user: User = De
                 "currency": stock.currency,
                 "sector": stock.sector,
                 "logo": stock.logo,
+                "total_cost": cost if cost is not None else stock_cost_native,
+                "total_cost_converted": cost_converted,
                 "gain_loss": gain_loss,
                 "gain_loss_percent": gain_loss_percent,
                 "current_value_converted": True,
-                "cost_converted": cost_converted if snapshot.purchase_price is not None else True,
+                "daily_change": daily_change_converted if daily_change_converted is not None else daily_change_native,
+                "daily_change_converted": daily_change_converted is not None,
             })
         elif snapshot.quantity is not None and snapshot.quantity > 0:
             total_value_partial = True
@@ -818,7 +846,10 @@ def get_upcoming_portfolio_dividends(db: Session = Depends(get_db), current_user
     now = utc_now()
     today = now.date()
     current_year = now.year
-    cache_fingerprint = _build_upcoming_dividends_cache_fingerprint(stocks, display_currency, today)
+    currencies = {s.currency for s in stocks if s.currency}
+    currencies.add('SEK')
+    rates = ExchangeRateService.get_rates_for_currencies(currencies, display_currency)
+    cache_fingerprint = _build_upcoming_dividends_cache_fingerprint(stocks, display_currency, today, rates)
     cached = _load_json_cache(
         _portfolio_upcoming_dividends_cache_key(current_user.id),
         PORTFOLIO_UPCOMING_DIVIDENDS_CACHE_TTL,
@@ -829,9 +860,6 @@ def get_upcoming_portfolio_dividends(db: Session = Depends(get_db), current_user
             return cached_value
 
     stock_service = StockService()
-    currencies = {s.currency for s in stocks if s.currency}
-    currencies.add('SEK')
-    rates = ExchangeRateService.get_rates_for_currencies(currencies, display_currency)
 
     dividends = []
     unmapped_stocks = []

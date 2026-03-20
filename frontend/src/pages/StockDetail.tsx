@@ -1,7 +1,7 @@
 import { useState, useEffect, useId, useRef, useCallback } from 'react'
 import type { KeyboardEvent as ReactKeyboardEvent } from 'react'
 import { useParams, Link, useNavigate } from 'react-router-dom'
-import { api, Stock, Dividend, StockUpcomingDividend, UpcomingDividend, AnalystData, ManualDividend, CompanyProfile, FinancialMetrics, VerificationResult, MarketstackUsage } from '../services/api'
+import { api, Stock, Dividend, UpcomingDividend, AnalystData, ManualDividend, CompanyProfile, FinancialMetrics, VerificationResult, MarketstackUsage, PortfolioSummaryStock, UpcomingDividendsResponse } from '../services/api'
 import CompanyProfileComponent from '../components/CompanyProfile'
 import FinancialMetricsComponent from '../components/FinancialMetrics'
 import PeerCompanies from '../components/PeerCompanies'
@@ -10,12 +10,10 @@ import { useSettings } from '../SettingsContext'
 import { formatTimeInTimezone } from '../utils/time'
 import { getLocaleForLanguage, t } from '../i18n'
 import { resolveBackendAssetUrl } from '../utils/assets'
-import { convertCurrencyToSEK } from '../utils/currency'
 import { useModalFocusTrap } from '../hooks/useModalFocusTrap'
 import { formatDisplayName } from '../utils/displayName'
 import SortableHeader from '../components/SortableHeader'
 import { sortTableItems, useTableSort } from '../utils/tableSort'
-import { getQuantityHeldOnDate } from '../utils/positions'
 
 /**
  * Format a numeric value as a localized currency string.
@@ -106,71 +104,6 @@ function estimateDividendsPerYear(dividends: Dividend[]): number {
   return Math.max(1, Math.min(12, estimated))
 }
 
-/**
- * Converts a monetary value to Swedish krona (SEK) using provided exchange rates.
- *
- * @param amount - The monetary amount to convert; may be `null`.
- * @param currency - The ISO currency code of `amount` (e.g., `"USD"`, `"EUR"`).
- * @param safeRates - A lookup of exchange rates where keys are formatted as `"{FROM}_{TO}"` (e.g., `"USD_SEK"` or `"SEK_USD"`). Values are the numeric exchange rate or `null` if unavailable.
- * @returns The converted amount in SEK, or `null` if `amount` is `null` or no applicable exchange rate is found.
- */
-function convertToSEKValue(
-  amount: number | null,
-  currency: string,
-  safeRates: Record<string, number | null>
-): number | null {
-  return convertCurrencyToSEK(amount, currency, safeRates)
-}
-
-function getQuantityHeldForDividend(
-  stockData: Pick<Stock, 'position_entries' | 'quantity'>,
-  eventDateValue: string | null | undefined
-): number {
-  return getQuantityHeldOnDate(stockData.position_entries, eventDateValue, stockData.quantity)
-}
-
-/**
- * Compute per-dividend totals (quantity applied and SEK conversion) and aggregate yearly totals for paid and upcoming dividends.
- *
- * @param items - Upcoming dividend entries to process
- * @param stockData - Stock snapshot used to derive held quantity per dividend event
- * @param safeRates - Mapping from currency code to SEK conversion rate; use `null` when a rate is unavailable
- * @returns An object containing:
- *  - `yearDividends`: the input dividends augmented with `quantity`, `total_amount`, and `total_converted` (SEK or `null`),
- *  - `yearReceived`: the summed `total_converted` for dividends with status `"paid"`, or `null` if any paid dividend lacks a conversion,
- *  - `yearRemaining`: the summed `total_converted` for dividends with status `"upcoming"`, or `null` if any upcoming dividend lacks a conversion
- */
-function recalculateYearlyDividendState(
-  items: UpcomingDividend[],
-  stockData: Pick<Stock, 'position_entries' | 'quantity'>,
-  safeRates: Record<string, number | null>
-): {
-  yearDividends: UpcomingDividend[]
-  yearReceived: number | null
-  yearRemaining: number | null
-} {
-  const yearDividends = items.map((div) => {
-    const quantity = getQuantityHeldForDividend(stockData, div.ex_date || div.payment_date)
-    const totalAmount = (div.amount_per_share ?? 0) * quantity
-    return {
-      ...div,
-      quantity,
-      total_amount: totalAmount,
-      total_converted: convertToSEKValue(totalAmount, div.currency, safeRates),
-    }
-  })
-
-  const aggregateYearlyTotal = (targetStatus: 'paid' | 'upcoming'): number | null => {
-    return aggregateDividendTotal(yearDividends, targetStatus)
-  }
-
-  return {
-    yearDividends,
-    yearReceived: aggregateYearlyTotal('paid'),
-    yearRemaining: aggregateYearlyTotal('upcoming'),
-  }
-}
-
 function aggregateDividendTotal(
   items: UpcomingDividend[],
   targetStatus: 'paid' | 'upcoming'
@@ -192,6 +125,8 @@ function aggregateDividendTotal(
 
 type LoadedStockPageData = {
   stockData: Stock
+  stockSummaryData: PortfolioSummaryStock | null
+  displayCurrencyData: string
   allDividendsData: Dividend[]
   dividendsData: Dividend[]
   allYearDividendsData: UpcomingDividend[]
@@ -199,7 +134,6 @@ type LoadedStockPageData = {
   yearReceivedData: number | null
   yearRemainingData: number | null
   suppressedDividendsData: ManualDividend[]
-  exchangeRatesData: Record<string, number | null>
 }
 
 type ManualDividendSortField = 'date' | 'amount' | 'note'
@@ -210,11 +144,11 @@ type VerificationSortField = 'date' | 'type' | 'yahoo' | 'marketstack' | 'differ
 /**
  * Render the detailed stock page and manage its data and user interactions.
  *
- * Loads stock, dividend (historical and upcoming), suppressed dividend, exchange rate,
- * company profile, financial metrics, peers, and analyst data; provides UI actions to
- * edit or delete the position, add/edit/delete manual dividends, suppress/restore dividends,
+ * Loads stock, dividend history, portfolio summary, stock-level current-year dividends,
+ * company profile, financial metrics, peers, and analyst data; provides UI actions to edit
+ * or delete the position, add/edit/delete manual dividends, suppress/restore dividends,
  * and verify dividends via Marketstack. Dates and currency values are formatted for the
- * current locale/timezone and SEK conversions are shown when exchange rates are available.
+ * current locale/timezone and backend-computed display-currency values are shown when available.
  *
  * @returns The React element for the stock detail page.
  */
@@ -228,6 +162,8 @@ export default function StockDetail() {
   const [yearDividends, setYearDividends] = useState<UpcomingDividend[]>([])
   const [yearReceived, setYearReceived] = useState<number | null>(0)
   const [yearRemaining, setYearRemaining] = useState<number | null>(0)
+  const [stockSummary, setStockSummary] = useState<PortfolioSummaryStock | null>(null)
+  const [displayCurrency, setDisplayCurrency] = useState('SEK')
   const [analystData, setAnalystData] = useState<AnalystData | null>(null)
   const [suppressedDividends, setSuppressedDividends] = useState<ManualDividend[]>([])
   const [loading, setLoading] = useState(true)
@@ -255,7 +191,6 @@ export default function StockDetail() {
   const [verificationResult, setVerificationResult] = useState<VerificationResult | null>(null)
   const [verificationLoading, setVerificationLoading] = useState(false)
   const [marketstackStatus, setMarketstackStatus] = useState<MarketstackUsage | null>(null)
-  const [exchangeRates, setExchangeRates] = useState<Record<string, number | null>>({})
   const [refreshing, setRefreshing] = useState(false)
   const [logoFailed, setLogoFailed] = useState(false)
   const editModalRef = useRef<HTMLDivElement | null>(null)
@@ -342,140 +277,42 @@ export default function StockDetail() {
   })
 
   const loadStockPageData = useCallback(async (tickerValue: string): Promise<LoadedStockPageData> => {
-    const [stockData, divData, stockUpcomingData, suppressedData, ratesData] = await Promise.all([
+    const emptyUpcomingResponse: UpcomingDividendsResponse = {
+      dividends: [],
+      total_expected: 0,
+      total_received: 0,
+      total_remaining: 0,
+      display_currency: 'SEK',
+      unmapped_stocks: [],
+    }
+
+    const [stockData, divData, suppressedData, summaryData, portfolioUpcomingData] = await Promise.all([
       api.stocks.get(tickerValue),
       api.stocks.dividends(tickerValue),
-      api.stocks.upcomingDividends(tickerValue).catch(() => []),
       api.stocks.getSuppressedDividends(tickerValue).catch(() => []),
-      api.market.exchangeRates().catch(() => ({})),
+      api.portfolio.summary(),
+      api.portfolio.upcomingDividends().catch(() => emptyUpcomingResponse),
     ])
-
-    const safeRates = ratesData as Record<string, number | null>
-
-    const todayDate = new Date()
-    todayDate.setUTCHours(0, 0, 0, 0)
-    const currentYear = todayDate.getUTCFullYear()
-
-    const allHistoricalYearDividends: UpcomingDividend[] = divData
-      .filter((div: Dividend) => {
-        const payoutDate = div.payment_date || div.date
-        if (!payoutDate?.startsWith(`${currentYear}-`)) return false
-        return true
+    const stockSummaryData = summaryData.stocks.find((item) => item.ticker === stockData.ticker) ?? null
+    const stockYearDividends = portfolioUpcomingData.dividends
+      .filter((div) => div.ticker === stockData.ticker)
+      .sort((a, b) => {
+        const aDate = a.payment_date || a.ex_date
+        const bDate = b.payment_date || b.ex_date
+        return aDate.localeCompare(bDate)
       })
-      .map((div: Dividend) => {
-        const quantityHeld = getQuantityHeldForDividend(stockData, div.date)
-        const amountPerShare = div.amount ?? 0
-        const totalAmount = amountPerShare * quantityHeld
-        const divCurrency = div.currency || stockData.currency
-        const totalConverted = convertToSEKValue(totalAmount, divCurrency, safeRates)
-        const payoutDate = div.payment_date || div.date
-        const payoutDateParsed = normalizeToDay(payoutDate)
-        const status = payoutDateParsed && payoutDateParsed.getTime() <= todayDate.getTime() ? 'paid' : 'upcoming'
-
-        return {
-          ticker: stockData.ticker,
-          name: stockData.name,
-          quantity: quantityHeld,
-          ex_date: div.date,
-          payment_date: div.payment_date,
-          status,
-          dividend_type: null,
-          amount_per_share: amountPerShare,
-          total_amount: totalAmount,
-          currency: divCurrency,
-          total_converted: totalConverted,
-          display_currency: 'SEK',
-          source: div.source || 'yahoo'
-        }
-      })
-
-    const allUpcomingYearDividends: UpcomingDividend[] = stockUpcomingData
-      .filter((div: StockUpcomingDividend) => {
-        const payoutDate = div.payment_date || div.ex_date
-        if (!payoutDate?.startsWith(`${currentYear}-`)) return false
-        return true
-      })
-      .map((div: StockUpcomingDividend) => {
-        const quantityHeld = getQuantityHeldForDividend(stockData, div.ex_date)
-        const amountPerShare = div.amount ?? 0
-        const totalAmount = amountPerShare * quantityHeld
-        const divCurrency = div.currency || stockData.currency
-        const totalConverted = convertToSEKValue(totalAmount, divCurrency, safeRates)
-        const payoutDateParsed = div.payment_date ? normalizeToDay(div.payment_date) : null
-        const status = payoutDateParsed && payoutDateParsed.getTime() <= todayDate.getTime() ? 'paid' : 'upcoming'
-
-        return {
-          ticker: stockData.ticker,
-          name: stockData.name,
-          quantity: quantityHeld,
-          ex_date: div.ex_date,
-          payment_date: div.payment_date,
-          status,
-          dividend_type: div.dividend_type,
-          amount_per_share: amountPerShare,
-          total_amount: totalAmount,
-          currency: divCurrency,
-          total_converted: totalConverted,
-          display_currency: 'SEK',
-          source: div.source || 'yahoo'
-        }
-      })
-
-    const historicalYearDividends = allHistoricalYearDividends.filter((div) => div.quantity > 0)
-    const upcomingYearDividends = allUpcomingYearDividends.filter((div) => div.quantity > 0)
-
-    const mergedYearDividends = [...historicalYearDividends, ...upcomingYearDividends]
-    const allMergedYearDividends = [...allHistoricalYearDividends, ...allUpcomingYearDividends]
-    const dedupedMap = new Map<string, UpcomingDividend>()
-    for (const div of mergedYearDividends) {
-      const key = [
-        div.ex_date,
-        div.payment_date || '',
-        div.amount_per_share,
-        div.currency,
-        div.dividend_type || '',
-        div.source || ''
-      ].join('|')
-      dedupedMap.set(key, div)
-    }
-
-    const effectiveYearDividends = Array.from(dedupedMap.values()).sort((a, b) => {
-      const aDate = a.payment_date || a.ex_date
-      const bDate = b.payment_date || b.ex_date
-      return aDate.localeCompare(bDate)
-    })
-
-    const allDedupedMap = new Map<string, UpcomingDividend>()
-    for (const div of allMergedYearDividends) {
-      const key = [
-        div.ex_date,
-        div.payment_date || '',
-        div.amount_per_share,
-        div.currency,
-        div.dividend_type || '',
-        div.source || ''
-      ].join('|')
-      allDedupedMap.set(key, div)
-    }
-
-    const effectiveAllYearDividends = Array.from(allDedupedMap.values()).sort((a, b) => {
-      const aDate = a.payment_date || a.ex_date
-      const bDate = b.payment_date || b.ex_date
-      return aDate.localeCompare(bDate)
-    })
-
-    const yearlyState = recalculateYearlyDividendState(effectiveYearDividends, stockData, safeRates)
 
     return {
       stockData,
+      stockSummaryData,
+      displayCurrencyData: summaryData.display_currency,
       allDividendsData: divData,
       dividendsData: divData,
-      allYearDividendsData: effectiveAllYearDividends,
-      yearDividendsData: yearlyState.yearDividends,
-      yearReceivedData: yearlyState.yearReceived,
-      yearRemainingData: yearlyState.yearRemaining,
+      allYearDividendsData: stockYearDividends,
+      yearDividendsData: stockYearDividends,
+      yearReceivedData: aggregateDividendTotal(stockYearDividends, 'paid'),
+      yearRemainingData: aggregateDividendTotal(stockYearDividends, 'upcoming'),
       suppressedDividendsData: suppressedData,
-      exchangeRatesData: safeRates,
     }
   }, [])
 
@@ -487,8 +324,9 @@ export default function StockDetail() {
     setYearDividends(data.yearDividendsData)
     setYearReceived(data.yearReceivedData)
     setYearRemaining(data.yearRemainingData)
+    setStockSummary(data.stockSummaryData)
+    setDisplayCurrency(data.displayCurrencyData)
     setSuppressedDividends(data.suppressedDividendsData)
-    setExchangeRates(data.exchangeRatesData)
     setEditPurchaseDate(data.stockData.purchase_date || '')
     setError(null)
   }, [])
@@ -542,6 +380,7 @@ export default function StockDetail() {
     analystRequestRef.current = null
     marketstackRequestRef.current = null
     setLogoFailed(false)
+    setStockSummary(null)
   }, [ticker])
 
   const loadFinnhubData = useCallback((force: boolean = false) => {
@@ -915,20 +754,28 @@ export default function StockDetail() {
     ? (dailyChange / stock.previous_close) * 100 
     : null
 
-  const convertToSEK = (amount: number | null, fromCurrency: string): number | null => {
-    return convertToSEKValue(amount, fromCurrency, exchangeRates)
-  }
+  const displayPurchasePrice =
+    stockSummary?.total_cost_converted && stockSummary.total_cost !== null && stock.quantity > 0
+      ? stockSummary.total_cost / stock.quantity
+      : null
+  const displayCurrentPrice = stockSummary?.display_price_converted ? stockSummary.display_price : null
+  const displayCurrentValue = stockSummary?.current_value_converted ? stockSummary.current_value : null
+  const displayTotalCost = stockSummary?.total_cost_converted ? (stockSummary.total_cost ?? null) : null
 
-  const renderValueWithSEK = (amount: number | null, fromCurrency: string, align: 'left' | 'right' = 'right') => {
-    const sekValue = convertToSEK(amount, fromCurrency)
+  const renderValueWithDisplayCurrency = (
+    amount: number | null,
+    fromCurrency: string,
+    displayAmount: number | null,
+    align: 'left' | 'right' = 'right',
+  ) => {
     const textAlign = align
 
     return (
       <div style={{ textAlign }}>
         <div>{formatCurrency(amount, locale, fromCurrency)}</div>
-        {amount !== null && fromCurrency !== 'SEK' && sekValue !== null && (
+        {amount !== null && fromCurrency !== displayCurrency && displayAmount !== null && (
           <div style={{ color: 'var(--text-secondary)', fontSize: '12px' }}>
-            {formatCurrency(sekValue, locale, 'SEK')}
+            {formatCurrency(displayAmount, locale, displayCurrency)}
           </div>
         )}
       </div>
@@ -937,7 +784,7 @@ export default function StockDetail() {
 
   const formatYearTotal = (value: number | null) => {
     if (value === null) return t(language, 'stockDetail.partial')
-    return formatCurrency(value, locale, 'SEK')
+    return formatCurrency(value, locale, displayCurrency)
   }
 
   const displayName = formatDisplayName(stock.name, stock.ticker)
@@ -1130,9 +977,9 @@ export default function StockDetail() {
                 <span className="mono" style={{ fontSize: 30, fontWeight: 700, color: 'var(--text)' }}>
                   {formatCurrency(stock.current_price, locale, stock.currency)}
                 </span>
-                {stock.currency !== 'SEK' && convertToSEK(stock.current_price, stock.currency) !== null && (
+                {stock.currency !== displayCurrency && displayCurrentPrice !== null && (
                   <span className="mono" style={{ fontSize: 14, color: 'var(--muted)' }}>
-                    {formatCurrency(convertToSEK(stock.current_price, stock.currency), locale, 'SEK')}
+                    {formatCurrency(displayCurrentPrice, locale, displayCurrency)}
                   </span>
                 )}
                 {dailyChange !== null && (
@@ -1206,7 +1053,7 @@ export default function StockDetail() {
                 </tr>
                 <tr>
                   <td style={{ color: 'var(--muted)', fontSize: 13 }}>{t(language, 'stockDetail.purchasePrice')}</td>
-                  <td>{renderValueWithSEK(stock.purchase_price, stock.currency)}</td>
+                  <td>{renderValueWithDisplayCurrency(stock.purchase_price, stock.currency, displayPurchasePrice)}</td>
                 </tr>
                 <tr>
                   <td style={{ color: 'var(--muted)', fontSize: 13 }}>{t(language, 'stockDetail.purchaseDate')}</td>
@@ -1214,11 +1061,11 @@ export default function StockDetail() {
                 </tr>
                 <tr>
                   <td style={{ color: 'var(--muted)', fontSize: 13 }}>{t(language, 'stockDetail.currentValue')}</td>
-                  <td>{renderValueWithSEK(stock.current_price != null ? stock.current_price * stock.quantity : null, stock.currency)}</td>
+                  <td>{renderValueWithDisplayCurrency(stock.current_price != null ? stock.current_price * stock.quantity : null, stock.currency, displayCurrentValue)}</td>
                 </tr>
                 <tr>
                   <td style={{ color: 'var(--muted)', fontSize: 13 }}>{t(language, 'stockDetail.totalCost')}</td>
-                  <td>{renderValueWithSEK(stock.purchase_price != null ? stock.purchase_price * stock.quantity : null, stock.currency)}</td>
+                  <td>{renderValueWithDisplayCurrency(stock.purchase_price != null ? stock.purchase_price * stock.quantity : null, stock.currency, displayTotalCost)}</td>
                 </tr>
               </tbody>
             </table>

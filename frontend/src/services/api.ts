@@ -198,22 +198,28 @@ export interface PortfolioSummary {
   dividend_yield_partial: boolean
   last_updated: string | null
   display_currency: string
-  stocks: Array<{
-    ticker: string
-    name: string | null
-    quantity: number
-    current_price: number
-    display_price: number
-    display_price_converted?: boolean
-    current_value: number
-    current_value_converted?: boolean
-    currency: string
-    sector: string | null
-    logo: string | null
-    gain_loss: number | null
-    gain_loss_percent: number | null
-  }>
+  stocks: PortfolioSummaryStock[]
   stock_count: number
+}
+
+export interface PortfolioSummaryStock {
+  ticker: string
+  name: string | null
+  quantity: number
+  current_price: number
+  display_price: number
+  display_price_converted?: boolean
+  current_value: number
+  current_value_converted?: boolean
+  total_cost: number | null
+  total_cost_converted?: boolean
+  currency: string
+  sector: string | null
+  logo: string | null
+  gain_loss: number | null
+  gain_loss_percent: number | null
+  daily_change: number | null
+  daily_change_converted?: boolean
 }
 
 export interface Dividend {
