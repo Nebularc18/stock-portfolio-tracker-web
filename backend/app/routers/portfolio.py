@@ -15,7 +15,7 @@ import logging
 from app.main import get_db, get_current_user, User, Stock, PortfolioHistory, UserSettings, StockPriceHistory
 from app.services.brandfetch_service import brandfetch_service
 from app.services.exchange_rate_service import ExchangeRateService
-from app.services.position_service import calculate_position_snapshot, get_quantity_held_on_date, has_position_history, normalize_position_entries
+from app.services.position_service import calculate_position_cost_basis, calculate_position_snapshot, get_quantity_held_on_date, has_position_history, normalize_position_entries
 from app.utils.time import utc_now
 
 router = APIRouter()
@@ -83,7 +83,7 @@ def apply_position_snapshot(stock: Stock) -> PositionSnapshot:
         stock.purchase_price,
         stock.purchase_date,
     )
-    snapshot = calculate_position_snapshot(position_entries)
+    snapshot = calculate_position_snapshot(position_entries, position_currency=stock.currency)
     return PositionSnapshot(
         quantity=float(snapshot['quantity']),
         purchase_price=snapshot['purchase_price'],
@@ -365,12 +365,18 @@ def get_portfolio_summary(db: Session = Depends(get_db), current_user: User = De
             
             total_value += current_value
             
-            cost_native = 0
-            cost = 0
+            cost = None
             cost_converted = False
             if snapshot.purchase_price is not None:
-                cost_native = snapshot.purchase_price * snapshot.quantity
-                cost = convert_value(cost_native, stock.currency, display_currency, rates)
+                cost = calculate_position_cost_basis(
+                    snapshot.position_entries,
+                    stock.currency,
+                    display_currency,
+                    conversion_callback=lambda amount, from_currency, to_currency: convert_value(amount, from_currency, to_currency, rates),
+                    fallback_quantity=stock.quantity,
+                    fallback_purchase_price=stock.purchase_price,
+                    fallback_purchase_date=stock.purchase_date,
+                )
                 if cost is None:
                     logger.warning(
                         f"Skipping {stock.ticker} cost in totals: no conversion rate for "

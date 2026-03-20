@@ -640,7 +640,7 @@ def ensure_account_schema_and_seed() -> None:
                 "purchase_price": stock["purchase_price"],
                 "purchase_date": stock["purchase_date"],
                 "sell_date": None,
-            }])
+            }], position_currency=stock.get("currency"))
             conn.execute(text("""
                 INSERT INTO stocks (
                     user_id, ticker, name, quantity, currency, sector, purchase_price,
@@ -865,6 +865,9 @@ class StockCreate(BaseModel):
     quantity: Optional[float] = None
     purchase_price: Optional[float] = None
     courtage: Optional[float] = None
+    courtage_currency: Optional[str] = None
+    exchange_rate: Optional[float] = None
+    exchange_rate_currency: Optional[str] = None
     purchase_date: Optional[date] = None
     position_entries: Optional[List[dict]] = None
 
@@ -905,6 +908,40 @@ class StockCreate(BaseModel):
                 "courtage requires purchase_price."
             )
 
+        if self.courtage_currency is not None:
+            normalized_currency = self.courtage_currency.strip().upper()
+            if len(normalized_currency) != 3 or not normalized_currency.isalpha():
+                raise ValueError(
+                    "StockCreate validation failed for create_stock payload (/api/stocks): "
+                    "courtage_currency must be a 3-letter currency code."
+                )
+            self.courtage_currency = normalized_currency
+
+        if self.exchange_rate is not None and (not math.isfinite(self.exchange_rate) or self.exchange_rate <= 0):
+            raise ValueError(
+                "StockCreate validation failed for create_stock payload (/api/stocks): "
+                "exchange_rate must be greater than zero."
+            )
+
+        if self.exchange_rate is not None:
+            if not self.exchange_rate_currency:
+                raise ValueError(
+                    "StockCreate validation failed for create_stock payload (/api/stocks): "
+                    "exchange_rate requires exchange_rate_currency."
+                )
+            normalized_currency = self.exchange_rate_currency.strip().upper()
+            if len(normalized_currency) != 3 or not normalized_currency.isalpha():
+                raise ValueError(
+                    "StockCreate validation failed for create_stock payload (/api/stocks): "
+                    "exchange_rate_currency must be a 3-letter currency code."
+                )
+            self.exchange_rate_currency = normalized_currency
+        elif self.exchange_rate_currency is not None:
+            raise ValueError(
+                "StockCreate validation failed for create_stock payload (/api/stocks): "
+                "exchange_rate_currency requires exchange_rate."
+            )
+
         return self
 
 
@@ -912,8 +949,37 @@ class StockUpdate(BaseModel):
     quantity: Optional[float] = None
     purchase_price: Optional[float] = None
     courtage: Optional[float] = None
+    courtage_currency: Optional[str] = None
+    exchange_rate: Optional[float] = None
+    exchange_rate_currency: Optional[str] = None
     purchase_date: Optional[date] = None
     position_entries: Optional[List[dict]] = None
+
+    @model_validator(mode="after")
+    def validate_update_payload(self) -> "StockUpdate":
+        if self.courtage_currency is not None:
+            normalized_currency = self.courtage_currency.strip().upper()
+            self.courtage_currency = normalized_currency or None
+            if self.courtage_currency and (
+                len(self.courtage_currency) != 3 or not self.courtage_currency.isalpha()
+            ):
+                raise ValueError("courtage_currency must be a 3-letter currency code.")
+
+        if self.exchange_rate_currency is not None:
+            self.exchange_rate_currency = self.exchange_rate_currency.strip().upper() or None
+
+        if self.exchange_rate is not None and (not math.isfinite(self.exchange_rate) or self.exchange_rate <= 0):
+            raise ValueError("exchange_rate must be greater than zero.")
+
+        if self.exchange_rate is not None:
+            if not self.exchange_rate_currency:
+                raise ValueError("exchange_rate requires exchange_rate_currency.")
+            if len(self.exchange_rate_currency) != 3 or not self.exchange_rate_currency.isalpha():
+                raise ValueError("exchange_rate_currency must be a 3-letter currency code.")
+        elif self.exchange_rate_currency is not None:
+            raise ValueError("exchange_rate_currency requires exchange_rate.")
+
+        return self
 
 
 class StockResponse(BaseModel):

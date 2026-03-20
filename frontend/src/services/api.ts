@@ -165,8 +165,17 @@ export interface PositionEntry {
   quantity: number
   purchase_price: number | null
   courtage?: number | null
+  courtage_currency?: string | null
+  exchange_rate?: number | null
+  exchange_rate_currency?: string | null
   purchase_date: string | null
   sell_date: string | null
+}
+
+export interface TickerValidationResult {
+  valid: boolean
+  name: string | null
+  currency: string | null
 }
 
 export interface ManualDividend {
@@ -445,9 +454,9 @@ export const api = {
   stocks: {
     list: () => fetchAPI('/stocks') as Promise<Stock[]>,
     get: (ticker: string) => fetchAPI(`/stocks/${encodePathSegment(ticker)}`) as Promise<Stock>,
-    create: (data: { ticker: string; quantity: number; purchase_price?: number; courtage?: number; purchase_date?: string; position_entries?: PositionEntry[] }) => 
+    create: (data: { ticker: string; quantity: number; purchase_price?: number; courtage?: number; courtage_currency?: string; exchange_rate?: number; exchange_rate_currency?: string; purchase_date?: string; position_entries?: PositionEntry[] }) => 
       fetchAPI('/stocks', { method: 'POST', body: JSON.stringify(data) }) as Promise<Stock>,
-    update: (ticker: string, data: { quantity?: number; purchase_price?: number; courtage?: number | null; purchase_date?: string | null; position_entries?: PositionEntry[] }) =>
+    update: (ticker: string, data: { quantity?: number; purchase_price?: number; courtage?: number | null; courtage_currency?: string | null; exchange_rate?: number | null; exchange_rate_currency?: string | null; purchase_date?: string | null; position_entries?: PositionEntry[] }) =>
       fetchAPI(`/stocks/${encodePathSegment(ticker)}`, { method: 'PATCH', body: JSON.stringify(data) }) as Promise<Stock>,
     delete: (ticker: string) => fetchAPI(`/stocks/${encodePathSegment(ticker)}`, { method: 'DELETE' }),
     refresh: (ticker: string) => fetchAPI(`/stocks/${encodePathSegment(ticker)}/refresh`, { method: 'POST' }) as Promise<Stock>,
@@ -462,7 +471,7 @@ export const api = {
     },
     upcomingDividends: (ticker: string) => fetchAPI(`/stocks/${encodePathSegment(ticker)}/upcoming-dividends`) as Promise<StockUpcomingDividend[]>,
     analyst: (ticker: string) => fetchAPI(`/stocks/${encodePathSegment(ticker)}/analyst`) as Promise<AnalystData>,
-    validate: (ticker: string) => fetchAPI(`/stocks/validate/${encodePathSegment(ticker)}`),
+    validate: (ticker: string) => fetchAPI(`/stocks/validate/${encodePathSegment(ticker)}`) as Promise<TickerValidationResult>,
     addManualDividend: (ticker: string, data: { date: string; amount: number; currency?: string; note?: string }) =>
       fetchAPI(`/stocks/${encodePathSegment(ticker)}/manual-dividends`, { method: 'POST', body: JSON.stringify(data) }) as Promise<Stock>,
     updateManualDividend: (ticker: string, dividendId: string, data: { date?: string; amount?: number; currency?: string; note?: string }) =>
