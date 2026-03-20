@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { ResponsiveContainer, Tooltip, AreaChart, Area, XAxis, YAxis, CartesianGrid } from 'recharts'
-import { api, PortfolioSummary, Stock, UpcomingDividend } from '../services/api'
+import { api, PortfolioSummary, UpcomingDividend } from '../services/api'
 import { useAuth } from '../AuthContext'
 import { useSettings } from '../SettingsContext'
 import { formatTimeInTimezone } from '../utils/time'
@@ -266,8 +266,6 @@ export default function Dashboard() {
   const [summary, setSummary] = useState<PortfolioSummary | null>(null)
   const [upcomingDividends, setUpcomingDividends] = useState<UpcomingDividend[]>([])
   const [totalRemainingDividends, setTotalRemainingDividends] = useState(0)
-  const [stocks, setStocks] = useState<Stock[]>([])
-  const [exchangeRates, setExchangeRates] = useState<Record<string, number | null>>({})
   const [portfolioHistory, setPortfolioHistory] = useState<{ date: string; value: number }[]>([])
   const [historyRange, setHistoryRange] = useState<HistoryRangeKey>(() => getStoredHistoryRange(user?.id))
   const [failedLogos, setFailedLogos] = useState<Record<string, boolean>>({})
@@ -317,16 +315,12 @@ export default function Dashboard() {
       if (!background) {
         setLoading(true)
       }
-      const [summaryData, stocksData, ratesData, upcomingDivsData] = await Promise.all([
+      const [summaryData, upcomingDivsData] = await Promise.all([
         api.portfolio.summary(),
-        api.stocks.list(),
-        api.market.exchangeRates(),
         api.portfolio.upcomingDividends().catch(() => ({ dividends: [], total_expected: 0, total_received: 0, total_remaining: 0, display_currency: displayCurrency, unmapped_stocks: [] })),
       ])
       if (requestId !== dataRequestIdRef.current) return
       setSummary(summaryData)
-      setStocks(stocksData)
-      setExchangeRates(ratesData)
       setUpcomingDividends(upcomingDivsData.dividends)
       setTotalRemainingDividends(upcomingDivsData.total_remaining)
       setFailedLogos({})
@@ -426,56 +420,13 @@ export default function Dashboard() {
     }
   }, [fetchData, fetchHistory, historyRange])
 
-  const tryConvertToCurrency = (amount: number, currency: string): number | null => {
-    if (currency === displayCurrency) return amount
-    const rate = exchangeRates[`${currency}_${displayCurrency}`]
-    if (rate) return amount * rate
-    const inverseRate = exchangeRates[`${displayCurrency}_${currency}`]
-    if (inverseRate) return amount / inverseRate
-    return null
-  }
-
-  const dailyChangeAggregate = stocks.reduce((acc, stock) => {
-    if (stock.current_price === null || stock.previous_close === null) { acc.partial = true; return acc }
-    const change = (stock.current_price - stock.previous_close) * stock.quantity
-    const converted = tryConvertToCurrency(change, stock.currency)
-    if (converted === null) { acc.partial = true; return acc }
-    acc.total += converted
-    return acc
-  }, { total: 0, partial: false })
-
-  const totalValueAggregate = stocks.reduce((acc, stock) => {
-    if (stock.current_price === null) { acc.partial = true; return acc }
-    const value = stock.current_price * stock.quantity
-    const converted = tryConvertToCurrency(value, stock.currency)
-    if (converted === null) { acc.partial = true; return acc }
-    acc.total += converted
-    return acc
-  }, { total: 0, partial: false })
-
-  const portfolioDividendYield = stocks.reduce((acc, stock) => {
-    if (stock.current_price === null || stock.quantity <= 0 || stock.dividend_yield === null) { acc.partial = true; return acc }
-    const positionValue = stock.current_price * stock.quantity
-    const convertedValue = tryConvertToCurrency(positionValue, stock.currency)
-    if (convertedValue === null || convertedValue <= 0) { acc.partial = true; return acc }
-    acc.weightedYield += convertedValue * stock.dividend_yield
-    acc.totalValue += convertedValue
-    return acc
-  }, { weightedYield: 0, totalValue: 0, partial: false })
-
-  const dividendYieldPercent = portfolioDividendYield.totalValue > 0
-    ? portfolioDividendYield.weightedYield / portfolioDividendYield.totalValue : 0
-
-  const lastUpdate = stocks.reduce((max: string | null, stock) => {
-    if (!stock.last_updated) return max
-    if (!max) return stock.last_updated
-    return stock.last_updated > max ? stock.last_updated : max
-  }, null)
-
   const currency = summary?.display_currency || displayCurrency
   const gainLoss = summary?.total_gain_loss ?? 0
   const gainLossIsPos = gainLoss >= 0
-  const dailyIsPos = dailyChangeAggregate.total >= 0
+  const dailyChange = summary?.daily_change ?? 0
+  const dailyIsPos = dailyChange >= 0
+  const dividendYieldPercent = summary?.dividend_yield ?? 0
+  const lastUpdate = summary?.last_updated ?? null
 
   const rawChartData: ChartPoint[] = portfolioHistory
     .map((h) => {
@@ -512,16 +463,12 @@ export default function Dashboard() {
 
   const getDisplayedDividendAmount = (item: UpcomingDividend): { amount: number; currency: string } => {
     if (item.total_converted !== null) return { amount: item.total_converted, currency }
-    const converted = tryConvertToCurrency(item.total_amount, item.currency)
-    if (converted !== null) return { amount: converted, currency }
     return { amount: item.total_amount, currency: item.currency }
   }
 
-  const renderConvertedAmount = (amount: number | null | undefined, originalCurrency: string) => {
+  const renderAmount = (amount: number | null | undefined, amountCurrency: string) => {
     if (amount == null) return '—'
-    const converted = tryConvertToCurrency(amount, originalCurrency)
-    if (converted !== null) return formatCurrency(converted, locale, currency)
-    return formatCurrency(amount, locale, originalCurrency)
+    return formatCurrency(amount, locale, amountCurrency)
   }
 
   const monthlyUpcoming = Object.entries(groupedDividends)
@@ -561,10 +508,8 @@ export default function Dashboard() {
       ticker: (stock) => stock.ticker,
       name: (stock) => formatDisplayName(stock.name, stock.ticker),
       quantity: (stock) => stock.quantity,
-      price: (stock) => tryConvertToCurrency(stock.current_price, stock.currency),
-      value: (stock) => stock.current_value_converted
-        ? stock.current_value
-        : tryConvertToCurrency(stock.current_value, stock.currency),
+      price: (stock) => stock.display_price,
+      value: (stock) => stock.current_value,
       gainLoss: (stock) => stock.gain_loss,
       gainLossPercent: (stock) => stock.gain_loss_percent,
     },
@@ -591,14 +536,14 @@ export default function Dashboard() {
   const heroStats = [
     {
       label: t(language, 'dashboard.totalValue'),
-      value: formatCurrency(totalValueAggregate.total, locale, currency),
-      partial: totalValueAggregate.partial,
+      value: formatCurrency(summary?.total_value ?? 0, locale, currency),
+      partial: summary?.total_value_partial ?? false,
       color: 'var(--text)',
     },
     {
       label: t(language, 'dashboard.dailyChange'),
-      value: formatCurrency(dailyChangeAggregate.total, locale, currency),
-      partial: dailyChangeAggregate.partial,
+      value: formatCurrency(dailyChange, locale, currency),
+      partial: summary?.daily_change_partial ?? false,
       color: dailyIsPos ? 'var(--green)' : 'var(--red)',
     },
     {
@@ -616,7 +561,7 @@ export default function Dashboard() {
     {
       label: t(language, 'dashboard.dividendYield'),
       value: formatPercent(dividendYieldPercent, locale),
-      partial: portfolioDividendYield.partial,
+      partial: summary?.dividend_yield_partial ?? false,
       color: 'var(--teal)',
     },
   ]
@@ -857,11 +802,11 @@ export default function Dashboard() {
                     </td>
                     <td style={{ color: 'var(--text2)' }}>{displayName}</td>
                     <td style={{ textAlign: 'right', fontFamily: "'Fira Code', monospace", color: 'var(--text2)' }}>{stock.quantity}</td>
-                    <td style={{ textAlign: 'right', fontFamily: "'Fira Code', monospace", color: 'var(--text2)' }}>{renderConvertedAmount(stock.current_price, stock.currency)}</td>
                     <td style={{ textAlign: 'right', fontFamily: "'Fira Code', monospace", color: 'var(--text2)' }}>
-                      {stock.current_value_converted
-                        ? formatCurrency(stock.current_value, locale, currency)
-                        : renderConvertedAmount(stock.current_value, stock.currency)}
+                      {renderAmount(stock.display_price, stock.display_price_converted ? currency : stock.currency)}
+                    </td>
+                    <td style={{ textAlign: 'right', fontFamily: "'Fira Code', monospace", color: 'var(--text2)' }}>
+                      {renderAmount(stock.current_value, stock.current_value_converted ? currency : stock.currency)}
                     </td>
                     <td style={{ textAlign: 'right', fontFamily: "'Fira Code', monospace" }} className={stock.gain_loss === null ? '' : (stock.gain_loss >= 0 ? 'positive' : 'negative')}>
                       {stock.gain_loss !== null ? formatCurrency(stock.gain_loss, locale, currency) : '-'}

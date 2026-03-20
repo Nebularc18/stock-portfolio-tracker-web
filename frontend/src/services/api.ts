@@ -188,15 +188,23 @@ export interface MarketIndex {
 
 export interface PortfolioSummary {
   total_value: number
+  total_value_partial: boolean
   total_cost: number
   total_gain_loss: number
   total_gain_loss_percent: number
+  daily_change: number
+  daily_change_partial: boolean
+  dividend_yield: number
+  dividend_yield_partial: boolean
+  last_updated: string | null
   display_currency: string
   stocks: Array<{
     ticker: string
     name: string | null
     quantity: number
     current_price: number
+    display_price: number
+    display_price_converted?: boolean
     current_value: number
     current_value_converted?: boolean
     currency: string

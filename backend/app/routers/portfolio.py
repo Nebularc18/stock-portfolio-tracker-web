@@ -10,7 +10,11 @@ from sqlalchemy.orm import Session
 from dataclasses import dataclass
 from datetime import date, datetime, timezone
 from typing import List, Optional
+import hashlib
+import json
 import logging
+import os
+import tempfile
 
 from app.main import get_db, get_current_user, User, Stock, PortfolioHistory, UserSettings, StockPriceHistory
 from app.services.brandfetch_service import brandfetch_service
@@ -20,6 +24,82 @@ from app.utils.time import utc_now
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
+
+_CACHE_DIR = os.path.join(os.path.dirname(__file__), '..', '..', 'data', 'cache')
+PORTFOLIO_UPCOMING_DIVIDENDS_CACHE_TTL = 21600
+
+
+def _load_json_cache(filename: str, ttl: int) -> dict | None:
+    try:
+        os.makedirs(_CACHE_DIR, exist_ok=True)
+        filepath = os.path.join(_CACHE_DIR, filename)
+        if not os.path.exists(filepath):
+            return None
+        with open(filepath, 'r', encoding='utf-8') as f:
+            payload = json.load(f)
+        cached_at = payload.get('cached_at', 0)
+        if datetime.now(timezone.utc).timestamp() - cached_at >= ttl:
+            return None
+        return payload
+    except Exception:
+        logger.exception("Failed to load cache file %s", filename)
+        return None
+
+
+def _save_json_cache(filename: str, value: dict):
+    try:
+        os.makedirs(_CACHE_DIR, exist_ok=True)
+        filepath = os.path.join(_CACHE_DIR, filename)
+        fd, temp_path = tempfile.mkstemp(dir=_CACHE_DIR, prefix=f"{filename}.", suffix='.tmp')
+        try:
+            with os.fdopen(fd, 'w', encoding='utf-8') as f:
+                json.dump({
+                    'cached_at': datetime.now(timezone.utc).timestamp(),
+                    **value,
+                }, f)
+                f.flush()
+                os.fsync(f.fileno())
+            os.replace(temp_path, filepath)
+        finally:
+            if os.path.exists(temp_path):
+                os.remove(temp_path)
+    except Exception:
+        logger.exception("Failed to save cache file %s", filename)
+
+
+def _portfolio_upcoming_dividends_cache_key(user_id: int) -> str:
+    return f"portfolio_upcoming_dividends_{user_id}.json"
+
+
+def _build_upcoming_dividends_cache_fingerprint(
+    stocks: list[Stock],
+    display_currency: str,
+    current_day: date,
+) -> str:
+    normalized_stocks = []
+    for stock in sorted(stocks, key=lambda item: item.ticker or ''):
+        normalized_stocks.append({
+            'id': stock.id,
+            'ticker': stock.ticker,
+            'name': stock.name,
+            'currency': stock.currency,
+            'quantity': stock.quantity,
+            'purchase_price': stock.purchase_price,
+            'purchase_date': stock.purchase_date.isoformat() if stock.purchase_date else None,
+            'position_entries': normalize_position_entries(
+                getattr(stock, 'position_entries', None),
+                stock.quantity,
+                stock.purchase_price,
+                stock.purchase_date,
+            ),
+        })
+
+    serialized = json.dumps({
+        'stocks': normalized_stocks,
+        'display_currency': display_currency,
+        'current_day': current_day.isoformat(),
+    }, sort_keys=True, separators=(',', ':'))
+    return hashlib.sha256(serialized.encode('utf-8')).hexdigest()
 
 
 def parse_event_date(value) -> Optional[date]:
@@ -325,19 +405,34 @@ def get_portfolio_summary(db: Session = Depends(get_db), current_user: User = De
     rates = ExchangeRateService.get_rates_for_currencies(currencies, display_currency)
     
     total_value = 0
+    total_value_partial = False
     total_cost = 0
     total_gain_loss = 0
+    daily_change = 0
+    daily_change_partial = False
+    dividend_yield_weighted = 0
+    dividend_yield_total_value = 0
+    dividend_yield_partial = False
+    last_updated: datetime | None = None
     
     stock_data = []
     unconverted_stocks = []
     
     for stock in stocks:
         snapshot = apply_position_snapshot(stock)
+        if stock.last_updated and (last_updated is None or stock.last_updated > last_updated):
+            last_updated = stock.last_updated
+
         if stock.current_price is not None and snapshot.quantity is not None and snapshot.quantity > 0:
             current_value_native = stock.current_price * snapshot.quantity
             current_value = convert_value(current_value_native, stock.currency, display_currency, rates)
+            display_price = convert_value(stock.current_price, stock.currency, display_currency, rates)
+            display_price_converted = display_price is not None
+            if display_price is None:
+                display_price = stock.current_price
             
             if current_value is None:
+                total_value_partial = True
                 logger.warning(
                     f"Skipping {stock.ticker} in totals: no conversion rate for "
                     f"{stock.currency} to {display_currency}"
@@ -352,6 +447,8 @@ def get_portfolio_summary(db: Session = Depends(get_db), current_user: User = De
                     "name": stock.name,
                     "quantity": snapshot.quantity,
                     "current_price": stock.current_price,
+                    "display_price": display_price,
+                    "display_price_converted": display_price_converted,
                     "current_value": current_value_native,
                     "currency": stock.currency,
                     "sector": stock.sector,
@@ -364,6 +461,25 @@ def get_portfolio_summary(db: Session = Depends(get_db), current_user: User = De
                 continue
             
             total_value += current_value
+
+            if stock.previous_close is not None:
+                daily_change_native = (stock.current_price - stock.previous_close) * snapshot.quantity
+                daily_change_converted = convert_value(daily_change_native, stock.currency, display_currency, rates)
+                if daily_change_converted is None:
+                    daily_change_partial = True
+                else:
+                    daily_change += daily_change_converted
+            else:
+                daily_change_partial = True
+
+            if stock.dividend_yield is not None:
+                if current_value > 0:
+                    dividend_yield_weighted += current_value * stock.dividend_yield
+                    dividend_yield_total_value += current_value
+                else:
+                    dividend_yield_partial = True
+            else:
+                dividend_yield_partial = True
             
             cost_native = 0
             cost = 0
@@ -399,6 +515,8 @@ def get_portfolio_summary(db: Session = Depends(get_db), current_user: User = De
                 "name": stock.name,
                 "quantity": snapshot.quantity,
                 "current_price": stock.current_price,
+                "display_price": display_price,
+                "display_price_converted": display_price_converted,
                 "current_value": current_value,
                 "currency": stock.currency,
                 "sector": stock.sector,
@@ -408,14 +526,29 @@ def get_portfolio_summary(db: Session = Depends(get_db), current_user: User = De
                 "current_value_converted": True,
                 "cost_converted": cost_converted if snapshot.purchase_price is not None else True,
             })
+        elif snapshot.quantity is not None and snapshot.quantity > 0:
+            total_value_partial = True
+            daily_change_partial = True
+            dividend_yield_partial = True
     
     total_gain_loss_percent = (total_gain_loss / total_cost * 100) if total_cost > 0 else 0
+    portfolio_dividend_yield = (
+        dividend_yield_weighted / dividend_yield_total_value
+        if dividend_yield_total_value > 0
+        else 0
+    )
     
     return {
         "total_value": total_value,
+        "total_value_partial": total_value_partial,
         "total_cost": total_cost,
         "total_gain_loss": total_gain_loss,
         "total_gain_loss_percent": total_gain_loss_percent,
+        "daily_change": daily_change,
+        "daily_change_partial": daily_change_partial,
+        "dividend_yield": portfolio_dividend_yield,
+        "dividend_yield_partial": dividend_yield_partial,
+        "last_updated": last_updated,
         "display_currency": display_currency,
         "stocks": stock_data,
         "stock_count": len(stock_data),
@@ -679,21 +812,30 @@ def get_upcoming_portfolio_dividends(db: Session = Depends(get_db), current_user
     """
     from app.services.stock_service import StockService
     from app.services.avanza_service import avanza_service
-    
-    stock_service = StockService()
+
     stocks = db.query(Stock).filter(Stock.user_id == current_user.id).all()
     display_currency = get_display_currency(db, current_user.id)
-    
-    currencies = {s.currency for s in stocks if s.currency}
-    currencies.add('SEK')
-    rates = ExchangeRateService.get_rates_for_currencies(currencies, display_currency)
-    
-    dividends = []
-    unmapped_stocks = []
-    seen_unmapped = set()
     now = utc_now()
     today = now.date()
     current_year = now.year
+    cache_fingerprint = _build_upcoming_dividends_cache_fingerprint(stocks, display_currency, today)
+    cached = _load_json_cache(
+        _portfolio_upcoming_dividends_cache_key(current_user.id),
+        PORTFOLIO_UPCOMING_DIVIDENDS_CACHE_TTL,
+    )
+    if cached and cached.get('fingerprint') == cache_fingerprint:
+        cached_value = cached.get('value')
+        if isinstance(cached_value, dict):
+            return cached_value
+
+    stock_service = StockService()
+    currencies = {s.currency for s in stocks if s.currency}
+    currencies.add('SEK')
+    rates = ExchangeRateService.get_rates_for_currencies(currencies, display_currency)
+
+    dividends = []
+    unmapped_stocks = []
+    seen_unmapped = set()
 
     for stock in stocks:
         snapshot = apply_position_snapshot(stock)
@@ -814,7 +956,7 @@ def get_upcoming_portfolio_dividends(db: Session = Depends(get_db), current_user
         if d['total_converted'] is not None and d.get('status') == 'upcoming'
     )
     
-    return {
+    result = {
         'dividends': dividends,
         'total_expected': total_expected,
         'total_received': total_received,
@@ -822,3 +964,11 @@ def get_upcoming_portfolio_dividends(db: Session = Depends(get_db), current_user
         'display_currency': display_currency,
         'unmapped_stocks': unmapped_stocks
     }
+    _save_json_cache(
+        _portfolio_upcoming_dividends_cache_key(current_user.id),
+        {
+            'fingerprint': cache_fingerprint,
+            'value': result,
+        },
+    )
+    return result
