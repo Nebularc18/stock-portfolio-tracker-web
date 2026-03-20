@@ -575,17 +575,11 @@ export default function StockDetail() {
         console.error('Failed to load Finnhub metrics', metricsResult.reason)
       }
       if (peersResult.status === 'fulfilled') {
-        setPeers(peersResult.value)
+        setPeers(peersResult.value ?? [])
       } else {
         console.error('Failed to load Finnhub peers', peersResult.reason)
       }
-      if (
-        profileResult.status === 'fulfilled'
-        && metricsResult.status === 'fulfilled'
-        && peersResult.status === 'fulfilled'
-      ) {
-        setFinnhubDataLoaded(true)
-      }
+      setFinnhubDataLoaded(true)
     }).finally(() => {
       if (finnhubRequestRef.current === request) {
         finnhubRequestRef.current = null
