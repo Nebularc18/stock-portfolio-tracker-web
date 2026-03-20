@@ -149,6 +149,11 @@ type VerificationSortField = 'date' | 'type' | 'yahoo' | 'marketstack' | 'differ
  * or delete the position, add/edit/delete manual dividends, suppress/restore dividends,
  * and verify dividends via Marketstack. Dates and currency values are formatted for the
  * current locale/timezone and backend-computed display-currency values are shown when available.
+ * Handles loading and presenting stock, dividend (historical and upcoming), suppressed dividend,
+ * exchange-rate, company profile, financial metrics, peers, and analyst data. Provides actions for
+ * editing or deleting the position, adding/editing/deleting manual dividends, suppressing/restoring
+ * dividends, refreshing data, and verifying dividends via Marketstack. Formats dates and currencies
+ * for the current locale and shows SEK conversions when exchange rates are available.
  *
  * @returns The React element for the stock detail page.
  */
@@ -173,6 +178,9 @@ export default function StockDetail() {
   const [showEditModal, setShowEditModal] = useState(false)
   const [editQuantity, setEditQuantity] = useState('')
   const [editPurchasePrice, setEditPurchasePrice] = useState('')
+  const [editCourtage, setEditCourtage] = useState('')
+  const [editExchangeRate, setEditExchangeRate] = useState('')
+  const [editExchangeRateCurrency, setEditExchangeRateCurrency] = useState('')
   const [editPurchaseDate, setEditPurchaseDate] = useState('')
   const [saving, setSaving] = useState(false)
   const [showDividendModal, setShowDividendModal] = useState(false)
@@ -204,11 +212,13 @@ export default function StockDetail() {
   const dividendModalHeadingId = useId()
   const editQuantityInputId = useId()
   const editPurchasePriceInputId = useId()
+  const editCourtageInputId = useId()
+  const editExchangeRateInputId = useId()
   const editPurchaseDateInputId = useId()
   const dividendDateInputId = useId()
   const dividendAmountInputId = useId()
   const dividendNoteInputId = useId()
-  const { timezone, language } = useSettings()
+  const { timezone, language, displayCurrency } = useSettings()
   const locale = getLocaleForLanguage(language)
   const { sortState: manualSortState, requestSort: requestManualSort } = useTableSort<ManualDividendSortField>({ field: 'date', direction: 'asc' })
   const { sortState: yearSortState, requestSort: requestYearSort } = useTableSort<YearDividendSortField>({ field: 'exDate', direction: 'asc' })
@@ -409,17 +419,11 @@ export default function StockDetail() {
         console.error('Failed to load Finnhub metrics', metricsResult.reason)
       }
       if (peersResult.status === 'fulfilled') {
-        setPeers(peersResult.value)
+        setPeers(peersResult.value ?? [])
       } else {
         console.error('Failed to load Finnhub peers', peersResult.reason)
       }
-      if (
-        profileResult.status === 'fulfilled'
-        && metricsResult.status === 'fulfilled'
-        && peersResult.status === 'fulfilled'
-      ) {
-        setFinnhubDataLoaded(true)
-      }
+      setFinnhubDataLoaded(true)
     }).finally(() => {
       if (finnhubRequestRef.current === request) {
         finnhubRequestRef.current = null
@@ -532,9 +536,13 @@ export default function StockDetail() {
 
   const openEditModal = () => {
     if (stock) {
+      const editableEntry = stock.position_entries?.find((entry) => !entry.sell_date) ?? stock.position_entries?.[0]
       setEditError(null)
       setEditQuantity(stock.quantity.toString())
-      setEditPurchasePrice(stock.purchase_price?.toString() || '')
+      setEditPurchasePrice(editableEntry?.purchase_price?.toString() || stock.purchase_price?.toString() || '')
+      setEditCourtage(editableEntry?.courtage?.toString() || '')
+      setEditExchangeRate(editableEntry?.exchange_rate?.toString() || '')
+      setEditExchangeRateCurrency(editableEntry?.exchange_rate_currency || displayCurrency)
       setEditPurchaseDate(stock.purchase_date || '')
       setShowEditModal(true)
     }
@@ -544,14 +552,23 @@ export default function StockDetail() {
     if (!ticker || !stock) return
     const quantityValue = editQuantity.trim()
     const purchasePriceValue = editPurchasePrice.trim()
+    const courtageValue = editCourtage.trim()
+    const exchangeRateValue = editExchangeRate.trim()
     const parsedQuantity = Number(quantityValue)
     const parsedPurchasePrice = Number(purchasePriceValue)
+    const parsedCourtage = Number(courtageValue)
+    const parsedExchangeRate = Number(exchangeRateValue)
     const nextQuantity = quantityValue === '' ? undefined : parsedQuantity
     const nextPurchasePrice = purchasePriceValue === '' ? undefined : parsedPurchasePrice
+    const nextCourtage = courtageValue === '' ? null : parsedCourtage
+    const nextExchangeRate = exchangeRateValue === '' ? null : parsedExchangeRate
 
     if (
       (nextQuantity !== undefined && (!Number.isFinite(nextQuantity) || nextQuantity < 0))
       || (nextPurchasePrice !== undefined && (!Number.isFinite(nextPurchasePrice) || nextPurchasePrice < 0))
+      || (nextCourtage !== null && (!Number.isFinite(nextCourtage) || nextCourtage < 0))
+      || (nextExchangeRate !== null && (!Number.isFinite(nextExchangeRate) || nextExchangeRate <= 0))
+      || (nextCourtage !== null && nextCourtage > 0 && nextPurchasePrice === undefined && stock.purchase_price == null)
     ) {
       setEditError(t(language, 'stockDetail.invalidPositionValues'))
       return
@@ -579,6 +596,10 @@ export default function StockDetail() {
       await api.stocks.update(ticker, {
         quantity: nextQuantity,
         purchase_price: nextPurchasePrice,
+        courtage: nextCourtage,
+        courtage_currency: nextCourtage !== null ? (stock.currency !== displayCurrency ? displayCurrency : stock.currency) : null,
+        exchange_rate: nextExchangeRate,
+        exchange_rate_currency: nextExchangeRate !== null ? editExchangeRateCurrency : null,
         purchase_date: editPurchaseDate || null,
       })
       const data = await loadStockPageData(ticker)
@@ -1424,7 +1445,7 @@ export default function StockDetail() {
       {/* Edit position modal */}
       {showEditModal && (
         <div
-          style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.7)', backdropFilter: 'blur(4px)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000 }}
+          style={{ position: 'fixed', inset: 0, background: 'rgba(5, 8, 15, 0.82)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000 }}
           onClick={closeEditModal}
         >
           <div
@@ -1445,6 +1466,16 @@ export default function StockDetail() {
               <label htmlFor={editPurchasePriceInputId} style={{ display: 'block', marginBottom: 6, color: 'var(--muted)', fontSize: 12 }}>{t(language, 'stockDetail.purchasePrice')} ({stock?.currency})</label>
               <input id={editPurchasePriceInputId} type="number" step="0.01" min="0" value={editPurchasePrice} onChange={(e) => setEditPurchasePrice(e.target.value)} style={{ width: '100%' }} placeholder="e.g. 150.00" />
             </div>
+            <div style={{ marginBottom: 14 }}>
+              <label htmlFor={editCourtageInputId} style={{ display: 'block', marginBottom: 6, color: 'var(--muted)', fontSize: 12 }}>{t(language, 'stockDetail.courtage')} ({stock?.currency !== displayCurrency ? displayCurrency : stock?.currency})</label>
+              <input id={editCourtageInputId} type="number" step="0.01" min="0" value={editCourtage} onChange={(e) => setEditCourtage(e.target.value)} style={{ width: '100%' }} placeholder="e.g. 9.00" />
+            </div>
+            {(stock?.currency !== displayCurrency || editExchangeRate) && (
+            <div style={{ marginBottom: 14 }}>
+              <label htmlFor={editExchangeRateInputId} style={{ display: 'block', marginBottom: 6, color: 'var(--muted)', fontSize: 12 }}>{t(language, 'stockDetail.exchangeRate')} (1 {stock?.currency} = ? {editExchangeRateCurrency || displayCurrency})</label>
+              <input id={editExchangeRateInputId} type="number" step="0.0001" min="0" value={editExchangeRate} onChange={(e) => setEditExchangeRate(e.target.value)} style={{ width: '100%' }} placeholder="e.g. 10.50" />
+            </div>
+            )}
             <div style={{ marginBottom: 22 }}>
               <label htmlFor={editPurchaseDateInputId} style={{ display: 'block', marginBottom: 6, color: 'var(--muted)', fontSize: 12 }}>{t(language, 'stockDetail.purchaseDate')}</label>
               <input id={editPurchaseDateInputId} type="date" value={editPurchaseDate} onChange={(e) => setEditPurchaseDate(e.target.value)} style={{ width: '100%' }} />
@@ -1465,7 +1496,7 @@ export default function StockDetail() {
       {/* Add/edit dividend modal */}
       {showDividendModal && (
         <div
-          style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.7)', backdropFilter: 'blur(4px)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000 }}
+          style={{ position: 'fixed', inset: 0, background: 'rgba(5, 8, 15, 0.82)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000 }}
           onClick={closeDividendModal}
         >
           <div

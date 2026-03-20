@@ -17,6 +17,8 @@ from urllib.parse import quote, urlparse
 
 import requests
 
+from app.services.finnhub_service import finnhub_service
+
 logger = logging.getLogger(__name__)
 
 
@@ -443,6 +445,22 @@ class BrandfetchService:
             return parts[-2]
         return parts[0]
 
+    def _extract_domain_from_url(self, value: str) -> str:
+        """
+        Extract the hostname/domain from a URL or bare host string.
+        
+        Parameters:
+            value (str): URL or host-like value such as "https://example.com/path" or "example.com".
+        
+        Returns:
+            str: The extracted lowercase host/domain, or an empty string for falsy input. For example, "https://example.com/path" becomes "example.com".
+        """
+        if not value:
+            return ""
+        parsed = urlparse(value if "://" in value else f"https://{value}")
+        host = (parsed.netloc or parsed.path).strip().lower()
+        return host.split("/", 1)[0].rsplit("@", 1)[-1].split(":", 1)[0]
+
     def _normalize_text(self, value: str) -> str:
         """
         Normalize a company name or search query for tokenization and matching.
@@ -667,6 +685,20 @@ class BrandfetchService:
 
         return None
 
+    def _get_finnhub_logo(self, ticker: str, force_refresh: bool = False) -> Optional[str]:
+        if force_refresh:
+            finnhub_service.clear_cache(ticker)
+        profile = finnhub_service.get_company_profile(ticker)
+        if not isinstance(profile, dict):
+            return None
+
+        website_domain = self._extract_domain_from_url(str(profile.get('website') or ''))
+        candidate = {
+            'icon': profile.get('logo'),
+            'domain': website_domain or None,
+        }
+        return self._persist_candidate_logo(candidate, ticker)
+
     def get_logo_url_for_ticker(
         self,
         ticker: str,
@@ -738,6 +770,15 @@ class BrandfetchService:
                     os.remove(filepath)
             except OSError as exc:
                 logger.warning("Failed to clear stale logo cache for %s: %s", ticker_upper, exc)
+
+        try:
+            logo_url = self._get_finnhub_logo(ticker_upper, force_refresh=force_refresh)
+        except LogoDownloadTransientError:
+            return existing_logo if existing_logo and not self.should_refresh_logo(existing_logo) else None
+        if logo_url:
+            _LOGO_CACHE[ticker_upper] = (logo_url, datetime.now().timestamp())
+            _save_file_cache(cache_file, logo_url)
+            return logo_url
 
         candidates = self._build_query_candidates(ticker_upper, company_name)
 

@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useRef, useId, useMemo } from 'react'
 import { Link } from 'react-router-dom'
-import { api, PositionEntry, Stock } from '../services/api'
+import { api, PositionEntry, Stock, TickerValidationResult } from '../services/api'
 import { useSettings } from '../SettingsContext'
 import { formatTimeInTimezone, getLatestTimestamp } from '../utils/time'
 import { resolveBackendAssetUrl } from '../utils/assets'
@@ -39,6 +39,12 @@ const EXCHANGES = [
   ...supportedExchanges,
 ]
 
+/**
+ * Formats a Date as a local `YYYY-MM-DD` string suitable for date input values.
+ *
+ * @param value - Date to format; defaults to the current local date
+ * @returns The date formatted as `YYYY-MM-DD` using local date components
+ */
 function getLocalDateInputValue(value: Date = new Date()): string {
   const year = value.getFullYear()
   const month = `${value.getMonth() + 1}`.padStart(2, '0')
@@ -46,11 +52,35 @@ function getLocalDateInputValue(value: Date = new Date()): string {
   return `${year}-${month}-${day}`
 }
 
+/**
+ * Create a unique client-side identifier for new position entries.
+ *
+ * Prefers a cryptographically random UUID when available; otherwise returns a timestamp-based fallback with a short random suffix.
+ *
+ * @returns A string identifier suitable for client-generated position entries (UUID when available, otherwise a timestamp-random fallback)
+ */
+function generateClientId(): string {
+  if (typeof globalThis.crypto?.randomUUID === 'function') {
+    return globalThis.crypto.randomUUID()
+  }
+
+  return `entry-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`
+}
+
+/**
+ * Create a new position entry populated with default/empty values and a client-generated id.
+ *
+ * @returns A `PositionEntry` with `id` set to a client-generated identifier, `quantity` 0, `purchase_price` `null`, `courtage` 0, and `purchase_date` and `sell_date` set to `null`.
+ */
 function createEmptyPositionEntry(): PositionEntry {
   return {
-    id: crypto.randomUUID(),
+    id: generateClientId(),
     quantity: 0,
     purchase_price: null,
+    courtage: 0,
+    courtage_currency: null,
+    exchange_rate: null,
+    exchange_rate_currency: null,
     purchase_date: null,
     sell_date: null,
   }
@@ -68,9 +98,9 @@ type SortField =
   | 'dividendYield'
 
 /**
- * Display and manage the user's stock positions with controls to view, add, edit, and remove entries localized to the current language and timezone.
+ * Stocks page component that displays and manages the user's stock positions.
  *
- * Loads the user's stocks on mount, shows current prices and daily changes, and allows recording or updating a purchase price and purchase date for each position.
+ * Provides a localized interface to view current prices and daily changes, add new positions, edit existing position entries (lots), and remove holdings. Loads stocks on mount and exposes sorting, validation, and modal editing behaviour consistent with the current language and timezone settings.
  *
  * @returns A React element containing the Stocks management user interface.
  */
@@ -81,11 +111,14 @@ type SortField =
   const [newTicker, setNewTicker] = useState('')
   const [newQuantity, setNewQuantity] = useState('')
   const [newPurchasePrice, setNewPurchasePrice] = useState('')
+  const [newCourtage, setNewCourtage] = useState('')
+  const [newExchangeRate, setNewExchangeRate] = useState('')
   const [newPurchaseDate, setNewPurchaseDate] = useState('')
   const [selectedExchange, setSelectedExchange] = useState('ST')
   const [adding, setAdding] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [validationStatus, setValidationStatus] = useState<'idle' | 'checking' | 'valid' | 'invalid'>('idle')
+  const [validatedTickerInfo, setValidatedTickerInfo] = useState<TickerValidationResult | null>(null)
   const [editStock, setEditStock] = useState<Stock | null>(null)
   const [editEntries, setEditEntries] = useState<PositionEntry[]>([])
   const [saving, setSaving] = useState(false)
@@ -98,7 +131,7 @@ type SortField =
   const editQuantityInputId = useId()
   const editPurchasePriceInputId = useId()
   const editPurchaseDateInputId = useId()
-  const { timezone, language } = useSettings()
+  const { timezone, language, displayCurrency } = useSettings()
   const locale = getLocaleForLanguage(language)
   const maxPurchaseDate = getLocalDateInputValue()
   const { sortState, requestSort } = useTableSort<SortField>({ field: 'ticker', direction: 'asc' })
@@ -140,33 +173,96 @@ type SortField =
   const handleTickerChange = (value: string) => {
     setNewTicker(value.toUpperCase())
     setValidationStatus('idle')
+    setValidatedTickerInfo(null)
   }
 
   const handleExchangeChange = (exchange: string) => {
     setSelectedExchange(exchange)
     setValidationStatus('idle')
+    setValidatedTickerInfo(null)
   }
+
+  const selectedExchangeData = EXCHANGES.find(e => e.code === selectedExchange)
+  const fullTicker = useMemo(() => getFullTicker(newTicker, selectedExchange), [newTicker, selectedExchange])
+  const existingStock = useMemo(() => stocks.find((stock) => stock.ticker === fullTicker), [fullTicker, stocks])
+  const effectiveTickerCurrency = validatedTickerInfo?.currency || selectedExchangeData?.currency || displayCurrency
+  const needsExchangeFields = !!effectiveTickerCurrency && effectiveTickerCurrency !== displayCurrency
+
+  useEffect(() => {
+    const normalizedTicker = newTicker.trim()
+    if (!normalizedTicker) {
+      setValidationStatus('idle')
+      setValidatedTickerInfo(null)
+      return
+    }
+
+    const tickerToValidate = getFullTicker(normalizedTicker, selectedExchange)
+    setValidationStatus('checking')
+    setValidatedTickerInfo(null)
+
+    const timeoutId = window.setTimeout(() => {
+      api.stocks.validate(tickerToValidate)
+        .then((result) => {
+          setValidationStatus(result.valid ? 'valid' : 'invalid')
+          setValidatedTickerInfo(result)
+        })
+        .catch(() => {
+          setValidationStatus('invalid')
+          setValidatedTickerInfo(null)
+        })
+    }, 350)
+
+    return () => {
+      window.clearTimeout(timeoutId)
+    }
+  }, [newTicker, selectedExchange])
 
   const handleAddStock = async (e: React.FormEvent) => {
     e.preventDefault()
     if (!newTicker || !newQuantity) return
 
-    const fullTicker = getFullTicker(newTicker, selectedExchange)
+    const parsedPurchasePrice = newPurchasePrice ? parseFloat(newPurchasePrice) : null
+    const parsedCourtage = newCourtage ? parseFloat(newCourtage) : null
+    const parsedExchangeRate = newExchangeRate ? parseFloat(newExchangeRate) : null
 
+    if (validationStatus === 'invalid') {
+      setError(t(language, 'stocks.invalidTicker'))
+      return
+    }
+    if (validationStatus === 'checking') {
+      setError(t(language, 'stocks.validatingTicker'))
+      return
+    }
+
+    if (parsedCourtage !== null && parsedCourtage > 0 && (parsedPurchasePrice === null || !Number.isFinite(parsedPurchasePrice) || parsedPurchasePrice <= 0)) {
+      setError(t(language, 'stocks.invalidEditValues'))
+      return
+    }
+    if (parsedExchangeRate !== null && (!Number.isFinite(parsedExchangeRate) || parsedExchangeRate <= 0)) {
+      setError(t(language, 'stocks.invalidEditValues'))
+      return
+    }
     try {
       setAdding(true)
       setError(null)
       await api.stocks.create({
         ticker: fullTicker,
         quantity: parseFloat(newQuantity),
-        purchase_price: newPurchasePrice ? parseFloat(newPurchasePrice) : undefined,
+        purchase_price: parsedPurchasePrice ?? undefined,
+        courtage: parsedCourtage ?? undefined,
+        courtage_currency: parsedCourtage !== null ? (needsExchangeFields ? displayCurrency : effectiveTickerCurrency) : undefined,
+        exchange_rate: needsExchangeFields ? (parsedExchangeRate ?? undefined) : undefined,
+        exchange_rate_currency: needsExchangeFields && parsedExchangeRate !== null ? displayCurrency : undefined,
         purchase_date: newPurchaseDate || undefined,
       })
       setNewTicker('')
       setNewQuantity('')
       setNewPurchasePrice('')
+      setNewCourtage('')
+      setNewExchangeRate('')
       setNewPurchaseDate('')
       setValidationStatus('idle')
+      setValidatedTickerInfo(null)
       setShowAddForm(false)
       await fetchStocks()
     } catch (err: any) {
@@ -194,9 +290,13 @@ type SortField =
       stock.position_entries && stock.position_entries.length > 0
         ? stock.position_entries
         : [{
-            id: crypto.randomUUID(),
+            id: generateClientId(),
             quantity: stock.quantity,
             purchase_price: stock.purchase_price,
+            courtage: 0,
+            courtage_currency: stock.currency !== displayCurrency ? displayCurrency : stock.currency,
+            exchange_rate: null,
+            exchange_rate_currency: null,
             purchase_date: stock.purchase_date,
             sell_date: null,
           }]
@@ -212,6 +312,10 @@ type SortField =
         ...entry,
         quantity: Number(entry.quantity),
         purchase_price: entry.purchase_price === null || entry.purchase_price === undefined ? null : Number(entry.purchase_price),
+        courtage: entry.courtage === null || entry.courtage === undefined ? 0 : Number(entry.courtage),
+        courtage_currency: entry.courtage_currency || (editStock.currency !== displayCurrency ? displayCurrency : editStock.currency),
+        exchange_rate: entry.exchange_rate === null || entry.exchange_rate === undefined ? null : Number(entry.exchange_rate),
+        exchange_rate_currency: entry.exchange_rate ? (entry.exchange_rate_currency || displayCurrency) : null,
         purchase_date: entry.purchase_date || null,
         sell_date: entry.sell_date || null,
       }))
@@ -221,8 +325,12 @@ type SortField =
       const purchaseDateValid = !entry.purchase_date || (validDateFormat.test(entry.purchase_date) && entry.purchase_date <= maxPurchaseDate)
       const sellDateValid = !entry.sell_date || (validDateFormat.test(entry.sell_date) && entry.sell_date <= maxPurchaseDate)
       const purchasePriceValid = entry.purchase_price === null || (Number.isFinite(entry.purchase_price) && entry.purchase_price >= 0)
+      const courtageValid = Number.isFinite(entry.courtage) && entry.courtage >= 0
+      const exchangeRateValid = entry.exchange_rate === null || (Number.isFinite(entry.exchange_rate) && entry.exchange_rate > 0)
+      const courtageHasPrice = entry.courtage === 0 || (entry.purchase_price !== null && entry.purchase_price > 0)
       const sellAfterPurchase = !entry.sell_date || !entry.purchase_date || entry.sell_date >= entry.purchase_date
-      return !quantityValid || !purchaseDateValid || !sellDateValid || !purchasePriceValid || !sellAfterPurchase
+      const exchangeRatePairValid = entry.exchange_rate === null || !!entry.exchange_rate_currency
+      return !quantityValid || !purchaseDateValid || !sellDateValid || !purchasePriceValid || !courtageValid || !exchangeRateValid || !courtageHasPrice || !sellAfterPurchase || !exchangeRatePairValid
     })
 
     if (hasInvalidEntry) {
@@ -245,7 +353,6 @@ type SortField =
     }
   }
 
-  const selectedExchangeData = EXCHANGES.find(e => e.code === selectedExchange)
   const sortedStocks = useMemo(() => (
     sortTableItems(
       stocks,
@@ -315,7 +422,7 @@ type SortField =
               </span>
             </div>
             <form onSubmit={handleAddStock} style={{ padding: '18px' }}>
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: 16 }}>
+              <div className={`stocks-add-grid${needsExchangeFields ? ' stocks-add-grid--fx' : ''}`}>
                 <div>
                   <label style={{ display: 'block', marginBottom: 6, color: 'var(--muted)', fontSize: 11, fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase' }}>
                     {t(language, 'stocks.exchange')}
@@ -343,7 +450,23 @@ type SortField =
                   />
                   {newTicker && (
                     <p style={{ fontSize: 11, color: 'var(--muted)', marginTop: 4, fontFamily: "'Fira Code', monospace" }}>
-                      {t(language, 'stocks.full')}: {getFullTicker(newTicker, selectedExchange)}
+                      {t(language, 'stocks.full')}: {fullTicker}
+                    </p>
+                  )}
+                  {validationStatus === 'checking' && (
+                    <p style={{ fontSize: 11, color: 'var(--muted)', marginTop: 4 }}>{t(language, 'stocks.validatingTicker')}</p>
+                  )}
+                  {validationStatus === 'valid' && validatedTickerInfo && (
+                    <p style={{ fontSize: 11, color: 'var(--green)', marginTop: 4 }}>
+                      {validatedTickerInfo.name || fullTicker} · {effectiveTickerCurrency}
+                    </p>
+                  )}
+                  {validationStatus === 'invalid' && (
+                    <p style={{ fontSize: 11, color: 'var(--red)', marginTop: 4 }}>{t(language, 'stocks.invalidTicker')}</p>
+                  )}
+                  {existingStock && (
+                    <p style={{ fontSize: 11, color: 'var(--amber)', marginTop: 4 }}>
+                      {t(language, 'stocks.addsExistingLot', { ticker: existingStock.ticker })}
                     </p>
                   )}
                 </div>
@@ -361,7 +484,7 @@ type SortField =
                 </div>
                 <div>
                   <label style={{ display: 'block', marginBottom: 6, color: 'var(--muted)', fontSize: 11, fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase' }}>
-                    {t(language, 'stocks.purchasePrice')} ({selectedExchangeData?.currency})
+                    {t(language, 'stocks.purchasePrice')} ({effectiveTickerCurrency})
                   </label>
                   <input
                     type="number" step="0.01" min="0"
@@ -370,6 +493,30 @@ type SortField =
                     placeholder={t(language, 'stocks.placeholderPrice')}
                   />
                 </div>
+                <div>
+                  <label style={{ display: 'block', marginBottom: 6, color: 'var(--muted)', fontSize: 11, fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase' }}>
+                    {t(language, 'stocks.courtage')} ({needsExchangeFields ? displayCurrency : effectiveTickerCurrency})
+                  </label>
+                  <input
+                    type="number" step="0.01" min="0"
+                    value={newCourtage}
+                    onChange={(e) => setNewCourtage(e.target.value)}
+                    placeholder="0.00"
+                  />
+                </div>
+                {needsExchangeFields && (
+                  <div>
+                    <label style={{ display: 'block', marginBottom: 6, color: 'var(--muted)', fontSize: 11, fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase' }}>
+                      {t(language, 'stocks.exchangeRate')} (1 {effectiveTickerCurrency} = ? {displayCurrency})
+                    </label>
+                    <input
+                      type="number" step="0.0001" min="0"
+                      value={newExchangeRate}
+                      onChange={(e) => setNewExchangeRate(e.target.value)}
+                      placeholder="10.50"
+                    />
+                  </div>
+                )}
                 <div>
                   <label style={{ display: 'block', marginBottom: 6, color: 'var(--muted)', fontSize: 11, fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase' }}>
                     {t(language, 'stocks.purchaseDate')}
@@ -381,8 +528,8 @@ type SortField =
                     max={maxPurchaseDate}
                   />
                 </div>
-                <div style={{ display: 'flex', alignItems: 'flex-end' }}>
-                  <button type="submit" className="btn btn-primary" style={{ width: '100%' }} disabled={adding}>
+                <div className="stocks-add-action">
+                  <button type="submit" className="btn btn-primary" style={{ width: '100%' }} disabled={adding || validationStatus === 'checking' || validationStatus === 'invalid'}>
                     {adding ? t(language, 'stocks.adding') : t(language, 'stocks.add')}
                   </button>
                 </div>
@@ -496,8 +643,10 @@ type SortField =
         <div
           style={{
             position: 'fixed', top: 0, left: 0, right: 0, bottom: 0,
-            background: 'rgba(0,0,0,0.7)', backdropFilter: 'blur(4px)',
-            display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000,
+            background: 'rgba(5, 8, 15, 0.82)',
+            display: 'flex', alignItems: 'flex-start', justifyContent: 'center', zIndex: 1000,
+            padding: '16px',
+            overflowY: 'auto',
           }}
           onClick={() => setEditStock(null)}
         >
@@ -507,7 +656,18 @@ type SortField =
             aria-modal="true"
             aria-labelledby={editModalHeadingId}
             tabIndex={-1}
-            style={{ width: 420, maxWidth: '90%', background: 'var(--bg2)', border: '1px solid var(--border2)', borderRadius: 10, overflow: 'hidden' }}
+            style={{
+              width: 420,
+              maxWidth: '100%',
+              maxHeight: 'calc(100vh - 32px)',
+              background: 'var(--bg2)',
+              border: '1px solid var(--border2)',
+              borderRadius: 10,
+              overflow: 'hidden',
+              display: 'flex',
+              flexDirection: 'column',
+              marginTop: 24,
+            }}
             onClick={(e) => e.stopPropagation()}
           >
             <div style={{ padding: '16px 20px', borderBottom: '1px solid var(--border)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
@@ -516,11 +676,13 @@ type SortField =
               </span>
               <button type="button" aria-label="Close" style={{ background: 'none', border: 'none', color: 'var(--muted)', cursor: 'pointer', fontSize: 18, lineHeight: 1 }} onClick={() => setEditStock(null)}>×</button>
             </div>
-            <div style={{ padding: '20px' }}>
+            <div style={{ padding: '20px', overflowY: 'auto' }}>
               <div style={{ marginBottom: 24, display: 'grid', gap: 12 }}>
                 {editEntries.map((entry, index) => {
                   const quantityInputId = index === 0 ? editQuantityInputId : `quantity-${entry.id}`
                   const purchasePriceInputId = index === 0 ? editPurchasePriceInputId : `purchasePrice-${entry.id}`
+                  const courtageInputId = `courtage-${entry.id}`
+                  const exchangeRateInputId = `exchange-rate-${entry.id}`
                   const purchaseDateInputId = index === 0 ? editPurchaseDateInputId : `purchaseDate-${entry.id}`
                   const sellDateInputId = `sellDate-${entry.id}`
 
@@ -570,6 +732,42 @@ type SortField =
                         style={{ width: '100%' }}
                       />
                     </div>
+                    <div>
+                      <label htmlFor={courtageInputId} style={{ display: 'block', marginBottom: 6, color: 'var(--muted)', fontSize: 11, fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase' }}>
+                        {t(language, 'stocks.courtage')} ({entry.courtage_currency || (editStock.currency !== displayCurrency ? displayCurrency : editStock.currency)})
+                      </label>
+                      <input
+                        id={courtageInputId}
+                        type="number"
+                        step="0.01"
+                        min="0"
+                        value={entry.courtage ?? 0}
+                        onChange={(e) => setEditEntries((current) => current.map((candidate) => candidate.id === entry.id ? { ...candidate, courtage: e.target.value === '' ? 0 : Number(e.target.value) } : candidate))}
+                        placeholder="0.00"
+                        style={{ width: '100%' }}
+                      />
+                    </div>
+                    {(editStock.currency !== displayCurrency || entry.exchange_rate !== null) && (
+                    <div>
+                      <label htmlFor={exchangeRateInputId} style={{ display: 'block', marginBottom: 6, color: 'var(--muted)', fontSize: 11, fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase' }}>
+                        {t(language, 'stocks.exchangeRate')} (1 {editStock.currency} = ? {entry.exchange_rate_currency || displayCurrency})
+                      </label>
+                      <input
+                        id={exchangeRateInputId}
+                        type="number"
+                        step="0.0001"
+                        min="0"
+                        value={entry.exchange_rate ?? ''}
+                        onChange={(e) => setEditEntries((current) => current.map((candidate) => candidate.id === entry.id ? {
+                          ...candidate,
+                          exchange_rate: e.target.value === '' ? null : Number(e.target.value),
+                          exchange_rate_currency: e.target.value === '' ? null : (candidate.exchange_rate_currency || displayCurrency),
+                        } : candidate))}
+                        placeholder="10.50"
+                        style={{ width: '100%' }}
+                      />
+                    </div>
+                    )}
                     <div>
                       <label htmlFor={purchaseDateInputId} style={{ display: 'block', marginBottom: 6, color: 'var(--muted)', fontSize: 11, fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase' }}>
                         {t(language, 'stocks.purchaseDate')}
