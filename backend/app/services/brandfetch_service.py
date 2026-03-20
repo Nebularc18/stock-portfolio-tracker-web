@@ -693,10 +693,9 @@ class BrandfetchService:
             return None
 
         website_domain = self._extract_domain_from_url(str(profile.get('website') or ''))
-        logo_domain = self._extract_domain_from_url(str(profile.get('logo') or ''))
         candidate = {
             'icon': profile.get('logo'),
-            'domain': website_domain or logo_domain,
+            'domain': website_domain or None,
         }
         return self._persist_candidate_logo(candidate, ticker)
 

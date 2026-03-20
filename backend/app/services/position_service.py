@@ -360,13 +360,12 @@ def calculate_position_cost_basis(
         elif courtage_currency == target_currency:
             converted_courtage = courtage_amount
         elif courtage_currency == position_currency:
-            if position_currency == target_currency:
-                converted_courtage = courtage_amount
-            elif entry.get('exchange_rate') is not None and entry.get('exchange_rate_currency') == target_currency:
+            converted_courtage = courtage_amount
+            if position_currency != target_currency and entry.get('exchange_rate') is not None and entry.get('exchange_rate_currency') == target_currency:
                 converted_courtage = courtage_amount * float(entry['exchange_rate'])
-            elif conversion_callback is not None:
+            elif position_currency != target_currency and conversion_callback is not None:
                 converted_courtage = conversion_callback(courtage_amount, position_currency, target_currency)
-            else:
+            elif position_currency != target_currency:
                 return None
         elif conversion_callback is not None:
             converted_courtage = conversion_callback(courtage_amount, courtage_currency, target_currency)
