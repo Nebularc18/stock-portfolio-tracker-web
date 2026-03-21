@@ -10,9 +10,25 @@ import { getLocaleForLanguage, t, type Language, type TranslationKey } from '../
 import { formatDisplayName } from '../utils/displayName'
 import SortableHeader from '../components/SortableHeader'
 import { sortTableItems, useTableSort } from '../utils/tableSort'
+import type { UpcomingDividendsResponse } from '../services/api'
 
 type HistoryRangeKey = '1D' | '1W' | '1M' | 'YTD' | '1Y' | 'SINCE_START'
 type FetchOptions = { background?: boolean }
+
+function createEmptyUpcomingDividendsResponse(displayCurrency: string): UpcomingDividendsResponse {
+  return {
+    dividends: [],
+    total_expected: 0,
+    total_received: 0,
+    total_remaining: 0,
+    totals_partial: false,
+    dividends_partial: false,
+    skipped_dividend_count: 0,
+    skipped_dividend_ids: [],
+    display_currency: displayCurrency || 'SEK',
+    unmapped_stocks: [],
+  }
+}
 
 const HISTORY_RANGE_OPTIONS: Array<{ key: HistoryRangeKey; labelKey: TranslationKey; query: string }> = [
   { key: '1D', labelKey: 'dashboard.range1D', query: '1d' },
@@ -328,7 +344,7 @@ export default function Dashboard() {
       }
       const [summaryData, upcomingDivsData] = await Promise.all([
         api.portfolio.summary(),
-        api.portfolio.upcomingDividends().catch(() => ({ dividends: [], total_expected: 0, total_received: 0, total_remaining: 0, totals_partial: false, display_currency: displayCurrency, unmapped_stocks: [] })),
+        api.portfolio.upcomingDividends().catch(() => createEmptyUpcomingDividendsResponse(displayCurrency)),
       ])
       if (requestId !== requestIdRef.current) {
         clearLoading()

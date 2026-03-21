@@ -254,7 +254,7 @@ export default function StockDetail() {
   const dividendAmountInputId = useId()
   const dividendNoteInputId = useId()
   const { timezone, language, displayCurrency } = useSettings()
-  const effectiveDisplayCurrency = summaryDisplayCurrency || displayCurrency
+  const effectiveDisplayCurrency = summaryDisplayCurrency || displayCurrency || 'SEK'
   const locale = getLocaleForLanguage(language)
   const { sortState: manualSortState, requestSort: requestManualSort } = useTableSort<ManualDividendSortField>({ field: 'date', direction: 'asc' })
   const { sortState: yearSortState, requestSort: requestYearSort } = useTableSort<YearDividendSortField>({ field: 'exDate', direction: 'asc' })

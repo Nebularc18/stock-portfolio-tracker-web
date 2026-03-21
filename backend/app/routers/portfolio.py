@@ -1016,12 +1016,14 @@ def get_upcoming_portfolio_dividends(db: Session = Depends(get_db), current_user
 
     stock_service = StockService()
     normalized_events_by_ticker: dict[str, list[dict]] = {}
+    position_snapshots_by_ticker: dict[str, PositionSnapshot] = {}
 
     for stock in stocks:
         snapshot = apply_position_snapshot(stock)
         if not has_position_history(snapshot.position_entries, snapshot.quantity):
             normalized_events_by_ticker[stock.ticker] = []
             continue
+        position_snapshots_by_ticker[stock.ticker] = snapshot
 
         avanza_mapping = avanza_mappings_by_ticker.get(stock.ticker)
         if avanza_mapping and getattr(avanza_mapping, 'instrument_id', None):
@@ -1064,8 +1066,8 @@ def get_upcoming_portfolio_dividends(db: Session = Depends(get_db), current_user
     seen_unmapped = set()
 
     for stock in stocks:
-        snapshot = apply_position_snapshot(stock)
-        if not has_position_history(snapshot.position_entries, snapshot.quantity):
+        snapshot = position_snapshots_by_ticker.get(stock.ticker)
+        if snapshot is None:
             continue
         avanza_mapping = avanza_mappings_by_ticker.get(stock.ticker)
         no_avanza_mapping = avanza_mapping is None or not avanza_mapping.instrument_id
