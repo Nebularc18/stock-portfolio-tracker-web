@@ -30,6 +30,87 @@ PORTFOLIO_UPCOMING_DIVIDENDS_CACHE_TTL = 21600
 
 
 def _load_json_cache(filename: str, ttl: int) -> dict | None:
+    try:
+        os.makedirs(_CACHE_DIR, exist_ok=True)
+        filepath = os.path.join(_CACHE_DIR, filename)
+        if not os.path.exists(filepath):
+            return None
+        with open(filepath, 'r', encoding='utf-8') as f:
+            payload = json.load(f)
+        cached_at = payload.get('cached_at', 0)
+        if datetime.now(timezone.utc).timestamp() - cached_at >= ttl:
+            return None
+        return payload
+    except Exception:
+        logger.exception("Failed to load cache file %s", filename)
+        return None
+
+
+def _save_json_cache(filename: str, value: dict):
+    try:
+        os.makedirs(_CACHE_DIR, exist_ok=True)
+        filepath = os.path.join(_CACHE_DIR, filename)
+        fd, temp_path = tempfile.mkstemp(dir=_CACHE_DIR, prefix=f"{filename}.", suffix='.tmp')
+        try:
+            with os.fdopen(fd, 'w', encoding='utf-8') as f:
+                json.dump({
+                    'cached_at': datetime.now(timezone.utc).timestamp(),
+                    **value,
+                }, f)
+                f.flush()
+                os.fsync(f.fileno())
+            os.replace(temp_path, filepath)
+        finally:
+            if os.path.exists(temp_path):
+                os.remove(temp_path)
+    except Exception:
+        logger.exception("Failed to save cache file %s", filename)
+
+
+def _portfolio_upcoming_dividends_cache_key(user_id: int) -> str:
+    return f"portfolio_upcoming_dividends_{user_id}.json"
+
+
+def _build_upcoming_dividends_cache_fingerprint(
+    stocks: list[Stock],
+    display_currency: str,
+    current_day: date,
+    rates_snapshot: dict[str, float | None],
+) -> str:
+    normalized_stocks = []
+    for stock in sorted(stocks, key=lambda item: item.ticker or ''):
+        normalized_stocks.append({
+            'id': stock.id,
+            'ticker': stock.ticker,
+            'name': stock.name,
+            'currency': stock.currency,
+            'quantity': stock.quantity,
+            'purchase_price': stock.purchase_price,
+            'purchase_date': stock.purchase_date.isoformat() if stock.purchase_date else None,
+            'position_entries': normalize_position_entries(
+                getattr(stock, 'position_entries', None),
+                stock.quantity,
+                stock.purchase_price,
+                stock.purchase_date,
+            ),
+        })
+
+    normalized_rates = {
+        currency_pair: rates_snapshot[currency_pair]
+        for currency_pair in sorted(rates_snapshot)
+    }
+
+    serialized = json.dumps({
+        'stocks': normalized_stocks,
+        'display_currency': display_currency,
+        'current_day': current_day.isoformat(),
+        'rates_snapshot': normalized_rates,
+    }, sort_keys=True, separators=(',', ':'))
+    return hashlib.sha256(serialized.encode('utf-8')).hexdigest()
+
+
+
+def _load_json_cache(filename: str, ttl: int) -> dict | None:
     """
     Load a JSON cache entry from the module cache directory if it exists and is not expired.
     

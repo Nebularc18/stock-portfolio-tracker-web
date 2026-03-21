@@ -160,6 +160,16 @@ type VerificationSortField = 'date' | 'type' | 'yahoo' | 'marketstack' | 'differ
  *
  * This component presents localized dates and currency values and uses backend-provided display-currency values
  * when available.
+ * Loads stock, dividend history, portfolio summary, stock-level current-year dividends,
+ * company profile, financial metrics, peers, and analyst data; provides UI actions to edit
+ * or delete the position, add/edit/delete manual dividends, suppress/restore dividends,
+ * and verify dividends via Marketstack. Dates and currency values are formatted for the
+ * current locale/timezone and backend-computed display-currency values are shown when available.
+ * Handles loading and presenting stock, dividend (historical and upcoming), suppressed dividend,
+ * exchange-rate, company profile, financial metrics, peers, and analyst data. Provides actions for
+ * editing or deleting the position, adding/editing/deleting manual dividends, suppressing/restoring
+ * dividends, refreshing data, and verifying dividends via Marketstack. Formats dates and currencies
+ * for the current locale and shows SEK conversions when exchange rates are available.
  *
  * @returns The React element for the StockDetail page
  */
