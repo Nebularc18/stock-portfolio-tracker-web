@@ -516,6 +516,42 @@ export default function Dashboard() {
     return formatCurrency(amount, locale, amountCurrency)
   }
 
+  const renderHoldingAmount = (
+    amount: number | null | undefined,
+    sourceCurrency: string,
+    converted: boolean,
+  ) => {
+    if (amount == null) return 'â€”'
+
+    if (!converted) {
+      return (
+        <div
+          title={`Unconverted value shown in ${sourceCurrency}. Missing exchange rate for ${sourceCurrency} to ${currency}.`}
+          style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}
+        >
+          <span>{renderAmount(amount, sourceCurrency)}</span>
+          <span
+            style={{
+              padding: '2px 6px',
+              borderRadius: 999,
+              border: '1px solid var(--border2)',
+              background: 'var(--bg3)',
+              color: 'var(--muted)',
+              fontSize: 10,
+              fontWeight: 700,
+              letterSpacing: '0.04em',
+              textTransform: 'uppercase',
+            }}
+          >
+            Unconverted
+          </span>
+        </div>
+      )
+    }
+
+    return renderAmount(amount, currency)
+  }
+
   const monthlyUpcoming = Object.entries(groupedDividends)
     .sort(([a], [b]) => {
       if (a === 'tbd') return 1
@@ -848,10 +884,10 @@ export default function Dashboard() {
                     <td style={{ color: 'var(--text2)' }}>{displayName}</td>
                     <td style={{ textAlign: 'right', fontFamily: "'Fira Code', monospace", color: 'var(--text2)' }}>{stock.quantity}</td>
                     <td style={{ textAlign: 'right', fontFamily: "'Fira Code', monospace", color: 'var(--text2)' }}>
-                      {renderAmount(stock.display_price, stock.display_price_converted ? currency : stock.currency)}
+                      {renderHoldingAmount(stock.display_price, stock.currency, stock.display_price_converted ?? false)}
                     </td>
                     <td style={{ textAlign: 'right', fontFamily: "'Fira Code', monospace", color: 'var(--text2)' }}>
-                      {renderAmount(stock.current_value, stock.current_value_converted ? currency : stock.currency)}
+                      {renderHoldingAmount(stock.current_value, stock.currency, stock.current_value_converted ?? false)}
                     </td>
                     <td style={{ textAlign: 'right', fontFamily: "'Fira Code', monospace" }} className={stock.gain_loss === null ? '' : (stock.gain_loss >= 0 ? 'positive' : 'negative')}>
                       {stock.gain_loss !== null ? formatCurrency(stock.gain_loss, locale, currency) : '-'}
