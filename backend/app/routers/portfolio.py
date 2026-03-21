@@ -104,11 +104,14 @@ def _build_upcoming_dividends_cache_fingerprint(
     normalized_mapping = {
         ticker: mapping_snapshot[ticker]
         for ticker in sorted(mapping_snapshot or {})
+    }
+
     serialized = json.dumps({
         'stocks': normalized_stocks,
         'display_currency': display_currency,
         'current_day': current_day.isoformat(),
         'rates_snapshot': normalized_rates,
+        'mapping_snapshot': normalized_mapping,
     }, sort_keys=True, separators=(',', ':'))
     return hashlib.sha256(serialized.encode('utf-8')).hexdigest()
 
@@ -179,74 +182,6 @@ def _portfolio_upcoming_dividends_cache_key(user_id: int) -> str:
         str: Cache filename unique to the user (e.g. "portfolio_upcoming_dividends_123.json").
     """
     return f"portfolio_upcoming_dividends_{user_id}.json"
-
-
-def _build_upcoming_dividends_cache_fingerprint(
-    stocks: list[Stock],
-    display_currency: str,
-    current_day: date,
-    rates_snapshot: dict[str, float | None],
-) -> str:
-    """
-    Create a deterministic fingerprint representing the provided portfolio state for caching upcoming dividends.
-    
-    Parameters:
-        stocks (list[Stock]): List of stock objects whose identifying and position data are included in the fingerprint.
-        display_currency (str): Target display currency that affects conversion-dependent results.
-        current_day (date): The current day used to scope time-sensitive events.
-        rates_snapshot (dict[str, float | None]): Snapshot of exchange-rate values included in the fingerprint.
-    
-    Returns:
-        str: A deterministic SHA-256 hex digest representing the normalized combination of stocks, display currency, current day, and rates snapshot.
-    """
-    from app.services.avanza_service import avanza_service
-
-    normalized_stocks = []
-    normalized_mappings = []
-    for stock in sorted(stocks, key=lambda item: (item.ticker or '', item.id)):
-        normalized_stocks.append({
-            'id': stock.id,
-            'ticker': stock.ticker,
-            'name': stock.name,
-            'currency': stock.currency,
-            'quantity': stock.quantity,
-            'purchase_price': stock.purchase_price,
-            'purchase_date': stock.purchase_date.isoformat() if stock.purchase_date else None,
-            'position_entries': normalize_position_entries(
-                getattr(stock, 'position_entries', None),
-                stock.quantity,
-                stock.purchase_price,
-                stock.purchase_date,
-            ),
-        })
-        mapping = avanza_service.get_mapping_by_ticker(stock.ticker) if stock.ticker else None
-        normalized_mapping = None
-        if mapping is not None:
-            mapping_blob = asdict(mapping)
-            normalized_mapping = {
-                key: mapping_blob[key]
-                for key in sorted(mapping_blob)
-            }
-        normalized_mappings.append({
-            'ticker': stock.ticker,
-            'mapping': normalized_mapping,
-        })
-
-    normalized_rates = {
-        currency_pair: rates_snapshot[currency_pair]
-        for currency_pair in sorted(rates_snapshot)
-    }
-
-    serialized = json.dumps({
-        'fingerprint_version': 2,
-        'stocks': normalized_stocks,
-        'mappings': normalized_mappings,
-        'display_currency': display_currency,
-        'current_day': current_day.isoformat(),
-        'rates_snapshot': normalized_rates,
-        'mapping_snapshot': normalized_mapping,
-    }, sort_keys=True, separators=(',', ':'))
-    return hashlib.sha256(serialized.encode('utf-8')).hexdigest()
 
 
 def parse_event_date(value) -> Optional[date]:
@@ -1245,8 +1180,6 @@ def get_upcoming_portfolio_dividends(db: Session = Depends(get_db), current_user
         total_expected += converted_total
         if dividend.get('status') == 'paid':
             total_received += converted_total
-        elif dividend.get('status') == 'upcoming':
-            total_remaining += converted_total
     
     result = {
         'dividends': dividends,

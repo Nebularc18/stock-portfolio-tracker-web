@@ -159,6 +159,7 @@ const EMPTY_UPCOMING_RESPONSE: UpcomingDividendsResponse = {
   total_expected: 0,
   total_received: 0,
   total_remaining: 0,
+  totals_partial: false,
   dividends_partial: false,
   skipped_dividend_count: 0,
   skipped_dividend_ids: [],
@@ -203,7 +204,6 @@ export default function StockDetail() {
   const [yearRemaining, setYearRemaining] = useState<number | null>(0)
   const [stockSummary, setStockSummary] = useState<PortfolioSummaryStock | null>(null)
   const [summaryDisplayCurrency, setSummaryDisplayCurrency] = useState('')
-  const [summaryDisplayCurrency, setSummaryDisplayCurrency] = useState('SEK')
   const [analystData, setAnalystData] = useState<AnalystData | null>(null)
   const [suppressedDividends, setSuppressedDividends] = useState<ManualDividend[]>([])
   const [loading, setLoading] = useState(true)
@@ -322,21 +322,6 @@ export default function StockDetail() {
     initialFocusRef: dividendDateInputRef,
   })
 
-  const loadStockPageData = useCallback(async (tickerValue: string): Promise<LoadedStockPageData> => {
-    const emptyUpcomingResponse: UpcomingDividendsResponse = {
-      dividends: [],
-      total_expected: 0,
-      total_received: 0,
-      total_remaining: 0,
-      totals_partial: false,
-      dividends_partial: false,
-      skipped_dividend_count: 0,
-      skipped_dividend_ids: [],
-      display_currency: 'SEK',
-      unmapped_stocks: [],
-    }
-
-    const [stockData, divData, suppressedData, summaryData, portfolioUpcomingData] = await Promise.all([
   const loadPrimaryStockPageData = useCallback(async (tickerValue: string): Promise<BaseLoadedStockPageData> => {
     const [stockData, divData] = await Promise.all([
       api.stocks.get(tickerValue),
@@ -903,8 +888,6 @@ export default function StockDetail() {
     const textAlign = align
 
     return (
-        <div style={{ textAlign }}>
-          <div>{formatCurrency(amount, locale, fromCurrency)}</div>
       <div style={{ textAlign }}>
         <div>{formatCurrency(amount, locale, fromCurrency)}</div>
         {amount !== null && fromCurrency !== effectiveDisplayCurrency && displayAmount !== null && (

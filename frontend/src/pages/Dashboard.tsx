@@ -326,39 +326,19 @@ export default function Dashboard() {
         setLoading(true)
         loadingStarted = true
       }
-      const [summaryResult, upcomingDivsResult] = await Promise.allSettled([
+      const [summaryData, upcomingDivsData] = await Promise.all([
         api.portfolio.summary(),
         api.portfolio.upcomingDividends().catch(() => ({ dividends: [], total_expected: 0, total_received: 0, total_remaining: 0, totals_partial: false, display_currency: displayCurrency, unmapped_stocks: [] })),
-        api.portfolio.upcomingDividends(),
       ])
-      if (requestId !== dataRequestIdRef.current) return
-      if (summaryResult.status !== 'fulfilled') {
-        throw summaryResult.reason
-      const upcomingDivsPromise = api.portfolio.upcomingDividends()
-        .then((value) => ({ status: 'fulfilled' as const, value }))
-        .catch((reason) => ({ status: 'rejected' as const, reason }))
-      const summaryData = await api.portfolio.summary()
       if (requestId !== requestIdRef.current) {
         clearLoading()
         return
       }
       setSummary(summaryData)
+      setUpcomingDividends(upcomingDivsData.dividends)
+      setTotalRemainingDividends(upcomingDivsData.total_remaining)
       setFailedLogos({})
       setError(null)
-      if (!background) {
-        clearLoading()
-      }
-      const upcomingDivsResult = await upcomingDivsPromise
-      if (requestId !== requestIdRef.current) {
-        clearLoading()
-        return
-      }
-      if (upcomingDivsResult.status === 'fulfilled') {
-        setUpcomingDividends(upcomingDivsResult.value.dividends)
-        setTotalRemainingDividends(upcomingDivsResult.value.total_remaining)
-      } else {
-        console.error('Failed to load upcoming dividends:', upcomingDivsResult.reason)
-      }
     } catch (error) {
       if (requestId !== requestIdRef.current) {
         clearLoading()
@@ -374,7 +354,7 @@ export default function Dashboard() {
         clearLoading()
       }
     }
-  }, [language])
+  }, [displayCurrency, language])
 
   useEffect(() => {
     fetchData()
