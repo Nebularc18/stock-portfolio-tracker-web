@@ -78,6 +78,21 @@ def _build_upcoming_dividends_cache_fingerprint(
     rates_snapshot: dict[str, float | None],
     mapping_snapshot: dict[str, dict | None] | None = None,
 ) -> str:
+    """
+    Builds a deterministic cache fingerprint representing the portfolio state relevant to upcoming dividends.
+    
+    The fingerprint covers the normalized set of provided stocks (including normalized position entries), the exchange rates snapshot, the display currency, the current day, and an optional Avanza mapping snapshot; identical inputs always produce the same fingerprint.
+    
+    Parameters:
+        stocks (list[Stock]): Portfolio stocks to include in the fingerprint; position entries are normalized before inclusion.
+        display_currency (str): Currency used for display/conversion.
+        current_day (date): Reference date applied to the fingerprint.
+        rates_snapshot (dict[str, float | None]): Mapping of currency-pair keys to exchange rates (values may be None).
+        mapping_snapshot (dict[str, dict | None] | None): Optional per-ticker Avanza mapping metadata to include (may be None).
+    
+    Returns:
+        str: Hex-encoded SHA-256 fingerprint string representing the serialized, normalized inputs.
+    """
     normalized_stocks = []
     for stock in sorted(stocks, key=lambda item: item.ticker or ''):
         normalized_stocks.append({

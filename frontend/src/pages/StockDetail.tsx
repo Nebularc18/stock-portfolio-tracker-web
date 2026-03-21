@@ -173,22 +173,13 @@ type HistorySortField = 'date' | 'amount'
 type VerificationSortField = 'date' | 'type' | 'yahoo' | 'marketstack' | 'difference'
 
 /**
- * Render the StockDetail page, load related stock, portfolio, dividend and analyst data, and provide UI controls
- * for editing the position, managing manual dividends (add/edit/delete/suppress/restore), verifying dividends,
- * and refreshing related datasets.
+ * Render the StockDetail page and manage loading, state, and user actions for a single stock.
  *
- * This component presents localized dates and currency values and uses backend-provided display-currency values
- * when available.
- * Loads stock, dividend history, portfolio summary, stock-level current-year dividends,
- * company profile, financial metrics, peers, and analyst data; provides UI actions to edit
- * or delete the position, add/edit/delete manual dividends, suppress/restore dividends,
- * and verify dividends via Marketstack. Dates and currency values are formatted for the
- * current locale/timezone and backend-computed display-currency values are shown when available.
- * Handles loading and presenting stock, dividend (historical and upcoming), suppressed dividend,
- * exchange-rate, company profile, financial metrics, peers, and analyst data. Provides actions for
- * editing or deleting the position, adding/editing/deleting manual dividends, suppressing/restoring
- * dividends, refreshing data, and verifying dividends via Marketstack. Formats dates and currencies
- * for the current locale and shows SEK conversions when exchange rates are available.
+ * Loads stock details, dividend history (historical and upcoming), portfolio summary, suppressed
+ * manual dividends, company profile, financial metrics, peers, and analyst data. Provides UI
+ * controls to edit or delete the position; add, edit, delete, suppress, and restore manual dividends;
+ * refresh datasets; and verify dividends via Marketstack. Formats dates and currency values using
+ * the user's locale and effective display currency.
  *
  * @returns The React element for the StockDetail page
  */

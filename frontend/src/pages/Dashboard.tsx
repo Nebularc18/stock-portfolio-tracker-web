@@ -15,6 +15,12 @@ import type { UpcomingDividendsResponse } from '../services/api'
 type HistoryRangeKey = '1D' | '1W' | '1M' | 'YTD' | '1Y' | 'SINCE_START'
 type FetchOptions = { background?: boolean }
 
+/**
+ * Creates an UpcomingDividendsResponse object representing an empty dividends result.
+ *
+ * @param displayCurrency - ISO currency code to set as `display_currency`; falls back to `'SEK'` when falsy
+ * @returns An `UpcomingDividendsResponse` with `dividends` empty, numeric totals set to `0`, boolean partial flags `false`, empty skipped IDs/arrays, and `display_currency` set to the provided value (or `'SEK'`)
+ */
 function createEmptyUpcomingDividendsResponse(displayCurrency: string): UpcomingDividendsResponse {
   return {
     dividends: [],
@@ -272,7 +278,7 @@ function getRangeTargetPoints(range: HistoryRangeKey): number | null {
 }
 
 /**
- * Render the portfolio dashboard page with hero statistics, a selectable performance chart, a sortable holdings table, and grouped upcoming dividends.
+ * Renders the portfolio dashboard with hero statistics, a selectable performance chart, a sortable holdings table, and grouped upcoming dividends.
  *
  * @returns The dashboard UI as JSX elements.
  */

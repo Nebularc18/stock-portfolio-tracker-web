@@ -50,6 +50,19 @@ export function getQuantityHeldOnDate(entries: PositionEntry[] | null | undefine
   }, 0)
 }
 
+/**
+ * Calculates the total acquisition cost of the position expressed in the target currency.
+ *
+ * Processes provided position entries (or a single fallback entry when none are supplied), ignores entries with a valid sell date, and sums each entry's purchase cost plus courtage after converting those amounts to `targetCurrency`. Returns `null` if no valid cost basis is found or if any required currency conversion fails.
+ *
+ * @param entries - Position entries to include in the calculation; if empty or absent a synthetic fallback entry is used.
+ * @param fallbackQuantity - Quantity to use for the synthetic fallback entry when `entries` is empty or absent.
+ * @param fallbackPurchasePrice - Purchase price to use for the synthetic fallback entry; may be `null` to indicate no price.
+ * @param positionCurrency - Currency code of the position amounts (used as the default for unspecified courtage currency).
+ * @param targetCurrency - Currency code to convert all costs into.
+ * @param exchangeRates - Optional mapping of currency codes to conversion rates used by fallback conversion logic; defaults to an empty object.
+ * @returns The summed cost (purchase cost plus courtage) converted to `targetCurrency`, or `null` if no cost basis applies or a conversion could not be performed.
+ */
 export function calculatePositionCostInCurrency(
   entries: PositionEntry[] | null | undefined,
   fallbackQuantity: number,

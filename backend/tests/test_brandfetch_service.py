@@ -5,6 +5,12 @@ from app.services.brandfetch_service import BrandfetchService
 
 @pytest.fixture
 def brandfetch_service() -> BrandfetchService:
+    """
+    Pytest fixture that provides a fresh BrandfetchService instance for tests.
+    
+    Returns:
+        BrandfetchService: A new BrandfetchService instance.
+    """
     return BrandfetchService()
 
 

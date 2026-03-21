@@ -86,15 +86,19 @@ export function clearStoredAuthUser(notify: boolean = false) {
 }
 
 /**
- * Performs an HTTP request against the API and returns the parsed JSON response.
+ * Send an HTTP request to the API and return the parsed JSON response.
  *
- * The function automatically prefixes `endpoint` with the module's API_BASE and, when a stored
- * authenticated user exists, adds an `Authorization: Bearer <token>` header to the request.
+ * Adds `Authorization: Bearer <token>` when a stored authenticated user exists and enforces
+ * the module's request timeout (aborting the request when exceeded or when an external signal aborts).
+ * If the server responds with 401 and an auth user was present, stored auth is cleared and an auth-expired
+ * event is dispatched.
  *
- * @param endpoint - The API path to request (appended to API_BASE), e.g. `/stocks` or `/auth/login`
- * @param options - Optional fetch RequestInit options (method, headers, body, etc.)
- * @returns The parsed JSON response from the API
- * @throws Error if the response has a non-OK status; the error message is taken from the response's `detail` field when available, otherwise `"Request failed"`
+ * @param endpoint - API path appended to the module's `API_BASE`, e.g. `/stocks` or `/auth/login`
+ * @param options - Optional fetch `RequestInit` options (method, headers, body, signal, etc.)
+ * @returns The parsed JSON body from the successful response
+ * @throws Error when the response has a non-OK status; the error message is taken from the response's `detail`
+ *   field when available, otherwise `"Request failed"`. The thrown error also has a `status` property set to
+ *   the HTTP status code.
  */
 async function fetchAPI(endpoint: string, options?: RequestInit) {
   const authUser = getStoredAuthUser()
@@ -143,6 +147,14 @@ async function fetchAPI(endpoint: string, options?: RequestInit) {
   }
 }
 
+/**
+ * Fetches a resource from the API and returns a provided fallback when the server responds with 403 or 404.
+ *
+ * @param endpoint - API endpoint path (appended to the module's base URL)
+ * @param fallback - Value to return if the request fails with HTTP 403 or 404
+ * @param options - Optional fetch options forwarded to the underlying request
+ * @returns The parsed response as `T`, or `fallback` when the server returns `403` or `404`
+ */
 async function fetchOptionalAPI<T>(endpoint: string, fallback: T, options?: RequestInit): Promise<T> {
   try {
     return await fetchAPI(endpoint, options) as T
