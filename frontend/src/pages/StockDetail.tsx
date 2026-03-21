@@ -66,10 +66,15 @@ function normalizeToDay(dateInput: string | null | undefined): Date | null {
 }
 
 /**
- * Estimate the typical number of dividend payments per year from a list of dividends.
+ * Estimate the typical number of dividend payments per year from a list of dividend records.
  *
- * @param dividends - Array of dividend records; each record may include `payment_date` or `date` (ISO date string) used to determine the payment year.
- * @returns A number between 1 and 12 representing the estimated number of dividend payments per year.
+ * Considers each record's `payment_date` or `date` (ISO string) to count payments per calendar year,
+ * uses the up to three most recent years with counts > 0, and selects the most common annual count
+ * (ties resolved in favor of the larger count). The result is clamped between 1 and 12; if no valid
+ * recent counts exist, returns 1.
+ *
+ * @param dividends - Array of dividend records; `payment_date` is preferred, `date` is used as fallback.
+ * @returns The estimated number of dividend payments per year (integer between 1 and 12).
  */
 function estimateDividendsPerYear(dividends: Dividend[]): number {
   const countsByYear = new Map<number, number>()
@@ -104,6 +109,13 @@ function estimateDividendsPerYear(dividends: Dividend[]): number {
   return Math.max(1, Math.min(12, estimated))
 }
 
+/**
+ * Compute the sum of `total_converted` for dividends with the given status, or `null` if any matching dividend lacks a converted total.
+ *
+ * @param items - Array of upcoming dividend records to aggregate
+ * @param targetStatus - The dividend `status` value to include (`'paid'` or `'upcoming'`)
+ * @returns The summed `total_converted` for matching items, or `null` if any matching item has `total_converted === null`
+ */
 function aggregateDividendTotal(
   items: UpcomingDividend[],
   targetStatus: 'paid' | 'upcoming'
@@ -142,8 +154,12 @@ type HistorySortField = 'date' | 'amount'
 type VerificationSortField = 'date' | 'type' | 'yahoo' | 'marketstack' | 'difference'
 
 /**
- * Render the detailed stock page and manage its data and user interactions.
+ * Render the StockDetail page, load related stock, portfolio, dividend and analyst data, and provide UI controls
+ * for editing the position, managing manual dividends (add/edit/delete/suppress/restore), verifying dividends,
+ * and refreshing related datasets.
  *
+ * This component presents localized dates and currency values and uses backend-provided display-currency values
+ * when available.
  * Loads stock, dividend history, portfolio summary, stock-level current-year dividends,
  * company profile, financial metrics, peers, and analyst data; provides UI actions to edit
  * or delete the position, add/edit/delete manual dividends, suppress/restore dividends,
@@ -155,7 +171,7 @@ type VerificationSortField = 'date' | 'type' | 'yahoo' | 'marketstack' | 'differ
  * dividends, refreshing data, and verifying dividends via Marketstack. Formats dates and currencies
  * for the current locale and shows SEK conversions when exchange rates are available.
  *
- * @returns The React element for the stock detail page.
+ * @returns The React element for the StockDetail page
  */
 export default function StockDetail() {
   const { ticker } = useParams<{ ticker: string }>()

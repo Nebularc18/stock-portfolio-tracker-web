@@ -109,17 +109,135 @@ def _build_upcoming_dividends_cache_fingerprint(
     return hashlib.sha256(serialized.encode('utf-8')).hexdigest()
 
 
+
+def _load_json_cache(filename: str, ttl: int) -> dict | None:
+    """
+    Load a JSON cache entry from the module cache directory if it exists and is not expired.
+    
+    Parameters:
+        filename (str): Name of the cache file within the cache directory.
+        ttl (int): Time-to-live in seconds; an entry whose `cached_at` timestamp is older than `ttl` is treated as expired.
+    
+    Returns:
+        dict | None: The parsed JSON payload from the cache file when present and fresh; `None` if the file does not exist, the entry is expired, or an error occurs while loading.
+    """
+    try:
+        os.makedirs(_CACHE_DIR, exist_ok=True)
+        filepath = os.path.join(_CACHE_DIR, filename)
+        if not os.path.exists(filepath):
+            return None
+        with open(filepath, 'r', encoding='utf-8') as f:
+            payload = json.load(f)
+        cached_at = payload.get('cached_at', 0)
+        if datetime.now(timezone.utc).timestamp() - cached_at >= ttl:
+            return None
+        return payload
+    except Exception:
+        logger.exception("Failed to load cache file %s", filename)
+        return None
+
+
+def _save_json_cache(filename: str, value: dict):
+    """
+    Persist a JSON cache file atomically in the module cache directory, embedding a UTC `cached_at` timestamp.
+    
+    The function writes `value` combined with a `cached_at` (UTC timestamp) field to a temporary file inside the cache directory, fsyncs it, and atomically replaces the target filename to ensure either the old or new file is present on disk. On any error the function logs the failure and does not raise.
+    
+    Parameters:
+        filename (str): The cache filename (basename) to write inside the module cache directory.
+        value (dict): A mapping whose entries will be included in the saved JSON; the function adds a top-level `cached_at` key with the current UTC timestamp.
+    """
+    try:
+        os.makedirs(_CACHE_DIR, exist_ok=True)
+        filepath = os.path.join(_CACHE_DIR, filename)
+        fd, temp_path = tempfile.mkstemp(dir=_CACHE_DIR, prefix=f"{filename}.", suffix='.tmp')
+        try:
+            with os.fdopen(fd, 'w', encoding='utf-8') as f:
+                json.dump({
+                    'cached_at': datetime.now(timezone.utc).timestamp(),
+                    **value,
+                }, f)
+                f.flush()
+                os.fsync(f.fileno())
+            os.replace(temp_path, filepath)
+        finally:
+            if os.path.exists(temp_path):
+                os.remove(temp_path)
+    except Exception:
+        logger.exception("Failed to save cache file %s", filename)
+
+
+def _portfolio_upcoming_dividends_cache_key(user_id: int) -> str:
+    """
+    Builds the cache filename for a user's upcoming portfolio dividends.
+    
+    Returns:
+        str: Cache filename unique to the user (e.g. "portfolio_upcoming_dividends_123.json").
+    """
+    return f"portfolio_upcoming_dividends_{user_id}.json"
+
+
+def _build_upcoming_dividends_cache_fingerprint(
+    stocks: list[Stock],
+    display_currency: str,
+    current_day: date,
+    rates_snapshot: dict[str, float | None],
+) -> str:
+    """
+    Create a deterministic fingerprint representing the provided portfolio state for caching upcoming dividends.
+    
+    Parameters:
+        stocks (list[Stock]): List of stock objects whose identifying and position data are included in the fingerprint.
+        display_currency (str): Target display currency that affects conversion-dependent results.
+        current_day (date): The current day used to scope time-sensitive events.
+        rates_snapshot (dict[str, float | None]): Snapshot of exchange-rate values included in the fingerprint.
+    
+    Returns:
+        str: A deterministic SHA-256 hex digest representing the normalized combination of stocks, display currency, current day, and rates snapshot.
+    """
+    normalized_stocks = []
+    for stock in sorted(stocks, key=lambda item: item.ticker or ''):
+        normalized_stocks.append({
+            'id': stock.id,
+            'ticker': stock.ticker,
+            'name': stock.name,
+            'currency': stock.currency,
+            'quantity': stock.quantity,
+            'purchase_price': stock.purchase_price,
+            'purchase_date': stock.purchase_date.isoformat() if stock.purchase_date else None,
+            'position_entries': normalize_position_entries(
+                getattr(stock, 'position_entries', None),
+                stock.quantity,
+                stock.purchase_price,
+                stock.purchase_date,
+            ),
+        })
+
+    normalized_rates = {
+        currency_pair: rates_snapshot[currency_pair]
+        for currency_pair in sorted(rates_snapshot)
+    }
+
+    serialized = json.dumps({
+        'stocks': normalized_stocks,
+        'display_currency': display_currency,
+        'current_day': current_day.isoformat(),
+        'rates_snapshot': normalized_rates,
+    }, sort_keys=True, separators=(',', ':'))
+    return hashlib.sha256(serialized.encode('utf-8')).hexdigest()
+
+
 def parse_event_date(value) -> Optional[date]:
     """
-    Parse a date-like value and return a date object.
-
-    Accepts a datetime.date, datetime.datetime, or string representation (ISO date or ISO datetime; accepts a trailing 'Z' UTC designator). Leading/trailing whitespace is ignored. If the input is None, empty, not a supported type, or cannot be parsed, returns None.
-
+    Parse various date-like inputs into a datetime.date.
+    
+    Accepts None, datetime.date, datetime.datetime, or a string containing an ISO date or ISO datetime (trailing 'Z' treated as UTC). Leading/trailing whitespace is ignored. For strings, the function first attempts full ISO parsing and, on failure, retries after truncating at a 'T' or the first space. Returns None for unsupported types, empty strings, or unparsable values.
+    
     Parameters:
-        value: A date/datetime object or a string to parse.
-
+        value: A None, date, datetime, or string to parse.
+    
     Returns:
-        A datetime.date parsed from the input, or `None` if parsing fails or the input is invalid.
+        A datetime.date parsed from the input, or None if parsing fails or the input is invalid.
     """
     if value is None:
         return None
@@ -820,16 +938,16 @@ def get_portfolio_distribution(db: Session = Depends(get_db), current_user: User
 @router.get("/upcoming-dividends")
 def get_upcoming_portfolio_dividends(db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
     """
-    Collect current-year dividend events for all portfolio stocks and convert per-stock totals into the user's display currency.
+    Collect current-year dividend events for the current user's holdings, filter to entitlements, deduplicate and normalize events from Avanza or Yahoo, convert per-stock totals to the user's display currency, and return aggregated totals.
     
-    Normalizes dividend sources (Avanza or Yahoo), skips events the user is not entitled to (entitlement before purchase_date), deduplicates identical events, and marks each event as 'paid' or 'upcoming' based on payout date.
+    Searches Avanza first when an instrument mapping exists, falls back to Yahoo otherwise; excludes events where the user did not hold the position on the entitlement date, marks events as 'paid' or 'upcoming' based on payout date, and may return a cached result keyed to a fingerprint of the user's portfolio state.
     
     Returns:
         dict: {
             'dividends': list of dict — Each item contains:
                 - 'ticker' (str)
                 - 'name' (str)
-                - 'quantity' (number)
+                - 'quantity' (number) — quantity held on the entitlement date
                 - 'ex_date' (str or None)
                 - 'payment_date' (str or None)
                 - 'payout_date' (str) — chosen payment_date or ex_date
@@ -837,15 +955,15 @@ def get_upcoming_portfolio_dividends(db: Session = Depends(get_db), current_user
                 - 'dividend_type' (str or None)
                 - 'amount_per_share' (number)
                 - 'total_amount' (number) — amount_per_share * quantity
-                - 'currency' (str) — original dividend currency
-                - 'total_converted' (float or None) — total_amount converted to display currency, or None if conversion unavailable
+                - 'currency' (str) — dividend currency used for total_amount
+                - 'total_converted' (float or None) — total_amount converted to the user's display currency, or None if conversion unavailable
                 - 'display_currency' (str)
-                - 'source' (str) — data source, e.g. 'avanza' or 'yahoo'
-            'total_expected' (float): Sum of `total_converted` for dividends with conversion available.
+                - 'source' (str) — data source identifier, e.g. 'avanza' or 'yahoo'
+            'total_expected' (float): Sum of `total_converted` for all listed dividends where conversion succeeded.
             'total_received' (float): Sum of `total_converted` for dividends with status == 'paid'.
             'total_remaining' (float): Sum of `total_converted` for dividends with status == 'upcoming'.
             'display_currency' (str): The user's display currency used for conversions.
-            'unmapped_stocks' (list): List of dicts { 'ticker': str, 'name': str, 'reason': str } for securities lacking Avanza mapping.
+            'unmapped_stocks' (list): List of dicts { 'ticker': str, 'name': str, 'reason': str } for securities lacking an Avanza mapping that were observed.
         }
     """
     from app.services.stock_service import StockService

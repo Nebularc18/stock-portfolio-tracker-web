@@ -146,7 +146,7 @@ export function SortHeader({
 }
 
 /**
- * Display the portfolio performance dashboard with summary cards, best/worst performer lists, a sortable holdings table, and CSV export.
+ * Render the portfolio performance dashboard with summary cards, best/worst performer lists, a sortable holdings table, and CSV export.
  *
  * @returns The React element for the performance dashboard.
  */

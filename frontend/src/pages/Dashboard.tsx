@@ -256,7 +256,7 @@ function getRangeTargetPoints(range: HistoryRangeKey): number | null {
 }
 
 /**
- * Renders the portfolio dashboard UI, including hero statistics, performance chart with range selection, holdings list, and grouped upcoming dividends, while fetching and synchronizing portfolio, market, and dividend data and applying currency conversion and localization.
+ * Render the portfolio dashboard page with hero statistics, a selectable performance chart, a sortable holdings table, and grouped upcoming dividends.
  *
  * @returns The dashboard UI as JSX elements.
  */
