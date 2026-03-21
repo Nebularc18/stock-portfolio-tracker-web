@@ -33,3 +33,16 @@ def test_confident_match_rejects_ambiguous_single_token_without_curated_domain()
     }
 
     assert service._is_confident_match(candidate, "EQT.ST", "EQT AB", "EQT") is False
+
+
+def test_confident_match_rejects_same_root_different_host_for_curated_domain():
+    service = BrandfetchService()
+
+    candidate = {
+        "name": "EQT Group",
+        "domain": "eqt.net",
+        "verified": None,
+        "qualityScore": 0.91,
+    }
+
+    assert service._is_confident_match(candidate, "EQT.ST", "EQT AB", "eqt.com.au") is False

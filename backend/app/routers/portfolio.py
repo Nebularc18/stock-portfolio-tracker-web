@@ -76,6 +76,7 @@ def _build_upcoming_dividends_cache_fingerprint(
     display_currency: str,
     current_day: date,
     rates_snapshot: dict[str, float | None],
+    mapping_snapshot: dict[str, dict | None] | None = None,
 ) -> str:
     normalized_stocks = []
     for stock in sorted(stocks, key=lambda item: item.ticker or ''):
@@ -100,122 +101,9 @@ def _build_upcoming_dividends_cache_fingerprint(
         for currency_pair in sorted(rates_snapshot)
     }
 
-    serialized = json.dumps({
-        'stocks': normalized_stocks,
-        'display_currency': display_currency,
-        'current_day': current_day.isoformat(),
-        'rates_snapshot': normalized_rates,
-    }, sort_keys=True, separators=(',', ':'))
-    return hashlib.sha256(serialized.encode('utf-8')).hexdigest()
-
-
-
-def _load_json_cache(filename: str, ttl: int) -> dict | None:
-    """
-    Load a JSON cache entry from the module cache directory if it exists and is not expired.
-    
-    Parameters:
-        filename (str): Name of the cache file within the cache directory.
-        ttl (int): Time-to-live in seconds; an entry whose `cached_at` timestamp is older than `ttl` is treated as expired.
-    
-    Returns:
-        dict | None: The parsed JSON payload from the cache file when present and fresh; `None` if the file does not exist, the entry is expired, or an error occurs while loading.
-    """
-    try:
-        os.makedirs(_CACHE_DIR, exist_ok=True)
-        filepath = os.path.join(_CACHE_DIR, filename)
-        if not os.path.exists(filepath):
-            return None
-        with open(filepath, 'r', encoding='utf-8') as f:
-            payload = json.load(f)
-        cached_at = payload.get('cached_at', 0)
-        if datetime.now(timezone.utc).timestamp() - cached_at >= ttl:
-            return None
-        return payload
-    except Exception:
-        logger.exception("Failed to load cache file %s", filename)
-        return None
-
-
-def _save_json_cache(filename: str, value: dict):
-    """
-    Persist a JSON cache file atomically in the module cache directory, embedding a UTC `cached_at` timestamp.
-    
-    The function writes `value` combined with a `cached_at` (UTC timestamp) field to a temporary file inside the cache directory, fsyncs it, and atomically replaces the target filename to ensure either the old or new file is present on disk. On any error the function logs the failure and does not raise.
-    
-    Parameters:
-        filename (str): The cache filename (basename) to write inside the module cache directory.
-        value (dict): A mapping whose entries will be included in the saved JSON; the function adds a top-level `cached_at` key with the current UTC timestamp.
-    """
-    try:
-        os.makedirs(_CACHE_DIR, exist_ok=True)
-        filepath = os.path.join(_CACHE_DIR, filename)
-        fd, temp_path = tempfile.mkstemp(dir=_CACHE_DIR, prefix=f"{filename}.", suffix='.tmp')
-        try:
-            with os.fdopen(fd, 'w', encoding='utf-8') as f:
-                json.dump({
-                    'cached_at': datetime.now(timezone.utc).timestamp(),
-                    **value,
-                }, f)
-                f.flush()
-                os.fsync(f.fileno())
-            os.replace(temp_path, filepath)
-        finally:
-            if os.path.exists(temp_path):
-                os.remove(temp_path)
-    except Exception:
-        logger.exception("Failed to save cache file %s", filename)
-
-
-def _portfolio_upcoming_dividends_cache_key(user_id: int) -> str:
-    """
-    Builds the cache filename for a user's upcoming portfolio dividends.
-    
-    Returns:
-        str: Cache filename unique to the user (e.g. "portfolio_upcoming_dividends_123.json").
-    """
-    return f"portfolio_upcoming_dividends_{user_id}.json"
-
-
-def _build_upcoming_dividends_cache_fingerprint(
-    stocks: list[Stock],
-    display_currency: str,
-    current_day: date,
-    rates_snapshot: dict[str, float | None],
-) -> str:
-    """
-    Create a deterministic fingerprint representing the provided portfolio state for caching upcoming dividends.
-    
-    Parameters:
-        stocks (list[Stock]): List of stock objects whose identifying and position data are included in the fingerprint.
-        display_currency (str): Target display currency that affects conversion-dependent results.
-        current_day (date): The current day used to scope time-sensitive events.
-        rates_snapshot (dict[str, float | None]): Snapshot of exchange-rate values included in the fingerprint.
-    
-    Returns:
-        str: A deterministic SHA-256 hex digest representing the normalized combination of stocks, display currency, current day, and rates snapshot.
-    """
-    normalized_stocks = []
-    for stock in sorted(stocks, key=lambda item: item.ticker or ''):
-        normalized_stocks.append({
-            'id': stock.id,
-            'ticker': stock.ticker,
-            'name': stock.name,
-            'currency': stock.currency,
-            'quantity': stock.quantity,
-            'purchase_price': stock.purchase_price,
-            'purchase_date': stock.purchase_date.isoformat() if stock.purchase_date else None,
-            'position_entries': normalize_position_entries(
-                getattr(stock, 'position_entries', None),
-                stock.quantity,
-                stock.purchase_price,
-                stock.purchase_date,
-            ),
-        })
-
-    normalized_rates = {
-        currency_pair: rates_snapshot[currency_pair]
-        for currency_pair in sorted(rates_snapshot)
+    normalized_mapping = {
+        ticker: mapping_snapshot[ticker]
+        for ticker in sorted(mapping_snapshot or {})
     }
 
     serialized = json.dumps({
@@ -223,6 +111,7 @@ def _build_upcoming_dividends_cache_fingerprint(
         'display_currency': display_currency,
         'current_day': current_day.isoformat(),
         'rates_snapshot': normalized_rates,
+        'mapping_snapshot': normalized_mapping,
     }, sort_keys=True, separators=(',', ':'))
     return hashlib.sha256(serialized.encode('utf-8')).hexdigest()
 
@@ -535,7 +424,9 @@ def get_portfolio_summary(db: Session = Depends(get_db), current_user: User = De
     total_value = 0
     total_value_partial = False
     total_cost = 0
+    total_cost_partial = False
     total_gain_loss = 0
+    total_gain_loss_partial = False
     daily_change = 0
     daily_change_partial = False
     dividend_yield_weighted = 0
@@ -577,6 +468,10 @@ def get_portfolio_summary(db: Session = Depends(get_db), current_user: User = De
             
             if current_value is None:
                 total_value_partial = True
+                total_cost_partial = True
+                total_gain_loss_partial = True
+                daily_change_partial = True
+                dividend_yield_partial = True
                 logger.warning(
                     f"Skipping {stock.ticker} in totals: no conversion rate for "
                     f"{stock.currency} to {display_currency}"
@@ -641,6 +536,8 @@ def get_portfolio_summary(db: Session = Depends(get_db), current_user: User = De
                     fallback_purchase_date=stock.purchase_date,
                 )
                 if cost is None:
+                    total_cost_partial = True
+                    total_gain_loss_partial = True
                     logger.warning(
                         f"Skipping {stock.ticker} cost in totals: no conversion rate for "
                         f"{stock.currency} to {display_currency}"
@@ -684,6 +581,8 @@ def get_portfolio_summary(db: Session = Depends(get_db), current_user: User = De
             })
         elif snapshot.quantity is not None and snapshot.quantity > 0:
             total_value_partial = True
+            total_cost_partial = True
+            total_gain_loss_partial = True
             daily_change_partial = True
             dividend_yield_partial = True
     
@@ -698,7 +597,9 @@ def get_portfolio_summary(db: Session = Depends(get_db), current_user: User = De
         "total_value": total_value,
         "total_value_partial": total_value_partial,
         "total_cost": total_cost,
+        "total_cost_partial": total_cost_partial,
         "total_gain_loss": total_gain_loss,
+        "total_gain_loss_partial": total_gain_loss_partial,
         "total_gain_loss_percent": total_gain_loss_percent,
         "daily_change": daily_change,
         "daily_change_partial": daily_change_partial,
@@ -974,20 +875,96 @@ def get_upcoming_portfolio_dividends(db: Session = Depends(get_db), current_user
     now = utc_now()
     today = now.date()
     current_year = now.year
-    currencies = {s.currency for s in stocks if s.currency}
-    currencies.add('SEK')
-    rates = ExchangeRateService.get_rates_for_currencies(currencies, display_currency)
-    cache_fingerprint = _build_upcoming_dividends_cache_fingerprint(stocks, display_currency, today, rates)
+    cache_key = _portfolio_upcoming_dividends_cache_key(current_user.id)
     cached = _load_json_cache(
-        _portfolio_upcoming_dividends_cache_key(current_user.id),
+        cache_key,
         PORTFOLIO_UPCOMING_DIVIDENDS_CACHE_TTL,
     )
+    cached_value = cached.get('value') if isinstance(cached, dict) else None
+
+    avanza_mappings_by_ticker: dict[str, object | None] = {}
+    mapping_snapshot: dict[str, dict | None] = {}
+    for stock in stocks:
+        avanza_mapping = avanza_service.get_mapping_by_ticker(stock.ticker)
+        avanza_mappings_by_ticker[stock.ticker] = avanza_mapping
+        mapping_snapshot[stock.ticker] = (
+            {
+                'avanza_name': avanza_mapping.avanza_name,
+                'instrument_id': avanza_mapping.instrument_id,
+                'manually_added': avanza_mapping.manually_added,
+                'added_at': avanza_mapping.added_at,
+                'source': 'avanza' if avanza_mapping.instrument_id else 'yahoo',
+            }
+            if avanza_mapping is not None
+            else None
+        )
+
+    currencies = {s.currency for s in stocks if s.currency}
+    currencies.add('SEK')
+    if isinstance(cached_value, dict):
+        for cached_dividend in cached_value.get('dividends', []):
+            if not isinstance(cached_dividend, dict):
+                continue
+            dividend_currency = cached_dividend.get('currency')
+            if dividend_currency:
+                currencies.add(dividend_currency)
+
+    rates = ExchangeRateService.get_rates_for_currencies(currencies, display_currency)
+    cache_fingerprint = _build_upcoming_dividends_cache_fingerprint(
+        stocks,
+        display_currency,
+        today,
+        rates,
+        mapping_snapshot,
+    )
     if cached and cached.get('fingerprint') == cache_fingerprint:
-        cached_value = cached.get('value')
         if isinstance(cached_value, dict):
             return cached_value
 
     stock_service = StockService()
+    normalized_events_by_ticker: dict[str, list[dict]] = {}
+
+    for stock in stocks:
+        snapshot = apply_position_snapshot(stock)
+        if not has_position_history(snapshot.position_entries, snapshot.quantity):
+            normalized_events_by_ticker[stock.ticker] = []
+            continue
+
+        avanza_mapping = avanza_mappings_by_ticker.get(stock.ticker)
+        if avanza_mapping and getattr(avanza_mapping, 'instrument_id', None):
+            avanza_events = avanza_service.get_stock_dividends_for_year(stock.ticker, current_year)
+            if avanza_events:
+                normalized_events = [{
+                    'ex_date': div.ex_date,
+                    'payment_date': div.payment_date,
+                    'amount': div.amount,
+                    'currency': div.currency,
+                    'source': 'avanza',
+                    'dividend_type': div.dividend_type,
+                } for div in avanza_events]
+            else:
+                normalized_events = get_yahoo_normalized_events(stock_service, stock.ticker)
+        else:
+            normalized_events = get_yahoo_normalized_events(stock_service, stock.ticker)
+
+        normalized_events = normalized_events or []
+        normalized_events_by_ticker[stock.ticker] = normalized_events
+        for normalized_event in normalized_events:
+            dividend_currency = normalized_event.get('currency') or stock.currency
+            if dividend_currency:
+                currencies.add(dividend_currency)
+
+    rates = ExchangeRateService.get_rates_for_currencies(currencies, display_currency)
+    cache_fingerprint = _build_upcoming_dividends_cache_fingerprint(
+        stocks,
+        display_currency,
+        today,
+        rates,
+        mapping_snapshot,
+    )
+    if cached and cached.get('fingerprint') == cache_fingerprint:
+        if isinstance(cached_value, dict):
+            return cached_value
 
     dividends = []
     unmapped_stocks = []
@@ -997,25 +974,10 @@ def get_upcoming_portfolio_dividends(db: Session = Depends(get_db), current_user
         snapshot = apply_position_snapshot(stock)
         if not has_position_history(snapshot.position_entries, snapshot.quantity):
             continue
-        avanza_mapping = avanza_service.get_mapping_by_ticker(stock.ticker)
+        avanza_mapping = avanza_mappings_by_ticker.get(stock.ticker)
         no_avanza_mapping = avanza_mapping is None or not avanza_mapping.instrument_id
 
-        if avanza_mapping and avanza_mapping.instrument_id:
-            avanza_events = avanza_service.get_stock_dividends_for_year(stock.ticker, current_year)
-            if avanza_events:
-                normalized_events = [{
-                    'ex_date': div.ex_date,
-                    'payment_date': div.payment_date,
-                    'amount': div.amount,
-                    'currency': div.currency,
-                    'source': 'avanza',
-                    'dividend_type': div.dividend_type
-                } for div in avanza_events]
-            else:
-                normalized_events = get_yahoo_normalized_events(stock_service, stock.ticker)
-        else:
-            normalized_events = get_yahoo_normalized_events(stock_service, stock.ticker)
-
+        normalized_events = normalized_events_by_ticker.get(stock.ticker, [])
         if not normalized_events:
             continue
 
@@ -1111,17 +1073,19 @@ def get_upcoming_portfolio_dividends(db: Session = Depends(get_db), current_user
         for d in dividends
         if d['total_converted'] is not None and d.get('status') == 'upcoming'
     )
+    totals_partial = any(d.get('total_converted') is None for d in dividends)
     
     result = {
         'dividends': dividends,
         'total_expected': total_expected,
         'total_received': total_received,
         'total_remaining': total_remaining,
+        'totals_partial': totals_partial,
         'display_currency': display_currency,
         'unmapped_stocks': unmapped_stocks
     }
     _save_json_cache(
-        _portfolio_upcoming_dividends_cache_key(current_user.id),
+        cache_key,
         {
             'fingerprint': cache_fingerprint,
             'value': result,

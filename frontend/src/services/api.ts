@@ -214,7 +214,9 @@ export interface PortfolioSummary {
   total_value: number
   total_value_partial: boolean
   total_cost: number
+  total_cost_partial: boolean
   total_gain_loss: number
+  total_gain_loss_partial: boolean
   total_gain_loss_percent: number
   daily_change: number
   daily_change_partial: boolean
@@ -287,6 +289,7 @@ export interface UpcomingDividendsResponse {
   total_expected: number
   total_received: number
   total_remaining: number
+  totals_partial: boolean
   display_currency: string
   unmapped_stocks: Array<{
     ticker: string

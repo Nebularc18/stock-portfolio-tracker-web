@@ -56,7 +56,7 @@ export function calculatePositionCostInCurrency(
   fallbackPurchasePrice: number | null | undefined,
   positionCurrency: string,
   targetCurrency: string,
-  exchangeRates: Record<string, number | null>,
+  exchangeRates: Record<string, number | null> = {},
 ): number | null {
   const effectiveEntries = entries && entries.length > 0
     ? entries

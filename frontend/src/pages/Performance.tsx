@@ -4,7 +4,6 @@ import { api, PortfolioSummary, Stock } from '../services/api'
 import { getLocaleForLanguage, t } from '../i18n'
 import { useSettings } from '../SettingsContext'
 import SortableHeader from '../components/SortableHeader'
-import { convertCurrencyToSEK } from '../utils/currency'
 import { calculatePositionCostInCurrency } from '../utils/positions'
 import { sortTableItems, useTableSort } from '../utils/tableSort'
 
@@ -207,7 +206,6 @@ export default function Performance() {
         stock.purchase_price,
         stock.currency,
         stock.currency,
-        exchangeRates,
       )
       const gain = value != null && cost != null ? value - cost : null
       const dailyChange = stock.current_price != null && stock.previous_close != null
@@ -216,16 +214,6 @@ export default function Performance() {
       const dailyChangePercent = stock.current_price != null && stock.previous_close != null && stock.previous_close !== 0
         ? ((stock.current_price - stock.previous_close) / stock.previous_close) * 100
         : null
-
-      const valueSEK = convertCurrencyToSEK(value, stock.currency, exchangeRates)
-      const costSEK = calculatePositionCostInCurrency(
-        stock.position_entries,
-        stock.quantity,
-        stock.purchase_price,
-        stock.currency,
-        'SEK',
-        exchangeRates,
-      )
 
       return {
         ticker: stock.ticker,

@@ -317,7 +317,7 @@ export default function Dashboard() {
       }
       const [summaryData, upcomingDivsData] = await Promise.all([
         api.portfolio.summary(),
-        api.portfolio.upcomingDividends().catch(() => ({ dividends: [], total_expected: 0, total_received: 0, total_remaining: 0, display_currency: displayCurrency, unmapped_stocks: [] })),
+        api.portfolio.upcomingDividends().catch(() => ({ dividends: [], total_expected: 0, total_received: 0, total_remaining: 0, totals_partial: false, display_currency: displayCurrency, unmapped_stocks: [] })),
       ])
       if (requestId !== dataRequestIdRef.current) return
       setSummary(summaryData)
@@ -508,8 +508,8 @@ export default function Dashboard() {
       ticker: (stock) => stock.ticker,
       name: (stock) => formatDisplayName(stock.name, stock.ticker),
       quantity: (stock) => stock.quantity,
-      price: (stock) => stock.display_price,
-      value: (stock) => stock.current_value,
+      price: (stock) => (stock.display_price_converted ? stock.display_price : null),
+      value: (stock) => (stock.current_value_converted ? stock.current_value : null),
       gainLoss: (stock) => stock.gain_loss,
       gainLossPercent: (stock) => stock.gain_loss_percent,
     },
@@ -549,13 +549,13 @@ export default function Dashboard() {
     {
       label: t(language, 'dashboard.gainLoss'),
       value: formatCurrency(gainLoss, locale, currency),
-      partial: false,
+      partial: summary?.total_gain_loss_partial ?? false,
       color: gainLossIsPos ? 'var(--green)' : 'var(--red)',
     },
     {
       label: t(language, 'dashboard.returnPercent'),
       value: formatPercent(summary?.total_gain_loss_percent ?? 0, locale),
-      partial: false,
+      partial: summary?.total_gain_loss_partial ?? false,
       color: gainLossIsPos ? 'var(--green)' : 'var(--red)',
     },
     {
