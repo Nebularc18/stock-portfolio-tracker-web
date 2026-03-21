@@ -152,7 +152,8 @@ export function SortHeader({
 export default function Performance() {
   const [stocks, setStocks] = useState<Stock[]>([])
   const [summary, setSummary] = useState<PortfolioSummary | null>(null)
-  const [loading, setLoading] = useState(true)
+  const [stocksLoading, setStocksLoading] = useState(true)
+  const [summaryLoading, setSummaryLoading] = useState(true)
   const [loadError, setLoadError] = useState<Error | null>(null)
   const { sortState, requestSort } = useTableSort<SortField>({ field: 'ticker', direction: 'asc' })
   const { language } = useSettings()
@@ -165,22 +166,31 @@ export default function Performance() {
     try {
       if (latestFetchIdRef.current !== fetchId) return
       setLoadError(null)
-      setLoading(true)
-      const [stocksData, summaryData] = await Promise.all([
-        api.stocks.list(),
-        api.portfolio.summary(),
-      ])
+      setStocksLoading(true)
+      setSummaryLoading(true)
+      const summaryPromise = api.portfolio.summary()
+        .then((value) => ({ status: 'fulfilled' as const, value }))
+        .catch((reason) => ({ status: 'rejected' as const, reason }))
+      const stocksData = await api.stocks.list()
       if (latestFetchIdRef.current !== fetchId) return
       setStocks(stocksData)
-      setSummary(summaryData)
+      setStocksLoading(false)
+
+      const summaryResult = await summaryPromise
+      if (latestFetchIdRef.current !== fetchId) return
+      if (summaryResult.status === 'fulfilled') {
+        setSummary(summaryResult.value)
+      } else {
+        console.error('Failed to load performance summary:', summaryResult.reason)
+        setSummary(null)
+      }
+      setSummaryLoading(false)
     } catch (err) {
       if (latestFetchIdRef.current !== fetchId) return
       console.error('Failed to load data:', err)
       setLoadError(err instanceof Error ? err : new Error(String(err)))
-    } finally {
-      if (latestFetchIdRef.current === fetchId) {
-        setLoading(false)
-      }
+      setStocksLoading(false)
+      setSummaryLoading(false)
     }
   }, [])
 
@@ -334,11 +344,11 @@ export default function Performance() {
     link.remove()
   }
 
-  if (loading) {
+  if (stocksLoading && stocks.length === 0) {
     return <div className="loading-state">{t(language, 'common.loading')}</div>
   }
 
-  if (loadError) {
+  if (loadError && stocks.length === 0) {
     return (
       <div style={{ padding: 28 }}>
         <div style={{ background: 'var(--bg2)', border: '1px solid var(--border)', borderRadius: 8, padding: '32px', textAlign: 'center' }}>
@@ -363,6 +373,9 @@ export default function Performance() {
     )
   }
 
+  const summaryPending = summaryLoading && summary === null
+  const summaryAvailable = summary !== null
+
   return (
     <div>
       {/* ── HERO STATS ── */}
@@ -373,10 +386,10 @@ export default function Performance() {
         background: 'linear-gradient(115deg, var(--bg-dark, #12141c) 0%, var(--bg) 55%)',
       }}>
         {[ 
-          { label: t(language, 'performance.totalValue'), value: formatCurrency(totalValue, locale, displayCurrency), color: 'var(--text)', incomplete: hasMissingValue },
-          { label: t(language, 'performance.totalCost'), value: formatCurrency(totalCost, locale, displayCurrency), color: 'var(--text2)', incomplete: hasMissingCost },
-          { label: t(language, 'performance.totalGainLoss'), value: formatCurrency(totalGain, locale, displayCurrency), sub: formatPercent(totalGainPercent, locale), color: totalGain >= 0 ? 'var(--green)' : 'var(--red)', incomplete: hasMissingGain },
-          { label: t(language, 'performance.dailyChange'), value: formatCurrency(totalDailyChange, locale, displayCurrency), color: totalDailyChange >= 0 ? 'var(--green)' : 'var(--red)', incomplete: hasMissingDailyChange },
+          { label: t(language, 'performance.totalValue'), value: summaryPending ? t(language, 'common.loading') : formatCurrency(summaryAvailable ? totalValue : null, locale, displayCurrency), color: 'var(--text)', incomplete: hasMissingValue },
+          { label: t(language, 'performance.totalCost'), value: summaryPending ? t(language, 'common.loading') : formatCurrency(summaryAvailable ? totalCost : null, locale, displayCurrency), color: 'var(--text2)', incomplete: hasMissingCost },
+          { label: t(language, 'performance.totalGainLoss'), value: summaryPending ? t(language, 'common.loading') : formatCurrency(summaryAvailable ? totalGain : null, locale, displayCurrency), sub: summaryPending ? undefined : formatPercent(summaryAvailable ? totalGainPercent : null, locale), color: totalGain >= 0 ? 'var(--green)' : 'var(--red)', incomplete: hasMissingGain },
+          { label: t(language, 'performance.dailyChange'), value: summaryPending ? t(language, 'common.loading') : formatCurrency(summaryAvailable ? totalDailyChange : null, locale, displayCurrency), color: totalDailyChange >= 0 ? 'var(--green)' : 'var(--red)', incomplete: hasMissingDailyChange },
         ].map((stat, i, arr) => (
           <div key={stat.label} style={{
             padding: '26px 28px',

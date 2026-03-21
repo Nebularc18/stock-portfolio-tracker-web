@@ -315,32 +315,32 @@ export default function Dashboard() {
       if (!background) {
         setLoading(true)
       }
-      const [summaryResult, upcomingDivsResult] = await Promise.allSettled([
-        api.portfolio.summary(),
-        api.portfolio.upcomingDividends(),
-      ])
+      const upcomingDivsPromise = api.portfolio.upcomingDividends()
+        .then((value) => ({ status: 'fulfilled' as const, value }))
+        .catch((reason) => ({ status: 'rejected' as const, reason }))
+      const summaryData = await api.portfolio.summary()
       if (requestId !== dataRequestIdRef.current) return
-      if (summaryResult.status !== 'fulfilled') {
-        throw summaryResult.reason
-      }
-      const summaryData = summaryResult.value
       setSummary(summaryData)
+      setFailedLogos({})
+      setError(null)
+      if (!background) {
+        setLoading(false)
+      }
+      const upcomingDivsResult = await upcomingDivsPromise
+      if (requestId !== dataRequestIdRef.current) return
       if (upcomingDivsResult.status === 'fulfilled') {
         setUpcomingDividends(upcomingDivsResult.value.dividends)
         setTotalRemainingDividends(upcomingDivsResult.value.total_remaining)
       } else {
         console.error('Failed to load upcoming dividends:', upcomingDivsResult.reason)
       }
-      setFailedLogos({})
-      setError(null)
     } catch (error) {
       if (requestId !== dataRequestIdRef.current) return
       console.error('Failed to load dashboard data:', error)
       if (!background) {
         setError(t(language, 'dashboard.failedLoad'))
+        setLoading(false)
       }
-    } finally {
-      if (requestId === dataRequestIdRef.current && !background) setLoading(false)
     }
   }, [language])
 
