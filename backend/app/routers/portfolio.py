@@ -7,7 +7,7 @@ performance, distribution analysis, and bulk refresh operations.
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.orm import Session
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass
 from datetime import date, datetime, timezone
 from typing import List, Optional
 import hashlib
@@ -195,8 +195,11 @@ def _build_upcoming_dividends_cache_fingerprint(
     Returns:
         str: A deterministic SHA-256 hex digest representing the normalized combination of stocks, display currency, current day, and rates snapshot.
     """
+    from app.services.avanza_service import avanza_service
+
     normalized_stocks = []
-    for stock in sorted(stocks, key=lambda item: item.ticker or ''):
+    normalized_mappings = []
+    for stock in sorted(stocks, key=lambda item: (item.ticker or '', item.id)):
         normalized_stocks.append({
             'id': stock.id,
             'ticker': stock.ticker,
@@ -212,6 +215,18 @@ def _build_upcoming_dividends_cache_fingerprint(
                 stock.purchase_date,
             ),
         })
+        mapping = avanza_service.get_mapping_by_ticker(stock.ticker) if stock.ticker else None
+        normalized_mapping = None
+        if mapping is not None:
+            mapping_blob = asdict(mapping)
+            normalized_mapping = {
+                key: mapping_blob[key]
+                for key in sorted(mapping_blob)
+            }
+        normalized_mappings.append({
+            'ticker': stock.ticker,
+            'mapping': normalized_mapping,
+        })
 
     normalized_rates = {
         currency_pair: rates_snapshot[currency_pair]
@@ -219,7 +234,9 @@ def _build_upcoming_dividends_cache_fingerprint(
     }
 
     serialized = json.dumps({
+        'fingerprint_version': 2,
         'stocks': normalized_stocks,
+        'mappings': normalized_mappings,
         'display_currency': display_currency,
         'current_day': current_day.isoformat(),
         'rates_snapshot': normalized_rates,
@@ -271,6 +288,26 @@ def parse_event_date(value) -> Optional[date]:
 def sort_event_date(value) -> date:
     parsed = parse_event_date(value)
     return parsed if parsed is not None else date.max
+
+
+def _build_upcoming_dividend_identifier(
+    ticker: str | None,
+    ex_date: str | None,
+    payment_date: str | None,
+    amount: float | int | None,
+    currency: str | None,
+    source: str | None,
+    dividend_type: str | None,
+) -> str:
+    return '|'.join([
+        ticker or '',
+        ex_date or '',
+        payment_date or '',
+        '' if amount is None else f'{float(amount):.12g}',
+        currency or '',
+        source or '',
+        dividend_type or '',
+    ])
 
 
 @dataclass(frozen=True)
@@ -535,7 +572,9 @@ def get_portfolio_summary(db: Session = Depends(get_db), current_user: User = De
     total_value = 0
     total_value_partial = False
     total_cost = 0
+    total_cost_partial = False
     total_gain_loss = 0
+    total_gain_loss_partial = False
     daily_change = 0
     daily_change_partial = False
     dividend_yield_weighted = 0
@@ -577,6 +616,8 @@ def get_portfolio_summary(db: Session = Depends(get_db), current_user: User = De
             
             if current_value is None:
                 total_value_partial = True
+                total_cost_partial = True
+                total_gain_loss_partial = True
                 logger.warning(
                     f"Skipping {stock.ticker} in totals: no conversion rate for "
                     f"{stock.currency} to {display_currency}"
@@ -641,6 +682,8 @@ def get_portfolio_summary(db: Session = Depends(get_db), current_user: User = De
                     fallback_purchase_date=stock.purchase_date,
                 )
                 if cost is None:
+                    total_cost_partial = True
+                    total_gain_loss_partial = True
                     logger.warning(
                         f"Skipping {stock.ticker} cost in totals: no conversion rate for "
                         f"{stock.currency} to {display_currency}"
@@ -657,6 +700,8 @@ def get_portfolio_summary(db: Session = Depends(get_db), current_user: User = De
                     total_gain_loss += gain_loss
                     cost_converted = True
             else:
+                total_cost_partial = True
+                total_gain_loss_partial = True
                 gain_loss = None
 
             gain_loss_percent = None
@@ -684,6 +729,8 @@ def get_portfolio_summary(db: Session = Depends(get_db), current_user: User = De
             })
         elif snapshot.quantity is not None and snapshot.quantity > 0:
             total_value_partial = True
+            total_cost_partial = True
+            total_gain_loss_partial = True
             daily_change_partial = True
             dividend_yield_partial = True
     
@@ -698,7 +745,9 @@ def get_portfolio_summary(db: Session = Depends(get_db), current_user: User = De
         "total_value": total_value,
         "total_value_partial": total_value_partial,
         "total_cost": total_cost,
+        "total_cost_partial": total_cost_partial,
         "total_gain_loss": total_gain_loss,
+        "total_gain_loss_partial": total_gain_loss_partial,
         "total_gain_loss_percent": total_gain_loss_percent,
         "daily_change": daily_change,
         "daily_change_partial": daily_change_partial,
@@ -962,6 +1011,9 @@ def get_upcoming_portfolio_dividends(db: Session = Depends(get_db), current_user
             'total_expected' (float): Sum of `total_converted` for all listed dividends where conversion succeeded.
             'total_received' (float): Sum of `total_converted` for dividends with status == 'paid'.
             'total_remaining' (float): Sum of `total_converted` for dividends with status == 'upcoming'.
+            'dividends_partial' (bool): Whether one or more listed dividends were excluded from aggregate totals.
+            'skipped_dividend_count' (int): Number of listed dividends excluded from aggregate totals.
+            'skipped_dividend_ids' (list[str]): Identifiers of dividends excluded from aggregate totals.
             'display_currency' (str): The user's display currency used for conversions.
             'unmapped_stocks' (list): List of dicts { 'ticker': str, 'name': str, 'reason': str } for securities lacking an Avanza mapping that were observed.
         }
@@ -1067,6 +1119,15 @@ def get_upcoming_portfolio_dividends(db: Session = Depends(get_db), current_user
             
             source = div.get('source', 'yahoo')
             status = 'paid' if payout_date_parsed <= today else 'upcoming'
+            dividend_id = _build_upcoming_dividend_identifier(
+                stock.ticker,
+                ex_date,
+                payment_date,
+                amount,
+                div_currency,
+                source,
+                div.get('dividend_type'),
+            )
             
             if stock.ticker.endswith('.ST') and source == 'yahoo' and no_avanza_mapping:
                 if stock.ticker not in seen_unmapped:
@@ -1076,8 +1137,9 @@ def get_upcoming_portfolio_dividends(db: Session = Depends(get_db), current_user
                         'name': stock.name,
                         'reason': 'no_avanza_mapping'
                     })
-            
+
             dividends.append({
+                'id': dividend_id,
                 'ticker': stock.ticker,
                 'name': stock.name,
                 'quantity': quantity_on_entitlement,
@@ -1095,28 +1157,31 @@ def get_upcoming_portfolio_dividends(db: Session = Depends(get_db), current_user
             })
 
     dividends.sort(key=lambda item: (sort_event_date(item.get('payout_date')), sort_event_date(item.get('ex_date'))))
-    
-    total_expected = sum(
-        d['total_converted'] for d in dividends if d['total_converted'] is not None
-    )
 
-    total_received = sum(
-        d['total_converted']
-        for d in dividends
-        if d['total_converted'] is not None and d.get('status') == 'paid'
-    )
+    total_expected = 0
+    total_received = 0
+    total_remaining = 0
+    skipped_dividend_ids = []
 
-    total_remaining = sum(
-        d['total_converted']
-        for d in dividends
-        if d['total_converted'] is not None and d.get('status') == 'upcoming'
-    )
+    for dividend in dividends:
+        converted_total = dividend.get('total_converted')
+        if converted_total is None:
+            skipped_dividend_ids.append(dividend['id'])
+            continue
+        total_expected += converted_total
+        if dividend.get('status') == 'paid':
+            total_received += converted_total
+        elif dividend.get('status') == 'upcoming':
+            total_remaining += converted_total
     
     result = {
         'dividends': dividends,
         'total_expected': total_expected,
         'total_received': total_received,
         'total_remaining': total_remaining,
+        'dividends_partial': len(skipped_dividend_ids) > 0,
+        'skipped_dividend_count': len(skipped_dividend_ids),
+        'skipped_dividend_ids': skipped_dividend_ids,
         'display_currency': display_currency,
         'unmapped_stocks': unmapped_stocks
     }

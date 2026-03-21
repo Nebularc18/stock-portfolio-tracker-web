@@ -14,6 +14,7 @@ import { useModalFocusTrap } from '../hooks/useModalFocusTrap'
 import { formatDisplayName } from '../utils/displayName'
 import SortableHeader from '../components/SortableHeader'
 import { sortTableItems, useTableSort } from '../utils/tableSort'
+import { calculatePositionCostInCurrency } from '../utils/positions'
 
 /**
  * Format a numeric value as a localized currency string.
@@ -184,7 +185,7 @@ export default function StockDetail() {
   const [yearReceived, setYearReceived] = useState<number | null>(0)
   const [yearRemaining, setYearRemaining] = useState<number | null>(0)
   const [stockSummary, setStockSummary] = useState<PortfolioSummaryStock | null>(null)
-  const [displayCurrency, setDisplayCurrency] = useState('SEK')
+  const [summaryDisplayCurrency, setSummaryDisplayCurrency] = useState('SEK')
   const [analystData, setAnalystData] = useState<AnalystData | null>(null)
   const [suppressedDividends, setSuppressedDividends] = useState<ManualDividend[]>([])
   const [loading, setLoading] = useState(true)
@@ -235,6 +236,7 @@ export default function StockDetail() {
   const dividendAmountInputId = useId()
   const dividendNoteInputId = useId()
   const { timezone, language, displayCurrency } = useSettings()
+  const effectiveDisplayCurrency = summaryDisplayCurrency || displayCurrency
   const locale = getLocaleForLanguage(language)
   const { sortState: manualSortState, requestSort: requestManualSort } = useTableSort<ManualDividendSortField>({ field: 'date', direction: 'asc' })
   const { sortState: yearSortState, requestSort: requestYearSort } = useTableSort<YearDividendSortField>({ field: 'exDate', direction: 'asc' })
@@ -308,6 +310,9 @@ export default function StockDetail() {
       total_expected: 0,
       total_received: 0,
       total_remaining: 0,
+      dividends_partial: false,
+      skipped_dividend_count: 0,
+      skipped_dividend_ids: [],
       display_currency: 'SEK',
       unmapped_stocks: [],
     }
@@ -351,7 +356,7 @@ export default function StockDetail() {
     setYearReceived(data.yearReceivedData)
     setYearRemaining(data.yearRemainingData)
     setStockSummary(data.stockSummaryData)
-    setDisplayCurrency(data.displayCurrencyData)
+    setSummaryDisplayCurrency(data.displayCurrencyData)
     setSuppressedDividends(data.suppressedDividendsData)
     setEditPurchaseDate(data.stockData.purchase_date || '')
     setError(null)
@@ -558,7 +563,7 @@ export default function StockDetail() {
       setEditPurchasePrice(editableEntry?.purchase_price?.toString() || stock.purchase_price?.toString() || '')
       setEditCourtage(editableEntry?.courtage?.toString() || '')
       setEditExchangeRate(editableEntry?.exchange_rate?.toString() || '')
-      setEditExchangeRateCurrency(editableEntry?.exchange_rate_currency || displayCurrency)
+      setEditExchangeRateCurrency(editableEntry?.exchange_rate_currency || effectiveDisplayCurrency)
       setEditPurchaseDate(stock.purchase_date || '')
       setShowEditModal(true)
     }
@@ -613,7 +618,7 @@ export default function StockDetail() {
         quantity: nextQuantity,
         purchase_price: nextPurchasePrice,
         courtage: nextCourtage,
-        courtage_currency: nextCourtage !== null ? (stock.currency !== displayCurrency ? displayCurrency : stock.currency) : null,
+        courtage_currency: nextCourtage !== null ? (stock.currency !== effectiveDisplayCurrency ? effectiveDisplayCurrency : stock.currency) : null,
         exchange_rate: nextExchangeRate,
         exchange_rate_currency: nextExchangeRate !== null ? editExchangeRateCurrency : null,
         purchase_date: editPurchaseDate || null,
@@ -791,9 +796,23 @@ export default function StockDetail() {
     ? (dailyChange / stock.previous_close) * 100 
     : null
 
+  const positionQuantity = stockSummary?.quantity ?? stock.quantity
+  const nativeTotalCost = calculatePositionCostInCurrency(
+    stock.position_entries,
+    positionQuantity,
+    stock.purchase_price,
+    stock.currency,
+    stock.currency,
+    {},
+  )
+  const nativeCurrentValue = stock.current_price !== null ? stock.current_price * positionQuantity : null
+  const nativePurchasePrice =
+    nativeTotalCost !== null && positionQuantity > 0
+      ? nativeTotalCost / positionQuantity
+      : null
   const displayPurchasePrice =
-    stockSummary?.total_cost_converted && stockSummary.total_cost !== null && stock.quantity > 0
-      ? stockSummary.total_cost / stock.quantity
+    stockSummary?.total_cost_converted && stockSummary.total_cost !== null && positionQuantity > 0
+      ? stockSummary.total_cost / positionQuantity
       : null
   const displayCurrentPrice = stockSummary?.display_price_converted ? stockSummary.display_price : null
   const displayCurrentValue = stockSummary?.current_value_converted ? stockSummary.current_value : null
@@ -810,9 +829,9 @@ export default function StockDetail() {
     return (
       <div style={{ textAlign }}>
         <div>{formatCurrency(amount, locale, fromCurrency)}</div>
-        {amount !== null && fromCurrency !== displayCurrency && displayAmount !== null && (
+        {amount !== null && fromCurrency !== effectiveDisplayCurrency && displayAmount !== null && (
           <div style={{ color: 'var(--text-secondary)', fontSize: '12px' }}>
-            {formatCurrency(displayAmount, locale, displayCurrency)}
+            {formatCurrency(displayAmount, locale, effectiveDisplayCurrency)}
           </div>
         )}
       </div>
@@ -821,7 +840,7 @@ export default function StockDetail() {
 
   const formatYearTotal = (value: number | null) => {
     if (value === null) return t(language, 'stockDetail.partial')
-    return formatCurrency(value, locale, displayCurrency)
+    return formatCurrency(value, locale, effectiveDisplayCurrency)
   }
 
   const displayName = formatDisplayName(stock.name, stock.ticker)
@@ -1014,9 +1033,9 @@ export default function StockDetail() {
                 <span className="mono" style={{ fontSize: 30, fontWeight: 700, color: 'var(--text)' }}>
                   {formatCurrency(stock.current_price, locale, stock.currency)}
                 </span>
-                {stock.currency !== displayCurrency && displayCurrentPrice !== null && (
+                {stock.currency !== effectiveDisplayCurrency && displayCurrentPrice !== null && (
                   <span className="mono" style={{ fontSize: 14, color: 'var(--muted)' }}>
-                    {formatCurrency(displayCurrentPrice, locale, displayCurrency)}
+                    {formatCurrency(displayCurrentPrice, locale, effectiveDisplayCurrency)}
                   </span>
                 )}
                 {dailyChange !== null && (
@@ -1090,7 +1109,7 @@ export default function StockDetail() {
                 </tr>
                 <tr>
                   <td style={{ color: 'var(--muted)', fontSize: 13 }}>{t(language, 'stockDetail.purchasePrice')}</td>
-                  <td>{renderValueWithDisplayCurrency(stock.purchase_price, stock.currency, displayPurchasePrice)}</td>
+                  <td>{renderValueWithDisplayCurrency(nativePurchasePrice, stock.currency, displayPurchasePrice)}</td>
                 </tr>
                 <tr>
                   <td style={{ color: 'var(--muted)', fontSize: 13 }}>{t(language, 'stockDetail.purchaseDate')}</td>
@@ -1098,11 +1117,11 @@ export default function StockDetail() {
                 </tr>
                 <tr>
                   <td style={{ color: 'var(--muted)', fontSize: 13 }}>{t(language, 'stockDetail.currentValue')}</td>
-                  <td>{renderValueWithDisplayCurrency(stock.current_price != null ? stock.current_price * stock.quantity : null, stock.currency, displayCurrentValue)}</td>
+                  <td>{renderValueWithDisplayCurrency(nativeCurrentValue, stock.currency, displayCurrentValue)}</td>
                 </tr>
                 <tr>
                   <td style={{ color: 'var(--muted)', fontSize: 13 }}>{t(language, 'stockDetail.totalCost')}</td>
-                  <td>{renderValueWithDisplayCurrency(stock.purchase_price != null ? stock.purchase_price * stock.quantity : null, stock.currency, displayTotalCost)}</td>
+                  <td>{renderValueWithDisplayCurrency(nativeTotalCost, stock.currency, displayTotalCost)}</td>
                 </tr>
               </tbody>
             </table>
@@ -1483,12 +1502,12 @@ export default function StockDetail() {
               <input id={editPurchasePriceInputId} type="number" step="0.01" min="0" value={editPurchasePrice} onChange={(e) => setEditPurchasePrice(e.target.value)} style={{ width: '100%' }} placeholder="e.g. 150.00" />
             </div>
             <div style={{ marginBottom: 14 }}>
-              <label htmlFor={editCourtageInputId} style={{ display: 'block', marginBottom: 6, color: 'var(--muted)', fontSize: 12 }}>{t(language, 'stockDetail.courtage')} ({stock?.currency !== displayCurrency ? displayCurrency : stock?.currency})</label>
+              <label htmlFor={editCourtageInputId} style={{ display: 'block', marginBottom: 6, color: 'var(--muted)', fontSize: 12 }}>{t(language, 'stockDetail.courtage')} ({stock?.currency !== effectiveDisplayCurrency ? effectiveDisplayCurrency : stock?.currency})</label>
               <input id={editCourtageInputId} type="number" step="0.01" min="0" value={editCourtage} onChange={(e) => setEditCourtage(e.target.value)} style={{ width: '100%' }} placeholder="e.g. 9.00" />
             </div>
-            {(stock?.currency !== displayCurrency || editExchangeRate) && (
+            {(stock?.currency !== effectiveDisplayCurrency || editExchangeRate) && (
             <div style={{ marginBottom: 14 }}>
-              <label htmlFor={editExchangeRateInputId} style={{ display: 'block', marginBottom: 6, color: 'var(--muted)', fontSize: 12 }}>{t(language, 'stockDetail.exchangeRate')} (1 {stock?.currency} = ? {editExchangeRateCurrency || displayCurrency})</label>
+              <label htmlFor={editExchangeRateInputId} style={{ display: 'block', marginBottom: 6, color: 'var(--muted)', fontSize: 12 }}>{t(language, 'stockDetail.exchangeRate')} (1 {stock?.currency} = ? {editExchangeRateCurrency || effectiveDisplayCurrency})</label>
               <input id={editExchangeRateInputId} type="number" step="0.0001" min="0" value={editExchangeRate} onChange={(e) => setEditExchangeRate(e.target.value)} style={{ width: '100%' }} placeholder="e.g. 10.50" />
             </div>
             )}

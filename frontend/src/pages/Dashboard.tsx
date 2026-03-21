@@ -315,14 +315,22 @@ export default function Dashboard() {
       if (!background) {
         setLoading(true)
       }
-      const [summaryData, upcomingDivsData] = await Promise.all([
+      const [summaryResult, upcomingDivsResult] = await Promise.allSettled([
         api.portfolio.summary(),
-        api.portfolio.upcomingDividends().catch(() => ({ dividends: [], total_expected: 0, total_received: 0, total_remaining: 0, display_currency: displayCurrency, unmapped_stocks: [] })),
+        api.portfolio.upcomingDividends(),
       ])
       if (requestId !== dataRequestIdRef.current) return
+      if (summaryResult.status !== 'fulfilled') {
+        throw summaryResult.reason
+      }
+      const summaryData = summaryResult.value
       setSummary(summaryData)
-      setUpcomingDividends(upcomingDivsData.dividends)
-      setTotalRemainingDividends(upcomingDivsData.total_remaining)
+      if (upcomingDivsResult.status === 'fulfilled') {
+        setUpcomingDividends(upcomingDivsResult.value.dividends)
+        setTotalRemainingDividends(upcomingDivsResult.value.total_remaining)
+      } else {
+        console.error('Failed to load upcoming dividends:', upcomingDivsResult.reason)
+      }
       setFailedLogos({})
       setError(null)
     } catch (error) {
@@ -334,7 +342,7 @@ export default function Dashboard() {
     } finally {
       if (requestId === dataRequestIdRef.current && !background) setLoading(false)
     }
-  }, [displayCurrency, language])
+  }, [language])
 
   useEffect(() => {
     fetchData()
@@ -549,13 +557,13 @@ export default function Dashboard() {
     {
       label: t(language, 'dashboard.gainLoss'),
       value: formatCurrency(gainLoss, locale, currency),
-      partial: false,
+      partial: summary?.total_gain_loss_partial ?? false,
       color: gainLossIsPos ? 'var(--green)' : 'var(--red)',
     },
     {
       label: t(language, 'dashboard.returnPercent'),
       value: formatPercent(summary?.total_gain_loss_percent ?? 0, locale),
-      partial: false,
+      partial: summary?.total_gain_loss_partial ?? false,
       color: gainLossIsPos ? 'var(--green)' : 'var(--red)',
     },
     {

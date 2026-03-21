@@ -200,7 +200,9 @@ export interface PortfolioSummary {
   total_value: number
   total_value_partial: boolean
   total_cost: number
+  total_cost_partial: boolean
   total_gain_loss: number
+  total_gain_loss_partial: boolean
   total_gain_loss_percent: number
   daily_change: number
   daily_change_partial: boolean
@@ -244,6 +246,7 @@ export interface Dividend {
 export type DividendsByTicker = Record<string, Dividend[]>
 
 export interface UpcomingDividend {
+  id?: string
   ticker: string
   name: string | null
   quantity: number
@@ -273,6 +276,9 @@ export interface UpcomingDividendsResponse {
   total_expected: number
   total_received: number
   total_remaining: number
+  dividends_partial: boolean
+  skipped_dividend_count: number
+  skipped_dividend_ids: string[]
   display_currency: string
   unmapped_stocks: Array<{
     ticker: string
