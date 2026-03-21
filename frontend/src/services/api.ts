@@ -260,6 +260,7 @@ export interface Dividend {
 export type DividendsByTicker = Record<string, Dividend[]>
 
 export interface UpcomingDividend {
+  id?: string
   ticker: string
   name: string | null
   quantity: number
@@ -290,6 +291,9 @@ export interface UpcomingDividendsResponse {
   total_received: number
   total_remaining: number
   totals_partial: boolean
+  dividends_partial: boolean
+  skipped_dividend_count: number
+  skipped_dividend_ids: string[]
   display_currency: string
   unmapped_stocks: Array<{
     ticker: string

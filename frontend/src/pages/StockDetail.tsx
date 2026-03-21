@@ -14,6 +14,7 @@ import { useModalFocusTrap } from '../hooks/useModalFocusTrap'
 import { formatDisplayName } from '../utils/displayName'
 import SortableHeader from '../components/SortableHeader'
 import { sortTableItems, useTableSort } from '../utils/tableSort'
+import { calculatePositionCostInCurrency } from '../utils/positions'
 
 /**
  * Format a numeric value as a localized currency string.
@@ -185,6 +186,7 @@ export default function StockDetail() {
   const [yearRemaining, setYearRemaining] = useState<number | null>(0)
   const [stockSummary, setStockSummary] = useState<PortfolioSummaryStock | null>(null)
   const [summaryDisplayCurrency, setSummaryDisplayCurrency] = useState('')
+  const [summaryDisplayCurrency, setSummaryDisplayCurrency] = useState('SEK')
   const [analystData, setAnalystData] = useState<AnalystData | null>(null)
   const [suppressedDividends, setSuppressedDividends] = useState<ManualDividend[]>([])
   const [loading, setLoading] = useState(true)
@@ -310,6 +312,9 @@ export default function StockDetail() {
       total_received: 0,
       total_remaining: 0,
       totals_partial: false,
+      dividends_partial: false,
+      skipped_dividend_count: 0,
+      skipped_dividend_ids: [],
       display_currency: 'SEK',
       unmapped_stocks: [],
     }
@@ -793,9 +798,23 @@ export default function StockDetail() {
     ? (dailyChange / stock.previous_close) * 100 
     : null
 
+  const positionQuantity = stockSummary?.quantity ?? stock.quantity
+  const nativeTotalCost = calculatePositionCostInCurrency(
+    stock.position_entries,
+    positionQuantity,
+    stock.purchase_price,
+    stock.currency,
+    stock.currency,
+    {},
+  )
+  const nativeCurrentValue = stock.current_price !== null ? stock.current_price * positionQuantity : null
+  const nativePurchasePrice =
+    nativeTotalCost !== null && positionQuantity > 0
+      ? nativeTotalCost / positionQuantity
+      : null
   const displayPurchasePrice =
-    stockSummary?.total_cost_converted && stockSummary.total_cost !== null && stock.quantity > 0
-      ? stockSummary.total_cost / stock.quantity
+    stockSummary?.total_cost_converted && stockSummary.total_cost !== null && positionQuantity > 0
+      ? stockSummary.total_cost / positionQuantity
       : null
   const displayCurrentPrice = stockSummary?.display_price_converted ? stockSummary.display_price : null
   const displayCurrentValue = stockSummary?.current_value_converted ? stockSummary.current_value : null
@@ -812,6 +831,8 @@ export default function StockDetail() {
     return (
         <div style={{ textAlign }}>
           <div>{formatCurrency(amount, locale, fromCurrency)}</div>
+      <div style={{ textAlign }}>
+        <div>{formatCurrency(amount, locale, fromCurrency)}</div>
         {amount !== null && fromCurrency !== effectiveDisplayCurrency && displayAmount !== null && (
           <div style={{ color: 'var(--text-secondary)', fontSize: '12px' }}>
             {formatCurrency(displayAmount, locale, effectiveDisplayCurrency)}
@@ -1092,7 +1113,7 @@ export default function StockDetail() {
                 </tr>
                 <tr>
                   <td style={{ color: 'var(--muted)', fontSize: 13 }}>{t(language, 'stockDetail.purchasePrice')}</td>
-                  <td>{renderValueWithDisplayCurrency(stock.purchase_price, stock.currency, displayPurchasePrice)}</td>
+                  <td>{renderValueWithDisplayCurrency(nativePurchasePrice, stock.currency, displayPurchasePrice)}</td>
                 </tr>
                 <tr>
                   <td style={{ color: 'var(--muted)', fontSize: 13 }}>{t(language, 'stockDetail.purchaseDate')}</td>
@@ -1100,11 +1121,11 @@ export default function StockDetail() {
                 </tr>
                 <tr>
                   <td style={{ color: 'var(--muted)', fontSize: 13 }}>{t(language, 'stockDetail.currentValue')}</td>
-                  <td>{renderValueWithDisplayCurrency(stock.current_price != null ? stock.current_price * stock.quantity : null, stock.currency, displayCurrentValue)}</td>
+                  <td>{renderValueWithDisplayCurrency(nativeCurrentValue, stock.currency, displayCurrentValue)}</td>
                 </tr>
                 <tr>
                   <td style={{ color: 'var(--muted)', fontSize: 13 }}>{t(language, 'stockDetail.totalCost')}</td>
-                  <td>{renderValueWithDisplayCurrency(stock.purchase_price != null ? stock.purchase_price * stock.quantity : null, stock.currency, displayTotalCost)}</td>
+                  <td>{renderValueWithDisplayCurrency(nativeTotalCost, stock.currency, displayTotalCost)}</td>
                 </tr>
               </tbody>
             </table>

@@ -206,6 +206,7 @@ export default function Performance() {
         stock.purchase_price,
         stock.currency,
         stock.currency,
+        {},
       )
       const gain = value != null && cost != null ? value - cost : null
       const dailyChange = stock.current_price != null && stock.previous_close != null
@@ -273,7 +274,9 @@ export default function Performance() {
 
   const {
     missingRateStocks,
-    hasMissing,
+    hasMissingValue,
+    hasMissingCost,
+    hasMissingGain,
     hasMissingDailyChange,
     totalValue,
     totalCost,
@@ -290,7 +293,9 @@ export default function Performance() {
     })
     return {
       missingRateStocks: missing,
-      hasMissing: summary?.total_value_partial ?? false,
+      hasMissingValue: summary?.total_value_partial ?? false,
+      hasMissingCost: summary?.total_cost_partial ?? false,
+      hasMissingGain: summary?.total_gain_loss_partial ?? false,
       hasMissingDailyChange: summary?.daily_change_partial ?? false,
       totalValue: summary?.total_value ?? 0,
       totalCost: summary?.total_cost ?? 0,
@@ -369,9 +374,9 @@ export default function Performance() {
         background: 'linear-gradient(115deg, var(--bg-dark, #12141c) 0%, var(--bg) 55%)',
       }}>
         {[ 
-          { label: t(language, 'performance.totalValue'), value: formatCurrency(totalValue, locale, displayCurrency), color: 'var(--text)', incomplete: hasMissing },
-          { label: t(language, 'performance.totalCost'), value: formatCurrency(totalCost, locale, displayCurrency), color: 'var(--text2)', incomplete: hasMissing },
-          { label: t(language, 'performance.totalGainLoss'), value: formatCurrency(totalGain, locale, displayCurrency), sub: formatPercent(totalGainPercent, locale), color: totalGain >= 0 ? 'var(--green)' : 'var(--red)', incomplete: hasMissing },
+          { label: t(language, 'performance.totalValue'), value: formatCurrency(totalValue, locale, displayCurrency), color: 'var(--text)', incomplete: hasMissingValue },
+          { label: t(language, 'performance.totalCost'), value: formatCurrency(totalCost, locale, displayCurrency), color: 'var(--text2)', incomplete: hasMissingCost },
+          { label: t(language, 'performance.totalGainLoss'), value: formatCurrency(totalGain, locale, displayCurrency), sub: formatPercent(totalGainPercent, locale), color: totalGain >= 0 ? 'var(--green)' : 'var(--red)', incomplete: hasMissingGain },
           { label: t(language, 'performance.dailyChange'), value: formatCurrency(totalDailyChange, locale, displayCurrency), color: totalDailyChange >= 0 ? 'var(--green)' : 'var(--red)', incomplete: hasMissingDailyChange },
         ].map((stat, i, arr) => (
           <div key={stat.label} style={{
