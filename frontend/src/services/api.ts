@@ -132,12 +132,26 @@ async function fetchAPI(endpoint: string, options?: RequestInit) {
         clearStoredAuthUser(true)
       }
       const error = await response.json().catch(() => ({ detail: 'Unknown error' }))
-      throw new Error(error.detail || 'Request failed')
+      const requestError = new Error(error.detail || 'Request failed') as Error & { status?: number }
+      requestError.status = response.status
+      throw requestError
     }
 
     return response.json()
   } finally {
     cleanup()
+  }
+}
+
+async function fetchOptionalAPI<T>(endpoint: string, fallback: T, options?: RequestInit): Promise<T> {
+  try {
+    return await fetchAPI(endpoint, options) as T
+  } catch (error) {
+    const status = (error as { status?: number } | null)?.status
+    if (status === 403 || status === 404) {
+      return fallback
+    }
+    throw error
   }
 }
 
@@ -564,10 +578,10 @@ export const api = {
   },
   
   finnhub: {
-    profile: (ticker: string) => fetchAPI(`/finnhub/profile/${encodePathSegment(ticker)}`) as Promise<CompanyProfile>,
-    metrics: (ticker: string) => fetchAPI(`/finnhub/metrics/${encodePathSegment(ticker)}`) as Promise<FinancialMetrics>,
-    peers: (ticker: string) => fetchAPI(`/finnhub/peers/${encodePathSegment(ticker)}`) as Promise<string[]>,
-    recommendations: (ticker: string) => fetchAPI(`/finnhub/recommendations/${encodePathSegment(ticker)}`) as Promise<RecommendationTrend[]>,
+    profile: (ticker: string) => fetchOptionalAPI<CompanyProfile | null>(`/finnhub/profile/${encodePathSegment(ticker)}`, null),
+    metrics: (ticker: string) => fetchOptionalAPI<FinancialMetrics | null>(`/finnhub/metrics/${encodePathSegment(ticker)}`, null),
+    peers: (ticker: string) => fetchOptionalAPI<string[]>(`/finnhub/peers/${encodePathSegment(ticker)}`, []),
+    recommendations: (ticker: string) => fetchOptionalAPI<RecommendationTrend[]>(`/finnhub/recommendations/${encodePathSegment(ticker)}`, []),
   },
   
   marketstack: {

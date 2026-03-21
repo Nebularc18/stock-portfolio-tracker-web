@@ -34,6 +34,7 @@ _LOGO_CACHE_TTL = 86400
 MAX_LOGO_BYTES = 5 * 1024 * 1024
 _LOGO_CACHE: dict[str, tuple[Optional[str], float]] = {}
 _CURATED_LOGO_QUERIES: dict[str, list[str]] = {
+    "EQT.ST": ["eqtpartners.com", "EQT Group"],
     "VOLV-B.ST": ["volvogroup.com", "Volvo Group"],
     "RIO.AX": ["riotinto.com", "Rio Tinto"],
     "OR.PA": ["loreal.com", "L'Oreal"],
@@ -577,6 +578,8 @@ class BrandfetchService:
         )
 
         if len(expected_tokens) <= 1:
+            if curated_domain_root and candidate_domain_root == curated_domain_root and quality_score >= 0.5:
+                return True
             if verified and quality_score >= 0.99 and (
                 exact_identity_match
                 or (curated_domain_root and candidate_domain_root == curated_domain_root)
