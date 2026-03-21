@@ -274,7 +274,8 @@ export default function Dashboard() {
   const [historyError, setHistoryError] = useState<Error | null>(null)
   const [error, setError] = useState<string | null>(null)
   const historyRequestIdRef = useRef(0)
-  const dataRequestIdRef = useRef(0)
+  const foregroundDataRequestIdRef = useRef(0)
+  const backgroundDataRequestIdRef = useRef(0)
   const autoRefreshTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const lastAutoRefreshRunRef = useRef<symbol | null>(null)
   const { displayCurrency, timezone, language } = useSettings()
@@ -309,25 +310,41 @@ export default function Dashboard() {
 
   const fetchData = useCallback(async (options: FetchOptions = {}) => {
     const { background = false } = options
-    const requestId = dataRequestIdRef.current + 1
-    dataRequestIdRef.current = requestId
+    const requestIdRef = background ? backgroundDataRequestIdRef : foregroundDataRequestIdRef
+    const requestId = requestIdRef.current + 1
+    requestIdRef.current = requestId
+    let loadingStarted = false
+    let loadingCleared = false
+    const clearLoading = () => {
+      if (loadingStarted && !loadingCleared) {
+        setLoading(false)
+        loadingCleared = true
+      }
+    }
     try {
       if (!background) {
         setLoading(true)
+        loadingStarted = true
       }
       const upcomingDivsPromise = api.portfolio.upcomingDividends()
         .then((value) => ({ status: 'fulfilled' as const, value }))
         .catch((reason) => ({ status: 'rejected' as const, reason }))
       const summaryData = await api.portfolio.summary()
-      if (requestId !== dataRequestIdRef.current) return
+      if (requestId !== requestIdRef.current) {
+        clearLoading()
+        return
+      }
       setSummary(summaryData)
       setFailedLogos({})
       setError(null)
       if (!background) {
-        setLoading(false)
+        clearLoading()
       }
       const upcomingDivsResult = await upcomingDivsPromise
-      if (requestId !== dataRequestIdRef.current) return
+      if (requestId !== requestIdRef.current) {
+        clearLoading()
+        return
+      }
       if (upcomingDivsResult.status === 'fulfilled') {
         setUpcomingDividends(upcomingDivsResult.value.dividends)
         setTotalRemainingDividends(upcomingDivsResult.value.total_remaining)
@@ -335,18 +352,28 @@ export default function Dashboard() {
         console.error('Failed to load upcoming dividends:', upcomingDivsResult.reason)
       }
     } catch (error) {
-      if (requestId !== dataRequestIdRef.current) return
+      if (requestId !== requestIdRef.current) {
+        clearLoading()
+        return
+      }
       console.error('Failed to load dashboard data:', error)
       if (!background) {
         setError(t(language, 'dashboard.failedLoad'))
-        setLoading(false)
+        clearLoading()
+      }
+    } finally {
+      if (!background && requestId === requestIdRef.current) {
+        clearLoading()
       }
     }
   }, [language])
 
   useEffect(() => {
     fetchData()
-    return () => { dataRequestIdRef.current += 1 }
+    return () => {
+      foregroundDataRequestIdRef.current += 1
+      backgroundDataRequestIdRef.current += 1
+    }
   }, [fetchData])
 
   useEffect(() => {

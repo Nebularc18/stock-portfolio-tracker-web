@@ -293,6 +293,21 @@ export default function Performance() {
     totalGainPercent,
     totalDailyChange,
   } = useMemo(() => {
+    if (summary === null) {
+      return {
+        missingRateStocks: [],
+        hasMissingValue: false,
+        hasMissingCost: false,
+        hasMissingGain: false,
+        hasMissingDailyChange: false,
+        totalValue: 0,
+        totalCost: 0,
+        totalGain: 0,
+        totalGainPercent: 0,
+        totalDailyChange: 0,
+      }
+    }
+
     const missing = performanceData.filter((stock) => {
       if (stock.currency === displayCurrency) return false
       const valueRateMissing = stock.value !== null && stock.valueDisplay === null
@@ -409,7 +424,7 @@ export default function Performance() {
       </div>
 
       <div style={{ padding: '0 28px 28px' }}>
-        {missingRateStocks.length > 0 && (
+        {summaryAvailable && missingRateStocks.length > 0 && (
           <div style={{ marginTop: 16, padding: '10px 16px', background: 'rgba(251,191,36,0.08)', border: '1px solid rgba(251,191,36,0.25)', borderRadius: 6 }}>
             <p style={{ color: 'var(--amber)', margin: 0, fontSize: 13 }}>
               {missingRatesWarning}
@@ -514,19 +529,27 @@ export default function Performance() {
                   <td style={{ fontFamily: "'Fira Code', monospace" }}>{stock.quantity}</td>
                   <td><span className="badge badge-muted">{stock.currency}</span></td>
                   <td style={{ fontFamily: "'Fira Code', monospace" }}>
-                    {stock.cost === null ? '-' : (stock.costDisplay !== null ? formatCurrency(stock.costDisplay, locale, displayCurrency) : t(language, 'performance.rateMissing'))}
+                    {summaryPending
+                      ? t(language, 'common.loading')
+                      : (!summaryAvailable ? '-' : (stock.cost === null ? '-' : (stock.costDisplay !== null ? formatCurrency(stock.costDisplay, locale, displayCurrency) : t(language, 'performance.rateMissing'))))}
                   </td>
                   <td style={{ fontFamily: "'Fira Code', monospace" }}>
-                    {stock.value === null ? '-' : (stock.valueDisplay !== null ? formatCurrency(stock.valueDisplay, locale, displayCurrency) : t(language, 'performance.rateMissing'))}
+                    {summaryPending
+                      ? t(language, 'common.loading')
+                      : (!summaryAvailable ? '-' : (stock.value === null ? '-' : (stock.valueDisplay !== null ? formatCurrency(stock.valueDisplay, locale, displayCurrency) : t(language, 'performance.rateMissing'))))}
                   </td>
                    <td className={stock.gainDisplay !== null ? (stock.gainDisplay >= 0 ? 'positive' : 'negative') : ''} style={{ fontFamily: "'Fira Code', monospace" }}>
-                    {stock.gain === null ? '-' : (stock.gainDisplay !== null ? formatCurrency(stock.gainDisplay, locale, displayCurrency) : t(language, 'performance.rateMissing'))}
+                    {summaryPending
+                      ? t(language, 'common.loading')
+                      : (!summaryAvailable ? '-' : (stock.gain === null ? '-' : (stock.gainDisplay !== null ? formatCurrency(stock.gainDisplay, locale, displayCurrency) : t(language, 'performance.rateMissing'))))}
                   </td>
                   <td className={stock.gainPercent !== null ? (stock.gainPercent >= 0 ? 'positive' : 'negative') : ''} style={{ fontFamily: "'Fira Code', monospace", fontWeight: 700 }}>
                     {formatPercent(stock.gainPercent, locale)}
                   </td>
                    <td className={stock.dailyChangeDisplay !== null ? (stock.dailyChangeDisplay >= 0 ? 'positive' : 'negative') : ''} style={{ fontFamily: "'Fira Code', monospace" }}>
-                    {stock.dailyChange === null ? '-' : (stock.dailyChangeDisplay !== null ? formatCurrency(stock.dailyChangeDisplay, locale, displayCurrency) : t(language, 'performance.rateMissing'))}
+                    {summaryPending
+                      ? t(language, 'common.loading')
+                      : (!summaryAvailable ? '-' : (stock.dailyChange === null ? '-' : (stock.dailyChangeDisplay !== null ? formatCurrency(stock.dailyChangeDisplay, locale, displayCurrency) : t(language, 'performance.rateMissing'))))}
                   </td>
                    <td className={stock.dailyChangePercent !== null ? (stock.dailyChangePercent >= 0 ? 'positive' : 'negative') : ''} style={{ fontFamily: "'Fira Code', monospace" }}>
                     {formatPercent(stock.dailyChangePercent, locale)}

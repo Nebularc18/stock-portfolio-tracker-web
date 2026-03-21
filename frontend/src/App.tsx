@@ -1,8 +1,9 @@
-import { Suspense, lazy } from 'react'
+import { Suspense, lazy, useState } from 'react'
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
 import { SettingsProvider } from './SettingsContext'
 import { HeaderDataProvider } from './contexts/HeaderDataContext'
 import { useAuth } from './AuthContext'
+import ErrorBoundary from './components/ErrorBoundary'
 import InfographicLayout from './layouts/InfographicLayout'
 import Login from './pages/Login'
 
@@ -23,6 +24,7 @@ const UpcomingDividends = lazy(() => import('./pages/UpcomingDividends'))
  */
 function App() {
   const { user } = useAuth()
+  const [routeBoundaryKey, setRouteBoundaryKey] = useState(0)
 
   if (!user) {
     return <Login />
@@ -32,22 +34,24 @@ function App() {
     <HeaderDataProvider>
       <SettingsProvider>
         <BrowserRouter>
-          <Suspense fallback={<div className="loading-state">Loading...</div>}>
-            <Routes>
-              <Route element={<InfographicLayout />}>
-                <Route path="/" element={<Dashboard />} />
-                <Route path="/performance" element={<Performance />} />
-                <Route path="/analytics" element={<Analytics />} />
-                <Route path="/dividends" element={<Navigate to="/dividends/history" replace />} />
-                <Route path="/dividends/history" element={<HistoricalDividends />} />
-                <Route path="/dividends/upcoming" element={<UpcomingDividends />} />
-                <Route path="/stocks" element={<Stocks />} />
-                <Route path="/stocks/:ticker" element={<StockDetail />} />
-                <Route path="/markets" element={<Markets />} />
-                <Route path="/settings" element={<Settings />} />
-              </Route>
-            </Routes>
-          </Suspense>
+          <ErrorBoundary key={routeBoundaryKey} onRetry={() => setRouteBoundaryKey((current) => current + 1)}>
+            <Suspense fallback={<div className="loading-state">Loading...</div>}>
+              <Routes>
+                <Route element={<InfographicLayout />}>
+                  <Route path="/" element={<Dashboard />} />
+                  <Route path="/performance" element={<Performance />} />
+                  <Route path="/analytics" element={<Analytics />} />
+                  <Route path="/dividends" element={<Navigate to="/dividends/history" replace />} />
+                  <Route path="/dividends/history" element={<HistoricalDividends />} />
+                  <Route path="/dividends/upcoming" element={<UpcomingDividends />} />
+                  <Route path="/stocks" element={<Stocks />} />
+                  <Route path="/stocks/:ticker" element={<StockDetail />} />
+                  <Route path="/markets" element={<Markets />} />
+                  <Route path="/settings" element={<Settings />} />
+                </Route>
+              </Routes>
+            </Suspense>
+          </ErrorBoundary>
         </BrowserRouter>
       </SettingsProvider>
     </HeaderDataProvider>

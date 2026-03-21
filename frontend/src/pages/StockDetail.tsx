@@ -336,7 +336,23 @@ export default function StockDetail() {
   const loadSupplementalStockPageData = useCallback(async (stockData: Stock): Promise<SupplementalStockPageData> => {
     const [suppressedData, summaryData, portfolioUpcomingData] = await Promise.all([
       api.stocks.getSuppressedDividends(stockData.ticker).catch(() => []),
-      api.portfolio.summary(),
+      api.portfolio.summary().catch(() => ({
+        total_value: 0,
+        total_value_partial: false,
+        total_cost: 0,
+        total_cost_partial: false,
+        total_gain_loss: 0,
+        total_gain_loss_partial: false,
+        total_gain_loss_percent: 0,
+        daily_change: 0,
+        daily_change_partial: false,
+        dividend_yield: 0,
+        dividend_yield_partial: false,
+        last_updated: null,
+        display_currency: displayCurrency,
+        stocks: [],
+        stock_count: 0,
+      })),
       api.portfolio.upcomingDividends().catch(() => EMPTY_UPCOMING_RESPONSE),
     ])
     const stockSummaryData = summaryData.stocks.find((item) => item.ticker === stockData.ticker) ?? null
@@ -357,7 +373,7 @@ export default function StockDetail() {
       yearRemainingData: aggregateDividendTotal(stockYearDividends, 'upcoming'),
       suppressedDividendsData: suppressedData,
     }
-  }, [])
+  }, [displayCurrency])
 
   const loadStockPageData = useCallback(async (tickerValue: string): Promise<LoadedStockPageData> => {
     const primaryData = await loadPrimaryStockPageData(tickerValue)
@@ -455,8 +471,8 @@ export default function StockDetail() {
     setYearReceived(0)
     setYearRemaining(0)
     setSuppressedDividends([])
-    setSummaryDisplayCurrency('SEK')
-  }, [ticker])
+    setSummaryDisplayCurrency(displayCurrency)
+  }, [ticker, displayCurrency])
 
   const loadFinnhubData = useCallback((force: boolean = false) => {
     if (!ticker) return Promise.resolve()
