@@ -136,17 +136,34 @@ function aggregateDividendTotal(
     return hasMissingConversion ? null : total
 }
 
-type LoadedStockPageData = {
+type BaseLoadedStockPageData = {
   stockData: Stock
-  stockSummaryData: PortfolioSummaryStock | null
-  displayCurrencyData: string
   allDividendsData: Dividend[]
   dividendsData: Dividend[]
+}
+
+type SupplementalStockPageData = {
+  stockSummaryData: PortfolioSummaryStock | null
+  displayCurrencyData: string
   allYearDividendsData: UpcomingDividend[]
   yearDividendsData: UpcomingDividend[]
   yearReceivedData: number | null
   yearRemainingData: number | null
   suppressedDividendsData: ManualDividend[]
+}
+
+type LoadedStockPageData = BaseLoadedStockPageData & SupplementalStockPageData
+
+const EMPTY_UPCOMING_RESPONSE: UpcomingDividendsResponse = {
+  dividends: [],
+  total_expected: 0,
+  total_received: 0,
+  total_remaining: 0,
+  dividends_partial: false,
+  skipped_dividend_count: 0,
+  skipped_dividend_ids: [],
+  display_currency: 'SEK',
+  unmapped_stocks: [],
 }
 
 type ManualDividendSortField = 'date' | 'amount' | 'note'
@@ -320,11 +337,39 @@ export default function StockDetail() {
     }
 
     const [stockData, divData, suppressedData, summaryData, portfolioUpcomingData] = await Promise.all([
+  const loadPrimaryStockPageData = useCallback(async (tickerValue: string): Promise<BaseLoadedStockPageData> => {
+    const [stockData, divData] = await Promise.all([
       api.stocks.get(tickerValue),
       api.stocks.dividends(tickerValue),
-      api.stocks.getSuppressedDividends(tickerValue).catch(() => []),
-      api.portfolio.summary(),
-      api.portfolio.upcomingDividends().catch(() => emptyUpcomingResponse),
+    ])
+    return {
+      stockData,
+      allDividendsData: divData,
+      dividendsData: divData,
+    }
+  }, [])
+
+  const loadSupplementalStockPageData = useCallback(async (stockData: Stock): Promise<SupplementalStockPageData> => {
+    const [suppressedData, summaryData, portfolioUpcomingData] = await Promise.all([
+      api.stocks.getSuppressedDividends(stockData.ticker).catch(() => []),
+      api.portfolio.summary().catch(() => ({
+        total_value: 0,
+        total_value_partial: false,
+        total_cost: 0,
+        total_cost_partial: false,
+        total_gain_loss: 0,
+        total_gain_loss_partial: false,
+        total_gain_loss_percent: 0,
+        daily_change: 0,
+        daily_change_partial: false,
+        dividend_yield: 0,
+        dividend_yield_partial: false,
+        last_updated: null,
+        display_currency: displayCurrency,
+        stocks: [],
+        stock_count: 0,
+      })),
+      api.portfolio.upcomingDividends().catch(() => EMPTY_UPCOMING_RESPONSE),
     ])
     const stockSummaryData = summaryData.stocks.find((item) => item.ticker === stockData.ticker) ?? null
     const stockYearDividends = portfolioUpcomingData.dividends
@@ -336,23 +381,34 @@ export default function StockDetail() {
       })
 
     return {
-      stockData,
       stockSummaryData,
       displayCurrencyData: summaryData.display_currency,
-      allDividendsData: divData,
-      dividendsData: divData,
       allYearDividendsData: stockYearDividends,
       yearDividendsData: stockYearDividends,
       yearReceivedData: aggregateDividendTotal(stockYearDividends, 'paid'),
       yearRemainingData: aggregateDividendTotal(stockYearDividends, 'upcoming'),
       suppressedDividendsData: suppressedData,
     }
-  }, [])
+  }, [displayCurrency])
 
-  const applyLoadedStockPageData = useCallback((data: LoadedStockPageData) => {
+  const loadStockPageData = useCallback(async (tickerValue: string): Promise<LoadedStockPageData> => {
+    const primaryData = await loadPrimaryStockPageData(tickerValue)
+    const supplementalData = await loadSupplementalStockPageData(primaryData.stockData)
+    return {
+      ...primaryData,
+      ...supplementalData,
+    }
+  }, [loadPrimaryStockPageData, loadSupplementalStockPageData])
+
+  const applyPrimaryStockPageData = useCallback((data: BaseLoadedStockPageData) => {
     setStock(data.stockData)
     setAllDividends(data.allDividendsData)
     setDividends(data.dividendsData)
+    setEditPurchaseDate(data.stockData.purchase_date || '')
+    setError(null)
+  }, [])
+
+  const applySupplementalStockPageData = useCallback((data: SupplementalStockPageData) => {
     setAllYearDividends(data.allYearDividendsData)
     setYearDividends(data.yearDividendsData)
     setYearReceived(data.yearReceivedData)
@@ -360,9 +416,12 @@ export default function StockDetail() {
     setStockSummary(data.stockSummaryData)
     setSummaryDisplayCurrency(data.displayCurrencyData)
     setSuppressedDividends(data.suppressedDividendsData)
-    setEditPurchaseDate(data.stockData.purchase_date || '')
-    setError(null)
   }, [])
+
+  const applyLoadedStockPageData = useCallback((data: LoadedStockPageData) => {
+    applyPrimaryStockPageData(data)
+    applySupplementalStockPageData(data)
+  }, [applyPrimaryStockPageData, applySupplementalStockPageData])
 
   useEffect(() => {
     if (!ticker) return
@@ -376,15 +435,24 @@ export default function StockDetail() {
         if (active) {
           setLoading(true)
         }
-        const data = await loadStockPageData(ticker)
+        const primaryData = await loadPrimaryStockPageData(ticker)
         if (!active) return
-        applyLoadedStockPageData(data)
+        applyPrimaryStockPageData(primaryData)
+        setLoading(false)
+
+        loadSupplementalStockPageData(primaryData.stockData)
+          .then((supplementalData) => {
+            if (!active) return
+            applySupplementalStockPageData(supplementalData)
+          })
+          .catch((supplementalError) => {
+            if (active) {
+              console.error('Failed to load supplemental stock detail data', supplementalError)
+            }
+          })
       } catch (err: any) {
         if (active) {
           setError(err.message || t(language, 'stockDetail.failedLoad'))
-        }
-      } finally {
-        if (active) {
           setLoading(false)
         }
       }
@@ -395,7 +463,7 @@ export default function StockDetail() {
     return () => {
       active = false
     }
-  }, [applyLoadedStockPageData, loadStockPageData, ticker])
+  }, [applyPrimaryStockPageData, applySupplementalStockPageData, loadPrimaryStockPageData, loadSupplementalStockPageData, ticker, language])
 
   useEffect(() => {
     setStock(null)
@@ -414,7 +482,13 @@ export default function StockDetail() {
     marketstackRequestRef.current = null
     setLogoFailed(false)
     setStockSummary(null)
-  }, [ticker])
+    setAllYearDividends([])
+    setYearDividends([])
+    setYearReceived(0)
+    setYearRemaining(0)
+    setSuppressedDividends([])
+    setSummaryDisplayCurrency(displayCurrency)
+  }, [ticker, displayCurrency])
 
   const loadFinnhubData = useCallback((force: boolean = false) => {
     if (!ticker) return Promise.resolve()
