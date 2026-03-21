@@ -1,10 +1,9 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react'
 import { Link } from 'react-router-dom'
-import { api, Stock } from '../services/api'
+import { api, PortfolioSummary, Stock } from '../services/api'
 import { getLocaleForLanguage, t } from '../i18n'
 import { useSettings } from '../SettingsContext'
 import SortableHeader from '../components/SortableHeader'
-import { convertCurrencyToSEK } from '../utils/currency'
 import { calculatePositionCostInCurrency } from '../utils/positions'
 import { sortTableItems, useTableSort } from '../utils/tableSort'
 
@@ -90,10 +89,10 @@ interface PerformanceData {
   gainPercent: number | null
   dailyChange: number | null
   dailyChangePercent: number | null
-  valueSEK: number | null
-  costSEK: number | null
-  gainSEK: number | null
-  dailyChangeSEK: number | null
+  valueDisplay: number | null
+  costDisplay: number | null
+  gainDisplay: number | null
+  dailyChangeDisplay: number | null
 }
 
 /**
@@ -146,13 +145,13 @@ export function SortHeader({
 }
 
 /**
- * Display the portfolio performance dashboard with summary cards, best/worst performer lists, a sortable holdings table, and CSV export.
+ * Render the portfolio performance dashboard with summary cards, best/worst performer lists, a sortable holdings table, and CSV export.
  *
  * @returns The React element for the performance dashboard.
  */
 export default function Performance() {
   const [stocks, setStocks] = useState<Stock[]>([])
-  const [exchangeRates, setExchangeRates] = useState<Record<string, number | null>>({})
+  const [summary, setSummary] = useState<PortfolioSummary | null>(null)
   const [loading, setLoading] = useState(true)
   const [loadError, setLoadError] = useState<Error | null>(null)
   const { sortState, requestSort } = useTableSort<SortField>({ field: 'ticker', direction: 'asc' })
@@ -167,18 +166,13 @@ export default function Performance() {
       if (latestFetchIdRef.current !== fetchId) return
       setLoadError(null)
       setLoading(true)
-      const stocksData = await api.stocks.list()
+      const [stocksData, summaryData] = await Promise.all([
+        api.stocks.list(),
+        api.portfolio.summary(),
+      ])
       if (latestFetchIdRef.current !== fetchId) return
       setStocks(stocksData)
-      try {
-        const ratesData = await api.market.exchangeRates()
-        if (latestFetchIdRef.current !== fetchId) return
-        setExchangeRates(ratesData)
-      } catch (ratesError) {
-        if (latestFetchIdRef.current !== fetchId) return
-        console.error('Failed to load exchange rates:', ratesError)
-        setExchangeRates({})
-      }
+      setSummary(summaryData)
     } catch (err) {
       if (latestFetchIdRef.current !== fetchId) return
       console.error('Failed to load data:', err)
@@ -197,8 +191,14 @@ export default function Performance() {
     }
   }, [fetchData])
 
+  const displayCurrency = summary?.display_currency ?? 'SEK'
+  const summaryStocksByTicker = useMemo(() => (
+    new Map((summary?.stocks ?? []).map((stock) => [stock.ticker, stock]))
+  ), [summary])
+
   const performanceData: PerformanceData[] = useMemo(() => (
     stocks.map(stock => {
+      const summaryStock = summaryStocksByTicker.get(stock.ticker)
       const value = stock.current_price != null ? stock.current_price * stock.quantity : null
       const cost = calculatePositionCostInCurrency(
         stock.position_entries,
@@ -206,27 +206,15 @@ export default function Performance() {
         stock.purchase_price,
         stock.currency,
         stock.currency,
-        exchangeRates,
+        {},
       )
       const gain = value != null && cost != null ? value - cost : null
-      const gainPercent = gain != null && cost != null && cost !== 0 ? (gain / cost) * 100 : null
       const dailyChange = stock.current_price != null && stock.previous_close != null
         ? (stock.current_price - stock.previous_close) * stock.quantity
         : null
       const dailyChangePercent = stock.current_price != null && stock.previous_close != null && stock.previous_close !== 0
         ? ((stock.current_price - stock.previous_close) / stock.previous_close) * 100
         : null
-
-      const valueSEK = convertCurrencyToSEK(value, stock.currency, exchangeRates)
-      const costSEK = calculatePositionCostInCurrency(
-        stock.position_entries,
-        stock.quantity,
-        stock.purchase_price,
-        stock.currency,
-        'SEK',
-        exchangeRates,
-      )
-
       return {
         ticker: stock.ticker,
         name: stock.name,
@@ -238,16 +226,16 @@ export default function Performance() {
         value,
         cost,
         gain,
-        gainPercent,
+        gainPercent: summaryStock?.gain_loss_percent ?? null,
         dailyChange,
         dailyChangePercent,
-        valueSEK,
-        costSEK,
-        gainSEK: valueSEK !== null && costSEK !== null ? valueSEK - costSEK : null,
-        dailyChangeSEK: convertCurrencyToSEK(dailyChange, stock.currency, exchangeRates),
+        valueDisplay: summaryStock?.current_value_converted ? summaryStock.current_value : null,
+        costDisplay: summaryStock?.total_cost_converted ? (summaryStock.total_cost ?? null) : null,
+        gainDisplay: summaryStock?.gain_loss ?? null,
+        dailyChangeDisplay: summaryStock?.daily_change_converted ? summaryStock.daily_change : null,
       }
     })
-  ), [stocks, exchangeRates])
+  ), [stocks, summaryStocksByTicker])
 
   const sortedData = useMemo(() => (
     sortTableItems(
@@ -258,11 +246,11 @@ export default function Performance() {
         name: (item) => item.name || item.ticker,
         quantity: (item) => item.quantity,
         currency: (item) => item.currency,
-        value: (item) => item.valueSEK,
-        cost: (item) => item.costSEK,
-        gain: (item) => item.gainSEK,
+        value: (item) => item.valueDisplay,
+        cost: (item) => item.costDisplay,
+        gain: (item) => item.gainDisplay,
         gainPercent: (item) => item.gainPercent,
-        dailyChange: (item) => item.dailyChangeSEK,
+        dailyChange: (item) => item.dailyChangeDisplay,
         dailyChangePercent: (item) => item.dailyChangePercent,
       },
       locale,
@@ -285,7 +273,9 @@ export default function Performance() {
 
   const {
     missingRateStocks,
-    hasMissing,
+    hasMissingValue,
+    hasMissingCost,
+    hasMissingGain,
     hasMissingDailyChange,
     totalValue,
     totalCost,
@@ -294,36 +284,27 @@ export default function Performance() {
     totalDailyChange,
   } = useMemo(() => {
     const missing = performanceData.filter((stock) => {
-      if (stock.currency === 'SEK') return false
-      const valueRateMissing = stock.value !== null && stock.valueSEK === null
-      const costRateMissing = stock.cost !== null && stock.costSEK === null
-      const gainRateMissing = stock.gain !== null && stock.gainSEK === null
+      if (stock.currency === displayCurrency) return false
+      const valueRateMissing = stock.value !== null && stock.valueDisplay === null
+      const costRateMissing = stock.cost !== null && stock.costDisplay === null
+      const gainRateMissing = stock.gain !== null && stock.gainDisplay === null
       return valueRateMissing || costRateMissing || gainRateMissing
     })
-    const hasNullLocalInputs = performanceData.some((stock) => (
-      stock.value === null || stock.cost === null || stock.gain === null
-    ))
-    const totalVal = performanceData.reduce((sum, s) => sum + (s.valueSEK ?? 0), 0)
-    const totalCostLocal = performanceData.reduce((sum, s) => sum + (s.costSEK ?? 0), 0)
-    const totalGainLocal = performanceData.reduce((sum, s) => {
-      if (s.gainSEK !== null) return sum + s.gainSEK
-      if (s.valueSEK !== null && s.costSEK !== null) return sum + (s.valueSEK - s.costSEK)
-      return sum
-    }, 0)
-    const totalGainPercentLocal = totalCostLocal > 0 ? (totalGainLocal / totalCostLocal) * 100 : 0
-    const totalDailyChangeLocal = performanceData.reduce((sum, s) => sum + (s.dailyChangeSEK ?? 0), 0)
-    const missingDailyChange = performanceData.some((stock) => stock.dailyChange === null || stock.dailyChangeSEK === null)
     return {
       missingRateStocks: missing,
-      hasMissing: missing.length > 0 || hasNullLocalInputs,
-      hasMissingDailyChange: missingDailyChange,
-      totalValue: totalVal,
-      totalCost: totalCostLocal,
-      totalGain: totalGainLocal,
-      totalGainPercent: totalGainPercentLocal,
-      totalDailyChange: totalDailyChangeLocal,
+      hasMissingValue: summary?.total_value_partial ?? false,
+      hasMissingCost: summary?.total_cost_partial ?? false,
+      hasMissingGain: summary?.total_gain_loss_partial ?? false,
+      hasMissingDailyChange: summary?.daily_change_partial ?? false,
+      totalValue: summary?.total_value ?? 0,
+      totalCost: summary?.total_cost ?? 0,
+      totalGain: summary?.total_gain_loss ?? 0,
+      totalGainPercent: summary?.total_gain_loss_percent ?? 0,
+      totalDailyChange: summary?.daily_change ?? 0,
     }
-  }, [performanceData])
+  }, [displayCurrency, performanceData, summary])
+
+  const missingRatesWarning = t(language, 'performance.missingRatesWarning', { currency: displayCurrency }).replace('SEK', displayCurrency)
 
   const exportToCSV = () => {
     const headers = ['Ticker', 'Name', 'Quantity', 'Currency', 'Purchase Price', 'Current Price', 'Value', 'Cost', 'Gain', 'Gain %', 'Daily Change', 'Daily Change %']
@@ -391,11 +372,11 @@ export default function Performance() {
         borderBottom: '1px solid var(--border)',
         background: 'linear-gradient(115deg, var(--bg-dark, #12141c) 0%, var(--bg) 55%)',
       }}>
-        {[
-          { label: t(language, 'performance.totalValue'), value: formatCurrency(totalValue, locale, 'SEK'), color: 'var(--text)', incomplete: hasMissing },
-          { label: t(language, 'performance.totalCost'), value: formatCurrency(totalCost, locale, 'SEK'), color: 'var(--text2)', incomplete: hasMissing },
-          { label: t(language, 'performance.totalGainLoss'), value: formatCurrency(totalGain, locale, 'SEK'), sub: formatPercent(totalGainPercent, locale), color: totalGain >= 0 ? 'var(--green)' : 'var(--red)', incomplete: hasMissing },
-          { label: t(language, 'performance.dailyChange'), value: formatCurrency(totalDailyChange, locale, 'SEK'), color: totalDailyChange >= 0 ? 'var(--green)' : 'var(--red)', incomplete: hasMissingDailyChange },
+        {[ 
+          { label: t(language, 'performance.totalValue'), value: formatCurrency(totalValue, locale, displayCurrency), color: 'var(--text)', incomplete: hasMissingValue },
+          { label: t(language, 'performance.totalCost'), value: formatCurrency(totalCost, locale, displayCurrency), color: 'var(--text2)', incomplete: hasMissingCost },
+          { label: t(language, 'performance.totalGainLoss'), value: formatCurrency(totalGain, locale, displayCurrency), sub: formatPercent(totalGainPercent, locale), color: totalGain >= 0 ? 'var(--green)' : 'var(--red)', incomplete: hasMissingGain },
+          { label: t(language, 'performance.dailyChange'), value: formatCurrency(totalDailyChange, locale, displayCurrency), color: totalDailyChange >= 0 ? 'var(--green)' : 'var(--red)', incomplete: hasMissingDailyChange },
         ].map((stat, i, arr) => (
           <div key={stat.label} style={{
             padding: '26px 28px',
@@ -418,7 +399,7 @@ export default function Performance() {
         {missingRateStocks.length > 0 && (
           <div style={{ marginTop: 16, padding: '10px 16px', background: 'rgba(251,191,36,0.08)', border: '1px solid rgba(251,191,36,0.25)', borderRadius: 6 }}>
             <p style={{ color: 'var(--amber)', margin: 0, fontSize: 13 }}>
-              {t(language, 'performance.missingRatesWarning')}
+              {missingRatesWarning}
             </p>
           </div>
         )}
@@ -500,11 +481,11 @@ export default function Performance() {
                 <SortableHeader field="ticker" label={t(language, 'performance.ticker')} sortState={sortState} onSort={requestSort} />
                 <SortableHeader field="quantity" label={t(language, 'performance.qty')} sortState={sortState} onSort={requestSort} align="right" />
                 <SortableHeader field="currency" label={t(language, 'performance.currency')} sortState={sortState} onSort={requestSort} />
-                <SortableHeader field="cost" label={t(language, 'performance.costSek')} sortState={sortState} onSort={requestSort} align="right" />
-                <SortableHeader field="value" label={t(language, 'performance.valueSek')} sortState={sortState} onSort={requestSort} align="right" />
+                <SortableHeader field="cost" label={t(language, 'performance.costDisplay', { currency: displayCurrency })} sortState={sortState} onSort={requestSort} align="right" />
+                <SortableHeader field="value" label={t(language, 'performance.valueDisplay', { currency: displayCurrency })} sortState={sortState} onSort={requestSort} align="right" />
                 <SortableHeader field="gain" label={t(language, 'performance.gainLoss')} sortState={sortState} onSort={requestSort} align="right" />
                 <SortableHeader field="gainPercent" label={t(language, 'performance.returnPercent')} sortState={sortState} onSort={requestSort} align="right" />
-                <SortableHeader field="dailyChange" label={t(language, 'performance.dailySek')} sortState={sortState} onSort={requestSort} align="right" />
+                <SortableHeader field="dailyChange" label={t(language, 'performance.dailyDisplay', { currency: displayCurrency })} sortState={sortState} onSort={requestSort} align="right" />
                 <SortableHeader field="dailyChangePercent" label={t(language, 'performance.dailyPercent')} sortState={sortState} onSort={requestSort} align="right" />
               </tr>
             </thead>
@@ -520,19 +501,19 @@ export default function Performance() {
                   <td style={{ fontFamily: "'Fira Code', monospace" }}>{stock.quantity}</td>
                   <td><span className="badge badge-muted">{stock.currency}</span></td>
                   <td style={{ fontFamily: "'Fira Code', monospace" }}>
-                    {stock.cost === null ? '-' : (stock.costSEK !== null ? formatCurrency(stock.costSEK, locale, 'SEK') : t(language, 'performance.rateMissing'))}
+                    {stock.cost === null ? '-' : (stock.costDisplay !== null ? formatCurrency(stock.costDisplay, locale, displayCurrency) : t(language, 'performance.rateMissing'))}
                   </td>
                   <td style={{ fontFamily: "'Fira Code', monospace" }}>
-                    {stock.value === null ? '-' : (stock.valueSEK !== null ? formatCurrency(stock.valueSEK, locale, 'SEK') : t(language, 'performance.rateMissing'))}
+                    {stock.value === null ? '-' : (stock.valueDisplay !== null ? formatCurrency(stock.valueDisplay, locale, displayCurrency) : t(language, 'performance.rateMissing'))}
                   </td>
-                   <td className={stock.gainSEK !== null ? (stock.gainSEK >= 0 ? 'positive' : 'negative') : ''} style={{ fontFamily: "'Fira Code', monospace" }}>
-                    {stock.gain === null ? '-' : (stock.gainSEK !== null ? formatCurrency(stock.gainSEK, locale, 'SEK') : t(language, 'performance.rateMissing'))}
+                   <td className={stock.gainDisplay !== null ? (stock.gainDisplay >= 0 ? 'positive' : 'negative') : ''} style={{ fontFamily: "'Fira Code', monospace" }}>
+                    {stock.gain === null ? '-' : (stock.gainDisplay !== null ? formatCurrency(stock.gainDisplay, locale, displayCurrency) : t(language, 'performance.rateMissing'))}
                   </td>
                   <td className={stock.gainPercent !== null ? (stock.gainPercent >= 0 ? 'positive' : 'negative') : ''} style={{ fontFamily: "'Fira Code', monospace", fontWeight: 700 }}>
                     {formatPercent(stock.gainPercent, locale)}
                   </td>
-                   <td className={stock.dailyChangeSEK !== null ? (stock.dailyChangeSEK >= 0 ? 'positive' : 'negative') : ''} style={{ fontFamily: "'Fira Code', monospace" }}>
-                    {stock.dailyChange === null ? '-' : (stock.dailyChangeSEK !== null ? formatCurrency(stock.dailyChangeSEK, locale, 'SEK') : t(language, 'performance.rateMissing'))}
+                   <td className={stock.dailyChangeDisplay !== null ? (stock.dailyChangeDisplay >= 0 ? 'positive' : 'negative') : ''} style={{ fontFamily: "'Fira Code', monospace" }}>
+                    {stock.dailyChange === null ? '-' : (stock.dailyChangeDisplay !== null ? formatCurrency(stock.dailyChangeDisplay, locale, displayCurrency) : t(language, 'performance.rateMissing'))}
                   </td>
                    <td className={stock.dailyChangePercent !== null ? (stock.dailyChangePercent >= 0 ? 'positive' : 'negative') : ''} style={{ fontFamily: "'Fira Code', monospace" }}>
                     {formatPercent(stock.dailyChangePercent, locale)}

@@ -136,7 +136,7 @@ const en = {
     'performance.noStocks': 'No stocks in portfolio. Add stocks from the Stocks page.',
     'performance.failedLoad': 'Failed to load performance data. Please try again.',
     'performance.rateMissing': 'Rate missing',
-    'performance.missingRatesWarning': 'Some holdings are excluded from SEK totals because exchange rates are missing.',
+    'performance.missingRatesWarning': 'Some holdings are excluded from {{currency}} totals because exchange rates are missing.',
     'performance.missingDailyChangeWarning': 'Daily change totals may be incomplete because some holdings are missing recent price data.',
     'performance.conversionMissing': 'Conversion missing for {{currencies}}',
 
@@ -347,10 +347,13 @@ const en = {
     'performance.name': 'Name',
     'performance.qty': 'Qty',
     'performance.currency': 'Curr',
+    'performance.costDisplay': 'Cost ({{currency}})',
+    'performance.valueDisplay': 'Value ({{currency}})',
     'performance.costSek': 'Cost (SEK)',
     'performance.valueSek': 'Value (SEK)',
     'performance.gainLoss': 'Gain/Loss',
     'performance.returnPercent': 'Return %',
+    'performance.dailyDisplay': 'Daily ({{currency}})',
     'performance.dailySek': 'Daily (SEK)',
     'performance.dailyPercent': 'Daily %',
 
@@ -777,6 +780,9 @@ const sv: LocaleTranslations = {
     'performance.returnPercent': 'Avkastning %',
     'performance.dailySek': 'Daglig (SEK)',
     'performance.dailyPercent': 'Daglig %',
+    'performance.costDisplay': 'Kostnad ({{currency}})',
+    'performance.valueDisplay': 'Värde ({{currency}})',
+    'performance.dailyDisplay': 'Daglig ({{currency}})',
 
     'companyProfile.title': 'Företagsinformation',
     'companyProfile.industry': 'Industri',

@@ -76,7 +76,6 @@ export default function UpcomingDividends() {
   const [totalReceived, setTotalReceived] = useState(0)
   const [totalRemaining, setTotalRemaining] = useState(0)
   const [displayCurrency, setDisplayCurrency] = useState('SEK')
-  const [exchangeRates, setExchangeRates] = useState<Record<string, number | null>>({})
   const [unmappedStocks, setUnmappedStocks] = useState<Array<{ ticker: string; name: string | null; reason: string }>>([])
   const [loading, setLoading] = useState(true)
   const [refreshing, setRefreshing] = useState(false)
@@ -102,8 +101,6 @@ export default function UpcomingDividends() {
       setTotalRemaining(data.total_remaining)
       setDisplayCurrency(data.display_currency)
       setUnmappedStocks(data.unmapped_stocks)
-      const rates = await api.market.exchangeRates().catch(() => ({}))
-      setExchangeRates(rates)
     } catch (err) {
       console.error('Failed to fetch upcoming dividends:', err)
       if (showLoadingState) {
@@ -135,24 +132,7 @@ export default function UpcomingDividends() {
   }, {} as Record<string, UpcomingDividend[]>)
 
   const getDisplayedDividendTotal = (item: UpcomingDividend): number | null => {
-    if (item.total_converted !== null) {
-      return item.total_converted
-    }
-    if (item.currency === displayCurrency) {
-      return item.total_amount
-    }
-
-    const direct = exchangeRates[`${item.currency}_${displayCurrency}`]
-    if (direct != null) {
-      return item.total_amount * direct
-    }
-
-    const inverse = exchangeRates[`${displayCurrency}_${item.currency}`]
-    if (inverse != null && inverse !== 0) {
-      return item.total_amount / inverse
-    }
-
-    return null
+    return item.total_converted
   }
 
   const monthlyGroups = Object.entries(groupedByMonth)
