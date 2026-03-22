@@ -15,6 +15,7 @@ import json
 import logging
 import os
 import tempfile
+import threading
 
 from app.main import get_db, get_current_user, User, Stock, PortfolioHistory, UserSettings, StockPriceHistory
 from app.services.brandfetch_service import brandfetch_service
@@ -27,6 +28,9 @@ logger = logging.getLogger(__name__)
 
 _CACHE_DIR = os.path.join(os.path.dirname(__file__), '..', '..', 'data', 'cache')
 PORTFOLIO_UPCOMING_DIVIDENDS_CACHE_TTL = 21600
+PORTFOLIO_UPCOMING_DIVIDENDS_WAIT_TIMEOUT = 15
+_portfolio_upcoming_dividends_inflight_lock = threading.Lock()
+_portfolio_upcoming_dividends_inflight: dict[int, threading.Event] = {}
 
 
 def _load_json_cache(filename: str, ttl: int) -> dict | None:
@@ -69,6 +73,24 @@ def _save_json_cache(filename: str, value: dict):
 
 def _portfolio_upcoming_dividends_cache_key(user_id: int) -> str:
     return f"portfolio_upcoming_dividends_{user_id}.json"
+
+
+def _begin_portfolio_upcoming_dividends_refresh(user_id: int) -> tuple[threading.Event, bool]:
+    with _portfolio_upcoming_dividends_inflight_lock:
+        inflight = _portfolio_upcoming_dividends_inflight.get(user_id)
+        if inflight is not None:
+            return inflight, False
+        event = threading.Event()
+        _portfolio_upcoming_dividends_inflight[user_id] = event
+        return event, True
+
+
+def _finish_portfolio_upcoming_dividends_refresh(user_id: int, event: threading.Event) -> None:
+    with _portfolio_upcoming_dividends_inflight_lock:
+        current = _portfolio_upcoming_dividends_inflight.get(user_id)
+        if current is event:
+            _portfolio_upcoming_dividends_inflight.pop(user_id, None)
+    event.set()
 
 
 def _build_upcoming_dividends_cache_fingerprint(
@@ -219,6 +241,198 @@ def apply_position_snapshot(stock: Stock) -> PositionSnapshot:
         purchase_date=parse_event_date(snapshot['purchase_date']),
         position_entries=snapshot['position_entries'],
     )
+
+
+def _compute_upcoming_portfolio_dividends_result(
+    stocks: list[Stock],
+    display_currency: str,
+    today: date,
+    current_year: int,
+    cache_key: str,
+    cached: dict | None,
+    cached_value: dict | None,
+    mapping_snapshot: dict[str, dict | None],
+    avanza_mappings_by_ticker: dict[str, object | None],
+) -> dict:
+    from app.services.stock_service import StockService
+    from app.services.avanza_service import avanza_service
+
+    stock_service = StockService()
+    currencies = {s.currency for s in stocks if s.currency}
+    currencies.add('SEK')
+    normalized_events_by_ticker: dict[str, list[dict]] = {}
+    position_snapshots_by_ticker: dict[str, PositionSnapshot] = {}
+
+    for stock in stocks:
+        snapshot = apply_position_snapshot(stock)
+        if not has_position_history(snapshot.position_entries, snapshot.quantity):
+            normalized_events_by_ticker[stock.ticker] = []
+            continue
+        position_snapshots_by_ticker[stock.ticker] = snapshot
+
+        avanza_mapping = avanza_mappings_by_ticker.get(stock.ticker)
+        if avanza_mapping and getattr(avanza_mapping, 'instrument_id', None):
+            avanza_events = avanza_service.get_stock_dividends_for_year(stock.ticker, current_year)
+            if avanza_events:
+                normalized_events = [{
+                    'ex_date': div.ex_date,
+                    'payment_date': div.payment_date,
+                    'amount': div.amount,
+                    'currency': div.currency,
+                    'source': 'avanza',
+                    'dividend_type': div.dividend_type,
+                } for div in avanza_events]
+            else:
+                normalized_events = get_yahoo_normalized_events(stock_service, stock.ticker)
+        else:
+            normalized_events = get_yahoo_normalized_events(stock_service, stock.ticker)
+
+        normalized_events = normalized_events or []
+        normalized_events_by_ticker[stock.ticker] = normalized_events
+        for normalized_event in normalized_events:
+            dividend_currency = normalized_event.get('currency') or stock.currency
+            if dividend_currency:
+                currencies.add(dividend_currency)
+
+    rates = ExchangeRateService.get_rates_for_currencies(currencies, display_currency)
+    cache_fingerprint = _build_upcoming_dividends_cache_fingerprint(
+        stocks,
+        display_currency,
+        today,
+        rates,
+        mapping_snapshot,
+    )
+    if cached and cached.get('fingerprint') == cache_fingerprint and isinstance(cached_value, dict):
+        return cached_value
+
+    dividends = []
+    unmapped_stocks = []
+    seen_unmapped = set()
+
+    for stock in stocks:
+        snapshot = position_snapshots_by_ticker.get(stock.ticker)
+        if snapshot is None:
+            continue
+        avanza_mapping = avanza_mappings_by_ticker.get(stock.ticker)
+        no_avanza_mapping = avanza_mapping is None or not avanza_mapping.instrument_id
+
+        normalized_events = normalized_events_by_ticker.get(stock.ticker, [])
+        if not normalized_events:
+            continue
+
+        seen_event_keys = set()
+
+        for div in normalized_events:
+            ex_date = div.get('ex_date', '')
+            payment_date = div.get('payment_date')
+            payout_date = payment_date or ex_date
+            ex_date_parsed = parse_event_date(ex_date)
+            payout_date_parsed = parse_event_date(payout_date)
+            if not payout_date_parsed:
+                continue
+
+            entitlement_date = ex_date_parsed or payout_date_parsed
+            quantity_on_entitlement = get_quantity_held_on_date(snapshot.position_entries, entitlement_date)
+            if quantity_on_entitlement <= 0 or payout_date_parsed.year != current_year:
+                continue
+
+            event_key = (
+                ex_date,
+                payment_date,
+                div.get('amount'),
+                div.get('currency') or stock.currency,
+                div.get('dividend_type')
+            )
+            if event_key in seen_event_keys:
+                continue
+            seen_event_keys.add(event_key)
+
+            amount = div.get('amount')
+            if not amount or amount < 0:
+                continue
+
+            total_amount = amount * quantity_on_entitlement
+            div_currency = div.get('currency') or stock.currency
+            converted_total = convert_value(total_amount, div_currency, display_currency, rates)
+            source = div.get('source', 'yahoo')
+            status = 'paid' if payout_date_parsed <= today else 'upcoming'
+            dividend_id = _build_upcoming_dividend_identifier(
+                stock.ticker,
+                ex_date,
+                payment_date,
+                amount,
+                div_currency,
+                source,
+                div.get('dividend_type'),
+            )
+
+            if stock.ticker.endswith('.ST') and source == 'yahoo' and no_avanza_mapping and stock.ticker not in seen_unmapped:
+                seen_unmapped.add(stock.ticker)
+                unmapped_stocks.append({
+                    'ticker': stock.ticker,
+                    'name': stock.name,
+                    'reason': 'no_avanza_mapping'
+                })
+
+            dividends.append({
+                'id': dividend_id,
+                'ticker': stock.ticker,
+                'name': stock.name,
+                'quantity': quantity_on_entitlement,
+                'ex_date': ex_date,
+                'payment_date': payment_date,
+                'payout_date': payout_date,
+                'status': status,
+                'dividend_type': div.get('dividend_type'),
+                'amount_per_share': amount,
+                'total_amount': total_amount,
+                'currency': div_currency,
+                'total_converted': converted_total,
+                'display_currency': display_currency,
+                'source': source
+            })
+
+    dividends.sort(key=lambda item: (sort_event_date(item.get('payout_date')), sort_event_date(item.get('ex_date'))))
+
+    total_expected = 0
+    total_received = 0
+    total_remaining = sum(
+        d['total_converted']
+        for d in dividends
+        if d['total_converted'] is not None and d.get('status') == 'upcoming'
+    )
+    skipped_dividend_ids = []
+    totals_partial = any(d.get('total_converted') is None for d in dividends)
+
+    for dividend in dividends:
+        converted_total = dividend.get('total_converted')
+        if converted_total is None:
+            skipped_dividend_ids.append(dividend['id'])
+            continue
+        total_expected += converted_total
+        if dividend.get('status') == 'paid':
+            total_received += converted_total
+
+    result = {
+        'dividends': dividends,
+        'total_expected': total_expected,
+        'total_received': total_received,
+        'total_remaining': total_remaining,
+        'totals_partial': totals_partial,
+        'dividends_partial': len(skipped_dividend_ids) > 0,
+        'skipped_dividend_count': len(skipped_dividend_ids),
+        'skipped_dividend_ids': skipped_dividend_ids,
+        'display_currency': display_currency,
+        'unmapped_stocks': unmapped_stocks
+    }
+    _save_json_cache(
+        cache_key,
+        {
+            'fingerprint': cache_fingerprint,
+            'value': result,
+        },
+    )
+    return result
 
 
 def normalize_dividend_event(raw_div: dict, event_type: str) -> dict:
@@ -961,192 +1175,29 @@ def get_upcoming_portfolio_dividends(db: Session = Depends(get_db), current_user
         if isinstance(cached_value, dict):
             return cached_value
 
-    stock_service = StockService()
-    normalized_events_by_ticker: dict[str, list[dict]] = {}
-    position_snapshots_by_ticker: dict[str, PositionSnapshot] = {}
-
-    for stock in stocks:
-        snapshot = apply_position_snapshot(stock)
-        if not has_position_history(snapshot.position_entries, snapshot.quantity):
-            normalized_events_by_ticker[stock.ticker] = []
-            continue
-        position_snapshots_by_ticker[stock.ticker] = snapshot
-
-        avanza_mapping = avanza_mappings_by_ticker.get(stock.ticker)
-        if avanza_mapping and getattr(avanza_mapping, 'instrument_id', None):
-            avanza_events = avanza_service.get_stock_dividends_for_year(stock.ticker, current_year)
-            if avanza_events:
-                normalized_events = [{
-                    'ex_date': div.ex_date,
-                    'payment_date': div.payment_date,
-                    'amount': div.amount,
-                    'currency': div.currency,
-                    'source': 'avanza',
-                    'dividend_type': div.dividend_type,
-                } for div in avanza_events]
-            else:
-                normalized_events = get_yahoo_normalized_events(stock_service, stock.ticker)
-        else:
-            normalized_events = get_yahoo_normalized_events(stock_service, stock.ticker)
-
-        normalized_events = normalized_events or []
-        normalized_events_by_ticker[stock.ticker] = normalized_events
-        for normalized_event in normalized_events:
-            dividend_currency = normalized_event.get('currency') or stock.currency
-            if dividend_currency:
-                currencies.add(dividend_currency)
-
-    rates = ExchangeRateService.get_rates_for_currencies(currencies, display_currency)
-    cache_fingerprint = _build_upcoming_dividends_cache_fingerprint(
-        stocks,
-        display_currency,
-        today,
-        rates,
-        mapping_snapshot,
-    )
-    if cached and cached.get('fingerprint') == cache_fingerprint:
-        if isinstance(cached_value, dict):
+    inflight_event, is_leader = _begin_portfolio_upcoming_dividends_refresh(current_user.id)
+    if not is_leader:
+        inflight_event.wait(timeout=PORTFOLIO_UPCOMING_DIVIDENDS_WAIT_TIMEOUT)
+        cached = _load_json_cache(
+            cache_key,
+            PORTFOLIO_UPCOMING_DIVIDENDS_CACHE_TTL,
+        )
+        cached_value = cached.get('value') if isinstance(cached, dict) else None
+        if cached and cached.get('fingerprint') == cache_fingerprint and isinstance(cached_value, dict):
             return cached_value
 
-    dividends = []
-    unmapped_stocks = []
-    seen_unmapped = set()
-
-    for stock in stocks:
-        snapshot = position_snapshots_by_ticker.get(stock.ticker)
-        if snapshot is None:
-            continue
-        avanza_mapping = avanza_mappings_by_ticker.get(stock.ticker)
-        no_avanza_mapping = avanza_mapping is None or not avanza_mapping.instrument_id
-
-        normalized_events = normalized_events_by_ticker.get(stock.ticker, [])
-        if not normalized_events:
-            continue
-
-        seen_event_keys = set()
-
-        for div in normalized_events:
-            ex_date = div.get('ex_date', '')
-            payment_date = div.get('payment_date')
-            payout_date = payment_date or ex_date
-            ex_date_parsed = parse_event_date(ex_date)
-
-            payout_date_parsed = parse_event_date(payout_date)
-            if not payout_date_parsed:
-                continue
-
-            entitlement_date = ex_date_parsed or payout_date_parsed
-            quantity_on_entitlement = get_quantity_held_on_date(snapshot.position_entries, entitlement_date)
-            if quantity_on_entitlement <= 0:
-                continue
-
-            if payout_date_parsed.year != current_year:
-                continue
-
-            event_key = (
-                ex_date,
-                payment_date,
-                div.get('amount'),
-                div.get('currency') or stock.currency,
-                div.get('dividend_type')
-            )
-            if event_key in seen_event_keys:
-                continue
-            seen_event_keys.add(event_key)
-            
-            amount = div.get('amount')
-            if not amount or amount < 0:
-                continue
-            
-            total_amount = amount * quantity_on_entitlement
-            
-            div_currency = div.get('currency') or stock.currency
-            
-            converted_total = convert_value(
-                total_amount,
-                div_currency,
-                display_currency,
-                rates
-            )
-            
-            source = div.get('source', 'yahoo')
-            status = 'paid' if payout_date_parsed <= today else 'upcoming'
-            dividend_id = _build_upcoming_dividend_identifier(
-                stock.ticker,
-                ex_date,
-                payment_date,
-                amount,
-                div_currency,
-                source,
-                div.get('dividend_type'),
-            )
-            
-            if stock.ticker.endswith('.ST') and source == 'yahoo' and no_avanza_mapping:
-                if stock.ticker not in seen_unmapped:
-                    seen_unmapped.add(stock.ticker)
-                    unmapped_stocks.append({
-                        'ticker': stock.ticker,
-                        'name': stock.name,
-                        'reason': 'no_avanza_mapping'
-                    })
-
-            dividends.append({
-                'id': dividend_id,
-                'ticker': stock.ticker,
-                'name': stock.name,
-                'quantity': quantity_on_entitlement,
-                'ex_date': ex_date,
-                'payment_date': payment_date,
-                'payout_date': payout_date,
-                'status': status,
-                'dividend_type': div.get('dividend_type'),
-                'amount_per_share': amount,
-                'total_amount': total_amount,
-                'currency': div_currency,
-                'total_converted': converted_total,
-                'display_currency': display_currency,
-                'source': source
-            })
-
-    dividends.sort(key=lambda item: (sort_event_date(item.get('payout_date')), sort_event_date(item.get('ex_date'))))
-
-    total_expected = 0
-    total_received = 0
-    total_remaining = 0
-    skipped_dividend_ids = []
-
-    total_remaining = sum(
-        d['total_converted']
-        for d in dividends
-        if d['total_converted'] is not None and d.get('status') == 'upcoming'
-    )
-    totals_partial = any(d.get('total_converted') is None for d in dividends)
-    for dividend in dividends:
-        converted_total = dividend.get('total_converted')
-        if converted_total is None:
-            skipped_dividend_ids.append(dividend['id'])
-            continue
-        total_expected += converted_total
-        if dividend.get('status') == 'paid':
-            total_received += converted_total
-    
-    result = {
-        'dividends': dividends,
-        'total_expected': total_expected,
-        'total_received': total_received,
-        'total_remaining': total_remaining,
-        'totals_partial': totals_partial,
-        'dividends_partial': len(skipped_dividend_ids) > 0,
-        'skipped_dividend_count': len(skipped_dividend_ids),
-        'skipped_dividend_ids': skipped_dividend_ids,
-        'display_currency': display_currency,
-        'unmapped_stocks': unmapped_stocks
-    }
-    _save_json_cache(
-        cache_key,
-        {
-            'fingerprint': cache_fingerprint,
-            'value': result,
-        },
-    )
-    return result
+    try:
+        return _compute_upcoming_portfolio_dividends_result(
+            stocks=stocks,
+            display_currency=display_currency,
+            today=today,
+            current_year=current_year,
+            cache_key=cache_key,
+            cached=cached,
+            cached_value=cached_value if isinstance(cached_value, dict) else None,
+            mapping_snapshot=mapping_snapshot,
+            avanza_mappings_by_ticker=avanza_mappings_by_ticker,
+        )
+    finally:
+        if is_leader:
+            _finish_portfolio_upcoming_dividends_refresh(current_user.id, inflight_event)

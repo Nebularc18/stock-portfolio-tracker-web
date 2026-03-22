@@ -4,9 +4,10 @@ export const AUTH_EXPIRED_EVENT = 'portfolio-auth-expired'
 const SLOW_API_REQUEST_MS = 800
 const API_REQUEST_TIMEOUT_MS = 15000
 const encodePathSegment = (value: string) => encodeURIComponent(value)
-// These caches only deduplicate in-flight exchange rate requests.
+// These caches only deduplicate in-flight requests.
 const exchangeRatesRequestCache = new Map<string, Promise<Record<string, number | null>>>()
 const exchangeRatesBatchRequestCache = new Map<string, Promise<Record<string, Record<string, number | null>>>>()
+const portfolioUpcomingDividendsRequestCache = new Map<string, Promise<UpcomingDividendsResponse>>()
 
 function createTimeoutSignal(timeoutMs: number, externalSignal?: AbortSignal): { signal: AbortSignal; cleanup: () => void } {
   const controller = new AbortController()
@@ -552,7 +553,20 @@ export const api = {
       const query = params.toString()
       return fetchAPI(`/portfolio/history${query ? `?${query}` : ''}`)
     },
-    upcomingDividends: () => fetchAPI('/portfolio/upcoming-dividends') as Promise<UpcomingDividendsResponse>,
+    upcomingDividends: () => {
+      const authUser = getStoredAuthUser()
+      const key = String(authUser?.id ?? 'guest')
+      const cached = portfolioUpcomingDividendsRequestCache.get(key)
+      if (cached) return cached
+
+      const request = fetchAPI('/portfolio/upcoming-dividends')
+        .finally(() => {
+          portfolioUpcomingDividendsRequestCache.delete(key)
+        }) as Promise<UpcomingDividendsResponse>
+
+      portfolioUpcomingDividendsRequestCache.set(key, request)
+      return request
+    },
   },
   
   market: {
