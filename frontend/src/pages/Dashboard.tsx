@@ -46,8 +46,21 @@ const HISTORY_RANGE_OPTIONS: Array<{ key: HistoryRangeKey; labelKey: Translation
 ]
 
 type ChartPoint = { date: string; value: number }
+type DashboardHistoryEntry = { date: string; value: number }
+type DashboardDataCache = {
+  summary: PortfolioSummary
+  upcomingDividends: UpcomingDividend[]
+  totalRemainingDividends: number
+  cachedAt: number
+}
+type DashboardHistoryCache = {
+  history: DashboardHistoryEntry[]
+  cachedAt: number
+}
 const DEFAULT_HISTORY_RANGE: HistoryRangeKey = '1M'
 const DASHBOARD_HISTORY_RANGE_STORAGE_KEY = 'dashboard.historyRange'
+const DASHBOARD_DATA_CACHE_STORAGE_KEY = 'dashboard.data'
+const DASHBOARD_HISTORY_CACHE_STORAGE_KEY = 'dashboard.history'
 const DASHBOARD_AUTO_REFRESH_INTERVAL_MS = 10 * 60 * 1000
 const DASHBOARD_AUTO_REFRESH_BUFFER_MS = 5_000
 const DASHBOARD_AUTO_REFRESH_MIN_DELAY_MS = 5_000
@@ -72,6 +85,80 @@ function getStoredHistoryRange(userId?: number | null): HistoryRangeKey {
     return isHistoryRangeKey(legacyValue) ? legacyValue : DEFAULT_HISTORY_RANGE
   } catch {
     return DEFAULT_HISTORY_RANGE
+  }
+}
+
+function getDashboardDataCacheKey(userId?: number | null): string {
+  return `${DASHBOARD_DATA_CACHE_STORAGE_KEY}:${userId ?? 'guest'}`
+}
+
+function getDashboardHistoryCacheKey(range: HistoryRangeKey, userId?: number | null): string {
+  return `${DASHBOARD_HISTORY_CACHE_STORAGE_KEY}:${userId ?? 'guest'}:${range}`
+}
+
+function readDashboardDataCache(userId?: number | null): DashboardDataCache | null {
+  try {
+    const storage = typeof window !== 'undefined' ? window.localStorage : null
+    if (!storage) return null
+    const raw = storage.getItem(getDashboardDataCacheKey(userId))
+    if (!raw) return null
+    const parsed = JSON.parse(raw) as Partial<DashboardDataCache>
+    if (!parsed || typeof parsed !== 'object' || !parsed.summary || !Array.isArray(parsed.upcomingDividends)) {
+      return null
+    }
+    return {
+      summary: parsed.summary as PortfolioSummary,
+      upcomingDividends: parsed.upcomingDividends as UpcomingDividend[],
+      totalRemainingDividends: typeof parsed.totalRemainingDividends === 'number' ? parsed.totalRemainingDividends : 0,
+      cachedAt: typeof parsed.cachedAt === 'number' ? parsed.cachedAt : 0,
+    }
+  } catch {
+    return null
+  }
+}
+
+function writeDashboardDataCache(userId: number | null | undefined, value: Omit<DashboardDataCache, 'cachedAt'>): void {
+  try {
+    const storage = typeof window !== 'undefined' ? window.localStorage : null
+    if (!storage) return
+    storage.setItem(getDashboardDataCacheKey(userId), JSON.stringify({
+      ...value,
+      cachedAt: Date.now(),
+    }))
+  } catch {
+    // Ignore storage write failures.
+  }
+}
+
+function readDashboardHistoryCache(range: HistoryRangeKey, userId?: number | null): DashboardHistoryCache | null {
+  try {
+    const storage = typeof window !== 'undefined' ? window.localStorage : null
+    if (!storage) return null
+    const raw = storage.getItem(getDashboardHistoryCacheKey(range, userId))
+    if (!raw) return null
+    const parsed = JSON.parse(raw) as Partial<DashboardHistoryCache>
+    if (!parsed || typeof parsed !== 'object' || !Array.isArray(parsed.history)) {
+      return null
+    }
+    return {
+      history: parsed.history as DashboardHistoryEntry[],
+      cachedAt: typeof parsed.cachedAt === 'number' ? parsed.cachedAt : 0,
+    }
+  } catch {
+    return null
+  }
+}
+
+function writeDashboardHistoryCache(range: HistoryRangeKey, userId: number | null | undefined, history: DashboardHistoryEntry[]): void {
+  try {
+    const storage = typeof window !== 'undefined' ? window.localStorage : null
+    if (!storage) return
+    storage.setItem(getDashboardHistoryCacheKey(range, userId), JSON.stringify({
+      history,
+      cachedAt: Date.now(),
+    }))
+  } catch {
+    // Ignore storage write failures.
   }
 }
 
@@ -285,14 +372,17 @@ function getRangeTargetPoints(range: HistoryRangeKey): number | null {
 export default function Dashboard() {
   const navigate = useNavigate()
   const { user } = useAuth()
-  const [summary, setSummary] = useState<PortfolioSummary | null>(null)
-  const [upcomingDividends, setUpcomingDividends] = useState<UpcomingDividend[]>([])
-  const [totalRemainingDividends, setTotalRemainingDividends] = useState(0)
-  const [portfolioHistory, setPortfolioHistory] = useState<{ date: string; value: number }[]>([])
+  const initialCachedData = readDashboardDataCache(user?.id)
+  const initialHistoryRange = getStoredHistoryRange(user?.id)
+  const initialCachedHistory = readDashboardHistoryCache(initialHistoryRange, user?.id)
+  const [summary, setSummary] = useState<PortfolioSummary | null>(initialCachedData?.summary ?? null)
+  const [upcomingDividends, setUpcomingDividends] = useState<UpcomingDividend[]>(initialCachedData?.upcomingDividends ?? [])
+  const [totalRemainingDividends, setTotalRemainingDividends] = useState(initialCachedData?.totalRemainingDividends ?? 0)
+  const [portfolioHistory, setPortfolioHistory] = useState<DashboardHistoryEntry[]>(initialCachedHistory?.history ?? [])
   const [historyRange, setHistoryRange] = useState<HistoryRangeKey>(() => getStoredHistoryRange(user?.id))
   const [failedLogos, setFailedLogos] = useState<Record<string, boolean>>({})
-  const [loading, setLoading] = useState(true)
-  const [historyLoading, setHistoryLoading] = useState(true)
+  const [loading, setLoading] = useState(initialCachedData === null)
+  const [historyLoading, setHistoryLoading] = useState(initialCachedHistory === null)
   const [historyError, setHistoryError] = useState<Error | null>(null)
   const [errorKey, setErrorKey] = useState<TranslationKey | null>(null)
   const historyRequestIdRef = useRef(0)
@@ -324,6 +414,7 @@ export default function Dashboard() {
       if (requestId !== historyRequestIdRef.current) return
       setPortfolioHistory(historyData)
       setHistoryError(null)
+      writeDashboardHistoryCache(range, user?.id, historyData)
     } catch (error) {
       if (requestId !== historyRequestIdRef.current) return
       console.error('Failed to load portfolio history:', error)
@@ -333,7 +424,7 @@ export default function Dashboard() {
     } finally {
       if (requestId === historyRequestIdRef.current && !background) setHistoryLoading(false)
     }
-  }, [])
+  }, [user?.id])
 
   const fetchData = useCallback(async (options: FetchOptions = {}) => {
     const { background = false } = options
@@ -366,6 +457,11 @@ export default function Dashboard() {
       setTotalRemainingDividends(upcomingDivsData.total_remaining)
       setFailedLogos({})
       setErrorKey(null)
+      writeDashboardDataCache(user?.id, {
+        summary: summaryData,
+        upcomingDividends: upcomingDivsData.dividends,
+        totalRemainingDividends: upcomingDivsData.total_remaining,
+      })
     } catch (error) {
       if (requestId !== requestIdRef.current) {
         clearLoading()
@@ -381,20 +477,37 @@ export default function Dashboard() {
         clearLoading()
       }
     }
-  }, [displayCurrency])
+  }, [displayCurrency, user?.id])
 
   useEffect(() => {
-    fetchData()
+    const cachedData = readDashboardDataCache(user?.id)
+    if (cachedData) {
+      setSummary(cachedData.summary)
+      setUpcomingDividends(cachedData.upcomingDividends)
+      setTotalRemainingDividends(cachedData.totalRemainingDividends)
+      setLoading(false)
+      void fetchData({ background: true })
+    } else {
+      void fetchData()
+    }
     return () => {
       foregroundDataRequestIdRef.current += 1
       backgroundDataRequestIdRef.current += 1
     }
-  }, [fetchData])
+  }, [fetchData, user?.id])
 
   useEffect(() => {
-    fetchHistory(historyRange)
+    const cachedHistory = readDashboardHistoryCache(historyRange, user?.id)
+    if (cachedHistory) {
+      setPortfolioHistory(cachedHistory.history)
+      setHistoryError(null)
+      setHistoryLoading(false)
+      void fetchHistory(historyRange, { background: true })
+    } else {
+      void fetchHistory(historyRange)
+    }
     return () => { historyRequestIdRef.current += 1 }
-  }, [fetchHistory, historyRange])
+  }, [fetchHistory, historyRange, user?.id])
 
   useEffect(() => {
     const storedRange = getStoredHistoryRange(user?.id)

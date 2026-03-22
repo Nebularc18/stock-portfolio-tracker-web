@@ -8,6 +8,8 @@ const encodePathSegment = (value: string) => encodeURIComponent(value)
 const exchangeRatesRequestCache = new Map<string, Promise<Record<string, number | null>>>()
 const exchangeRatesBatchRequestCache = new Map<string, Promise<Record<string, Record<string, number | null>>>>()
 const portfolioUpcomingDividendsRequestCache = new Map<string, Promise<UpcomingDividendsResponse>>()
+const portfolioSummaryRequestCache = new Map<string, Promise<PortfolioSummary>>()
+const portfolioHistoryRequestCache = new Map<string, Promise<Array<{ date: string; value: number }>>>()
 
 function createTimeoutSignal(timeoutMs: number, externalSignal?: AbortSignal): { signal: AbortSignal; cleanup: () => void } {
   const controller = new AbortController()
@@ -535,7 +537,20 @@ export const api = {
   },
   
   portfolio: {
-    summary: () => fetchAPI('/portfolio/summary') as Promise<PortfolioSummary>,
+    summary: () => {
+      const authUser = getStoredAuthUser()
+      const key = String(authUser?.id ?? 'guest')
+      const cached = portfolioSummaryRequestCache.get(key)
+      if (cached) return cached
+
+      const request = fetchAPI('/portfolio/summary')
+        .finally(() => {
+          portfolioSummaryRequestCache.delete(key)
+        }) as Promise<PortfolioSummary>
+
+      portfolioSummaryRequestCache.set(key, request)
+      return request
+    },
     refreshAll: () => fetchAPI('/portfolio/refresh-all', { method: 'POST' }),
     distribution: () => fetchAPI('/portfolio/distribution') as Promise<DistributionResponse>,
     history: (options: number | { days?: number; range?: string } = 30) => {
@@ -551,7 +566,17 @@ export const api = {
         }
       }
       const query = params.toString()
-      return fetchAPI(`/portfolio/history${query ? `?${query}` : ''}`)
+      const key = query || '__default__'
+      const cached = portfolioHistoryRequestCache.get(key)
+      if (cached) return cached
+
+      const request = fetchAPI(`/portfolio/history${query ? `?${query}` : ''}`)
+        .finally(() => {
+          portfolioHistoryRequestCache.delete(key)
+        }) as Promise<Array<{ date: string; value: number }>>
+
+      portfolioHistoryRequestCache.set(key, request)
+      return request
     },
     upcomingDividends: () => {
       const authUser = getStoredAuthUser()
