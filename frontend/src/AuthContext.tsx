@@ -1,5 +1,5 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from 'react'
-import { api, AUTH_EXPIRED_EVENT, AUTH_STORAGE_KEY, clearStoredAuthUser, getStoredAuthUser, setStoredAuthUser, type AuthUser } from './services/api'
+import { api, AUTH_CHANGED_EVENT, AUTH_EXPIRED_EVENT, clearStoredAuthUser, getStoredAuthUser, setStoredAuthUser, type AuthUser } from './services/api'
 
 interface AuthContextType {
   user: AuthUser | null
@@ -60,20 +60,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     const handleAuthExpired = () => {
       setUser(null)
     }
-    const handleStorageChange = (event: StorageEvent) => {
-      if (event.key !== AUTH_STORAGE_KEY && event.key !== null) return
-      if (!event.newValue) {
-        setUser(null)
-        return
-      }
+    const handleAuthChanged = () => {
       setUser(getStoredAuthUser())
     }
 
     window.addEventListener(AUTH_EXPIRED_EVENT, handleAuthExpired)
-    window.addEventListener('storage', handleStorageChange)
+    window.addEventListener(AUTH_CHANGED_EVENT, handleAuthChanged)
     return () => {
       window.removeEventListener(AUTH_EXPIRED_EVENT, handleAuthExpired)
-      window.removeEventListener('storage', handleStorageChange)
+      window.removeEventListener(AUTH_CHANGED_EVENT, handleAuthChanged)
     }
   }, [])
 
