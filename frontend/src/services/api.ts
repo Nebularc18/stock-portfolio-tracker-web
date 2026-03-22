@@ -129,15 +129,17 @@ async function fetchAPI(endpoint: string, options?: RequestInit) {
     const method = options?.method || 'GET'
     const logLabel = `[API timing] ${method} ${endpoint} ${Math.round(durationMs)}ms ${response.status}`
 
-    if (durationMs >= SLOW_API_REQUEST_MS) {
-      console.warn(logLabel)
-    } else if (
-      endpoint.includes('/finnhub/')
-      || endpoint.includes('/marketstack/')
-      || endpoint.includes('/dividends')
-      || endpoint.includes('/analyst')
-    ) {
-      console.info(logLabel)
+    if (import.meta.env.DEV) {
+      if (durationMs >= SLOW_API_REQUEST_MS) {
+        console.warn(logLabel)
+      } else if (
+        endpoint.includes('/finnhub/')
+        || endpoint.includes('/marketstack/')
+        || endpoint.includes('/dividends')
+        || endpoint.includes('/analyst')
+      ) {
+        console.info(logLabel)
+      }
     }
 
     if (!response.ok) {
@@ -543,12 +545,15 @@ export const api = {
   },
   
   portfolio: {
-    summary: (userId?: number | null) => {
+    summary: (userId?: number | null, requestOptions?: RequestInit) => {
       const key = getRequestUserCacheScope(userId)
+      if (requestOptions?.signal) {
+        return fetchAPI('/portfolio/summary', requestOptions) as Promise<PortfolioSummary>
+      }
       const cached = portfolioSummaryRequestCache.get(key)
       if (cached) return cached
 
-      const request = fetchAPI('/portfolio/summary')
+      const request = fetchAPI('/portfolio/summary', requestOptions)
         .finally(() => {
           portfolioSummaryRequestCache.delete(key)
         }) as Promise<PortfolioSummary>
@@ -586,12 +591,15 @@ export const api = {
       portfolioHistoryRequestCache.set(key, request)
       return request
     },
-    upcomingDividends: (userId?: number | null) => {
+    upcomingDividends: (userId?: number | null, requestOptions?: RequestInit) => {
       const key = getRequestUserCacheScope(userId)
+      if (requestOptions?.signal) {
+        return fetchAPI('/portfolio/upcoming-dividends', requestOptions) as Promise<UpcomingDividendsResponse>
+      }
       const cached = portfolioUpcomingDividendsRequestCache.get(key)
       if (cached) return cached
 
-      const request = fetchAPI('/portfolio/upcoming-dividends')
+      const request = fetchAPI('/portfolio/upcoming-dividends', requestOptions)
         .finally(() => {
           portfolioUpcomingDividendsRequestCache.delete(key)
         }) as Promise<UpcomingDividendsResponse>

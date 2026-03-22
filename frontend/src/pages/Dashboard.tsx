@@ -72,6 +72,11 @@ type HoldingSortField = 'ticker' | 'name' | 'quantity' | 'price' | 'value' | 'ga
 type UpcomingSortField = 'name' | 'exDate' | 'paymentDate' | 'perShare' | 'total' | 'source'
 const currencyFormatterCache = new Map<string, Intl.NumberFormat>()
 const percentFormatterCache = new Map<string, Intl.NumberFormat>()
+const LOGO_TILE_STYLE = {
+  background: 'linear-gradient(180deg, rgba(255,255,255,0.96) 0%, rgba(238,242,255,0.92) 100%)',
+  border: '1px solid rgba(255,255,255,0.14)',
+  boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.45), 0 6px 16px rgba(0,0,0,0.16)',
+}
 
 function isHistoryRangeKey(value: string | null): value is HistoryRangeKey {
   return value !== null && HISTORY_RANGE_OPTIONS.some((option) => option.key === value)
@@ -305,6 +310,12 @@ function getPercentFormatter(locale: string): Intl.NumberFormat {
   return formatter
 }
 
+function logDashboardIssue(message: string, error: unknown): void {
+  if (import.meta.env.DEV) {
+    console.error(message, error)
+  }
+}
+
 function getNextDashboardRefreshDelayMs(now: number = Date.now()): number {
   const nextRefreshAt = Math.ceil(now / DASHBOARD_AUTO_REFRESH_INTERVAL_MS) * DASHBOARD_AUTO_REFRESH_INTERVAL_MS
   return Math.max(
@@ -526,19 +537,17 @@ export default function Dashboard() {
   const historyRequestIdRef = useRef(0)
   const historyAbortControllerRef = useRef<AbortController | null>(null)
   const dataRequestIdRef = useRef(0)
+  const dataAbortControllerRef = useRef<AbortController | null>(null)
   const autoRefreshTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const lastAutoRefreshRunRef = useRef<symbol | null>(null)
   const userIdRef = useRef<number | null | undefined>(user?.id)
+  const historyRangeRef = useRef(historyRange)
   const { displayCurrency, timezone, language } = useSettings()
   const locale = getLocaleForLanguage(language)
   const { sortState: holdingsSortState, requestSort: requestHoldingsSort } = useTableSort<HoldingSortField>({ field: 'ticker', direction: 'asc' })
   const { sortState: upcomingSortState, requestSort: requestUpcomingSort } = useTableSort<UpcomingSortField>({ field: 'name', direction: 'asc' })
-  const logoTileStyle = {
-    background: 'linear-gradient(180deg, rgba(255,255,255,0.96) 0%, rgba(238,242,255,0.92) 100%)',
-    border: '1px solid rgba(255,255,255,0.14)',
-    boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.45), 0 6px 16px rgba(0,0,0,0.16)',
-  }
   userIdRef.current = user?.id
+  historyRangeRef.current = historyRange
 
   const fetchHistory = useCallback(async (range: HistoryRangeKey, options: FetchOptions = {}) => {
     const { background = false, signal } = options
@@ -559,7 +568,7 @@ export default function Dashboard() {
     } catch (error) {
       if (requestId !== historyRequestIdRef.current) return
       if (signal?.aborted || (error instanceof DOMException && error.name === 'AbortError')) return
-      console.error('Failed to load portfolio history:', error)
+      logDashboardIssue('Failed to load portfolio history:', error)
       if (!background) {
         setHistoryError(error instanceof Error ? error : new Error(String(error)))
       }
@@ -573,6 +582,9 @@ export default function Dashboard() {
     const requestUserId = userIdRef.current
     const requestId = dataRequestIdRef.current + 1
     dataRequestIdRef.current = requestId
+    const requestController = new AbortController()
+    dataAbortControllerRef.current?.abort()
+    dataAbortControllerRef.current = requestController
     let loadingStarted = false
     let loadingCleared = false
     const clearLoading = () => {
@@ -588,9 +600,9 @@ export default function Dashboard() {
         loadingStarted = true
       }
       const [summaryData, upcomingDivsData] = await Promise.all([
-        api.portfolio.summary(requestUserId),
-        api.portfolio.upcomingDividends(requestUserId).catch((error) => {
-          console.error('Failed to load upcoming dividends:', error)
+        api.portfolio.summary(requestUserId, { signal: requestController.signal }),
+        api.portfolio.upcomingDividends(requestUserId, { signal: requestController.signal }).catch((error) => {
+          logDashboardIssue('Failed to load upcoming dividends:', error)
           return createEmptyUpcomingDividendsResponse(displayCurrency)
         }),
       ])
@@ -613,12 +625,19 @@ export default function Dashboard() {
         clearLoading()
         return
       }
-      console.error('Failed to load dashboard data:', error)
+      if (requestController.signal.aborted || (error instanceof DOMException && error.name === 'AbortError')) {
+        clearLoading()
+        return
+      }
+      logDashboardIssue('Failed to load dashboard data:', error)
       if (!background) {
         setErrorKey('dashboard.failedLoad')
         clearLoading()
       }
     } finally {
+      if (dataAbortControllerRef.current === requestController) {
+        dataAbortControllerRef.current = null
+      }
       if (!background && requestId === dataRequestIdRef.current) {
         clearLoading()
       }
@@ -643,6 +662,8 @@ export default function Dashboard() {
       void fetchData()
     }
     return () => {
+      dataAbortControllerRef.current?.abort()
+      dataAbortControllerRef.current = null
       dataRequestIdRef.current += 1
     }
   }, [fetchData, user?.id])
@@ -688,7 +709,7 @@ export default function Dashboard() {
     } catch {
       // Ignore storage write failures.
     }
-  }, [historyRange, user?.id])
+  }, [historyRange, user])
 
   useEffect(() => {
     const runId = Symbol('dashboard-auto-refresh')
@@ -703,7 +724,7 @@ export default function Dashboard() {
       autoRefreshTimeoutRef.current = setTimeout(() => {
         Promise.allSettled([
           fetchData({ background: true }),
-          fetchHistory(historyRange, { background: true }),
+          fetchHistory(historyRangeRef.current, { background: true }),
         ]).finally(() => {
           if (lastAutoRefreshRunRef.current === runId) {
             scheduleNextRefresh()
@@ -723,7 +744,7 @@ export default function Dashboard() {
         autoRefreshTimeoutRef.current = null
       }
     }
-  }, [fetchData, fetchHistory, historyRange])
+  }, [fetchData, fetchHistory])
 
   useEffect(() => {
     let lastResumeRefreshAt = 0
@@ -734,7 +755,7 @@ export default function Dashboard() {
       if (now - lastResumeRefreshAt < DASHBOARD_AUTO_REFRESH_MIN_DELAY_MS) return
       lastResumeRefreshAt = now
       void fetchData({ background: true })
-      void fetchHistory(historyRange, { background: true })
+      void fetchHistory(historyRangeRef.current, { background: true })
     }
 
     document.addEventListener('visibilitychange', refreshAfterReturn)
@@ -744,7 +765,7 @@ export default function Dashboard() {
       document.removeEventListener('visibilitychange', refreshAfterReturn)
       window.removeEventListener('focus', refreshAfterReturn)
     }
-  }, [fetchData, fetchHistory, historyRange])
+  }, [fetchData, fetchHistory])
 
   const currency = summary?.display_currency || displayCurrency
   const gainLoss = summary?.total_gain_loss ?? 0
@@ -1151,14 +1172,14 @@ export default function Dashboard() {
                           <img
                             src={logoUrl}
                             alt={displayName}
-                            style={{ width: 22, height: 22, borderRadius: 4, objectFit: 'contain', padding: 2, ...logoTileStyle }}
+                            style={{ width: 22, height: 22, borderRadius: 4, objectFit: 'contain', padding: 2, ...LOGO_TILE_STYLE }}
                             onError={(e) => {
                               ;(e.target as HTMLImageElement).style.display = 'none'
                               setFailedLogos((prev) => ({ ...prev, [stock.ticker]: true }))
                             }}
                           />
                         ) : (
-                          <span style={{ width: 22, height: 22, borderRadius: 4, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', fontSize: 11, fontWeight: 700, color: '#4b5563', ...logoTileStyle }}>
+                          <span style={{ width: 22, height: 22, borderRadius: 4, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', fontSize: 11, fontWeight: 700, color: '#4b5563', ...LOGO_TILE_STYLE }}>
                             {(displayName || stock.ticker || '?').charAt(0).toUpperCase()}
                           </span>
                         )}
