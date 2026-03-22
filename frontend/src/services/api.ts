@@ -554,6 +554,7 @@ export const api = {
     refreshAll: () => fetchAPI('/portfolio/refresh-all', { method: 'POST' }),
     distribution: () => fetchAPI('/portfolio/distribution') as Promise<DistributionResponse>,
     history: (options: number | { days?: number; range?: string } = 30) => {
+      const authUser = getStoredAuthUser()
       const params = new URLSearchParams()
       if (typeof options === 'number') {
         params.set('days', String(options))
@@ -566,7 +567,7 @@ export const api = {
         }
       }
       const query = params.toString()
-      const key = query || '__default__'
+      const key = `${String(authUser?.id ?? 'guest')}:${query || '__default__'}`
       const cached = portfolioHistoryRequestCache.get(key)
       if (cached) return cached
 

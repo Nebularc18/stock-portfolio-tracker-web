@@ -402,6 +402,7 @@ export default function Dashboard() {
 
   const fetchHistory = useCallback(async (range: HistoryRangeKey, options: FetchOptions = {}) => {
     const { background = false } = options
+    const cacheUserId = user?.id
     const requestId = historyRequestIdRef.current + 1
     historyRequestIdRef.current = requestId
     if (!background) {
@@ -414,7 +415,7 @@ export default function Dashboard() {
       if (requestId !== historyRequestIdRef.current) return
       setPortfolioHistory(historyData)
       setHistoryError(null)
-      writeDashboardHistoryCache(range, user?.id, historyData)
+      writeDashboardHistoryCache(range, cacheUserId, historyData)
     } catch (error) {
       if (requestId !== historyRequestIdRef.current) return
       console.error('Failed to load portfolio history:', error)
@@ -428,6 +429,7 @@ export default function Dashboard() {
 
   const fetchData = useCallback(async (options: FetchOptions = {}) => {
     const { background = false } = options
+    const cacheUserId = user?.id
     const requestIdRef = background ? backgroundDataRequestIdRef : foregroundDataRequestIdRef
     const requestId = requestIdRef.current + 1
     requestIdRef.current = requestId
@@ -457,7 +459,7 @@ export default function Dashboard() {
       setTotalRemainingDividends(upcomingDivsData.total_remaining)
       setFailedLogos({})
       setErrorKey(null)
-      writeDashboardDataCache(user?.id, {
+      writeDashboardDataCache(cacheUserId, {
         summary: summaryData,
         upcomingDividends: upcomingDivsData.dividends,
         totalRemainingDividends: upcomingDivsData.total_remaining,
