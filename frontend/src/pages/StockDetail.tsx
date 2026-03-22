@@ -466,6 +466,10 @@ export default function StockDetail() {
     setSummaryDisplayCurrency(displayCurrency)
   }, [ticker, displayCurrency])
 
+  useEffect(() => {
+    setLogoFailed(false)
+  }, [stock?.logo])
+
   const loadFinnhubData = useCallback((force: boolean = false) => {
     if (!ticker) return Promise.resolve()
     if (!force && finnhubDataLoaded) return Promise.resolve()

@@ -692,6 +692,7 @@ def refresh_all_prices(db: Session = Depends(get_db), current_user: User = Depen
             stock.last_updated = request_ts
             updated += 1
 
+        original_logo = stock.logo
         logo_url = brandfetch_service.get_logo_url_for_ticker(
             stock.ticker,
             stock.name,
@@ -704,6 +705,8 @@ def refresh_all_prices(db: Session = Depends(get_db), current_user: User = Depen
             else:
                 logos_refreshed += 1
             stock.logo = logo_url
+        elif original_logo and brandfetch_service.should_refresh_logo(original_logo):
+            stock.logo = None
         
         if stock.current_price is not None:
             price_stmt = insert(StockPriceHistory).values(
