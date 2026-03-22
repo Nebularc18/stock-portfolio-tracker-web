@@ -145,9 +145,9 @@ export function SortHeader({
 }
 
 /**
- * Render the portfolio performance dashboard with summary cards, best/worst performer lists, a sortable holdings table, and CSV export.
+ * Renders the portfolio performance dashboard with summary cards, best/worst performer lists, a sortable holdings table, and CSV export.
  *
- * @returns The React element for the performance dashboard.
+ * @returns The React element representing the performance dashboard
  */
 export default function Performance() {
   const [stocks, setStocks] = useState<Stock[]>([])
@@ -225,6 +225,7 @@ export default function Performance() {
       const dailyChangePercent = stock.current_price != null && stock.previous_close != null && stock.previous_close !== 0
         ? ((stock.current_price - stock.previous_close) / stock.previous_close) * 100
         : null
+
       return {
         ticker: stock.ticker,
         name: stock.name,

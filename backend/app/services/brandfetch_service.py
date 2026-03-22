@@ -34,6 +34,7 @@ _LOGO_CACHE_TTL = 86400
 MAX_LOGO_BYTES = 5 * 1024 * 1024
 _LOGO_CACHE: dict[str, tuple[Optional[str], float]] = {}
 _CURATED_LOGO_QUERIES: dict[str, list[str]] = {
+    "EQT.ST": ["eqtpartners.com", "EQT Group"],
     "VOLV-B.ST": ["volvogroup.com", "Volvo Group"],
     "RIO.AX": ["riotinto.com", "Rio Tinto"],
     "OR.PA": ["loreal.com", "L'Oreal"],
@@ -533,19 +534,21 @@ class BrandfetchService:
         """
         candidate_name = str(candidate.get('name') or '')
         candidate_domain = str(candidate.get('domain') or '')
+        candidate_host = self._extract_domain_from_url(candidate_domain)
         verified = bool(candidate.get('verified'))
         quality_score = float(candidate.get('qualityScore') or 0)
         candidate_name_normalized = self._normalize_text(candidate_name)
-        candidate_domain_root = self._normalize_text(self._root_domain_token(candidate_domain))
+        candidate_domain_root = self._normalize_text(self._root_domain_token(candidate_host))
         query_normalized_text = query.strip().lower()
         ticker_normalized_text = ticker.strip().lower()
         looks_like_dotted_ticker = bool(re.fullmatch(r"[a-z]{1,5}\.[a-z]{1,3}", query_normalized_text))
         looks_like_hostname = bool(re.fullmatch(r"[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)+", query.strip()))
-        curated_domain_root = (
-            self._normalize_text(self._root_domain_token(query))
+        curated_host = (
+            self._extract_domain_from_url(query)
             if looks_like_hostname and query_normalized_text != ticker_normalized_text and not looks_like_dotted_ticker
             else ''
         )
+        curated_domain_root = self._normalize_text(self._root_domain_token(curated_host))
         query_normalized = curated_domain_root or self._normalize_text(query)
 
         expected_tokens: set[str] = set()
@@ -577,14 +580,16 @@ class BrandfetchService:
         )
 
         if len(expected_tokens) <= 1:
+            if curated_host and candidate_host == curated_host and quality_score >= 0.5:
+                return True
             if verified and quality_score >= 0.99 and (
                 exact_identity_match
-                or (curated_domain_root and candidate_domain_root == curated_domain_root)
+                or (curated_host and candidate_host == curated_host)
             ):
                 return True
             return False
 
-        if curated_domain_root and candidate_domain_root == curated_domain_root and quality_score >= 0.5:
+        if curated_host and candidate_host == curated_host and quality_score >= 0.5:
             return True
 
         if exact_identity_match and quality_score >= 0.5:

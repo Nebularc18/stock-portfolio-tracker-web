@@ -86,15 +86,19 @@ export function clearStoredAuthUser(notify: boolean = false) {
 }
 
 /**
- * Performs an HTTP request against the API and returns the parsed JSON response.
+ * Send an HTTP request to the API and return the parsed JSON response.
  *
- * The function automatically prefixes `endpoint` with the module's API_BASE and, when a stored
- * authenticated user exists, adds an `Authorization: Bearer <token>` header to the request.
+ * Adds `Authorization: Bearer <token>` when a stored authenticated user exists and enforces
+ * the module's request timeout (aborting the request when exceeded or when an external signal aborts).
+ * If the server responds with 401 and an auth user was present, stored auth is cleared and an auth-expired
+ * event is dispatched.
  *
- * @param endpoint - The API path to request (appended to API_BASE), e.g. `/stocks` or `/auth/login`
- * @param options - Optional fetch RequestInit options (method, headers, body, etc.)
- * @returns The parsed JSON response from the API
- * @throws Error if the response has a non-OK status; the error message is taken from the response's `detail` field when available, otherwise `"Request failed"`
+ * @param endpoint - API path appended to the module's `API_BASE`, e.g. `/stocks` or `/auth/login`
+ * @param options - Optional fetch `RequestInit` options (method, headers, body, signal, etc.)
+ * @returns The parsed JSON body from the successful response
+ * @throws Error when the response has a non-OK status; the error message is taken from the response's `detail`
+ *   field when available, otherwise `"Request failed"`. The thrown error also has a `status` property set to
+ *   the HTTP status code.
  */
 async function fetchAPI(endpoint: string, options?: RequestInit) {
   const authUser = getStoredAuthUser()
@@ -132,12 +136,34 @@ async function fetchAPI(endpoint: string, options?: RequestInit) {
         clearStoredAuthUser(true)
       }
       const error = await response.json().catch(() => ({ detail: 'Unknown error' }))
-      throw new Error(error.detail || 'Request failed')
+      const requestError = new Error(error.detail || 'Request failed') as Error & { status?: number }
+      requestError.status = response.status
+      throw requestError
     }
 
     return response.json()
   } finally {
     cleanup()
+  }
+}
+
+/**
+ * Fetches a resource from the API and returns a provided fallback when the server responds with 403 or 404.
+ *
+ * @param endpoint - API endpoint path (appended to the module's base URL)
+ * @param fallback - Value to return if the request fails with HTTP 403 or 404
+ * @param options - Optional fetch options forwarded to the underlying request
+ * @returns The parsed response as `T`, or `fallback` when the server returns `403` or `404`
+ */
+async function fetchOptionalAPI<T>(endpoint: string, fallback: T, options?: RequestInit): Promise<T> {
+  try {
+    return await fetchAPI(endpoint, options) as T
+  } catch (error) {
+    const status = (error as { status?: number } | null)?.status
+    if (status === 403 || status === 404) {
+      return fallback
+    }
+    throw error
   }
 }
 
@@ -276,6 +302,7 @@ export interface UpcomingDividendsResponse {
   total_expected: number
   total_received: number
   total_remaining: number
+  totals_partial: boolean
   dividends_partial: boolean
   skipped_dividend_count: number
   skipped_dividend_ids: string[]
@@ -570,10 +597,10 @@ export const api = {
   },
   
   finnhub: {
-    profile: (ticker: string) => fetchAPI(`/finnhub/profile/${encodePathSegment(ticker)}`) as Promise<CompanyProfile>,
-    metrics: (ticker: string) => fetchAPI(`/finnhub/metrics/${encodePathSegment(ticker)}`) as Promise<FinancialMetrics>,
-    peers: (ticker: string) => fetchAPI(`/finnhub/peers/${encodePathSegment(ticker)}`) as Promise<string[]>,
-    recommendations: (ticker: string) => fetchAPI(`/finnhub/recommendations/${encodePathSegment(ticker)}`) as Promise<RecommendationTrend[]>,
+    profile: (ticker: string) => fetchOptionalAPI<CompanyProfile | null>(`/finnhub/profile/${encodePathSegment(ticker)}`, null),
+    metrics: (ticker: string) => fetchOptionalAPI<FinancialMetrics | null>(`/finnhub/metrics/${encodePathSegment(ticker)}`, null),
+    peers: (ticker: string) => fetchOptionalAPI<string[]>(`/finnhub/peers/${encodePathSegment(ticker)}`, []),
+    recommendations: (ticker: string) => fetchOptionalAPI<RecommendationTrend[]>(`/finnhub/recommendations/${encodePathSegment(ticker)}`, []),
   },
   
   marketstack: {

@@ -10,9 +10,31 @@ import { getLocaleForLanguage, t, type Language, type TranslationKey } from '../
 import { formatDisplayName } from '../utils/displayName'
 import SortableHeader from '../components/SortableHeader'
 import { sortTableItems, useTableSort } from '../utils/tableSort'
+import type { UpcomingDividendsResponse } from '../services/api'
 
 type HistoryRangeKey = '1D' | '1W' | '1M' | 'YTD' | '1Y' | 'SINCE_START'
 type FetchOptions = { background?: boolean }
+
+/**
+ * Creates an UpcomingDividendsResponse object representing an empty dividends result.
+ *
+ * @param displayCurrency - ISO currency code to set as `display_currency`; falls back to `'SEK'` when falsy
+ * @returns An `UpcomingDividendsResponse` with `dividends` empty, numeric totals set to `0`, boolean partial flags `false`, empty skipped IDs/arrays, and `display_currency` set to the provided value (or `'SEK'`)
+ */
+function createEmptyUpcomingDividendsResponse(displayCurrency: string): UpcomingDividendsResponse {
+  return {
+    dividends: [],
+    total_expected: 0,
+    total_received: 0,
+    total_remaining: 0,
+    totals_partial: false,
+    dividends_partial: false,
+    skipped_dividend_count: 0,
+    skipped_dividend_ids: [],
+    display_currency: displayCurrency || 'SEK',
+    unmapped_stocks: [],
+  }
+}
 
 const HISTORY_RANGE_OPTIONS: Array<{ key: HistoryRangeKey; labelKey: TranslationKey; query: string }> = [
   { key: '1D', labelKey: 'dashboard.range1D', query: '1d' },
@@ -256,7 +278,7 @@ function getRangeTargetPoints(range: HistoryRangeKey): number | null {
 }
 
 /**
- * Render the portfolio dashboard page with hero statistics, a selectable performance chart, a sortable holdings table, and grouped upcoming dividends.
+ * Renders the portfolio dashboard with hero statistics, a selectable performance chart, a sortable holdings table, and grouped upcoming dividends.
  *
  * @returns The dashboard UI as JSX elements.
  */
@@ -272,7 +294,7 @@ export default function Dashboard() {
   const [loading, setLoading] = useState(true)
   const [historyLoading, setHistoryLoading] = useState(true)
   const [historyError, setHistoryError] = useState<Error | null>(null)
-  const [error, setError] = useState<string | null>(null)
+  const [errorKey, setErrorKey] = useState<TranslationKey | null>(null)
   const historyRequestIdRef = useRef(0)
   const foregroundDataRequestIdRef = useRef(0)
   const backgroundDataRequestIdRef = useRef(0)
@@ -326,31 +348,19 @@ export default function Dashboard() {
         setLoading(true)
         loadingStarted = true
       }
-      const upcomingDivsPromise = api.portfolio.upcomingDividends()
-        .then((value) => ({ status: 'fulfilled' as const, value }))
-        .catch((reason) => ({ status: 'rejected' as const, reason }))
-      const summaryData = await api.portfolio.summary()
+      const [summaryData, upcomingDivsData] = await Promise.all([
+        api.portfolio.summary(),
+        api.portfolio.upcomingDividends().catch(() => createEmptyUpcomingDividendsResponse(displayCurrency)),
+      ])
       if (requestId !== requestIdRef.current) {
         clearLoading()
         return
       }
       setSummary(summaryData)
+      setUpcomingDividends(upcomingDivsData.dividends)
+      setTotalRemainingDividends(upcomingDivsData.total_remaining)
       setFailedLogos({})
-      setError(null)
-      if (!background) {
-        clearLoading()
-      }
-      const upcomingDivsResult = await upcomingDivsPromise
-      if (requestId !== requestIdRef.current) {
-        clearLoading()
-        return
-      }
-      if (upcomingDivsResult.status === 'fulfilled') {
-        setUpcomingDividends(upcomingDivsResult.value.dividends)
-        setTotalRemainingDividends(upcomingDivsResult.value.total_remaining)
-      } else {
-        console.error('Failed to load upcoming dividends:', upcomingDivsResult.reason)
-      }
+      setErrorKey(null)
     } catch (error) {
       if (requestId !== requestIdRef.current) {
         clearLoading()
@@ -358,7 +368,7 @@ export default function Dashboard() {
       }
       console.error('Failed to load dashboard data:', error)
       if (!background) {
-        setError(t(language, 'dashboard.failedLoad'))
+        setErrorKey('dashboard.failedLoad')
         clearLoading()
       }
     } finally {
@@ -366,7 +376,7 @@ export default function Dashboard() {
         clearLoading()
       }
     }
-  }, [language])
+  }, [displayCurrency])
 
   useEffect(() => {
     fetchData()
@@ -506,6 +516,45 @@ export default function Dashboard() {
     return formatCurrency(amount, locale, amountCurrency)
   }
 
+  const renderHoldingAmount = (
+    amount: number | null | undefined,
+    sourceCurrency: string,
+    converted: boolean,
+  ) => {
+    if (amount == null) return '—'
+
+    if (!converted) {
+      return (
+        <div
+          title={t(language, 'dashboard.unconvertedTooltip', {
+            sourceCurrency,
+            targetCurrency: currency,
+          })}
+          style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}
+        >
+          <span>{renderAmount(amount, sourceCurrency)}</span>
+          <span
+            style={{
+              padding: '2px 6px',
+              borderRadius: 999,
+              border: '1px solid var(--border2)',
+              background: 'var(--bg3)',
+              color: 'var(--muted)',
+              fontSize: 10,
+              fontWeight: 700,
+              letterSpacing: '0.04em',
+              textTransform: 'uppercase',
+            }}
+          >
+            {t(language, 'dashboard.unconverted')}
+          </span>
+        </div>
+      )
+    }
+
+    return renderAmount(amount, currency)
+  }
+
   const monthlyUpcoming = Object.entries(groupedDividends)
     .sort(([a], [b]) => {
       if (a === 'tbd') return 1
@@ -543,8 +592,8 @@ export default function Dashboard() {
       ticker: (stock) => stock.ticker,
       name: (stock) => formatDisplayName(stock.name, stock.ticker),
       quantity: (stock) => stock.quantity,
-      price: (stock) => stock.display_price,
-      value: (stock) => stock.current_value,
+      price: (stock) => (stock.display_price_converted ? stock.display_price : null),
+      value: (stock) => (stock.current_value_converted ? stock.current_value : null),
       gainLoss: (stock) => stock.gain_loss,
       gainLossPercent: (stock) => stock.gain_loss_percent,
     },
@@ -556,11 +605,11 @@ export default function Dashboard() {
     return <div className="loading-state">{t(language, 'common.loading')}</div>
   }
 
-  if (error) {
+  if (errorKey) {
     return (
       <div style={{ padding: '28px' }}>
         <div className="card" style={{ textAlign: 'center', padding: '40px' }}>
-          <p style={{ color: 'var(--red)', marginBottom: '16px' }}>{error}</p>
+          <p style={{ color: 'var(--red)', marginBottom: '16px' }}>{t(language, errorKey)}</p>
           <button className="btn btn-primary" onClick={() => { void fetchData() }}>{t(language, 'common.retry')}</button>
         </div>
       </div>
@@ -838,10 +887,10 @@ export default function Dashboard() {
                     <td style={{ color: 'var(--text2)' }}>{displayName}</td>
                     <td style={{ textAlign: 'right', fontFamily: "'Fira Code', monospace", color: 'var(--text2)' }}>{stock.quantity}</td>
                     <td style={{ textAlign: 'right', fontFamily: "'Fira Code', monospace", color: 'var(--text2)' }}>
-                      {renderAmount(stock.display_price, stock.display_price_converted ? currency : stock.currency)}
+                      {renderHoldingAmount(stock.display_price, stock.currency, stock.display_price_converted ?? false)}
                     </td>
                     <td style={{ textAlign: 'right', fontFamily: "'Fira Code', monospace", color: 'var(--text2)' }}>
-                      {renderAmount(stock.current_value, stock.current_value_converted ? currency : stock.currency)}
+                      {renderHoldingAmount(stock.current_value, stock.currency, stock.current_value_converted ?? false)}
                     </td>
                     <td style={{ textAlign: 'right', fontFamily: "'Fira Code', monospace" }} className={stock.gain_loss === null ? '' : (stock.gain_loss >= 0 ? 'positive' : 'negative')}>
                       {stock.gain_loss !== null ? formatCurrency(stock.gain_loss, locale, currency) : '-'}
@@ -929,3 +978,4 @@ export default function Dashboard() {
     </div>
   )
 }
+
