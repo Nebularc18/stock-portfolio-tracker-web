@@ -304,6 +304,11 @@ export default function Dashboard() {
   const locale = getLocaleForLanguage(language)
   const { sortState: holdingsSortState, requestSort: requestHoldingsSort } = useTableSort<HoldingSortField>({ field: 'ticker', direction: 'asc' })
   const { sortState: upcomingSortState, requestSort: requestUpcomingSort } = useTableSort<UpcomingSortField>({ field: 'name', direction: 'asc' })
+  const logoTileStyle = {
+    background: 'linear-gradient(180deg, rgba(255,255,255,0.96) 0%, rgba(238,242,255,0.92) 100%)',
+    border: '1px solid rgba(255,255,255,0.14)',
+    boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.45), 0 6px 16px rgba(0,0,0,0.16)',
+  }
 
   const fetchHistory = useCallback(async (range: HistoryRangeKey, options: FetchOptions = {}) => {
     const { background = false } = options
@@ -870,14 +875,14 @@ export default function Dashboard() {
                           <img
                             src={logoUrl}
                             alt={displayName}
-                            style={{ width: 22, height: 22, borderRadius: 4, objectFit: 'contain', background: 'var(--bg3)', padding: 2 }}
+                            style={{ width: 22, height: 22, borderRadius: 4, objectFit: 'contain', padding: 2, ...logoTileStyle }}
                             onError={(e) => {
                               ;(e.target as HTMLImageElement).style.display = 'none'
                               setFailedLogos((prev) => ({ ...prev, [stock.ticker]: true }))
                             }}
                           />
                         ) : (
-                          <span style={{ width: 22, height: 22, borderRadius: 4, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', fontSize: 11, fontWeight: 700, color: 'var(--muted)', background: 'var(--bg3)' }}>
+                          <span style={{ width: 22, height: 22, borderRadius: 4, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', fontSize: 11, fontWeight: 700, color: '#4b5563', ...logoTileStyle }}>
                             {(displayName || stock.ticker || '?').charAt(0).toUpperCase()}
                           </span>
                         )}

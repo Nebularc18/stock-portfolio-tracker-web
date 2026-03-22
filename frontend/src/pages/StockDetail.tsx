@@ -466,6 +466,10 @@ export default function StockDetail() {
     setSummaryDisplayCurrency(displayCurrency)
   }, [ticker, displayCurrency])
 
+  useEffect(() => {
+    setLogoFailed(false)
+  }, [stock?.logo])
+
   const loadFinnhubData = useCallback((force: boolean = false) => {
     if (!ticker) return Promise.resolve()
     if (!force && finnhubDataLoaded) return Promise.resolve()
@@ -1032,6 +1036,11 @@ export default function StockDetail() {
 
   const panelStyle = { background: 'var(--bg2)', border: '1px solid var(--border)', borderRadius: 8 }
   const secLabel = { fontSize: 9, fontWeight: 700, letterSpacing: '0.18em', textTransform: 'uppercase' as const, color: 'var(--muted)' }
+  const logoTileStyle = {
+    background: 'linear-gradient(180deg, rgba(255,255,255,0.96) 0%, rgba(238,242,255,0.92) 100%)',
+    border: '1px solid rgba(255,255,255,0.14)',
+    boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.45), 0 10px 24px rgba(0,0,0,0.22)',
+  }
 
   return (
     <div>
@@ -1067,11 +1076,11 @@ export default function StockDetail() {
               <img
                 src={resolvedLogoUrl || undefined}
                 alt={displayName}
-                style={{ width: 52, height: 52, borderRadius: 10, objectFit: 'contain', background: 'var(--bg3)', padding: 6, border: '1px solid var(--border2)', flexShrink: 0 }}
+                style={{ width: 52, height: 52, borderRadius: 10, objectFit: 'contain', padding: 6, flexShrink: 0, ...logoTileStyle }}
                 onError={() => setLogoFailed(true)}
               />
             ) : (
-              <div style={{ width: 52, height: 52, borderRadius: 10, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 20, fontWeight: 700, color: 'var(--muted)', background: 'var(--bg3)', border: '1px solid var(--border2)', flexShrink: 0 }}>
+              <div style={{ width: 52, height: 52, borderRadius: 10, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 20, fontWeight: 700, color: '#4b5563', flexShrink: 0, ...logoTileStyle }}>
                 {displayName.charAt(0).toUpperCase()}
               </div>
             )}

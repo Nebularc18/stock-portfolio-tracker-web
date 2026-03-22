@@ -664,6 +664,31 @@ def get_portfolio_summary(db: Session = Depends(get_db), current_user: User = De
                 each entry includes ticker, currency, and reason.
     """
     stocks = db.query(Stock).filter(Stock.user_id == current_user.id).all()
+    logos_updated = False
+    for stock in (stock for stock in stocks if brandfetch_service.should_refresh_logo(stock.logo)):
+        original_logo = stock.logo
+        try:
+            refreshed_logo = brandfetch_service.get_logo_url_for_ticker(
+                stock.ticker,
+                stock.name,
+                force_refresh=False,
+                existing_logo=stock.logo,
+            )
+        except Exception as exc:
+            logger.warning("Failed to refresh logo for %s: %s", stock.ticker, exc)
+            continue
+        if refreshed_logo and refreshed_logo != stock.logo:
+            stock.logo = refreshed_logo
+            logos_updated = True
+        elif original_logo and brandfetch_service.should_refresh_logo(original_logo):
+            stock.logo = None
+            logos_updated = True
+
+    if logos_updated:
+        db.commit()
+        for stock in stocks:
+            db.refresh(stock)
+
     display_currency = get_display_currency(db, current_user.id)
 
     currencies = {s.currency for s in stocks if s.currency}
@@ -877,6 +902,7 @@ def refresh_all_prices(db: Session = Depends(get_db), current_user: User = Depen
             - skipped (int): Number of stocks skipped due to missing exchange rates.
             - logos_backfilled (int): Number of stocks that received a logo where none existed.
             - logos_refreshed (int): Number of stocks whose logo URL was updated.
+            - logos_cleared (int): Number of stale logo references removed because no replacement logo could be persisted.
     """
     from app.services.stock_service import StockService
     from app.services.exchange_rate_service import ExchangeRateService
@@ -887,6 +913,7 @@ def refresh_all_prices(db: Session = Depends(get_db), current_user: User = Depen
     total_value_sek = 0
     logos_backfilled = 0
     logos_refreshed = 0
+    logos_cleared = 0
     
     currencies = {s.currency for s in stocks if s.currency}
     rates = ExchangeRateService.get_rates_for_currencies(currencies, "SEK")
@@ -906,6 +933,7 @@ def refresh_all_prices(db: Session = Depends(get_db), current_user: User = Depen
             stock.last_updated = request_ts
             updated += 1
 
+        original_logo = stock.logo
         logo_url = brandfetch_service.get_logo_url_for_ticker(
             stock.ticker,
             stock.name,
@@ -918,6 +946,9 @@ def refresh_all_prices(db: Session = Depends(get_db), current_user: User = Depen
             else:
                 logos_refreshed += 1
             stock.logo = logo_url
+        elif original_logo and brandfetch_service.should_refresh_logo(original_logo):
+            stock.logo = None
+            logos_cleared += 1
         
         if stock.current_price is not None:
             price_stmt = insert(StockPriceHistory).values(
@@ -977,6 +1008,7 @@ def refresh_all_prices(db: Session = Depends(get_db), current_user: User = Depen
         "skipped": skipped,
         "logos_backfilled": logos_backfilled,
         "logos_refreshed": logos_refreshed,
+        "logos_cleared": logos_cleared,
     }
 
 
