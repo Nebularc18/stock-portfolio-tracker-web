@@ -450,6 +450,31 @@ def get_portfolio_summary(db: Session = Depends(get_db), current_user: User = De
                 each entry includes ticker, currency, and reason.
     """
     stocks = db.query(Stock).filter(Stock.user_id == current_user.id).all()
+    logos_updated = False
+    for stock in (stock for stock in stocks if brandfetch_service.should_refresh_logo(stock.logo)):
+        original_logo = stock.logo
+        try:
+            refreshed_logo = brandfetch_service.get_logo_url_for_ticker(
+                stock.ticker,
+                stock.name,
+                force_refresh=True,
+                existing_logo=stock.logo,
+            )
+        except Exception as exc:
+            logger.warning("Failed to refresh logo for %s: %s", stock.ticker, exc)
+            continue
+        if refreshed_logo and refreshed_logo != stock.logo:
+            stock.logo = refreshed_logo
+            logos_updated = True
+        elif original_logo and brandfetch_service.should_refresh_logo(original_logo):
+            stock.logo = None
+            logos_updated = True
+
+    if logos_updated:
+        db.commit()
+        for stock in stocks:
+            db.refresh(stock)
+
     display_currency = get_display_currency(db, current_user.id)
 
     currencies = {s.currency for s in stocks if s.currency}
