@@ -294,7 +294,7 @@ export default function Dashboard() {
   const [loading, setLoading] = useState(true)
   const [historyLoading, setHistoryLoading] = useState(true)
   const [historyError, setHistoryError] = useState<Error | null>(null)
-  const [error, setError] = useState<string | null>(null)
+  const [errorKey, setErrorKey] = useState<TranslationKey | null>(null)
   const historyRequestIdRef = useRef(0)
   const foregroundDataRequestIdRef = useRef(0)
   const backgroundDataRequestIdRef = useRef(0)
@@ -360,7 +360,7 @@ export default function Dashboard() {
       setUpcomingDividends(upcomingDivsData.dividends)
       setTotalRemainingDividends(upcomingDivsData.total_remaining)
       setFailedLogos({})
-      setError(null)
+      setErrorKey(null)
     } catch (error) {
       if (requestId !== requestIdRef.current) {
         clearLoading()
@@ -368,7 +368,7 @@ export default function Dashboard() {
       }
       console.error('Failed to load dashboard data:', error)
       if (!background) {
-        setError(t(language, 'dashboard.failedLoad'))
+        setErrorKey('dashboard.failedLoad')
         clearLoading()
       }
     } finally {
@@ -376,7 +376,7 @@ export default function Dashboard() {
         clearLoading()
       }
     }
-  }, [displayCurrency, language])
+  }, [displayCurrency])
 
   useEffect(() => {
     fetchData()
@@ -521,12 +521,15 @@ export default function Dashboard() {
     sourceCurrency: string,
     converted: boolean,
   ) => {
-    if (amount == null) return 'â€”'
+    if (amount == null) return '—'
 
     if (!converted) {
       return (
         <div
-          title={`Unconverted value shown in ${sourceCurrency}. Missing exchange rate for ${sourceCurrency} to ${currency}.`}
+          title={t(language, 'dashboard.unconvertedTooltip', {
+            sourceCurrency,
+            targetCurrency: currency,
+          })}
           style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}
         >
           <span>{renderAmount(amount, sourceCurrency)}</span>
@@ -543,7 +546,7 @@ export default function Dashboard() {
               textTransform: 'uppercase',
             }}
           >
-            Unconverted
+            {t(language, 'dashboard.unconverted')}
           </span>
         </div>
       )
@@ -602,11 +605,11 @@ export default function Dashboard() {
     return <div className="loading-state">{t(language, 'common.loading')}</div>
   }
 
-  if (error) {
+  if (errorKey) {
     return (
       <div style={{ padding: '28px' }}>
         <div className="card" style={{ textAlign: 'center', padding: '40px' }}>
-          <p style={{ color: 'var(--red)', marginBottom: '16px' }}>{error}</p>
+          <p style={{ color: 'var(--red)', marginBottom: '16px' }}>{t(language, errorKey)}</p>
           <button className="btn btn-primary" onClick={() => { void fetchData() }}>{t(language, 'common.retry')}</button>
         </div>
       </div>
@@ -975,3 +978,4 @@ export default function Dashboard() {
     </div>
   )
 }
+
