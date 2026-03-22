@@ -13,7 +13,7 @@ import { sortTableItems, useTableSort } from '../utils/tableSort'
 import type { UpcomingDividendsResponse } from '../services/api'
 
 type HistoryRangeKey = '1D' | '1W' | '1M' | 'YTD' | '1Y' | 'SINCE_START'
-type FetchOptions = { background?: boolean }
+type FetchOptions = { background?: boolean; signal?: AbortSignal }
 
 /**
  * Creates an UpcomingDividendsResponse object representing an empty dividends result.
@@ -57,16 +57,21 @@ type DashboardHistoryCache = {
   history: DashboardHistoryEntry[]
   cachedAt: number
 }
+type DashboardDataCacheRecord = DashboardDataCache & { version: number }
+type DashboardHistoryCacheRecord = DashboardHistoryCache & { version: number }
 const DEFAULT_HISTORY_RANGE: HistoryRangeKey = '1M'
 const DASHBOARD_HISTORY_RANGE_STORAGE_KEY = 'dashboard.historyRange'
 const DASHBOARD_DATA_CACHE_STORAGE_KEY = 'dashboard.data'
 const DASHBOARD_HISTORY_CACHE_STORAGE_KEY = 'dashboard.history'
+const DASHBOARD_CACHE_VERSION = 1
 const DASHBOARD_AUTO_REFRESH_INTERVAL_MS = 10 * 60 * 1000
 const DASHBOARD_AUTO_REFRESH_BUFFER_MS = 5_000
 const DASHBOARD_AUTO_REFRESH_MIN_DELAY_MS = 5_000
 
 type HoldingSortField = 'ticker' | 'name' | 'quantity' | 'price' | 'value' | 'gainLoss' | 'gainLossPercent'
 type UpcomingSortField = 'name' | 'exDate' | 'paymentDate' | 'perShare' | 'total' | 'source'
+const currencyFormatterCache = new Map<string, Intl.NumberFormat>()
+const percentFormatterCache = new Map<string, Intl.NumberFormat>()
 
 function isHistoryRangeKey(value: string | null): value is HistoryRangeKey {
   return value !== null && HISTORY_RANGE_OPTIONS.some((option) => option.key === value)
@@ -96,70 +101,208 @@ function getDashboardHistoryCacheKey(range: HistoryRangeKey, userId?: number | n
   return `${DASHBOARD_HISTORY_CACHE_STORAGE_KEY}:${userId ?? 'guest'}:${range}`
 }
 
-function readDashboardDataCache(userId?: number | null): DashboardDataCache | null {
+function getDashboardCacheStorage(): Storage | null {
   try {
-    const storage = typeof window !== 'undefined' ? window.localStorage : null
+    return typeof window !== 'undefined' ? window.sessionStorage : null
+  } catch {
+    return null
+  }
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return value !== null && typeof value === 'object'
+}
+
+function isFiniteNumber(value: unknown): value is number {
+  return typeof value === 'number' && Number.isFinite(value)
+}
+
+function isNullableString(value: unknown): value is string | null {
+  return value === null || typeof value === 'string'
+}
+
+function isPortfolioSummaryStock(value: unknown): boolean {
+  if (!isRecord(value)) return false
+  return (
+    typeof value.ticker === 'string'
+    && isNullableString(value.name)
+    && isFiniteNumber(value.quantity)
+    && isFiniteNumber(value.current_price)
+    && isFiniteNumber(value.display_price)
+    && isFiniteNumber(value.current_value)
+    && (value.total_cost === null || isFiniteNumber(value.total_cost))
+    && typeof value.currency === 'string'
+    && isNullableString(value.sector)
+    && isNullableString(value.logo)
+    && (value.gain_loss === null || isFiniteNumber(value.gain_loss))
+    && (value.gain_loss_percent === null || isFiniteNumber(value.gain_loss_percent))
+    && (value.daily_change === null || isFiniteNumber(value.daily_change))
+  )
+}
+
+function isPortfolioSummaryCache(value: unknown): value is PortfolioSummary {
+  if (!isRecord(value)) return false
+  return (
+    isFiniteNumber(value.total_value)
+    && typeof value.total_value_partial === 'boolean'
+    && isFiniteNumber(value.total_cost)
+    && typeof value.total_cost_partial === 'boolean'
+    && isFiniteNumber(value.total_gain_loss)
+    && typeof value.total_gain_loss_partial === 'boolean'
+    && isFiniteNumber(value.total_gain_loss_percent)
+    && isFiniteNumber(value.daily_change)
+    && typeof value.daily_change_partial === 'boolean'
+    && isFiniteNumber(value.dividend_yield)
+    && typeof value.dividend_yield_partial === 'boolean'
+    && isNullableString(value.last_updated)
+    && typeof value.display_currency === 'string'
+    && Array.isArray(value.stocks)
+    && value.stocks.every(isPortfolioSummaryStock)
+    && isFiniteNumber(value.stock_count)
+  )
+}
+
+function isUpcomingDividend(value: unknown): boolean {
+  if (!isRecord(value)) return false
+  return (
+    (value.id === undefined || typeof value.id === 'string')
+    && typeof value.ticker === 'string'
+    && isNullableString(value.name)
+    && isFiniteNumber(value.quantity)
+    && typeof value.ex_date === 'string'
+    && isNullableString(value.payment_date)
+    && (value.status === undefined || value.status === 'paid' || value.status === 'upcoming')
+    && (value.dividend_type === undefined || isNullableString(value.dividend_type))
+    && isFiniteNumber(value.amount_per_share)
+    && isFiniteNumber(value.total_amount)
+    && typeof value.currency === 'string'
+    && (value.total_converted === null || isFiniteNumber(value.total_converted))
+    && typeof value.display_currency === 'string'
+    && typeof value.source === 'string'
+  )
+}
+
+function isDashboardHistoryEntry(value: unknown): value is DashboardHistoryEntry {
+  return isRecord(value) && typeof value.date === 'string' && isFiniteNumber(value.value)
+}
+
+function removeStoredItem(key: string): void {
+  try {
+    const storage = getDashboardCacheStorage()
+    storage?.removeItem(key)
+  } catch {
+    // Ignore storage removal failures.
+  }
+}
+
+function readDashboardDataCache(userId?: number | null): DashboardDataCache | null {
+  const key = getDashboardDataCacheKey(userId)
+  try {
+    const storage = getDashboardCacheStorage()
     if (!storage) return null
-    const raw = storage.getItem(getDashboardDataCacheKey(userId))
+    const raw = storage.getItem(key)
     if (!raw) return null
-    const parsed = JSON.parse(raw) as Partial<DashboardDataCache>
-    if (!parsed || typeof parsed !== 'object' || !parsed.summary || !Array.isArray(parsed.upcomingDividends)) {
+    const parsed = JSON.parse(raw) as unknown
+    if (!isRecord(parsed) || parsed.version !== DASHBOARD_CACHE_VERSION) {
+      return null
+    }
+    if (
+      !isPortfolioSummaryCache(parsed.summary)
+      || !Array.isArray(parsed.upcomingDividends)
+      || !parsed.upcomingDividends.every(isUpcomingDividend)
+      || !isFiniteNumber(parsed.totalRemainingDividends)
+      || !isFiniteNumber(parsed.cachedAt)
+    ) {
+      removeStoredItem(key)
       return null
     }
     return {
-      summary: parsed.summary as PortfolioSummary,
-      upcomingDividends: parsed.upcomingDividends as UpcomingDividend[],
-      totalRemainingDividends: typeof parsed.totalRemainingDividends === 'number' ? parsed.totalRemainingDividends : 0,
-      cachedAt: typeof parsed.cachedAt === 'number' ? parsed.cachedAt : 0,
+      summary: parsed.summary,
+      upcomingDividends: parsed.upcomingDividends,
+      totalRemainingDividends: parsed.totalRemainingDividends,
+      cachedAt: parsed.cachedAt,
     }
   } catch {
+    removeStoredItem(key)
     return null
   }
 }
 
 function writeDashboardDataCache(userId: number | null | undefined, value: Omit<DashboardDataCache, 'cachedAt'>): void {
   try {
-    const storage = typeof window !== 'undefined' ? window.localStorage : null
+    const storage = getDashboardCacheStorage()
     if (!storage) return
     storage.setItem(getDashboardDataCacheKey(userId), JSON.stringify({
       ...value,
+      version: DASHBOARD_CACHE_VERSION,
       cachedAt: Date.now(),
-    }))
+    } satisfies DashboardDataCacheRecord))
   } catch {
     // Ignore storage write failures.
   }
 }
 
 function readDashboardHistoryCache(range: HistoryRangeKey, userId?: number | null): DashboardHistoryCache | null {
+  const key = getDashboardHistoryCacheKey(range, userId)
   try {
-    const storage = typeof window !== 'undefined' ? window.localStorage : null
+    const storage = getDashboardCacheStorage()
     if (!storage) return null
-    const raw = storage.getItem(getDashboardHistoryCacheKey(range, userId))
+    const raw = storage.getItem(key)
     if (!raw) return null
-    const parsed = JSON.parse(raw) as Partial<DashboardHistoryCache>
-    if (!parsed || typeof parsed !== 'object' || !Array.isArray(parsed.history)) {
+    const parsed = JSON.parse(raw) as unknown
+    if (!isRecord(parsed) || parsed.version !== DASHBOARD_CACHE_VERSION) {
+      return null
+    }
+    if (!Array.isArray(parsed.history) || !parsed.history.every(isDashboardHistoryEntry) || !isFiniteNumber(parsed.cachedAt)) {
+      removeStoredItem(key)
       return null
     }
     return {
-      history: parsed.history as DashboardHistoryEntry[],
-      cachedAt: typeof parsed.cachedAt === 'number' ? parsed.cachedAt : 0,
+      history: parsed.history,
+      cachedAt: parsed.cachedAt,
     }
   } catch {
+    removeStoredItem(key)
     return null
   }
 }
 
 function writeDashboardHistoryCache(range: HistoryRangeKey, userId: number | null | undefined, history: DashboardHistoryEntry[]): void {
   try {
-    const storage = typeof window !== 'undefined' ? window.localStorage : null
+    const storage = getDashboardCacheStorage()
     if (!storage) return
     storage.setItem(getDashboardHistoryCacheKey(range, userId), JSON.stringify({
       history,
+      version: DASHBOARD_CACHE_VERSION,
       cachedAt: Date.now(),
-    }))
+    } satisfies DashboardHistoryCacheRecord))
   } catch {
     // Ignore storage write failures.
   }
+}
+
+function getCurrencyFormatter(locale: string, currency: string): Intl.NumberFormat {
+  const key = `${locale}:${currency}`
+  const cached = currencyFormatterCache.get(key)
+  if (cached) return cached
+
+  const formatter = new Intl.NumberFormat(locale, { style: 'currency', currency })
+  currencyFormatterCache.set(key, formatter)
+  return formatter
+}
+
+function getPercentFormatter(locale: string): Intl.NumberFormat {
+  const cached = percentFormatterCache.get(locale)
+  if (cached) return cached
+
+  const formatter = new Intl.NumberFormat(locale, {
+    style: 'percent',
+    signDisplay: 'always',
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  })
+  percentFormatterCache.set(locale, formatter)
+  return formatter
 }
 
 function getNextDashboardRefreshDelayMs(now: number = Date.now()): number {
@@ -179,7 +322,7 @@ function getNextDashboardRefreshDelayMs(now: number = Date.now()): number {
  * @returns The formatted currency string for the given locale and currency
  */
 function formatCurrency(value: number, locale: string, currency: string = 'USD'): string {
-  return new Intl.NumberFormat(locale, { style: 'currency', currency }).format(value)
+  return getCurrencyFormatter(locale, currency).format(value)
 }
 
 /**
@@ -190,12 +333,7 @@ function formatCurrency(value: number, locale: string, currency: string = 'USD')
  * @returns The localized percentage string with an explicit sign and two decimal places (e.g., `"+12.34%"`).
  */
 function formatPercent(value: number, locale: string): string {
-  return new Intl.NumberFormat(locale, {
-    style: 'percent',
-    signDisplay: 'always',
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2,
-  }).format(value / 100)
+  return getPercentFormatter(locale).format(value / 100)
 }
 
 /**
@@ -379,17 +517,18 @@ export default function Dashboard() {
   const [upcomingDividends, setUpcomingDividends] = useState<UpcomingDividend[]>(initialCachedData?.upcomingDividends ?? [])
   const [totalRemainingDividends, setTotalRemainingDividends] = useState(initialCachedData?.totalRemainingDividends ?? 0)
   const [portfolioHistory, setPortfolioHistory] = useState<DashboardHistoryEntry[]>(initialCachedHistory?.history ?? [])
-  const [historyRange, setHistoryRange] = useState<HistoryRangeKey>(() => getStoredHistoryRange(user?.id))
+  const [historyRange, setHistoryRange] = useState<HistoryRangeKey>(initialHistoryRange)
   const [failedLogos, setFailedLogos] = useState<Record<string, boolean>>({})
   const [loading, setLoading] = useState(initialCachedData === null)
   const [historyLoading, setHistoryLoading] = useState(initialCachedHistory === null)
   const [historyError, setHistoryError] = useState<Error | null>(null)
   const [errorKey, setErrorKey] = useState<TranslationKey | null>(null)
   const historyRequestIdRef = useRef(0)
-  const foregroundDataRequestIdRef = useRef(0)
-  const backgroundDataRequestIdRef = useRef(0)
+  const historyAbortControllerRef = useRef<AbortController | null>(null)
+  const dataRequestIdRef = useRef(0)
   const autoRefreshTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const lastAutoRefreshRunRef = useRef<symbol | null>(null)
+  const userIdRef = useRef<number | null | undefined>(user?.id)
   const { displayCurrency, timezone, language } = useSettings()
   const locale = getLocaleForLanguage(language)
   const { sortState: holdingsSortState, requestSort: requestHoldingsSort } = useTableSort<HoldingSortField>({ field: 'ticker', direction: 'asc' })
@@ -399,10 +538,11 @@ export default function Dashboard() {
     border: '1px solid rgba(255,255,255,0.14)',
     boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.45), 0 6px 16px rgba(0,0,0,0.16)',
   }
+  userIdRef.current = user?.id
 
   const fetchHistory = useCallback(async (range: HistoryRangeKey, options: FetchOptions = {}) => {
-    const { background = false } = options
-    const cacheUserId = user?.id
+    const { background = false, signal } = options
+    const requestUserId = userIdRef.current
     const requestId = historyRequestIdRef.current + 1
     historyRequestIdRef.current = requestId
     if (!background) {
@@ -411,13 +551,14 @@ export default function Dashboard() {
     }
     const rangeQuery = HISTORY_RANGE_OPTIONS.find((o) => o.key === range)?.query || '1m'
     try {
-      const historyData = await api.portfolio.history({ range: rangeQuery })
+      const historyData = await api.portfolio.history({ range: rangeQuery }, requestUserId, signal ? { signal } : undefined)
       if (requestId !== historyRequestIdRef.current) return
       setPortfolioHistory(historyData)
       setHistoryError(null)
-      writeDashboardHistoryCache(range, cacheUserId, historyData)
+      writeDashboardHistoryCache(range, requestUserId, historyData)
     } catch (error) {
       if (requestId !== historyRequestIdRef.current) return
+      if (signal?.aborted || (error instanceof DOMException && error.name === 'AbortError')) return
       console.error('Failed to load portfolio history:', error)
       if (!background) {
         setHistoryError(error instanceof Error ? error : new Error(String(error)))
@@ -425,14 +566,13 @@ export default function Dashboard() {
     } finally {
       if (requestId === historyRequestIdRef.current && !background) setHistoryLoading(false)
     }
-  }, [user?.id])
+  }, [])
 
   const fetchData = useCallback(async (options: FetchOptions = {}) => {
     const { background = false } = options
-    const cacheUserId = user?.id
-    const requestIdRef = background ? backgroundDataRequestIdRef : foregroundDataRequestIdRef
-    const requestId = requestIdRef.current + 1
-    requestIdRef.current = requestId
+    const requestUserId = userIdRef.current
+    const requestId = dataRequestIdRef.current + 1
+    dataRequestIdRef.current = requestId
     let loadingStarted = false
     let loadingCleared = false
     const clearLoading = () => {
@@ -444,13 +584,17 @@ export default function Dashboard() {
     try {
       if (!background) {
         setLoading(true)
+        setErrorKey(null)
         loadingStarted = true
       }
       const [summaryData, upcomingDivsData] = await Promise.all([
-        api.portfolio.summary(),
-        api.portfolio.upcomingDividends().catch(() => createEmptyUpcomingDividendsResponse(displayCurrency)),
+        api.portfolio.summary(requestUserId),
+        api.portfolio.upcomingDividends(requestUserId).catch((error) => {
+          console.error('Failed to load upcoming dividends:', error)
+          return createEmptyUpcomingDividendsResponse(displayCurrency)
+        }),
       ])
-      if (requestId !== requestIdRef.current) {
+      if (requestId !== dataRequestIdRef.current) {
         clearLoading()
         return
       }
@@ -459,13 +603,13 @@ export default function Dashboard() {
       setTotalRemainingDividends(upcomingDivsData.total_remaining)
       setFailedLogos({})
       setErrorKey(null)
-      writeDashboardDataCache(cacheUserId, {
+      writeDashboardDataCache(requestUserId, {
         summary: summaryData,
         upcomingDividends: upcomingDivsData.dividends,
         totalRemainingDividends: upcomingDivsData.total_remaining,
       })
     } catch (error) {
-      if (requestId !== requestIdRef.current) {
+      if (requestId !== dataRequestIdRef.current) {
         clearLoading()
         return
       }
@@ -475,40 +619,57 @@ export default function Dashboard() {
         clearLoading()
       }
     } finally {
-      if (!background && requestId === requestIdRef.current) {
+      if (!background && requestId === dataRequestIdRef.current) {
         clearLoading()
       }
     }
-  }, [displayCurrency, user?.id])
+  }, [displayCurrency])
 
   useEffect(() => {
     const cachedData = readDashboardDataCache(user?.id)
+    setErrorKey(null)
     if (cachedData) {
       setSummary(cachedData.summary)
       setUpcomingDividends(cachedData.upcomingDividends)
       setTotalRemainingDividends(cachedData.totalRemainingDividends)
+      setFailedLogos({})
       setLoading(false)
       void fetchData({ background: true })
     } else {
+      setSummary(null)
+      setUpcomingDividends([])
+      setTotalRemainingDividends(0)
+      setFailedLogos({})
       void fetchData()
     }
     return () => {
-      foregroundDataRequestIdRef.current += 1
-      backgroundDataRequestIdRef.current += 1
+      dataRequestIdRef.current += 1
     }
   }, [fetchData, user?.id])
 
   useEffect(() => {
+    const controller = new AbortController()
+    historyAbortControllerRef.current?.abort()
+    historyAbortControllerRef.current = controller
     const cachedHistory = readDashboardHistoryCache(historyRange, user?.id)
     if (cachedHistory) {
       setPortfolioHistory(cachedHistory.history)
       setHistoryError(null)
       setHistoryLoading(false)
-      void fetchHistory(historyRange, { background: true })
+      void fetchHistory(historyRange, { background: true, signal: controller.signal })
     } else {
-      void fetchHistory(historyRange)
+      setPortfolioHistory([])
+      setHistoryError(null)
+      setHistoryLoading(true)
+      void fetchHistory(historyRange, { signal: controller.signal })
     }
-    return () => { historyRequestIdRef.current += 1 }
+    return () => {
+      controller.abort()
+      if (historyAbortControllerRef.current === controller) {
+        historyAbortControllerRef.current = null
+      }
+      historyRequestIdRef.current += 1
+    }
   }, [fetchHistory, historyRange, user?.id])
 
   useEffect(() => {
@@ -521,7 +682,7 @@ export default function Dashboard() {
       const storage = typeof window !== 'undefined' ? window.localStorage : null
       if (!storage) return
       storage.setItem(DASHBOARD_HISTORY_RANGE_STORAGE_KEY, historyRange)
-      if (user?.id !== null && user?.id !== undefined) {
+      if (user != null) {
         storage.setItem(`${DASHBOARD_HISTORY_RANGE_STORAGE_KEY}:${user.id}`, historyRange)
       }
     } catch {
@@ -875,7 +1036,7 @@ export default function Dashboard() {
             ) : historyError ? (
               <div style={{ height: 280, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 12, color: 'var(--muted)' }}>
                 <span>{t(language, 'dashboard.failedHistoryLoad')}</span>
-                <button className="btn btn-primary" onClick={() => fetchHistory(historyRange)}>
+                <button className="btn btn-primary" onClick={() => { void fetchHistory(historyRange) }}>
                   {t(language, 'common.retry')}
                 </button>
               </div>

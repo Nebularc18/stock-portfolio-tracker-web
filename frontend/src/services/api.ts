@@ -11,6 +11,12 @@ const portfolioUpcomingDividendsRequestCache = new Map<string, Promise<UpcomingD
 const portfolioSummaryRequestCache = new Map<string, Promise<PortfolioSummary>>()
 const portfolioHistoryRequestCache = new Map<string, Promise<Array<{ date: string; value: number }>>>()
 
+function getRequestUserCacheScope(userId?: number | null): string {
+  if (userId === null) return 'guest'
+  if (userId !== undefined) return String(userId)
+  return String(getStoredAuthUser()?.id ?? 'guest')
+}
+
 function createTimeoutSignal(timeoutMs: number, externalSignal?: AbortSignal): { signal: AbortSignal; cleanup: () => void } {
   const controller = new AbortController()
   const timeoutId = window.setTimeout(() => controller.abort(), timeoutMs)
@@ -537,9 +543,8 @@ export const api = {
   },
   
   portfolio: {
-    summary: () => {
-      const authUser = getStoredAuthUser()
-      const key = String(authUser?.id ?? 'guest')
+    summary: (userId?: number | null) => {
+      const key = getRequestUserCacheScope(userId)
       const cached = portfolioSummaryRequestCache.get(key)
       if (cached) return cached
 
@@ -553,8 +558,7 @@ export const api = {
     },
     refreshAll: () => fetchAPI('/portfolio/refresh-all', { method: 'POST' }),
     distribution: () => fetchAPI('/portfolio/distribution') as Promise<DistributionResponse>,
-    history: (options: number | { days?: number; range?: string } = 30) => {
-      const authUser = getStoredAuthUser()
+    history: (options: number | { days?: number; range?: string } = 30, userId?: number | null, requestOptions?: RequestInit) => {
       const params = new URLSearchParams()
       if (typeof options === 'number') {
         params.set('days', String(options))
@@ -567,11 +571,14 @@ export const api = {
         }
       }
       const query = params.toString()
-      const key = `${String(authUser?.id ?? 'guest')}:${query || '__default__'}`
+      const key = `${getRequestUserCacheScope(userId)}:${query || '__default__'}`
+      if (requestOptions?.signal) {
+        return fetchAPI(`/portfolio/history${query ? `?${query}` : ''}`, requestOptions) as Promise<Array<{ date: string; value: number }>>
+      }
       const cached = portfolioHistoryRequestCache.get(key)
       if (cached) return cached
 
-      const request = fetchAPI(`/portfolio/history${query ? `?${query}` : ''}`)
+      const request = fetchAPI(`/portfolio/history${query ? `?${query}` : ''}`, requestOptions)
         .finally(() => {
           portfolioHistoryRequestCache.delete(key)
         }) as Promise<Array<{ date: string; value: number }>>
@@ -579,9 +586,8 @@ export const api = {
       portfolioHistoryRequestCache.set(key, request)
       return request
     },
-    upcomingDividends: () => {
-      const authUser = getStoredAuthUser()
-      const key = String(authUser?.id ?? 'guest')
+    upcomingDividends: (userId?: number | null) => {
+      const key = getRequestUserCacheScope(userId)
       const cached = portfolioUpcomingDividendsRequestCache.get(key)
       if (cached) return cached
 
@@ -628,9 +634,9 @@ export const api = {
       return request
     },
     convert: (amount: number, from: string, to: string) => 
-      fetchAPI(`/market/convert?amount=${amount}&from_currency=${from}&to_currency=${to}`),
+      fetchAPI(`/market/convert?amount=${amount}&from_currency=${encodeURIComponent(from)}&to_currency=${encodeURIComponent(to)}`),
     hours: (timezone?: string) => fetchAPI(`/market/hours${timezone ? `?timezone=${encodeURIComponent(timezone)}` : ''}`) as Promise<MarketStatus[]>,
-    marketHours: (market: string, timezone?: string) => fetchAPI(`/market/hours/${market}${timezone ? `?timezone=${encodeURIComponent(timezone)}` : ''}`) as Promise<MarketStatus>,
+    marketHours: (market: string, timezone?: string) => fetchAPI(`/market/hours/${encodePathSegment(market)}${timezone ? `?timezone=${encodeURIComponent(timezone)}` : ''}`) as Promise<MarketStatus>,
     openMarkets: () => fetchAPI('/market/open-markets') as Promise<{ open_markets: string[] }>,
     shouldRefresh: () => fetchAPI('/market/should-refresh') as Promise<{ should_refresh: boolean }>,
     sparklines: () => fetchAPI('/market/indices/sparklines') as Promise<{ sparklines: Record<string, SparklineData>; updated_at: string }>,
@@ -686,7 +692,7 @@ export const api = {
         dividend_type: string | null
       }>>,
     stockInfo: (instrumentId: string) =>
-      fetchAPI(`/avanza/stock/${instrumentId}`) as Promise<{
+      fetchAPI(`/avanza/stock/${encodePathSegment(instrumentId)}`) as Promise<{
         name: string
         ticker: string
         isin: string
