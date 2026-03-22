@@ -34,6 +34,11 @@ function formatWebsite(url: string | null): string {
  */
 export default function CompanyProfile({ profile, loading }: Props) {
   const { language } = useSettings()
+  const logoTileStyle = {
+    background: 'linear-gradient(180deg, rgba(255,255,255,0.96) 0%, rgba(238,242,255,0.92) 100%)',
+    border: '1px solid rgba(255,255,255,0.14)',
+    boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.45), 0 10px 24px rgba(0,0,0,0.16)',
+  }
 
   if (loading) {
     return (
@@ -67,8 +72,8 @@ export default function CompanyProfile({ profile, loading }: Props) {
                 height: 64, 
                 borderRadius: 8, 
                 objectFit: 'contain',
-                background: 'var(--bg-secondary)',
-                padding: 4
+                padding: 4,
+                ...logoTileStyle,
               }}
               onError={(e) => {
                 (e.target as HTMLImageElement).style.display = 'none'

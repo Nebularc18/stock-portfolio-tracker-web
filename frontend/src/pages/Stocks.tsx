@@ -104,7 +104,7 @@ type SortField =
  *
  * @returns A React element containing the Stocks management user interface.
  */
- export default function Stocks() {
+export default function Stocks() {
   const [stocks, setStocks] = useState<Stock[]>([])
   const [loading, setLoading] = useState(true)
   const [showAddForm, setShowAddForm] = useState(false)
@@ -135,6 +135,11 @@ type SortField =
   const locale = getLocaleForLanguage(language)
   const maxPurchaseDate = getLocalDateInputValue()
   const { sortState, requestSort } = useTableSort<SortField>({ field: 'ticker', direction: 'asc' })
+  const logoTileStyle = {
+    background: 'linear-gradient(180deg, rgba(255,255,255,0.96) 0%, rgba(238,242,255,0.92) 100%)',
+    border: '1px solid rgba(255,255,255,0.14)',
+    boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.45), 0 6px 16px rgba(0,0,0,0.16)',
+  }
 
   const closeEditModal = useCallback(() => setEditStock(null), [])
 
@@ -584,14 +589,14 @@ type SortField =
                             <img
                               src={logoUrl}
                               alt={stock.name || stock.ticker}
-                              style={{ width: 22, height: 22, borderRadius: 4, objectFit: 'contain', background: 'var(--bg3)', padding: 2 }}
+                              style={{ width: 22, height: 22, borderRadius: 4, objectFit: 'contain', padding: 2, ...logoTileStyle }}
                               onError={() => setFailedLogos((prev) => ({ ...prev, [stock.ticker]: true }))}
                             />
                           ) : (
                             <span style={{
                               width: 22, height: 22, borderRadius: 4,
                               display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
-                              fontSize: 11, fontWeight: 700, color: 'var(--muted)', background: 'var(--bg3)',
+                              fontSize: 11, fontWeight: 700, color: '#4b5563', ...logoTileStyle,
                             }}>
                               {(stock.name || stock.ticker || '?').charAt(0).toUpperCase()}
                             </span>
