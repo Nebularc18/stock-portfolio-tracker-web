@@ -35,6 +35,7 @@ MAX_LOGO_BYTES = 5 * 1024 * 1024
 _LOGO_CACHE: dict[str, tuple[Optional[str], float]] = {}
 _CURATED_LOGO_QUERIES: dict[str, list[str]] = {
     "EQT.ST": ["eqtpartners.com", "EQT Group"],
+    "INVE-B.ST": ["investorab.com", "Investor AB"],
     "VOLV-B.ST": ["volvogroup.com", "Volvo Group"],
     "RIO.AX": ["riotinto.com", "Rio Tinto"],
     "OR.PA": ["loreal.com", "L'Oreal"],
@@ -462,6 +463,21 @@ class BrandfetchService:
         host = (parsed.netloc or parsed.path).strip().lower()
         return host.split("/", 1)[0].rsplit("@", 1)[-1].split(":", 1)[0]
 
+    def _looks_like_domain(self, value: str) -> bool:
+        """
+        Determine whether a string resembles a bare domain/host suitable for favicon fallback.
+
+        Parameters:
+            value (str): Candidate string to inspect.
+
+        Returns:
+            bool: True when the value resolves to a host containing a dot and no spaces, False otherwise.
+        """
+        if not value or ' ' in value.strip():
+            return False
+        host = self._extract_domain_from_url(value)
+        return bool(host and '.' in host)
+
     def _normalize_text(self, value: str) -> str:
         """
         Normalize a company name or search query for tokenization and matching.
@@ -789,6 +805,16 @@ class BrandfetchService:
 
         logo_url = None
         for query in candidates:
+            if self._looks_like_domain(query):
+                try:
+                    logo_url = self._persist_candidate_logo(
+                        {'domain': self._extract_domain_from_url(query)},
+                        ticker_upper,
+                    )
+                except LogoDownloadTransientError:
+                    return existing_logo if existing_logo and not self.should_refresh_logo(existing_logo) else None
+                if logo_url:
+                    break
             candidate = self._search_logo(query, ticker_upper, company_name)
             try:
                 logo_url = self._persist_candidate_logo(candidate, ticker_upper) if candidate else None
