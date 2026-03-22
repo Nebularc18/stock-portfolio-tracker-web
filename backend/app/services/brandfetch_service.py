@@ -812,14 +812,14 @@ class BrandfetchService:
                         ticker_upper,
                     )
                 except LogoDownloadTransientError:
-                    return existing_logo if existing_logo and not self.should_refresh_logo(existing_logo) else None
+                    logo_url = None
                 if logo_url:
                     break
             candidate = self._search_logo(query, ticker_upper, company_name)
             try:
                 logo_url = self._persist_candidate_logo(candidate, ticker_upper) if candidate else None
             except LogoDownloadTransientError:
-                return existing_logo if existing_logo and not self.should_refresh_logo(existing_logo) else None
+                logo_url = None
             if logo_url:
                 break
 
