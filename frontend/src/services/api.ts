@@ -26,7 +26,7 @@ export function __resetPortfolioRequestCachesForTests(): void {
 
 function getAuthStorage(): Storage | null {
   try {
-    return typeof window !== 'undefined' ? window.sessionStorage : null
+    return typeof window !== 'undefined' ? window.localStorage : null
   } catch {
     return null
   }
@@ -190,8 +190,16 @@ async function fetchAPI<T = unknown>(endpoint: string, options?: RequestInit): P
       if (response.status === 401 && authUser) {
         clearStoredAuthUser(true)
       }
-      await response.json().catch(() => null)
-      throw new HttpError(getErrorMessageForStatus(response.status), response.status)
+      let detail: string | undefined
+      try {
+        const body: unknown = await response.json()
+        if (body && typeof body === 'object' && 'detail' in body && typeof (body as Record<string, unknown>).detail === 'string') {
+          detail = (body as Record<string, unknown>).detail as string
+        }
+      } catch {
+        // ignore parse errors
+      }
+      throw new HttpError(detail ?? getErrorMessageForStatus(response.status), response.status)
     }
 
     try {

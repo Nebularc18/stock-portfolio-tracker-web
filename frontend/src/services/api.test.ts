@@ -60,7 +60,7 @@ describe('getRequestUserCacheScope', () => {
   })
 
   it('falls back to the stored auth user when userId is undefined', () => {
-    sessionStorage.setItem(AUTH_STORAGE_KEY, JSON.stringify({
+    localStorage.setItem(AUTH_STORAGE_KEY, JSON.stringify({
       id: 13,
       username: 'demo',
       is_guest: false,
@@ -71,7 +71,7 @@ describe('getRequestUserCacheScope', () => {
   })
 
   it('returns guest when userId is undefined and auth storage is empty', () => {
-    expect(sessionStorage.getItem(AUTH_STORAGE_KEY)).toBeNull()
+    expect(localStorage.getItem(AUTH_STORAGE_KEY)).toBeNull()
     expect(getRequestUserCacheScope(undefined)).toBe('guest')
   })
 })

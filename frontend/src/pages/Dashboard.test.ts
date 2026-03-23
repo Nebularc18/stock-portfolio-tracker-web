@@ -77,7 +77,7 @@ describe('dashboard storage helpers', () => {
 
   it('returns null for invalid dashboard data cache payloads', () => {
     const cacheKey = getDashboardDataCacheKey(7)
-    sessionStorage.setItem(cacheKey, JSON.stringify({
+    localStorage.setItem(cacheKey, JSON.stringify({
       version: DASHBOARD_CACHE_VERSION,
       cachedAt: Date.now(),
       totalRemainingDividends: 1,
@@ -86,64 +86,64 @@ describe('dashboard storage helpers', () => {
     }))
 
     expect(readDashboardDataCache(7)).toBeNull()
-    expect(sessionStorage.getItem(cacheKey)).toBeNull()
+    expect(localStorage.getItem(cacheKey)).toBeNull()
   })
 
   it('returns null for wrong cache versions', () => {
     const cacheKey = getDashboardDataCacheKey(7)
-    sessionStorage.setItem(cacheKey, JSON.stringify({
+    localStorage.setItem(cacheKey, JSON.stringify({
       ...createValidDashboardDataCache(),
       version: DASHBOARD_CACHE_VERSION + 1,
     }))
 
     expect(readDashboardDataCache(7)).toBeNull()
-    expect(sessionStorage.getItem(cacheKey)).toBeNull()
+    expect(localStorage.getItem(cacheKey)).toBeNull()
   })
 
   it('reads a valid dashboard data cache payload', () => {
-    sessionStorage.setItem(`${DASHBOARD_DATA_CACHE_STORAGE_KEY}:7`, JSON.stringify(createValidDashboardDataCache()))
+    localStorage.setItem(`${DASHBOARD_DATA_CACHE_STORAGE_KEY}:7`, JSON.stringify(createValidDashboardDataCache()))
 
     expect(readDashboardDataCache(7)?.summary.total_value).toBe(100)
   })
 
   it('rejects non-finite numeric dashboard cache values', () => {
     const cacheKey = getDashboardDataCacheKey(7)
-    sessionStorage.setItem(cacheKey, JSON.stringify({
+    localStorage.setItem(cacheKey, JSON.stringify({
       ...createValidDashboardDataCache(),
       totalRemainingDividends: Number.POSITIVE_INFINITY,
     }))
 
     expect(readDashboardDataCache(7)).toBeNull()
-    expect(sessionStorage.getItem(cacheKey)).toBeNull()
+    expect(localStorage.getItem(cacheKey)).toBeNull()
   })
 
   it('rejects invalid history cache entries', () => {
     const cacheKey = getDashboardHistoryCacheKey('1M', 7)
-    sessionStorage.setItem(cacheKey, JSON.stringify({
+    localStorage.setItem(cacheKey, JSON.stringify({
       version: DASHBOARD_CACHE_VERSION,
       cachedAt: Date.now(),
       history: [{ date: '2026-03-22', value: 'bad' }],
     }))
 
     expect(readDashboardHistoryCache('1M', 7)).toBeNull()
-    expect(sessionStorage.getItem(cacheKey)).toBeNull()
+    expect(localStorage.getItem(cacheKey)).toBeNull()
   })
 
   it('rejects wrong history cache versions', () => {
     const cacheKey = getDashboardHistoryCacheKey('1M', 7)
-    sessionStorage.setItem(cacheKey, JSON.stringify({
+    localStorage.setItem(cacheKey, JSON.stringify({
       version: DASHBOARD_CACHE_VERSION + 1,
       cachedAt: Date.now(),
       history: [{ date: '2026-03-22', value: 100 }],
     }))
 
     expect(readDashboardHistoryCache('1M', 7)).toBeNull()
-    expect(sessionStorage.getItem(cacheKey)).toBeNull()
+    expect(localStorage.getItem(cacheKey)).toBeNull()
   })
 
   it('reads a valid history cache payload', () => {
     const cacheKey = getDashboardHistoryCacheKey('1M', 7)
-    sessionStorage.setItem(cacheKey, JSON.stringify({
+    localStorage.setItem(cacheKey, JSON.stringify({
       version: DASHBOARD_CACHE_VERSION,
       cachedAt: Date.now(),
       history: [
