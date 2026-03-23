@@ -96,7 +96,7 @@ export function getDashboardHistoryCacheKey(range: HistoryRangeKey, userId?: num
 
 function getDashboardCacheStorage(): Storage | null {
   try {
-    return typeof window !== 'undefined' ? window.sessionStorage : null
+    return typeof window !== 'undefined' ? window.localStorage : null
   } catch {
     return null
   }
@@ -1329,7 +1329,7 @@ export default function Dashboard() {
                         const payoutKey = payoutDisplayDate || 'tbd'
                         const sourceBadge = getDividendSourceBadge(div.source)
                         return (
-                          <tr key={`${div.ticker}-${div.ex_date}-${payoutKey}-${div.dividend_type ?? 'na'}`}>
+                          <tr key={div.id ?? `${div.ticker}-${div.ex_date}-${payoutKey}-${div.dividend_type ?? 'na'}-${div.source}`}>
                             <td>
                               <Link to={`/stocks/${encodeURIComponent(div.ticker)}`} style={{ color: 'var(--v2)', textDecoration: 'none', fontWeight: 700 }}>
                                 {div.name || div.ticker}
