@@ -40,9 +40,9 @@ function emitAuthChanged(): void {
 
 function createTimeoutSignal(timeoutMs: number, externalSignal?: AbortSignal): { signal: AbortSignal; cleanup: () => void } {
   const controller = new AbortController()
-  const timeoutId = window.setTimeout(() => controller.abort(), timeoutMs)
+  const timeoutId = globalThis.setTimeout(() => controller.abort(), timeoutMs)
 
-  const abortFromExternal = () => controller.abort((externalSignal as AbortSignal & { reason?: unknown }).reason)
+  const abortFromExternal = () => controller.abort(externalSignal?.reason)
   if (externalSignal?.aborted) {
     abortFromExternal()
   } else if (externalSignal) {
@@ -52,7 +52,7 @@ function createTimeoutSignal(timeoutMs: number, externalSignal?: AbortSignal): {
   return {
     signal: controller.signal,
     cleanup: () => {
-      window.clearTimeout(timeoutId)
+      globalThis.clearTimeout(timeoutId)
       if (externalSignal) {
         externalSignal.removeEventListener('abort', abortFromExternal)
       }
@@ -74,7 +74,21 @@ export interface AuthUserProfile {
 }
 
 export class HttpError extends Error {
-  status?: number
+  status: number
+
+  constructor(message: string, status: number) {
+    super(message)
+    this.status = status
+  }
+}
+
+function getErrorMessageForStatus(status: number): string {
+  if (status === 401) return 'Authentication required'
+  if (status === 403) return 'Access denied'
+  if (status === 404) return 'Resource not found'
+  if (status === 429) return 'Too many requests'
+  if (status >= 500) return 'Server error'
+  return 'Request failed'
 }
 
 function isAuthUser(value: unknown): value is AuthUser {
@@ -176,16 +190,15 @@ async function fetchAPI<T = unknown>(endpoint: string, options?: RequestInit): P
       if (response.status === 401 && authUser) {
         clearStoredAuthUser(true)
       }
-      const error = await response.json().catch(() => ({ detail: 'Unknown error' }))
-      const detail = error != null && typeof error === 'object' && 'detail' in error
-        ? (error as { detail?: unknown }).detail
-        : undefined
-      const requestError = new HttpError(typeof detail === 'string' && detail ? detail : 'Request failed')
-      requestError.status = response.status
-      throw requestError
+      await response.json().catch(() => null)
+      throw new HttpError(getErrorMessageForStatus(response.status), response.status)
     }
 
-    return await response.json()
+    try {
+      return await response.json()
+    } catch {
+      throw new HttpError('Invalid server response', response.status)
+    }
   } finally {
     cleanup()
   }

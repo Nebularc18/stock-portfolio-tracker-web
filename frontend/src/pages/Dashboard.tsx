@@ -4,37 +4,14 @@ import { ResponsiveContainer, Tooltip, AreaChart, Area, XAxis, YAxis, CartesianG
 import { api, PortfolioSummary, UpcomingDividend } from '../services/api'
 import { useAuth } from '../AuthContext'
 import { useSettings } from '../SettingsContext'
-import { formatTimeInTimezone } from '../utils/time'
+import { formatTimeInTimezone, parseDatePreservingUtc } from '../utils/time'
 import { resolveBackendAssetUrl } from '../utils/assets'
 import { getLocaleForLanguage, t, type Language, type TranslationKey } from '../i18n'
 import { formatDisplayName } from '../utils/displayName'
 import SortableHeader from '../components/SortableHeader'
 import { sortTableItems, useTableSort } from '../utils/tableSort'
-import type { UpcomingDividendsResponse } from '../services/api'
-
 type HistoryRangeKey = '1D' | '1W' | '1M' | 'YTD' | '1Y' | 'SINCE_START'
 type FetchOptions = { background?: boolean; signal?: AbortSignal }
-
-/**
- * Creates an UpcomingDividendsResponse object representing an empty dividends result.
- *
- * @param displayCurrency - ISO currency code to set as `display_currency`; falls back to `'SEK'` when falsy
- * @returns An `UpcomingDividendsResponse` with `dividends` empty, numeric totals set to `0`, boolean partial flags `false`, empty skipped IDs/arrays, and `display_currency` set to the provided value (or `'SEK'`)
- */
-function createEmptyUpcomingDividendsResponse(displayCurrency: string): UpcomingDividendsResponse {
-  return {
-    dividends: [],
-    total_expected: 0,
-    total_received: 0,
-    total_remaining: 0,
-    totals_partial: false,
-    dividends_partial: false,
-    skipped_dividend_count: 0,
-    skipped_dividend_ids: [],
-    display_currency: displayCurrency || 'SEK',
-    unmapped_stocks: [],
-  }
-}
 
 const HISTORY_RANGE_OPTIONS: Array<{ key: HistoryRangeKey; labelKey: TranslationKey; query: string }> = [
   { key: '1D', labelKey: 'dashboard.range1D', query: '1d' },
@@ -44,6 +21,14 @@ const HISTORY_RANGE_OPTIONS: Array<{ key: HistoryRangeKey; labelKey: Translation
   { key: '1Y', labelKey: 'dashboard.range1Y', query: '1y' },
   { key: 'SINCE_START', labelKey: 'dashboard.rangeSinceStart', query: 'since_start' },
 ]
+const HISTORY_RANGE_QUERY_BY_KEY: Record<HistoryRangeKey, string> = {
+  '1D': '1d',
+  '1W': '1w',
+  '1M': '1m',
+  YTD: 'ytd',
+  '1Y': '1y',
+  SINCE_START: 'since_start',
+}
 
 type ChartPoint = { date: string; value: number }
 type DashboardHistoryEntry = { date: string; value: number }
@@ -64,6 +49,7 @@ export const DASHBOARD_HISTORY_RANGE_STORAGE_KEY = 'dashboard.historyRange'
 export const DASHBOARD_DATA_CACHE_STORAGE_KEY = 'dashboard.data'
 export const DASHBOARD_HISTORY_CACHE_STORAGE_KEY = 'dashboard.history'
 export const DASHBOARD_CACHE_VERSION = 1
+const DASHBOARD_CACHE_TTL_MS = 30 * 60 * 1000
 const DASHBOARD_AUTO_REFRESH_INTERVAL_MS = 10 * 60 * 1000
 const DASHBOARD_AUTO_REFRESH_BUFFER_MS = 5_000
 const DASHBOARD_AUTO_REFRESH_MIN_DELAY_MS = 5_000
@@ -117,7 +103,7 @@ function getDashboardCacheStorage(): Storage | null {
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
-  return value !== null && typeof value === 'object'
+  return value !== null && typeof value === 'object' && !Array.isArray(value)
 }
 
 function isFiniteNumber(value: unknown): value is number {
@@ -128,7 +114,7 @@ function isNullableString(value: unknown): value is string | null {
   return value === null || typeof value === 'string'
 }
 
-function isPortfolioSummaryStock(value: unknown): boolean {
+function isPortfolioSummaryStock(value: unknown): value is PortfolioSummary['stocks'][number] {
   if (!isRecord(value)) return false
   return (
     typeof value.ticker === 'string'
@@ -169,7 +155,7 @@ function isPortfolioSummaryCache(value: unknown): value is PortfolioSummary {
   )
 }
 
-function isUpcomingDividend(value: unknown): boolean {
+function isUpcomingDividend(value: unknown): value is UpcomingDividend {
   if (!isRecord(value)) return false
   return (
     (value.id === undefined || typeof value.id === 'string')
@@ -193,6 +179,14 @@ function isDashboardHistoryEntry(value: unknown): value is DashboardHistoryEntry
   return isRecord(value) && typeof value.date === 'string' && isFiniteNumber(value.value)
 }
 
+function isAbortError(error: unknown, signal?: AbortSignal): boolean {
+  return Boolean(signal?.aborted || (error instanceof DOMException && error.name === 'AbortError'))
+}
+
+function isFreshDashboardCache(cachedAt: number): boolean {
+  return Date.now() - cachedAt <= DASHBOARD_CACHE_TTL_MS
+}
+
 function removeStoredItem(key: string): void {
   try {
     const storage = getDashboardCacheStorage()
@@ -202,7 +196,7 @@ function removeStoredItem(key: string): void {
   }
 }
 
-export function readDashboardDataCache(userId?: number | null): DashboardDataCache | null {
+export function readDashboardDataCache(userId?: number | null, displayCurrency?: string): DashboardDataCache | null {
   const key = getDashboardDataCacheKey(userId)
   try {
     const storage = getDashboardCacheStorage()
@@ -221,6 +215,14 @@ export function readDashboardDataCache(userId?: number | null): DashboardDataCac
       || !isFiniteNumber(parsed.totalRemainingDividends)
       || !isFiniteNumber(parsed.cachedAt)
     ) {
+      removeStoredItem(key)
+      return null
+    }
+    if (!isFreshDashboardCache(parsed.cachedAt)) {
+      removeStoredItem(key)
+      return null
+    }
+    if (displayCurrency && parsed.summary.display_currency !== displayCurrency) {
       removeStoredItem(key)
       return null
     }
@@ -263,6 +265,10 @@ export function readDashboardHistoryCache(range: HistoryRangeKey, userId?: numbe
       return null
     }
     if (!Array.isArray(parsed.history) || !parsed.history.every(isDashboardHistoryEntry) || !isFiniteNumber(parsed.cachedAt)) {
+      removeStoredItem(key)
+      return null
+    }
+    if (!isFreshDashboardCache(parsed.cachedAt)) {
       removeStoredItem(key)
       return null
     }
@@ -374,10 +380,7 @@ function parseDisplayDate(value: string): Date {
     const epochMilliseconds = Math.abs(epoch) < 1e12 ? epoch * 1000 : epoch
     return new Date(epochMilliseconds)
   }
-  if (trimmedDate.includes('T')) {
-    const hasTimezone = /([zZ]|[+-]\d{2}:\d{2})$/.test(trimmedDate)
-    return new Date(hasTimezone ? trimmedDate : `${trimmedDate}Z`)
-  }
+  if (trimmedDate.includes('T')) return parseDatePreservingUtc(trimmedDate)
   return new Date(trimmedDate)
 }
 
@@ -438,11 +441,7 @@ function parseHistoryDate(value: string): Date {
     const epochMilliseconds = Math.abs(numeric) < 1e12 ? numeric * 1000 : numeric
     return new Date(epochMilliseconds)
   }
-  if (trimmed.includes('T')) {
-    const hasTimezone = /([zZ]|[+-]\d{2}:\d{2})$/.test(trimmed)
-    return new Date(hasTimezone ? trimmed : `${trimmed}Z`)
-  }
-  return new Date(`${trimmed}T00:00:00Z`)
+  return parseDatePreservingUtc(trimmed.includes('T') ? trimmed : `${trimmed}T00:00:00`)
 }
 
 /**
@@ -526,9 +525,10 @@ function getRangeTargetPoints(range: HistoryRangeKey): number | null {
 export default function Dashboard() {
   const navigate = useNavigate()
   const { user } = useAuth()
+  const { displayCurrency, timezone, language } = useSettings()
   const [initialDashboardState] = useState(() => {
     const initialUserId = user?.id
-    const cachedData = readDashboardDataCache(initialUserId)
+    const cachedData = readDashboardDataCache(initialUserId, displayCurrency)
     const initialHistoryRange = getStoredHistoryRange(initialUserId)
     const cachedHistory = readDashboardHistoryCache(initialHistoryRange, initialUserId)
     return { initialUserId, cachedData, initialHistoryRange, cachedHistory }
@@ -547,6 +547,8 @@ export default function Dashboard() {
   const historyAbortControllerRef = useRef<AbortController | null>(null)
   const dataRequestIdRef = useRef(0)
   const dataAbortControllerRef = useRef<AbortController | null>(null)
+  const upcomingDividendsRef = useRef<UpcomingDividend[]>(initialDashboardState.cachedData?.upcomingDividends ?? [])
+  const totalRemainingDividendsRef = useRef(initialDashboardState.cachedData?.totalRemainingDividends ?? 0)
   const initialDataReadPendingRef = useRef(true)
   const initialHistoryReadPendingRef = useRef(true)
   const autoRefreshTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
@@ -555,12 +557,16 @@ export default function Dashboard() {
   // Keep the latest range available to long-lived callbacks without restarting their effects.
   const historyRangeRef = useRef(historyRange)
   const currentUserId = user?.id
-  const { displayCurrency, timezone, language } = useSettings()
   const locale = getLocaleForLanguage(language)
   const { sortState: holdingsSortState, requestSort: requestHoldingsSort } = useTableSort<HoldingSortField>({ field: 'ticker', direction: 'asc' })
   const { sortState: upcomingSortState, requestSort: requestUpcomingSort } = useTableSort<UpcomingSortField>({ field: 'name', direction: 'asc' })
-  userIdRef.current = currentUserId
-  historyRangeRef.current = historyRange
+  upcomingDividendsRef.current = upcomingDividends
+  totalRemainingDividendsRef.current = totalRemainingDividends
+
+  useEffect(() => {
+    userIdRef.current = currentUserId
+    historyRangeRef.current = historyRange
+  }, [currentUserId, historyRange])
 
   const fetchHistory = useCallback(async (range: HistoryRangeKey, options: FetchOptions = {}) => {
     const { background = false, signal } = options
@@ -572,7 +578,7 @@ export default function Dashboard() {
       setHistoryLoading(true)
       setHistoryError(null)
     }
-    const rangeQuery = HISTORY_RANGE_OPTIONS.find((o) => o.key === range)?.query || '1m'
+    const rangeQuery = HISTORY_RANGE_QUERY_BY_KEY[range]
     try {
       const historyData = await api.portfolio.history({ range: rangeQuery }, requestUserId, signal ? { signal } : undefined)
       if (requestId !== historyRequestIdRef.current) return
@@ -581,7 +587,7 @@ export default function Dashboard() {
       writeDashboardHistoryCache(range, requestUserId, historyData)
     } catch (error) {
       if (requestId !== historyRequestIdRef.current) return
-      if (signal?.aborted || (error instanceof DOMException && error.name === 'AbortError')) return
+      if (isAbortError(error, signal)) return
       logDashboardIssue('Failed to load portfolio history:', error)
       if (!background) {
         setHistoryError(error instanceof Error ? error : new Error(String(error)))
@@ -616,33 +622,35 @@ export default function Dashboard() {
       const [summaryData, upcomingDivsData] = await Promise.all([
         api.portfolio.summary(requestUserId, { signal: requestController.signal }),
         api.portfolio.upcomingDividends(requestUserId, { signal: requestController.signal }).catch((error) => {
-          if (requestController.signal.aborted || (error instanceof DOMException && error.name === 'AbortError')) {
+          if (isAbortError(error, requestController.signal)) {
             throw error
           }
           logDashboardIssue('Failed to load upcoming dividends:', error)
-          return createEmptyUpcomingDividendsResponse(displayCurrency)
+          return null
         }),
       ])
       if (requestId !== dataRequestIdRef.current) {
         clearLoading()
         return
       }
+      const nextUpcomingDividends = upcomingDivsData?.dividends ?? upcomingDividendsRef.current
+      const nextTotalRemainingDividends = upcomingDivsData?.total_remaining ?? totalRemainingDividendsRef.current
       setSummary(summaryData)
-      setUpcomingDividends(upcomingDivsData.dividends)
-      setTotalRemainingDividends(upcomingDivsData.total_remaining)
+      setUpcomingDividends(nextUpcomingDividends)
+      setTotalRemainingDividends(nextTotalRemainingDividends)
       setFailedLogos({})
       setErrorKey(null)
       writeDashboardDataCache(requestUserId, {
         summary: summaryData,
-        upcomingDividends: upcomingDivsData.dividends,
-        totalRemainingDividends: upcomingDivsData.total_remaining,
+        upcomingDividends: nextUpcomingDividends,
+        totalRemainingDividends: nextTotalRemainingDividends,
       })
     } catch (error) {
       if (requestId !== dataRequestIdRef.current) {
         clearLoading()
         return
       }
-      if (requestController.signal.aborted || (error instanceof DOMException && error.name === 'AbortError')) {
+      if (isAbortError(error, requestController.signal)) {
         clearLoading()
         return
       }
@@ -659,12 +667,12 @@ export default function Dashboard() {
         clearLoading()
       }
     }
-  }, [displayCurrency])
+  }, [])
 
   useEffect(() => {
     const cachedData = initialDataReadPendingRef.current && currentUserId === initialDashboardState.initialUserId
       ? initialDashboardState.cachedData
-      : readDashboardDataCache(currentUserId)
+      : readDashboardDataCache(currentUserId, displayCurrency)
     initialDataReadPendingRef.current = false
     setErrorKey(null)
     if (cachedData) {
@@ -686,9 +694,14 @@ export default function Dashboard() {
       dataAbortControllerRef.current = null
       dataRequestIdRef.current += 1
     }
-  }, [currentUserId, fetchData, initialDashboardState])
+  }, [currentUserId, displayCurrency, fetchData, initialDashboardState])
 
   useEffect(() => {
+    const storedRange = getStoredHistoryRange(currentUserId)
+    if (historyRange !== storedRange) {
+      setHistoryRange(storedRange)
+      return
+    }
     const controller = new AbortController()
     historyAbortControllerRef.current?.abort()
     historyAbortControllerRef.current = controller
@@ -719,11 +732,6 @@ export default function Dashboard() {
   }, [currentUserId, fetchHistory, historyRange, initialDashboardState])
 
   useEffect(() => {
-    const storedRange = getStoredHistoryRange(currentUserId)
-    setHistoryRange((currentRange) => currentRange === storedRange ? currentRange : storedRange)
-  }, [currentUserId])
-
-  useEffect(() => {
     try {
       const storage = typeof window !== 'undefined' ? window.localStorage : null
       if (!storage) return
@@ -751,7 +759,7 @@ export default function Dashboard() {
         if (lastAutoRefreshRunRef.current !== runId) return
         refreshController?.abort()
         refreshController = new AbortController()
-        Promise.allSettled([
+        void Promise.allSettled([
           fetchData({ background: true }),
           fetchHistory(historyRangeRef.current, { background: true, signal: refreshController.signal }),
         ]).finally(() => {
@@ -865,6 +873,21 @@ export default function Dashboard() {
     return { amount: item.total_amount, currency: item.currency }
   }, [currency])
 
+  const upcomingSortAccessors = useMemo(() => ({
+    name: (item: UpcomingDividend) => item.name || item.ticker,
+    exDate: (item: UpcomingDividend) => item.ex_date,
+    paymentDate: (item: UpcomingDividend) => item.payment_date,
+    perShare: (item: UpcomingDividend) => item.amount_per_share,
+    total: (item: UpcomingDividend) => getDisplayedDividendAmount(item).amount,
+    source: (item: UpcomingDividend) => item.source,
+  }), [getDisplayedDividendAmount])
+
+  function getDividendSourceBadge(source: string): { className: string; label: string } {
+    if (source === 'avanza') return { className: 'badge badge-green', label: 'Avanza' }
+    if (source === 'yahoo') return { className: 'badge badge-violet', label: 'Yahoo' }
+    return { className: 'badge badge-muted', label: t(language, 'dashboard.unknown') }
+  }
+
   const renderAmount = (amount: number | null | undefined, amountCurrency: string) => {
     if (amount == null) return '—'
     return formatCurrency(amount, locale, amountCurrency)
@@ -921,14 +944,7 @@ export default function Dashboard() {
         items: sortTableItems(
           items,
           upcomingSortState,
-          {
-            name: (item) => item.name || item.ticker,
-            exDate: (item) => item.ex_date,
-            paymentDate: (item) => item.payment_date,
-            perShare: (item) => item.amount_per_share,
-            total: (item) => getDisplayedDividendAmount(item).amount,
-            source: (item) => item.source,
-          },
+          upcomingSortAccessors,
           locale,
           (item) => item.ticker,
         ),
@@ -939,7 +955,7 @@ export default function Dashboard() {
           return accumulator
         }, {} as Record<string, number>),
       }))
-  ), [getDisplayedDividendAmount, groupedDividends, locale, upcomingSortState])
+  ), [groupedDividends, locale, upcomingSortAccessors, upcomingSortState])
 
   const sortedSummaryStocks = useMemo(() => (
     sortTableItems(
@@ -1100,18 +1116,18 @@ export default function Dashboard() {
             </div>
             {!historyLoading && hasChartData && (
               <div style={{ display: 'flex', gap: 16, fontSize: 11, color: 'var(--muted)', fontFamily: "'Fira Code', monospace" }}>
-                <span>L: {formatCurrency(minValue, locale, currency)}</span>
-                <span>H: {formatCurrency(maxValue, locale, currency)}</span>
+                <span>{t(language, 'dashboard.low')}: {formatCurrency(minValue, locale, currency)}</span>
+                <span>{t(language, 'dashboard.high')}: {formatCurrency(maxValue, locale, currency)}</span>
               </div>
             )}
           </div>
           <div style={{ padding: '16px 20px 8px' }}>
             {historyLoading ? (
-              <div style={{ height: 280, display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--muted)' }}>
+              <div role="status" aria-live="polite" aria-atomic="true" style={{ height: 280, display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--muted)' }}>
                 {t(language, 'common.loading')}
               </div>
             ) : historyError ? (
-              <div style={{ height: 280, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 12, color: 'var(--muted)' }}>
+              <div role="alert" aria-live="assertive" aria-atomic="true" style={{ height: 280, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 12, color: 'var(--muted)' }}>
                 <span>{t(language, 'dashboard.failedHistoryLoad')}</span>
                 <button className="btn btn-primary" onClick={() => { void fetchHistory(historyRange) }}>
                   {t(language, 'common.retry')}
@@ -1215,7 +1231,15 @@ export default function Dashboard() {
                   const displayName = formatDisplayName(stock.name, stock.ticker)
                   return <tr
                     key={stock.ticker}
+                    role="link"
+                    tabIndex={0}
                     onClick={() => navigate(`/stocks/${encodeURIComponent(stock.ticker)}`)}
+                    onKeyDown={(event) => {
+                      if (event.key === 'Enter' || event.key === ' ') {
+                        event.preventDefault()
+                        navigate(`/stocks/${encodeURIComponent(stock.ticker)}`)
+                      }
+                    }}
                     style={{ cursor: 'pointer' }}
                   >
                     <td>
@@ -1229,8 +1253,7 @@ export default function Dashboard() {
                             src={logoUrl}
                             alt={displayName}
                             style={{ width: 22, height: 22, borderRadius: 4, objectFit: 'contain', padding: 2, ...LOGO_TILE_STYLE }}
-                            onError={(e) => {
-                              ;(e.target as HTMLImageElement).style.display = 'none'
+                            onError={() => {
                               setFailedLogos((prev) => ({ ...prev, [stock.ticker]: true }))
                             }}
                           />
@@ -1304,6 +1327,7 @@ export default function Dashboard() {
                         const displayed = getDisplayedDividendAmount(div)
                         const payoutDisplayDate = div.payment_date
                         const payoutKey = payoutDisplayDate || 'tbd'
+                        const sourceBadge = getDividendSourceBadge(div.source)
                         return (
                           <tr key={`${div.ticker}-${div.ex_date}-${payoutKey}-${div.dividend_type ?? 'na'}`}>
                             <td>
@@ -1318,8 +1342,8 @@ export default function Dashboard() {
                               {formatCurrency(displayed.amount, locale, displayed.currency)}
                             </td>
                             <td>
-                              <span className={`badge ${div.source === 'avanza' ? 'badge-green' : (div.source === 'yahoo' ? 'badge-violet' : 'badge-muted')}`}>
-                                {div.source === 'avanza' ? 'Avanza' : (div.source === 'yahoo' ? 'Yahoo' : t(language, 'dashboard.unknown'))}
+                              <span className={sourceBadge.className}>
+                                {sourceBadge.label}
                               </span>
                             </td>
                           </tr>

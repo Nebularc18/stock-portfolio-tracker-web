@@ -69,6 +69,11 @@ describe('getRequestUserCacheScope', () => {
 
     expect(getRequestUserCacheScope(undefined)).toBe('13')
   })
+
+  it('returns guest when userId is undefined and auth storage is empty', () => {
+    expect(sessionStorage.getItem(AUTH_STORAGE_KEY)).toBeNull()
+    expect(getRequestUserCacheScope(undefined)).toBe('guest')
+  })
 })
 
 describe('portfolio request caching', () => {
@@ -130,6 +135,27 @@ describe('portfolio request caching', () => {
     await Promise.all([first, second, third])
   })
 
+  it('supports numeric history options and evicts the cache after resolution', async () => {
+    const fetchMock = vi.spyOn(globalThis, 'fetch')
+      .mockResolvedValueOnce(createJsonResponse([{ date: '2026-03-22', value: 100 }]))
+      .mockResolvedValueOnce(createJsonResponse([{ date: '2026-03-23', value: 110 }]))
+
+    const first = await api.portfolio.history(30, 7)
+    const second = await api.portfolio.history(30, 7)
+
+    expect(first).toEqual([{ date: '2026-03-22', value: 100 }])
+    expect(second).toEqual([{ date: '2026-03-23', value: 110 }])
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      1,
+      '/api/portfolio/history?days=30',
+      expect.objectContaining({
+        headers: { 'Content-Type': 'application/json' },
+        signal: expect.any(AbortSignal),
+      }),
+    )
+    expect(fetchMock).toHaveBeenCalledTimes(2)
+  })
+
   it('bypasses history deduplication when a signal is provided', async () => {
     const fetchMock = vi.spyOn(globalThis, 'fetch')
       .mockResolvedValueOnce(createJsonResponse([{ date: '2026-03-22', value: 100 }]))
@@ -166,6 +192,17 @@ describe('portfolio request caching', () => {
       unmapped_stocks: [],
     }))
     await Promise.all([first, second])
+  })
+
+  it('evicts summary request cache after resolution', async () => {
+    const fetchMock = vi.spyOn(globalThis, 'fetch')
+      .mockResolvedValueOnce(createJsonResponse(createSummaryPayload()))
+      .mockResolvedValueOnce(createJsonResponse(createSummaryPayload()))
+
+    await api.portfolio.summary(7)
+    await api.portfolio.summary(7)
+
+    expect(fetchMock).toHaveBeenCalledTimes(2)
   })
 
   it('bypasses upcoming dividend deduplication when a signal is provided', async () => {

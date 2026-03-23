@@ -63,6 +63,18 @@ describe('dashboard storage helpers', () => {
     expect(getStoredHistoryRange(7)).toBe('1W')
   })
 
+  it('uses the legacy history range when userId is null or undefined', () => {
+    localStorage.setItem(DASHBOARD_HISTORY_RANGE_STORAGE_KEY, 'YTD')
+
+    expect(getStoredHistoryRange(null)).toBe('YTD')
+    expect(getStoredHistoryRange(undefined)).toBe('YTD')
+  })
+
+  it('returns the default history range when storage is empty', () => {
+    expect(getStoredHistoryRange(null)).toBe('1M')
+    expect(getStoredHistoryRange(undefined)).toBe('1M')
+  })
+
   it('returns null for invalid dashboard data cache payloads', () => {
     const cacheKey = getDashboardDataCacheKey(7)
     sessionStorage.setItem(cacheKey, JSON.stringify({
@@ -129,11 +141,58 @@ describe('dashboard storage helpers', () => {
     expect(sessionStorage.getItem(cacheKey)).toBeNull()
   })
 
+  it('reads a valid history cache payload', () => {
+    const cacheKey = getDashboardHistoryCacheKey('1M', 7)
+    sessionStorage.setItem(cacheKey, JSON.stringify({
+      version: DASHBOARD_CACHE_VERSION,
+      cachedAt: Date.now(),
+      history: [
+        { date: '2026-03-21', value: 95 },
+        { date: '2026-03-22', value: 100 },
+      ],
+    }))
+
+    expect(readDashboardHistoryCache('1M', 7)).toEqual({
+      cachedAt: expect.any(Number),
+      history: [
+        { date: '2026-03-21', value: 95 },
+        { date: '2026-03-22', value: 100 },
+      ],
+    })
+  })
+
   it('returns the first point when downsampling to one point', () => {
     expect(downsampleChartData([
       { date: '2026-03-20', value: 1 },
       { date: '2026-03-21', value: 2 },
       { date: '2026-03-22', value: 3 },
     ], 1)).toEqual([{ date: '2026-03-20', value: 1 }])
+  })
+
+  it('returns the original array when no downsampling is needed', () => {
+    const data = [
+      { date: '2026-03-20', value: 1 },
+      { date: '2026-03-21', value: 2 },
+    ]
+
+    expect(downsampleChartData(data, 2)).toBe(data)
+  })
+
+  it('returns an empty array when downsampling empty input', () => {
+    expect(downsampleChartData([], 5)).toEqual([])
+  })
+
+  it('downsamples by keeping the first, last, and evenly sampled middle points', () => {
+    expect(downsampleChartData([
+      { date: '2026-03-20', value: 10 },
+      { date: '2026-03-21', value: 20 },
+      { date: '2026-03-22', value: 30 },
+      { date: '2026-03-23', value: 40 },
+      { date: '2026-03-24', value: 50 },
+    ], 3)).toEqual([
+      { date: '2026-03-20', value: 10 },
+      { date: '2026-03-22', value: 30 },
+      { date: '2026-03-24', value: 50 },
+    ])
   })
 })
