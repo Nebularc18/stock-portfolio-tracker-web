@@ -4,6 +4,7 @@ export const AUTH_EXPIRED_EVENT = 'portfolio-auth-expired'
 export const AUTH_CHANGED_EVENT = 'portfolio-auth-changed'
 const SLOW_API_REQUEST_MS = 800
 const API_REQUEST_TIMEOUT_MS = 15000
+const ENABLE_API_TIMING_LOGS = import.meta.env.VITE_DISABLE_API_TIMING_LOGS !== '1'
 const encodePathSegment = (value: string) => encodeURIComponent(value)
 // These caches only deduplicate in-flight requests.
 const exchangeRatesRequestCache = new Map<string, Promise<Record<string, number | null>>>()
@@ -40,9 +41,13 @@ function emitAuthChanged(): void {
 
 function createTimeoutSignal(timeoutMs: number, externalSignal?: AbortSignal): { signal: AbortSignal; cleanup: () => void } {
   const controller = new AbortController()
-  const timeoutId = globalThis.setTimeout(() => controller.abort(), timeoutMs)
+  const timeoutId = globalThis.setTimeout(() => {
+    controller.abort(new DOMException(`Request timed out after ${timeoutMs}ms`, 'AbortError'))
+  }, timeoutMs)
 
-  const abortFromExternal = () => controller.abort(externalSignal?.reason)
+  const abortFromExternal = () => controller.abort(
+    externalSignal?.reason ?? new DOMException('Request aborted', 'AbortError')
+  )
   if (externalSignal?.aborted) {
     abortFromExternal()
   } else if (externalSignal) {
@@ -173,7 +178,7 @@ async function fetchAPI<T = unknown>(endpoint: string, options?: RequestInit): P
     const method = options?.method || 'GET'
     const logLabel = `[API timing] ${method} ${endpoint} ${Math.round(durationMs)}ms ${response.status}`
 
-    if (import.meta.env.DEV) {
+    if (ENABLE_API_TIMING_LOGS) {
       if (durationMs >= SLOW_API_REQUEST_MS) {
         console.warn(logLabel)
       } else if (

@@ -21,6 +21,10 @@ type DistributionDatum = {
   value: number
 }
 
+function isAbortError(error: unknown): boolean {
+  return error instanceof DOMException && error.name === 'AbortError'
+}
+
 function aggregateDistributionData(data: DistributionDatum[], othersLabel: string, limit: number = 4): DistributionDatum[] {
   const sortedData = [...data].sort((a, b) => b.value - a.value)
   if (sortedData.length <= limit) return sortedData
@@ -280,6 +284,7 @@ export default function Analytics() {
           return actualYears.length > 0 ? actualYears.slice(-3) : sortedYears.slice(-3)
         })
       } catch (dividendError) {
+        if (isAbortError(dividendError)) return
         console.error('Failed to load analytics dividend comparison data:', dividendError)
         if (!isCurrentFetch()) return
         setDividendComparisonData([])
@@ -290,6 +295,7 @@ export default function Analytics() {
       if (!isCurrentFetch()) return
       setError(null)
     } catch (err) {
+      if (isAbortError(err)) return
       console.error('Failed to load analytics data:', err)
       if (isCurrentFetch()) {
         setError(t(language, 'analytics.failedLoad'))

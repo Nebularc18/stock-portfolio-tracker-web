@@ -183,6 +183,19 @@ def _save_file_cache(filename: str, value: Optional[str], ttl: int = _LOGO_CACHE
 
 
 class BrandfetchService:
+    def normalize_stored_logo_url(self, value: Optional[str]) -> Optional[str]:
+        """
+        Return a stored logo URL only when it still points to a usable local asset.
+
+        Local logo paths are cleared when the underlying file is missing. Remote URLs
+        are preserved as-is so callers can decide whether to refresh them explicitly.
+        """
+        if not value:
+            return None
+        if self._is_local_logo_url(value) and self.should_refresh_logo(value):
+            return None
+        return value
+
     def _is_local_logo_url(self, value: Optional[str]) -> bool:
         """
         Determine whether a string is a public local logo path under /static/logos/.

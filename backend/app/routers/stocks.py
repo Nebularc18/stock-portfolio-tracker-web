@@ -258,42 +258,28 @@ class ManualDividendUpdate(BaseModel):
 @router.get("", response_model=list[StockResponse])
 def get_stocks(db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
     """
-    Return all stocks for the current user and refresh their logos when a new logo is available.
-    
-    If any logo is updated, the function commits the changes and refreshes the returned stock objects.
+    Return all stocks for the current user.
+
+    This route intentionally avoids logo refresh work so read-heavy pages can load
+    without waiting on external logo providers.
     
     Returns:
-        list[Stock]: Stocks belonging to the current user, with logos possibly updated.
+        list[Stock]: Stocks belonging to the current user.
     """
     stocks = db.query(Stock).filter(Stock.user_id == current_user.id).all()
+    stale_logos_cleared = False
 
-    logos_updated = False
-    for stock in (stock for stock in stocks if brandfetch_service.should_refresh_logo(stock.logo)):
-        original_logo = stock.logo
-        try:
-            refreshed_logo = brandfetch_service.get_logo_url_for_ticker(
-                stock.ticker,
-                stock.name,
-                force_refresh=False,
-                existing_logo=stock.logo,
-            )
-        except Exception as exc:
-            logger.warning("Failed to refresh logo for %s: %s", stock.ticker, exc)
-            continue
-        if refreshed_logo and refreshed_logo != stock.logo:
-            stock.logo = refreshed_logo
-            logos_updated = True
-        elif original_logo and brandfetch_service.should_refresh_logo(original_logo):
-            stock.logo = None
-            logos_updated = True
-
-    if logos_updated:
-        db.commit()
-        for stock in stocks:
-            db.refresh(stock)
+    for stock in stocks:
+        normalized_logo = brandfetch_service.normalize_stored_logo_url(stock.logo)
+        if normalized_logo != stock.logo:
+            stock.logo = normalized_logo
+            stale_logos_cleared = True
 
     for stock in stocks:
         _apply_stock_position_snapshot(stock)
+
+    if stale_logos_cleared:
+        db.commit()
 
     return stocks
 
