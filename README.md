@@ -94,10 +94,12 @@ services:
         condition: service_healthy
     volumes:
       - cache_data:/app/data/cache
+      - static_data:/app/data/static
 
 volumes:
   postgres_data:
   cache_data:
+  static_data:
 ```
 
 Then create a `.env` file on the server with at least:
@@ -124,6 +126,8 @@ Then run:
 docker compose pull
 docker compose up -d
 ```
+
+Downloaded logo assets are stored in the `static_data` volume so they survive container rebuilds and recreates.
 
 ## Usage
 
