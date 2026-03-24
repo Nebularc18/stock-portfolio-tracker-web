@@ -4,7 +4,7 @@
  * @param date - A Date instance or a date string. If a string matches `YYYY-MM-DD` it is treated as a date-only value (midnight UTC). If the string already contains a timezone designator (`Z`, `z`, or `±HH:MM`) it is used as-is; otherwise `Z` is appended to interpret the value as UTC.
  * @returns A Date representing the same instant. If a Date instance is provided, it is returned unchanged.
  */
-function parseDatePreservingUtc(date: Date | string): Date {
+export function parseDatePreservingUtc(date: Date | string): Date {
   if (date instanceof Date) return date
 
   const value = date.trim()

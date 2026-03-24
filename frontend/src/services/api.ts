@@ -1,6 +1,7 @@
 const API_BASE = '/api'
 export const AUTH_STORAGE_KEY = 'portfolioAuthUser'
 export const AUTH_EXPIRED_EVENT = 'portfolio-auth-expired'
+export const AUTH_CHANGED_EVENT = 'portfolio-auth-changed'
 const SLOW_API_REQUEST_MS = 800
 const API_REQUEST_TIMEOUT_MS = 15000
 const encodePathSegment = (value: string) => encodeURIComponent(value)
@@ -8,12 +9,40 @@ const encodePathSegment = (value: string) => encodeURIComponent(value)
 const exchangeRatesRequestCache = new Map<string, Promise<Record<string, number | null>>>()
 const exchangeRatesBatchRequestCache = new Map<string, Promise<Record<string, Record<string, number | null>>>>()
 const portfolioUpcomingDividendsRequestCache = new Map<string, Promise<UpcomingDividendsResponse>>()
+const portfolioSummaryRequestCache = new Map<string, Promise<PortfolioSummary>>()
+const portfolioHistoryRequestCache = new Map<string, Promise<Array<{ date: string; value: number }>>>()
+
+export function getRequestUserCacheScope(userId?: number | null): string {
+  if (userId === null) return 'guest'
+  if (userId !== undefined) return String(userId)
+  return String(getStoredAuthUser()?.id ?? 'guest')
+}
+
+export function __resetPortfolioRequestCachesForTests(): void {
+  portfolioSummaryRequestCache.clear()
+  portfolioHistoryRequestCache.clear()
+  portfolioUpcomingDividendsRequestCache.clear()
+}
+
+function getAuthStorage(): Storage | null {
+  try {
+    return typeof window !== 'undefined' ? window.localStorage : null
+  } catch {
+    return null
+  }
+}
+
+function emitAuthChanged(): void {
+  if (typeof window !== 'undefined') {
+    window.dispatchEvent(new Event(AUTH_CHANGED_EVENT))
+  }
+}
 
 function createTimeoutSignal(timeoutMs: number, externalSignal?: AbortSignal): { signal: AbortSignal; cleanup: () => void } {
   const controller = new AbortController()
-  const timeoutId = window.setTimeout(() => controller.abort(), timeoutMs)
+  const timeoutId = globalThis.setTimeout(() => controller.abort(), timeoutMs)
 
-  const abortFromExternal = () => controller.abort((externalSignal as AbortSignal & { reason?: unknown }).reason)
+  const abortFromExternal = () => controller.abort(externalSignal?.reason)
   if (externalSignal?.aborted) {
     abortFromExternal()
   } else if (externalSignal) {
@@ -23,7 +52,7 @@ function createTimeoutSignal(timeoutMs: number, externalSignal?: AbortSignal): {
   return {
     signal: controller.signal,
     cleanup: () => {
-      window.clearTimeout(timeoutId)
+      globalThis.clearTimeout(timeoutId)
       if (externalSignal) {
         externalSignal.removeEventListener('abort', abortFromExternal)
       }
@@ -44,6 +73,24 @@ export interface AuthUserProfile {
   is_guest: boolean
 }
 
+export class HttpError extends Error {
+  status: number
+
+  constructor(message: string, status: number) {
+    super(message)
+    this.status = status
+  }
+}
+
+function getErrorMessageForStatus(status: number): string {
+  if (status === 401) return 'Authentication required'
+  if (status === 403) return 'Access denied'
+  if (status === 404) return 'Resource not found'
+  if (status === 429) return 'Too many requests'
+  if (status >= 500) return 'Server error'
+  return 'Request failed'
+}
+
 function isAuthUser(value: unknown): value is AuthUser {
   if (!value || typeof value !== 'object') return false
   const candidate = value as Record<string, unknown>
@@ -60,27 +107,32 @@ function isAuthUser(value: unknown): value is AuthUser {
 }
 
 export function getStoredAuthUser(): AuthUser | null {
-  const raw = localStorage.getItem(AUTH_STORAGE_KEY)
+  const storage = getAuthStorage()
+  const raw = storage?.getItem(AUTH_STORAGE_KEY)
   if (!raw) return null
   try {
     const parsed: unknown = JSON.parse(raw)
     if (!isAuthUser(parsed)) {
-      localStorage.removeItem(AUTH_STORAGE_KEY)
+      storage?.removeItem(AUTH_STORAGE_KEY)
       return null
     }
     return parsed
   } catch {
-    localStorage.removeItem(AUTH_STORAGE_KEY)
+    storage?.removeItem(AUTH_STORAGE_KEY)
     return null
   }
 }
 
 export function setStoredAuthUser(authUser: AuthUser) {
-  localStorage.setItem(AUTH_STORAGE_KEY, JSON.stringify(authUser))
+  const storage = getAuthStorage()
+  storage?.setItem(AUTH_STORAGE_KEY, JSON.stringify(authUser))
+  emitAuthChanged()
 }
 
 export function clearStoredAuthUser(notify: boolean = false) {
-  localStorage.removeItem(AUTH_STORAGE_KEY)
+  const storage = getAuthStorage()
+  storage?.removeItem(AUTH_STORAGE_KEY)
+  emitAuthChanged()
   if (notify && typeof window !== 'undefined') {
     window.dispatchEvent(new Event(AUTH_EXPIRED_EVENT))
   }
@@ -101,7 +153,7 @@ export function clearStoredAuthUser(notify: boolean = false) {
  *   field when available, otherwise `"Request failed"`. The thrown error also has a `status` property set to
  *   the HTTP status code.
  */
-async function fetchAPI(endpoint: string, options?: RequestInit) {
+async function fetchAPI<T = unknown>(endpoint: string, options?: RequestInit): Promise<T> {
   const authUser = getStoredAuthUser()
   const startedAt = typeof performance !== 'undefined' ? performance.now() : Date.now()
   const externalSignal = options?.signal ?? undefined
@@ -121,28 +173,40 @@ async function fetchAPI(endpoint: string, options?: RequestInit) {
     const method = options?.method || 'GET'
     const logLabel = `[API timing] ${method} ${endpoint} ${Math.round(durationMs)}ms ${response.status}`
 
-    if (durationMs >= SLOW_API_REQUEST_MS) {
-      console.warn(logLabel)
-    } else if (
-      endpoint.includes('/finnhub/')
-      || endpoint.includes('/marketstack/')
-      || endpoint.includes('/dividends')
-      || endpoint.includes('/analyst')
-    ) {
-      console.info(logLabel)
+    if (import.meta.env.DEV) {
+      if (durationMs >= SLOW_API_REQUEST_MS) {
+        console.warn(logLabel)
+      } else if (
+        endpoint.includes('/finnhub/')
+        || endpoint.includes('/marketstack/')
+        || endpoint.includes('/dividends')
+        || endpoint.includes('/analyst')
+      ) {
+        console.info(logLabel)
+      }
     }
 
     if (!response.ok) {
       if (response.status === 401 && authUser) {
         clearStoredAuthUser(true)
       }
-      const error = await response.json().catch(() => ({ detail: 'Unknown error' }))
-      const requestError = new Error(error.detail || 'Request failed') as Error & { status?: number }
-      requestError.status = response.status
-      throw requestError
+      let detail: string | undefined
+      try {
+        const body: unknown = await response.json()
+        if (body && typeof body === 'object' && 'detail' in body && typeof (body as Record<string, unknown>).detail === 'string') {
+          detail = (body as Record<string, unknown>).detail as string
+        }
+      } catch {
+        // ignore parse errors
+      }
+      throw new HttpError(detail ?? getErrorMessageForStatus(response.status), response.status)
     }
 
-    return response.json()
+    try {
+      return await response.json()
+    } catch {
+      throw new HttpError('Invalid server response', response.status)
+    }
   } finally {
     cleanup()
   }
@@ -155,12 +219,13 @@ async function fetchAPI(endpoint: string, options?: RequestInit) {
  * @param fallback - Value to return if the request fails with HTTP 403 or 404
  * @param options - Optional fetch options forwarded to the underlying request
  * @returns The parsed response as `T`, or `fallback` when the server returns `403` or `404`
+ * @throws {Error} When the request fails with a status other than 403 or 404
  */
 async function fetchOptionalAPI<T>(endpoint: string, fallback: T, options?: RequestInit): Promise<T> {
   try {
-    return await fetchAPI(endpoint, options) as T
+    return await fetchAPI<T>(endpoint, options)
   } catch (error) {
-    const status = (error as { status?: number } | null)?.status
+    const status = error instanceof HttpError ? error.status : undefined
     if (status === 403 || status === 404) {
       return fallback
     }
@@ -492,38 +557,38 @@ export interface VerificationResult {
 export const api = {
   auth: {
     login: (data: { username: string; password: string }) =>
-      fetchAPI('/auth/login', { method: 'POST', body: JSON.stringify(data) }) as Promise<AuthUser>,
+      fetchAPI<AuthUser>('/auth/login', { method: 'POST', body: JSON.stringify(data) }),
     register: (data: { username: string; password: string }) =>
-      fetchAPI('/auth/register', { method: 'POST', body: JSON.stringify(data) }) as Promise<AuthUser>,
-    guest: () => fetchAPI('/auth/guest', { method: 'POST' }) as Promise<AuthUser>,
-    users: () => fetchAPI('/auth/users') as Promise<AuthUserProfile>,
+      fetchAPI<AuthUser>('/auth/register', { method: 'POST', body: JSON.stringify(data) }),
+    guest: () => fetchAPI<AuthUser>('/auth/guest', { method: 'POST' }),
+    users: () => fetchAPI<AuthUserProfile>('/auth/users'),
   },
 
   stocks: {
-    list: () => fetchAPI('/stocks') as Promise<Stock[]>,
-    get: (ticker: string) => fetchAPI(`/stocks/${encodePathSegment(ticker)}`) as Promise<Stock>,
+    list: () => fetchAPI<Stock[]>('/stocks'),
+    get: (ticker: string) => fetchAPI<Stock>(`/stocks/${encodePathSegment(ticker)}`),
     create: (data: { ticker: string; quantity: number; purchase_price?: number; courtage?: number; courtage_currency?: string; exchange_rate?: number; exchange_rate_currency?: string; purchase_date?: string; position_entries?: PositionEntry[] }) => 
-      fetchAPI('/stocks', { method: 'POST', body: JSON.stringify(data) }) as Promise<Stock>,
+      fetchAPI<Stock>('/stocks', { method: 'POST', body: JSON.stringify(data) }),
     update: (ticker: string, data: { quantity?: number; purchase_price?: number; courtage?: number | null; courtage_currency?: string | null; exchange_rate?: number | null; exchange_rate_currency?: string | null; purchase_date?: string | null; position_entries?: PositionEntry[] }) =>
-      fetchAPI(`/stocks/${encodePathSegment(ticker)}`, { method: 'PATCH', body: JSON.stringify(data) }) as Promise<Stock>,
+      fetchAPI<Stock>(`/stocks/${encodePathSegment(ticker)}`, { method: 'PATCH', body: JSON.stringify(data) }),
     delete: (ticker: string) => fetchAPI(`/stocks/${encodePathSegment(ticker)}`, { method: 'DELETE' }),
-    refresh: (ticker: string) => fetchAPI(`/stocks/${encodePathSegment(ticker)}/refresh`, { method: 'POST' }) as Promise<Stock>,
-    dividends: (ticker: string, years: number = 5) => fetchAPI(`/stocks/${encodePathSegment(ticker)}/dividends?years=${years}`) as Promise<Dividend[]>,
+    refresh: (ticker: string) => fetchAPI<Stock>(`/stocks/${encodePathSegment(ticker)}/refresh`, { method: 'POST' }),
+    dividends: (ticker: string, years: number = 5) => fetchAPI<Dividend[]>(`/stocks/${encodePathSegment(ticker)}/dividends?years=${years}`),
     dividendsForTickers: (tickers: string[], years: number = 5) => {
       const params = new URLSearchParams()
       for (const ticker of tickers) {
         params.append('tickers', ticker)
       }
       params.set('years', String(years))
-      return fetchAPI(`/stocks/dividends/batch?${params.toString()}`) as Promise<DividendsByTicker>
+      return fetchAPI<DividendsByTicker>(`/stocks/dividends/batch?${params.toString()}`)
     },
-    upcomingDividends: (ticker: string) => fetchAPI(`/stocks/${encodePathSegment(ticker)}/upcoming-dividends`) as Promise<StockUpcomingDividend[]>,
-    analyst: (ticker: string) => fetchAPI(`/stocks/${encodePathSegment(ticker)}/analyst`) as Promise<AnalystData>,
-    validate: (ticker: string) => fetchAPI(`/stocks/validate/${encodePathSegment(ticker)}`) as Promise<TickerValidationResult>,
+    upcomingDividends: (ticker: string) => fetchAPI<StockUpcomingDividend[]>(`/stocks/${encodePathSegment(ticker)}/upcoming-dividends`),
+    analyst: (ticker: string) => fetchAPI<AnalystData>(`/stocks/${encodePathSegment(ticker)}/analyst`),
+    validate: (ticker: string) => fetchAPI<TickerValidationResult>(`/stocks/validate/${encodePathSegment(ticker)}`),
     addManualDividend: (ticker: string, data: { date: string; amount: number; currency?: string; note?: string }) =>
-      fetchAPI(`/stocks/${encodePathSegment(ticker)}/manual-dividends`, { method: 'POST', body: JSON.stringify(data) }) as Promise<Stock>,
+      fetchAPI<Stock>(`/stocks/${encodePathSegment(ticker)}/manual-dividends`, { method: 'POST', body: JSON.stringify(data) }),
     updateManualDividend: (ticker: string, dividendId: string, data: { date?: string; amount?: number; currency?: string; note?: string }) =>
-      fetchAPI(`/stocks/${encodePathSegment(ticker)}/manual-dividends/${encodePathSegment(dividendId)}`, { method: 'PUT', body: JSON.stringify(data) }) as Promise<Stock>,
+      fetchAPI<Stock>(`/stocks/${encodePathSegment(ticker)}/manual-dividends/${encodePathSegment(dividendId)}`, { method: 'PUT', body: JSON.stringify(data) }),
     deleteManualDividend: (ticker: string, dividendId: string) =>
       fetchAPI(`/stocks/${encodePathSegment(ticker)}/manual-dividends/${encodePathSegment(dividendId)}`, { method: 'DELETE' }),
     suppressDividend: (ticker: string, data: { date: string; amount?: number; currency?: string }) =>
@@ -531,14 +596,29 @@ export const api = {
     restoreDividend: (ticker: string, date: string) =>
       fetchAPI(`/stocks/${encodePathSegment(ticker)}/suppress-dividend/${encodePathSegment(date)}`, { method: 'DELETE' }),
     getSuppressedDividends: (ticker: string) =>
-      fetchAPI(`/stocks/${encodePathSegment(ticker)}/suppressed-dividends`) as Promise<ManualDividend[]>,
+      fetchAPI<ManualDividend[]>(`/stocks/${encodePathSegment(ticker)}/suppressed-dividends`),
   },
   
   portfolio: {
-    summary: () => fetchAPI('/portfolio/summary') as Promise<PortfolioSummary>,
+    summary: (userId?: number | null, requestOptions?: RequestInit) => {
+      const key = getRequestUserCacheScope(userId)
+      if (requestOptions?.signal) {
+        return fetchAPI<PortfolioSummary>('/portfolio/summary', requestOptions)
+      }
+      const cached = portfolioSummaryRequestCache.get(key)
+      if (cached) return cached
+
+      const request = fetchAPI<PortfolioSummary>('/portfolio/summary', requestOptions)
+        .finally(() => {
+          portfolioSummaryRequestCache.delete(key)
+        })
+
+      portfolioSummaryRequestCache.set(key, request)
+      return request
+    },
     refreshAll: () => fetchAPI('/portfolio/refresh-all', { method: 'POST' }),
-    distribution: () => fetchAPI('/portfolio/distribution') as Promise<DistributionResponse>,
-    history: (options: number | { days?: number; range?: string } = 30) => {
+    distribution: () => fetchAPI<DistributionResponse>('/portfolio/distribution'),
+    history: (options: number | { days?: number; range?: string } = 30, userId?: number | null, requestOptions?: RequestInit) => {
       const params = new URLSearchParams()
       if (typeof options === 'number') {
         params.set('days', String(options))
@@ -551,18 +631,33 @@ export const api = {
         }
       }
       const query = params.toString()
-      return fetchAPI(`/portfolio/history${query ? `?${query}` : ''}`)
+      const key = `${getRequestUserCacheScope(userId)}:${query || '__default__'}`
+      if (requestOptions?.signal) {
+        return fetchAPI<Array<{ date: string; value: number }>>(`/portfolio/history${query ? `?${query}` : ''}`, requestOptions)
+      }
+      const cached = portfolioHistoryRequestCache.get(key)
+      if (cached) return cached
+
+      const request = fetchAPI<Array<{ date: string; value: number }>>(`/portfolio/history${query ? `?${query}` : ''}`, requestOptions)
+        .finally(() => {
+          portfolioHistoryRequestCache.delete(key)
+        })
+
+      portfolioHistoryRequestCache.set(key, request)
+      return request
     },
-    upcomingDividends: () => {
-      const authUser = getStoredAuthUser()
-      const key = String(authUser?.id ?? 'guest')
+    upcomingDividends: (userId?: number | null, requestOptions?: RequestInit) => {
+      const key = getRequestUserCacheScope(userId)
+      if (requestOptions?.signal) {
+        return fetchAPI<UpcomingDividendsResponse>('/portfolio/upcoming-dividends', requestOptions)
+      }
       const cached = portfolioUpcomingDividendsRequestCache.get(key)
       if (cached) return cached
 
-      const request = fetchAPI('/portfolio/upcoming-dividends')
+      const request = fetchAPI<UpcomingDividendsResponse>('/portfolio/upcoming-dividends', requestOptions)
         .finally(() => {
           portfolioUpcomingDividendsRequestCache.delete(key)
-        }) as Promise<UpcomingDividendsResponse>
+        })
 
       portfolioUpcomingDividendsRequestCache.set(key, request)
       return request
@@ -570,17 +665,17 @@ export const api = {
   },
   
   market: {
-    header: (force: boolean = false) => fetchAPI(`/market/header${force ? '?force=true' : ''}`) as Promise<HeaderMarketData>,
-    indices: () => fetchAPI('/market/indices') as Promise<{ indices: MarketIndex[]; updated_at: string; next_refresh_at: string }>,
+    header: (force: boolean = false) => fetchAPI<HeaderMarketData>(`/market/header${force ? '?force=true' : ''}`),
+    indices: () => fetchAPI<{ indices: MarketIndex[]; updated_at: string; next_refresh_at: string }>('/market/indices'),
     exchangeRates: (date?: string) => {
       const key = date || '__latest__'
       const cached = exchangeRatesRequestCache.get(key)
       if (cached) return cached
 
-      const request = fetchAPI(`/market/exchange-rates${date ? `?date=${encodeURIComponent(date)}` : ''}`)
+      const request = fetchAPI<Record<string, number | null>>(`/market/exchange-rates${date ? `?date=${encodeURIComponent(date)}` : ''}`)
         .finally(() => {
           exchangeRatesRequestCache.delete(key)
-        }) as Promise<Record<string, number | null>>
+        })
 
       exchangeRatesRequestCache.set(key, request)
       return request
@@ -591,23 +686,23 @@ export const api = {
       const cached = exchangeRatesBatchRequestCache.get(key)
       if (cached) return cached
 
-      const request = fetchAPI('/market/exchange-rates/batch', {
+      const request = fetchAPI<Record<string, Record<string, number | null>>>('/market/exchange-rates/batch', {
         method: 'POST',
         body: JSON.stringify({ dates: normalizedDates }),
       }).finally(() => {
         exchangeRatesBatchRequestCache.delete(key)
-      }) as Promise<Record<string, Record<string, number | null>>>
+      })
 
       exchangeRatesBatchRequestCache.set(key, request)
       return request
     },
     convert: (amount: number, from: string, to: string) => 
-      fetchAPI(`/market/convert?amount=${amount}&from_currency=${from}&to_currency=${to}`),
-    hours: (timezone?: string) => fetchAPI(`/market/hours${timezone ? `?timezone=${encodeURIComponent(timezone)}` : ''}`) as Promise<MarketStatus[]>,
-    marketHours: (market: string, timezone?: string) => fetchAPI(`/market/hours/${market}${timezone ? `?timezone=${encodeURIComponent(timezone)}` : ''}`) as Promise<MarketStatus>,
-    openMarkets: () => fetchAPI('/market/open-markets') as Promise<{ open_markets: string[] }>,
-    shouldRefresh: () => fetchAPI('/market/should-refresh') as Promise<{ should_refresh: boolean }>,
-    sparklines: () => fetchAPI('/market/indices/sparklines') as Promise<{ sparklines: Record<string, SparklineData>; updated_at: string }>,
+      fetchAPI(`/market/convert?amount=${amount}&from_currency=${encodeURIComponent(from)}&to_currency=${encodeURIComponent(to)}`),
+    hours: (timezone?: string) => fetchAPI<MarketStatus[]>(`/market/hours${timezone ? `?timezone=${encodeURIComponent(timezone)}` : ''}`),
+    marketHours: (market: string, timezone?: string) => fetchAPI<MarketStatus>(`/market/hours/${encodePathSegment(market)}${timezone ? `?timezone=${encodeURIComponent(timezone)}` : ''}`),
+    openMarkets: () => fetchAPI<{ open_markets: string[] }>('/market/open-markets'),
+    shouldRefresh: () => fetchAPI<{ should_refresh: boolean }>('/market/should-refresh'),
+    sparklines: () => fetchAPI<{ sparklines: Record<string, SparklineData>; updated_at: string }>('/market/indices/sparklines'),
   },
   
   finnhub: {
@@ -618,25 +713,26 @@ export const api = {
   },
   
   marketstack: {
-    status: () => fetchAPI('/marketstack/status') as Promise<MarketstackUsage>,
+    status: () => fetchAPI<MarketstackUsage>('/marketstack/status'),
     dividends: (ticker: string, dateFrom?: string, dateTo?: string) => {
       const params = new URLSearchParams()
       if (dateFrom) params.append('date_from', dateFrom)
       if (dateTo) params.append('date_to', dateTo)
-      const query = params.toString() ? `?${params.toString()}` : ''
-      return fetchAPI(`/marketstack/dividends/${encodePathSegment(ticker)}${query}`) as Promise<{
+      const queryString = params.toString()
+      const query = queryString ? `?${queryString}` : ''
+      return fetchAPI<{
         ticker: string
         dividends: Dividend[]
         count: number
         usage: MarketstackUsage
-      }>
+      }>(`/marketstack/dividends/${encodePathSegment(ticker)}${query}`)
     },
-    verify: (ticker: string) => fetchAPI(`/marketstack/verify/${encodePathSegment(ticker)}`, { method: 'POST' }) as Promise<VerificationResult>,
-    clearCache: (ticker: string) => fetchAPI(`/marketstack/cache/${encodePathSegment(ticker)}`, { method: 'DELETE' }) as Promise<{ message: string }>,
+    verify: (ticker: string) => fetchAPI<VerificationResult>(`/marketstack/verify/${encodePathSegment(ticker)}`, { method: 'POST' }),
+    clearCache: (ticker: string) => fetchAPI<{ message: string }>(`/marketstack/cache/${encodePathSegment(ticker)}`, { method: 'DELETE' }),
   },
   
   avanza: {
-    dividends: () => fetchAPI('/avanza/dividends') as Promise<Array<{
+    dividends: () => fetchAPI<Array<{
       avanza_name: string
       ex_date: string
       amount: number
@@ -645,22 +741,22 @@ export const api = {
       dividend_type: string | null
       yahoo_ticker: string | null
       instrument_id: string | null
-    }>>,
-    mappings: () => fetchAPI('/avanza/mappings') as Promise<TickerMapping[]>,
+    }>>('/avanza/dividends'),
+    mappings: () => fetchAPI<TickerMapping[]>('/avanza/mappings'),
     addMapping: (data: { avanza_name: string; yahoo_ticker: string; instrument_id?: string | null }) =>
-      fetchAPI('/avanza/mappings', { method: 'POST', body: JSON.stringify(data) }) as Promise<TickerMapping>,
+      fetchAPI<TickerMapping>('/avanza/mappings', { method: 'POST', body: JSON.stringify(data) }),
     deleteMapping: (avanzaName: string) =>
-      fetchAPI(`/avanza/mappings/${encodeURIComponent(avanzaName)}`, { method: 'DELETE' }) as Promise<{ message: string }>,
+      fetchAPI<{ message: string }>(`/avanza/mappings/${encodeURIComponent(avanzaName)}`, { method: 'DELETE' }),
     historical: (ticker: string, years: number = 5) =>
-      fetchAPI(`/avanza/historical/${encodePathSegment(ticker)}?years=${years}`) as Promise<Array<{
+      fetchAPI<Array<{
         date: string
         amount: number
         currency: string
         payment_date: string | null
         dividend_type: string | null
-      }>>,
+      }>>(`/avanza/historical/${encodePathSegment(ticker)}?years=${years}`),
     stockInfo: (instrumentId: string) =>
-      fetchAPI(`/avanza/stock/${instrumentId}`) as Promise<{
+      fetchAPI<{
         name: string
         ticker: string
         isin: string
@@ -679,13 +775,13 @@ export const api = {
           currencyCode: string
           dividendType: string
         }>
-      }>,
+      }>(`/avanza/stock/${encodePathSegment(instrumentId)}`),
   },
 
   settings: {
-    get: () => fetchAPI('/settings') as Promise<SettingsData>,
+    get: () => fetchAPI<SettingsData>('/settings'),
     update: (data: { display_currency?: string; header_indices?: string[] }) =>
-      fetchAPI('/settings', { method: 'PATCH', body: JSON.stringify(data) }) as Promise<SettingsData>,
-    availableIndices: () => fetchAPI('/settings/available-indices') as Promise<AvailableIndex[]>,
+      fetchAPI<SettingsData>('/settings', { method: 'PATCH', body: JSON.stringify(data) }),
+    availableIndices: () => fetchAPI<AvailableIndex[]>('/settings/available-indices'),
   },
 }
