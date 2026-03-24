@@ -209,10 +209,18 @@ export default function HistoricalDividends() {
             .map((div) => div.paymentDate)
             .filter(Boolean)
         ))
+        const dividendCurrencies = Array.from(new Set(
+          Array.from(uniqueDividendMap.values())
+            .map((div) => div.dividendCurrency)
+            .filter((currency) => currency && currency !== 'SEK')
+        ))
 
         if (payoutDates.length > 0) {
           try {
-            const ratesByDate = await api.market.exchangeRatesBatch(payoutDates)
+            const ratesByDate = await api.market.exchangeRatesBatch(payoutDates, {
+              currencies: dividendCurrencies,
+              targetCurrency: 'SEK',
+            })
             setExchangeRatesByDate(ratesByDate)
           } catch (err) {
             console.error('Failed to fetch historical dividend FX rates:', err)

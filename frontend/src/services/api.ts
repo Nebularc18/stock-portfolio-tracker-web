@@ -4,14 +4,69 @@ export const AUTH_EXPIRED_EVENT = 'portfolio-auth-expired'
 export const AUTH_CHANGED_EVENT = 'portfolio-auth-changed'
 const SLOW_API_REQUEST_MS = 800
 const API_REQUEST_TIMEOUT_MS = 15000
-const ENABLE_API_TIMING_LOGS = import.meta.env.DEV || import.meta.env.VITE_ENABLE_API_TIMING_LOGS === '1'
+const ENABLE_API_TIMING_LOGS = import.meta.env.VITE_ENABLE_API_TIMING_LOGS !== '0'
+const STOCKS_CACHE_TTL_MS = 30_000
+const PORTFOLIO_SUMMARY_CACHE_TTL_MS = 30_000
+const PORTFOLIO_DISTRIBUTION_CACHE_TTL_MS = 30_000
+const PORTFOLIO_HISTORY_CACHE_TTL_MS = 30_000
+const PORTFOLIO_UPCOMING_DIVIDENDS_CACHE_TTL_MS = 60_000
+const DIVIDENDS_BATCH_CACHE_TTL_MS = 300_000
+const EXCHANGE_RATES_BATCH_CACHE_TTL_MS = 300_000
 const encodePathSegment = (value: string) => encodeURIComponent(value)
-// These caches only deduplicate in-flight requests.
+type TimedCacheEntry<T> = {
+  value: T
+  expiresAt: number
+}
+
+// These caches deduplicate in-flight requests and retain short-lived resolved values.
 const exchangeRatesRequestCache = new Map<string, Promise<Record<string, number | null>>>()
 const exchangeRatesBatchRequestCache = new Map<string, Promise<Record<string, Record<string, number | null>>>>()
+const exchangeRatesBatchValueCache = new Map<string, TimedCacheEntry<Record<string, Record<string, number | null>>>>()
 const portfolioUpcomingDividendsRequestCache = new Map<string, Promise<UpcomingDividendsResponse>>()
+const portfolioUpcomingDividendsValueCache = new Map<string, TimedCacheEntry<UpcomingDividendsResponse>>()
 const portfolioSummaryRequestCache = new Map<string, Promise<PortfolioSummary>>()
+const portfolioSummaryValueCache = new Map<string, TimedCacheEntry<PortfolioSummary>>()
 const portfolioHistoryRequestCache = new Map<string, Promise<Array<{ date: string; value: number }>>>()
+const portfolioHistoryValueCache = new Map<string, TimedCacheEntry<Array<{ date: string; value: number }>>>()
+const portfolioDistributionRequestCache = new Map<string, Promise<DistributionResponse>>()
+const portfolioDistributionValueCache = new Map<string, TimedCacheEntry<DistributionResponse>>()
+const stocksListRequestCache = new Map<string, Promise<Stock[]>>()
+const stocksListValueCache = new Map<string, TimedCacheEntry<Stock[]>>()
+const dividendsBatchRequestCache = new Map<string, Promise<DividendsByTicker>>()
+const dividendsBatchValueCache = new Map<string, TimedCacheEntry<DividendsByTicker>>()
+
+function getCachedValue<T>(cache: Map<string, TimedCacheEntry<T>>, key: string): T | null {
+  const cached = cache.get(key)
+  if (!cached) return null
+  if (cached.expiresAt <= Date.now()) {
+    cache.delete(key)
+    return null
+  }
+  return cached.value
+}
+
+function setCachedValue<T>(cache: Map<string, TimedCacheEntry<T>>, key: string, value: T, ttlMs: number): T {
+  cache.set(key, {
+    value,
+    expiresAt: Date.now() + ttlMs,
+  })
+  return value
+}
+
+function clearPortfolioDataCaches(): void {
+  stocksListRequestCache.clear()
+  stocksListValueCache.clear()
+  dividendsBatchRequestCache.clear()
+  dividendsBatchValueCache.clear()
+  portfolioSummaryRequestCache.clear()
+  portfolioSummaryValueCache.clear()
+  portfolioDistributionRequestCache.clear()
+  portfolioDistributionValueCache.clear()
+  portfolioHistoryRequestCache.clear()
+  portfolioHistoryValueCache.clear()
+  portfolioUpcomingDividendsRequestCache.clear()
+  portfolioUpcomingDividendsValueCache.clear()
+}
 
 export function getRequestUserCacheScope(userId?: number | null): string {
   if (userId === null) return 'guest'
@@ -20,9 +75,9 @@ export function getRequestUserCacheScope(userId?: number | null): string {
 }
 
 export function __resetPortfolioRequestCachesForTests(): void {
-  portfolioSummaryRequestCache.clear()
-  portfolioHistoryRequestCache.clear()
-  portfolioUpcomingDividendsRequestCache.clear()
+  clearPortfolioDataCaches()
+  exchangeRatesBatchRequestCache.clear()
+  exchangeRatesBatchValueCache.clear()
 }
 
 function getAuthStorage(): Storage | null {
@@ -131,12 +186,14 @@ export function getStoredAuthUser(): AuthUser | null {
 export function setStoredAuthUser(authUser: AuthUser) {
   const storage = getAuthStorage()
   storage?.setItem(AUTH_STORAGE_KEY, JSON.stringify(authUser))
+  clearPortfolioDataCaches()
   emitAuthChanged()
 }
 
 export function clearStoredAuthUser(notify: boolean = false) {
   const storage = getAuthStorage()
   storage?.removeItem(AUTH_STORAGE_KEY)
+  clearPortfolioDataCaches()
   emitAuthChanged()
   if (notify && typeof window !== 'undefined') {
     window.dispatchEvent(new Event(AUTH_EXPIRED_EVENT))
@@ -185,6 +242,7 @@ async function fetchAPI<T = unknown>(endpoint: string, options?: RequestInit): P
         endpoint.includes('/finnhub/')
         || endpoint.includes('/marketstack/')
         || endpoint.includes('/dividends')
+        || endpoint.includes('/exchange-rates/batch')
         || endpoint.includes('/analyst')
       ) {
         console.info(logLabel)
@@ -570,36 +628,104 @@ export const api = {
   },
 
   stocks: {
-    list: () => fetchAPI<Stock[]>('/stocks'),
+    list: (userId?: number | null, requestOptions?: RequestInit) => {
+      const key = getRequestUserCacheScope(userId)
+      if (requestOptions?.signal) {
+        return fetchAPI<Stock[]>('/stocks', requestOptions)
+      }
+      const cachedValue = getCachedValue(stocksListValueCache, key)
+      if (cachedValue) return Promise.resolve(cachedValue)
+      const cached = stocksListRequestCache.get(key)
+      if (cached) return cached
+
+      const request = fetchAPI<Stock[]>('/stocks', requestOptions)
+        .then((value) => setCachedValue(stocksListValueCache, key, value, STOCKS_CACHE_TTL_MS))
+        .finally(() => {
+          stocksListRequestCache.delete(key)
+        })
+
+      stocksListRequestCache.set(key, request)
+      return request
+    },
     get: (ticker: string) => fetchAPI<Stock>(`/stocks/${encodePathSegment(ticker)}`),
     create: (data: { ticker: string; quantity: number; purchase_price?: number; courtage?: number; courtage_currency?: string; exchange_rate?: number; exchange_rate_currency?: string; purchase_date?: string; position_entries?: PositionEntry[] }) => 
-      fetchAPI<Stock>('/stocks', { method: 'POST', body: JSON.stringify(data) }),
-    update: (ticker: string, data: { quantity?: number; purchase_price?: number; courtage?: number | null; courtage_currency?: string | null; exchange_rate?: number | null; exchange_rate_currency?: string | null; purchase_date?: string | null; position_entries?: PositionEntry[] }) =>
-      fetchAPI<Stock>(`/stocks/${encodePathSegment(ticker)}`, { method: 'PATCH', body: JSON.stringify(data) }),
-    delete: (ticker: string) => fetchAPI(`/stocks/${encodePathSegment(ticker)}`, { method: 'DELETE' }),
-    refresh: (ticker: string) => fetchAPI<Stock>(`/stocks/${encodePathSegment(ticker)}/refresh`, { method: 'POST' }),
+      fetchAPI<Stock>('/stocks', { method: 'POST', body: JSON.stringify(data) }).then((value) => {
+        clearPortfolioDataCaches()
+        return value
+      }),
+    update: (ticker: string, data: { ticker?: string; quantity?: number; purchase_price?: number; courtage?: number | null; courtage_currency?: string | null; exchange_rate?: number | null; exchange_rate_currency?: string | null; purchase_date?: string | null; position_entries?: PositionEntry[] }) =>
+      fetchAPI<Stock>(`/stocks/${encodePathSegment(ticker)}`, { method: 'PATCH', body: JSON.stringify(data) }).then((value) => {
+        clearPortfolioDataCaches()
+        return value
+      }),
+    delete: (ticker: string) => fetchAPI(`/stocks/${encodePathSegment(ticker)}`, { method: 'DELETE' }).then((value) => {
+      clearPortfolioDataCaches()
+      return value
+    }),
+    refresh: (ticker: string) => fetchAPI<Stock>(`/stocks/${encodePathSegment(ticker)}/refresh`, { method: 'POST' }).then((value) => {
+      clearPortfolioDataCaches()
+      return value
+    }),
     dividends: (ticker: string, years: number = 5) => fetchAPI<Dividend[]>(`/stocks/${encodePathSegment(ticker)}/dividends?years=${years}`),
-    dividendsForTickers: (tickers: string[], years: number = 5) => {
+    dividendsForTickers: (tickers: string[], years: number = 5, userId?: number | null, requestOptions?: RequestInit) => {
+      const normalizedTickers = [...new Set(tickers.map((ticker) => ticker.trim().toUpperCase()).filter(Boolean))]
+      const scope = getRequestUserCacheScope(userId)
+      const key = `${scope}:${years}:${normalizedTickers.join('|')}`
+      if (requestOptions?.signal) {
+        const params = new URLSearchParams()
+        for (const ticker of normalizedTickers) {
+          params.append('tickers', ticker)
+        }
+        params.set('years', String(years))
+        return fetchAPI<DividendsByTicker>(`/stocks/dividends/batch?${params.toString()}`, requestOptions)
+      }
+      const cachedValue = getCachedValue(dividendsBatchValueCache, key)
+      if (cachedValue) return Promise.resolve(cachedValue)
+      const cached = dividendsBatchRequestCache.get(key)
+      if (cached) return cached
+
       const params = new URLSearchParams()
-      for (const ticker of tickers) {
+      for (const ticker of normalizedTickers) {
         params.append('tickers', ticker)
       }
       params.set('years', String(years))
-      return fetchAPI<DividendsByTicker>(`/stocks/dividends/batch?${params.toString()}`)
+      const request = fetchAPI<DividendsByTicker>(`/stocks/dividends/batch?${params.toString()}`)
+        .then((value) => setCachedValue(dividendsBatchValueCache, key, value, DIVIDENDS_BATCH_CACHE_TTL_MS))
+        .finally(() => {
+          dividendsBatchRequestCache.delete(key)
+        })
+
+      dividendsBatchRequestCache.set(key, request)
+      return request
     },
     upcomingDividends: (ticker: string) => fetchAPI<StockUpcomingDividend[]>(`/stocks/${encodePathSegment(ticker)}/upcoming-dividends`),
     analyst: (ticker: string) => fetchAPI<AnalystData>(`/stocks/${encodePathSegment(ticker)}/analyst`),
     validate: (ticker: string) => fetchAPI<TickerValidationResult>(`/stocks/validate/${encodePathSegment(ticker)}`),
     addManualDividend: (ticker: string, data: { date: string; amount: number; currency?: string; note?: string }) =>
-      fetchAPI<Stock>(`/stocks/${encodePathSegment(ticker)}/manual-dividends`, { method: 'POST', body: JSON.stringify(data) }),
+      fetchAPI<Stock>(`/stocks/${encodePathSegment(ticker)}/manual-dividends`, { method: 'POST', body: JSON.stringify(data) }).then((value) => {
+        clearPortfolioDataCaches()
+        return value
+      }),
     updateManualDividend: (ticker: string, dividendId: string, data: { date?: string; amount?: number; currency?: string; note?: string }) =>
-      fetchAPI<Stock>(`/stocks/${encodePathSegment(ticker)}/manual-dividends/${encodePathSegment(dividendId)}`, { method: 'PUT', body: JSON.stringify(data) }),
+      fetchAPI<Stock>(`/stocks/${encodePathSegment(ticker)}/manual-dividends/${encodePathSegment(dividendId)}`, { method: 'PUT', body: JSON.stringify(data) }).then((value) => {
+        clearPortfolioDataCaches()
+        return value
+      }),
     deleteManualDividend: (ticker: string, dividendId: string) =>
-      fetchAPI(`/stocks/${encodePathSegment(ticker)}/manual-dividends/${encodePathSegment(dividendId)}`, { method: 'DELETE' }),
+      fetchAPI(`/stocks/${encodePathSegment(ticker)}/manual-dividends/${encodePathSegment(dividendId)}`, { method: 'DELETE' }).then((value) => {
+        clearPortfolioDataCaches()
+        return value
+      }),
     suppressDividend: (ticker: string, data: { date: string; amount?: number; currency?: string }) =>
-      fetchAPI(`/stocks/${encodePathSegment(ticker)}/suppress-dividend`, { method: 'POST', body: JSON.stringify(data) }),
+      fetchAPI(`/stocks/${encodePathSegment(ticker)}/suppress-dividend`, { method: 'POST', body: JSON.stringify(data) }).then((value) => {
+        clearPortfolioDataCaches()
+        return value
+      }),
     restoreDividend: (ticker: string, date: string) =>
-      fetchAPI(`/stocks/${encodePathSegment(ticker)}/suppress-dividend/${encodePathSegment(date)}`, { method: 'DELETE' }),
+      fetchAPI(`/stocks/${encodePathSegment(ticker)}/suppress-dividend/${encodePathSegment(date)}`, { method: 'DELETE' }).then((value) => {
+        clearPortfolioDataCaches()
+        return value
+      }),
     getSuppressedDividends: (ticker: string) =>
       fetchAPI<ManualDividend[]>(`/stocks/${encodePathSegment(ticker)}/suppressed-dividends`),
   },
@@ -610,10 +736,13 @@ export const api = {
       if (requestOptions?.signal) {
         return fetchAPI<PortfolioSummary>('/portfolio/summary', requestOptions)
       }
+      const cachedValue = getCachedValue(portfolioSummaryValueCache, key)
+      if (cachedValue) return Promise.resolve(cachedValue)
       const cached = portfolioSummaryRequestCache.get(key)
       if (cached) return cached
 
       const request = fetchAPI<PortfolioSummary>('/portfolio/summary', requestOptions)
+        .then((value) => setCachedValue(portfolioSummaryValueCache, key, value, PORTFOLIO_SUMMARY_CACHE_TTL_MS))
         .finally(() => {
           portfolioSummaryRequestCache.delete(key)
         })
@@ -621,8 +750,29 @@ export const api = {
       portfolioSummaryRequestCache.set(key, request)
       return request
     },
-    refreshAll: () => fetchAPI('/portfolio/refresh-all', { method: 'POST' }),
-    distribution: () => fetchAPI<DistributionResponse>('/portfolio/distribution'),
+    refreshAll: () => fetchAPI('/portfolio/refresh-all', { method: 'POST' }).then((value) => {
+      clearPortfolioDataCaches()
+      return value
+    }),
+    distribution: (userId?: number | null, requestOptions?: RequestInit) => {
+      const key = getRequestUserCacheScope(userId)
+      if (requestOptions?.signal) {
+        return fetchAPI<DistributionResponse>('/portfolio/distribution', requestOptions)
+      }
+      const cachedValue = getCachedValue(portfolioDistributionValueCache, key)
+      if (cachedValue) return Promise.resolve(cachedValue)
+      const cached = portfolioDistributionRequestCache.get(key)
+      if (cached) return cached
+
+      const request = fetchAPI<DistributionResponse>('/portfolio/distribution', requestOptions)
+        .then((value) => setCachedValue(portfolioDistributionValueCache, key, value, PORTFOLIO_DISTRIBUTION_CACHE_TTL_MS))
+        .finally(() => {
+          portfolioDistributionRequestCache.delete(key)
+        })
+
+      portfolioDistributionRequestCache.set(key, request)
+      return request
+    },
     history: (options: number | { days?: number; range?: string } = 30, userId?: number | null, requestOptions?: RequestInit) => {
       const params = new URLSearchParams()
       if (typeof options === 'number') {
@@ -640,10 +790,13 @@ export const api = {
       if (requestOptions?.signal) {
         return fetchAPI<Array<{ date: string; value: number }>>(`/portfolio/history${query ? `?${query}` : ''}`, requestOptions)
       }
+      const cachedValue = getCachedValue(portfolioHistoryValueCache, key)
+      if (cachedValue) return Promise.resolve(cachedValue)
       const cached = portfolioHistoryRequestCache.get(key)
       if (cached) return cached
 
       const request = fetchAPI<Array<{ date: string; value: number }>>(`/portfolio/history${query ? `?${query}` : ''}`, requestOptions)
+        .then((value) => setCachedValue(portfolioHistoryValueCache, key, value, PORTFOLIO_HISTORY_CACHE_TTL_MS))
         .finally(() => {
           portfolioHistoryRequestCache.delete(key)
         })
@@ -656,10 +809,13 @@ export const api = {
       if (requestOptions?.signal) {
         return fetchAPI<UpcomingDividendsResponse>('/portfolio/upcoming-dividends', requestOptions)
       }
+      const cachedValue = getCachedValue(portfolioUpcomingDividendsValueCache, key)
+      if (cachedValue) return Promise.resolve(cachedValue)
       const cached = portfolioUpcomingDividendsRequestCache.get(key)
       if (cached) return cached
 
       const request = fetchAPI<UpcomingDividendsResponse>('/portfolio/upcoming-dividends', requestOptions)
+        .then((value) => setCachedValue(portfolioUpcomingDividendsValueCache, key, value, PORTFOLIO_UPCOMING_DIVIDENDS_CACHE_TTL_MS))
         .finally(() => {
           portfolioUpcomingDividendsRequestCache.delete(key)
         })
@@ -685,18 +841,28 @@ export const api = {
       exchangeRatesRequestCache.set(key, request)
       return request
     },
-    exchangeRatesBatch: (dates: string[]) => {
+    exchangeRatesBatch: (dates: string[], options?: { currencies?: string[]; targetCurrency?: string }) => {
       const normalizedDates = [...new Set(dates)].sort()
-      const key = normalizedDates.join('|')
+      const normalizedCurrencies = [...new Set((options?.currencies || []).map((currency) => currency.trim().toUpperCase()).filter(Boolean))].sort()
+      const normalizedTargetCurrency = options?.targetCurrency?.trim().toUpperCase() || ''
+      const key = `${normalizedDates.join('|')}::${normalizedCurrencies.join('|')}::${normalizedTargetCurrency}`
+      const cachedValue = getCachedValue(exchangeRatesBatchValueCache, key)
+      if (cachedValue) return Promise.resolve(cachedValue)
       const cached = exchangeRatesBatchRequestCache.get(key)
       if (cached) return cached
 
       const request = fetchAPI<Record<string, Record<string, number | null>>>('/market/exchange-rates/batch', {
         method: 'POST',
-        body: JSON.stringify({ dates: normalizedDates }),
-      }).finally(() => {
-        exchangeRatesBatchRequestCache.delete(key)
+        body: JSON.stringify({
+          dates: normalizedDates,
+          currencies: normalizedCurrencies,
+          target_currency: normalizedTargetCurrency || undefined,
+        }),
       })
+        .then((value) => setCachedValue(exchangeRatesBatchValueCache, key, value, EXCHANGE_RATES_BATCH_CACHE_TTL_MS))
+        .finally(() => {
+          exchangeRatesBatchRequestCache.delete(key)
+        })
 
       exchangeRatesBatchRequestCache.set(key, request)
       return request

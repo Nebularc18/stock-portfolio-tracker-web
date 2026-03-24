@@ -149,6 +149,7 @@ const en = {
     'analytics.dividendComparison': 'Dividend Comparison',
     'analytics.dividendComparisonHint': 'Compare up to three years and switch the years you want to view.',
     'analytics.noData': 'No portfolio data available. Add stocks to see analytics.',
+    'analytics.noDividendComparisonData': 'No dividend comparison data is available for your current holdings.',
     'analytics.failedLoad': 'Failed to load analytics data',
 
     'history.title': 'Dividend History',
@@ -580,6 +581,7 @@ const sv: LocaleTranslations = {
     'analytics.dividendComparison': 'Jämförelse utdelningar',
     'analytics.dividendComparisonHint': 'Jämför upp till tre år och byt vilka år du vill visa.',
     'analytics.noData': 'Ingen portföljdata tillgänglig. Lägg till aktier för att se analys.',
+    'analytics.noDividendComparisonData': 'Ingen utdelningsjämförelse finns tillgänglig för dina nuvarande innehav.',
     'analytics.failedLoad': 'Kunde inte ladda analysdata',
 
     'history.title': 'Utdelningshistorik',

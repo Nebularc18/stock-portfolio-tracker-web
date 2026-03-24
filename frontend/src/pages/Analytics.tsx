@@ -183,6 +183,8 @@ export default function Analytics() {
   const [availableComparisonYears, setAvailableComparisonYears] = useState<number[]>([])
   const [selectedComparisonYears, setSelectedComparisonYears] = useState<number[]>([])
   const [loading, setLoading] = useState(true)
+  const [dividendComparisonLoading, setDividendComparisonLoading] = useState(false)
+  const [dividendComparisonAttempted, setDividendComparisonAttempted] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const latestFetchId = useRef(0)
   const { displayCurrency, language } = useSettings()
@@ -200,6 +202,8 @@ export default function Analytics() {
     try {
       if (isCurrentFetch()) {
         setLoading(true)
+        setDividendComparisonLoading(false)
+        setDividendComparisonAttempted(false)
       }
       const [distributionData, stocksData] = await Promise.all([
         api.portfolio.distribution(),
@@ -210,7 +214,14 @@ export default function Analytics() {
       setStockNamesByTicker(Object.fromEntries(
         stocksData.map((stock) => [stock.ticker, formatDisplayName(stock.name, stock.ticker)])
       ))
+      setError(null)
+      setLoading(false)
+
       try {
+        if (isCurrentFetch()) {
+          setDividendComparisonLoading(true)
+          setDividendComparisonAttempted(true)
+        }
         const targetCurrency = distributionData.display_currency || displayCurrency
 
         const now = new Date()
@@ -230,8 +241,15 @@ export default function Analytics() {
         const payoutDates = Array.from(new Set(
           dividendResults.flatMap(({ dividends }) => dividends.map((div) => div.payment_date || div.date).filter(Boolean))
         ))
+        const dividendCurrencies = Array.from(new Set(
+          dividendResults.flatMap(({ stock, dividends }) => dividends.map((div) => div.currency || stock.currency).filter(Boolean))
+            .filter((currency) => currency !== targetCurrency)
+        ))
         const fxRatesByDate = payoutDates.length > 0
-          ? await api.market.exchangeRatesBatch(payoutDates)
+          ? await api.market.exchangeRatesBatch(payoutDates, {
+              currencies: dividendCurrencies,
+              targetCurrency,
+            })
           : {}
 
         for (const { stock, dividends } of dividendResults) {
@@ -290,10 +308,11 @@ export default function Analytics() {
         setDividendComparisonData([])
         setAvailableComparisonYears([])
         setSelectedComparisonYears([])
+      } finally {
+        if (isCurrentFetch()) {
+          setDividendComparisonLoading(false)
+        }
       }
-
-      if (!isCurrentFetch()) return
-      setError(null)
     } catch (err) {
       if (isAbortError(err)) return
       console.error('Failed to load analytics data:', err)
@@ -509,7 +528,7 @@ export default function Analytics() {
             </div>
 
             {/* ── DIVIDEND COMPARISON ── */}
-            {hasDividendComparisonData && (
+            {(dividendComparisonLoading || dividendComparisonAttempted) && (
               <div style={{ background: 'var(--bg2)', border: '1px solid var(--border)', borderRadius: 8 }}>
                 <div style={{ padding: '12px 18px 12px', borderBottom: '1px solid var(--border)', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 12 }}>
                   <div>
@@ -537,25 +556,33 @@ export default function Analytics() {
                   </div>
                 </div>
                 <div style={{ padding: '18px 18px 12px', height: 320 }}>
-                  <ResponsiveContainer width="100%" height="100%">
-                    <BarChart data={dividendComparisonData}>
-                      <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" vertical={false} />
-                      <XAxis dataKey="month" stroke="var(--muted)" fontSize={11} fontFamily="'Fira Code', monospace" tickLine={false} />
-                      <YAxis stroke="var(--muted)" fontSize={11} fontFamily="'Fira Code', monospace" tickLine={false} axisLine={false} />
-                      <Tooltip
-                        formatter={(value: number) => formatCurrency(value, locale, chartCurrency)}
-                        contentStyle={tooltipStyle}
-                        itemStyle={{ color: 'var(--text2)' }}
-                        cursor={{ fill: 'rgba(129,140,248,0.06)' }}
-                      />
-                      <Legend
-                        wrapperStyle={{ fontSize: 12, fontFamily: "'Fira Code', monospace", color: 'var(--text2)' }}
-                      />
-                      {selectedComparisonYears.map((year, index) => (
-                        <Bar key={year} dataKey={String(year)} fill={COMPARISON_COLORS[index % COMPARISON_COLORS.length]} radius={[4, 4, 0, 0]} maxBarSize={40} />
-                      ))}
-                    </BarChart>
-                  </ResponsiveContainer>
+                  {dividendComparisonLoading ? (
+                    <div className="loading-state" style={{ height: '100%' }}>{t(language, 'common.loading')}</div>
+                  ) : !hasDividendComparisonData ? (
+                    <div className="empty-state" style={{ height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                      {t(language, 'analytics.noDividendComparisonData')}
+                    </div>
+                  ) : (
+                    <ResponsiveContainer width="100%" height="100%">
+                      <BarChart data={dividendComparisonData}>
+                        <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" vertical={false} />
+                        <XAxis dataKey="month" stroke="var(--muted)" fontSize={11} fontFamily="'Fira Code', monospace" tickLine={false} />
+                        <YAxis stroke="var(--muted)" fontSize={11} fontFamily="'Fira Code', monospace" tickLine={false} axisLine={false} />
+                        <Tooltip
+                          formatter={(value: number) => formatCurrency(value, locale, chartCurrency)}
+                          contentStyle={tooltipStyle}
+                          itemStyle={{ color: 'var(--text2)' }}
+                          cursor={{ fill: 'rgba(129,140,248,0.06)' }}
+                        />
+                        <Legend
+                          wrapperStyle={{ fontSize: 12, fontFamily: "'Fira Code', monospace", color: 'var(--text2)' }}
+                        />
+                        {selectedComparisonYears.map((year, index) => (
+                          <Bar key={year} dataKey={String(year)} fill={COMPARISON_COLORS[index % COMPARISON_COLORS.length]} radius={[4, 4, 0, 0]} maxBarSize={40} />
+                        ))}
+                      </BarChart>
+                    </ResponsiveContainer>
+                  )}
                 </div>
               </div>
             )}

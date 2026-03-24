@@ -946,6 +946,7 @@ class StockCreate(BaseModel):
 
 
 class StockUpdate(BaseModel):
+    ticker: Optional[str] = None
     quantity: Optional[float] = None
     purchase_price: Optional[float] = None
     courtage: Optional[float] = None
@@ -957,6 +958,12 @@ class StockUpdate(BaseModel):
 
     @model_validator(mode="after")
     def validate_update_payload(self) -> "StockUpdate":
+        if self.ticker is not None:
+            normalized_ticker = self.ticker.strip().upper()
+            if not normalized_ticker:
+                raise ValueError("ticker cannot be empty.")
+            self.ticker = normalized_ticker
+
         if self.courtage_currency is not None:
             normalized_currency = self.courtage_currency.strip().upper()
             self.courtage_currency = normalized_currency or None

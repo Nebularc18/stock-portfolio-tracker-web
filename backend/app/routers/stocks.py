@@ -12,6 +12,9 @@ import uuid
 import logging
 import math
 import time
+import json
+import hashlib
+import threading
 from datetime import date, datetime
 
 from app.main import get_db, get_current_user, User, Stock, StockCreate, StockUpdate, StockResponse, StockPriceHistory
@@ -23,6 +26,9 @@ router = APIRouter()
 logger = logging.getLogger(__name__)
 MAX_BATCH_TICKERS = 25
 MAX_YEARS = 10
+DIVIDENDS_BATCH_CACHE_TTL_SECONDS = 300
+_dividends_batch_cache_lock = threading.Lock()
+_dividends_batch_cache: dict[str, tuple[float, dict]] = {}
 
 
 def _parse_event_date(value: Optional[str]) -> Optional[date]:
@@ -133,6 +139,55 @@ def _append_position_entries(stock: Stock, additional_entries: list[dict]) -> St
     existing_entries = _get_normalized_stock_position_entries(stock)
     stock.position_entries = [*existing_entries, *additional_entries]
     return _apply_stock_position_snapshot(stock)
+
+
+def _build_dividends_batch_cache_key(user_id: int, years: int, normalized_tickers: list[str], stocks_by_ticker: dict[str, Stock]) -> str:
+    fingerprint_stocks = []
+    for ticker in normalized_tickers:
+        stock = stocks_by_ticker[ticker]
+        fingerprint_stocks.append({
+            "ticker": stock.ticker,
+            "currency": stock.currency,
+            "quantity": stock.quantity,
+            "purchase_price": stock.purchase_price,
+            "purchase_date": stock.purchase_date.isoformat() if stock.purchase_date else None,
+            "position_entries": normalize_position_entries(
+                getattr(stock, "position_entries", None),
+                stock.quantity,
+                stock.purchase_price,
+                stock.purchase_date,
+            ),
+            "manual_dividends": stock.manual_dividends or [],
+            "suppressed_dividends": stock.suppressed_dividends or [],
+        })
+
+    payload = json.dumps({
+        "user_id": user_id,
+        "years": years,
+        "current_year": utc_now().year,
+        "tickers": normalized_tickers,
+        "stocks": fingerprint_stocks,
+    }, sort_keys=True, separators=(",", ":"))
+    return hashlib.sha256(payload.encode("utf-8")).hexdigest()
+
+
+def _get_cached_dividends_batch(cache_key: str) -> Optional[dict]:
+    now = time.time()
+    with _dividends_batch_cache_lock:
+        cached = _dividends_batch_cache.get(cache_key)
+        if cached is None:
+            return None
+        cached_at, value = cached
+        if (now - cached_at) >= DIVIDENDS_BATCH_CACHE_TTL_SECONDS:
+            _dividends_batch_cache.pop(cache_key, None)
+            return None
+        return value
+
+
+def _store_cached_dividends_batch(cache_key: str, value: dict) -> dict:
+    with _dividends_batch_cache_lock:
+        _dividends_batch_cache[cache_key] = (time.time(), value)
+    return value
 
 
 def _get_merged_stock_dividends(stock: Stock, ticker: str, years: int, stock_service, avanza_service) -> list[dict]:
@@ -340,6 +395,7 @@ def get_stock_dividends_batch(
     from app.services.stock_service import StockService
     from app.services.avanza_service import avanza_service
 
+    started_at = time.perf_counter()
     stock_service = StockService()
 
     normalized_tickers = []
@@ -376,10 +432,30 @@ def get_stock_dividends_batch(
     if missing_tickers:
         raise HTTPException(status_code=404, detail=f"Stocks not found: {', '.join(missing_tickers)}")
 
-    return {
+    cache_key = _build_dividends_batch_cache_key(current_user.id, years, normalized_tickers, stocks_by_ticker)
+    cached_value = _get_cached_dividends_batch(cache_key)
+    if cached_value is not None:
+        logger.info(
+            "Stock dividends batch route user_id=%s tickers=%s years=%s cached=true duration_ms=%.1f",
+            current_user.id,
+            len(normalized_tickers),
+            years,
+            (time.perf_counter() - started_at) * 1000,
+        )
+        return cached_value
+
+    result = {
         ticker: _get_merged_stock_dividends(stocks_by_ticker[ticker], stocks_by_ticker[ticker].ticker or ticker, years, stock_service, avanza_service)
         for ticker in normalized_tickers
     }
+    logger.info(
+        "Stock dividends batch route user_id=%s tickers=%s years=%s cached=false duration_ms=%.1f",
+        current_user.id,
+        len(normalized_tickers),
+        years,
+        (time.perf_counter() - started_at) * 1000,
+    )
+    return _store_cached_dividends_batch(cache_key, result)
 
 
 @router.get("/{ticker}", response_model=StockResponse)
@@ -531,14 +607,60 @@ def update_stock(ticker: str, stock_data: StockUpdate, db: Session = Depends(get
     Raises:
         HTTPException: 404 if the stock for the current user and ticker is not found.
     """
+    from app.services.stock_service import StockService
+
+    stock_service = StockService()
+    requested_ticker = ticker.upper()
     stock = db.query(Stock).filter(
         Stock.user_id == current_user.id,
-        Stock.ticker == ticker.upper()
+        Stock.ticker == requested_ticker
     ).first()
     if not stock:
         raise HTTPException(status_code=404, detail="Stock not found")
     
     provided_fields = getattr(stock_data, "model_fields_set", getattr(stock_data, "__fields_set__", set()))
+    target_ticker = stock.ticker
+
+    if "ticker" in provided_fields:
+        normalized_ticker = (stock_data.ticker or "").strip().upper()
+        if not normalized_ticker:
+            raise HTTPException(status_code=400, detail="ticker cannot be empty")
+        if normalized_ticker != stock.ticker:
+            existing = db.query(Stock).filter(
+                Stock.user_id == current_user.id,
+                Stock.ticker == normalized_ticker,
+                Stock.id != stock.id,
+            ).first()
+            if existing:
+                raise HTTPException(status_code=400, detail=f"Stock '{normalized_ticker}' already exists in your portfolio")
+            if not stock_service.validate_ticker(normalized_ticker):
+                raise HTTPException(status_code=400, detail=f"Invalid ticker symbol '{normalized_ticker}'")
+            info = stock_service.get_stock_info(normalized_ticker)
+            if not info:
+                raise HTTPException(status_code=400, detail=f"Could not fetch stock information for '{normalized_ticker}'")
+
+            stock.ticker = normalized_ticker
+            stock.name = info.get("name") or stock.name
+            stock.currency = info.get("currency") or stock.currency
+            stock.sector = info.get("sector") or stock.sector
+            stock.current_price = info.get("current_price")
+            stock.previous_close = info.get("previous_close")
+            stock.dividend_yield = info.get("dividend_yield")
+            stock.dividend_per_share = info.get("dividend_per_share")
+            stock.last_updated = utc_now()
+
+            try:
+                refreshed_logo = brandfetch_service.get_logo_url_for_ticker(
+                    normalized_ticker,
+                    stock.name or info.get("name"),
+                    force_refresh=True,
+                    existing_logo=None,
+                )
+            except Exception as exc:
+                logger.warning("Failed to refresh logo for %s during ticker change: %s", normalized_ticker, exc)
+                refreshed_logo = None
+            stock.logo = refreshed_logo
+            target_ticker = normalized_ticker
 
     if "position_entries" in provided_fields:
         if {"quantity", "purchase_price", "purchase_date", "courtage", "courtage_currency", "exchange_rate", "exchange_rate_currency"} & set(provided_fields):
@@ -696,7 +818,7 @@ def update_stock(ticker: str, stock_data: StockUpdate, db: Session = Depends(get
         stock.purchase_price = snapshot['purchase_price']
         stock.purchase_date = _parse_event_date(snapshot['purchase_date'])
         stock.position_entries = snapshot['position_entries']
-    
+
     db.commit()
     db.refresh(stock)
     return stock

@@ -15,6 +15,7 @@ import { formatDisplayName } from '../utils/displayName'
 import SortableHeader from '../components/SortableHeader'
 import { sortTableItems, useTableSort } from '../utils/tableSort'
 import { calculatePositionCostInCurrency } from '../utils/positions'
+import supportedExchanges from '../config/supportedExchanges.json'
 
 /**
  * Format a numeric value as a localized currency string.
@@ -136,6 +137,31 @@ function aggregateDividendTotal(
     return hasMissingConversion ? null : total
 }
 
+const EXCHANGES = [
+  ...supportedExchanges,
+]
+
+function getFullTicker(ticker: string, exchange: string): string {
+  const match = EXCHANGES.find((candidate) => candidate.code === exchange)
+  return ticker.toUpperCase() + (match?.suffix || '')
+}
+
+function splitTickerAndExchange(ticker: string): { baseTicker: string; exchangeCode: string } {
+  const normalizedTicker = ticker.trim().toUpperCase()
+  const match = [...EXCHANGES]
+    .sort((a, b) => (b.suffix?.length || 0) - (a.suffix?.length || 0))
+    .find((exchange) => exchange.suffix && normalizedTicker.endsWith(exchange.suffix.toUpperCase()))
+
+  if (!match || !match.suffix) {
+    return { baseTicker: normalizedTicker, exchangeCode: 'US' }
+  }
+
+  return {
+    baseTicker: normalizedTicker.slice(0, -match.suffix.length),
+    exchangeCode: match.code,
+  }
+}
+
 type BaseLoadedStockPageData = {
   stockData: Stock
   allDividendsData: Dividend[]
@@ -208,6 +234,9 @@ export default function StockDetail() {
   const [editExchangeRate, setEditExchangeRate] = useState('')
   const [editExchangeRateCurrency, setEditExchangeRateCurrency] = useState('')
   const [editPurchaseDate, setEditPurchaseDate] = useState('')
+  const [editTicker, setEditTicker] = useState('')
+  const [editExchange, setEditExchange] = useState('US')
+  const [editValidationStatus, setEditValidationStatus] = useState<'idle' | 'checking' | 'valid' | 'invalid'>('idle')
   const [saving, setSaving] = useState(false)
   const [showDividendModal, setShowDividendModal] = useState(false)
   const [dividendError, setDividendError] = useState<string | null>(null)
@@ -247,6 +276,10 @@ export default function StockDetail() {
   const { timezone, language, displayCurrency } = useSettings()
   const effectiveDisplayCurrency = summaryDisplayCurrency || displayCurrency || 'SEK'
   const locale = getLocaleForLanguage(language)
+  const editExchangeData = EXCHANGES.find((exchange) => exchange.code === editExchange)
+  const editFullTicker = getFullTicker(editTicker, editExchange)
+  const editEffectiveTickerCurrency = editExchangeData?.currency || stock?.currency || effectiveDisplayCurrency
+  const editNeedsExchangeFields = !!editEffectiveTickerCurrency && editEffectiveTickerCurrency !== effectiveDisplayCurrency
   const { sortState: manualSortState, requestSort: requestManualSort } = useTableSort<ManualDividendSortField>({ field: 'date', direction: 'asc' })
   const { sortState: yearSortState, requestSort: requestYearSort } = useTableSort<YearDividendSortField>({ field: 'exDate', direction: 'asc' })
   const { sortState: historySortState, requestSort: requestHistorySort } = useTableSort<HistorySortField>({ field: 'date', direction: 'asc' })
@@ -613,8 +646,12 @@ export default function StockDetail() {
 
   const openEditModal = () => {
     if (stock) {
+      const { baseTicker, exchangeCode } = splitTickerAndExchange(stock.ticker)
       const editableEntry = stock.position_entries?.find((entry) => !entry.sell_date) ?? stock.position_entries?.[0]
       setEditError(null)
+      setEditTicker(baseTicker)
+      setEditExchange(exchangeCode)
+      setEditValidationStatus('valid')
       setEditQuantity(stock.quantity.toString())
       setEditPurchasePrice(editableEntry?.purchase_price?.toString() || stock.purchase_price?.toString() || '')
       setEditCourtage(editableEntry?.courtage?.toString() || '')
@@ -627,6 +664,7 @@ export default function StockDetail() {
 
   const handleSaveEdit = async () => {
     if (!ticker || !stock) return
+    const normalizedTicker = editTicker.trim().toUpperCase()
     const quantityValue = editQuantity.trim()
     const purchasePriceValue = editPurchasePrice.trim()
     const courtageValue = editCourtage.trim()
@@ -639,6 +677,16 @@ export default function StockDetail() {
     const nextPurchasePrice = purchasePriceValue === '' ? undefined : parsedPurchasePrice
     const nextCourtage = courtageValue === '' ? null : parsedCourtage
     const nextExchangeRate = exchangeRateValue === '' ? null : parsedExchangeRate
+    const nextTicker = getFullTicker(normalizedTicker, editExchange)
+
+    if (!normalizedTicker || editValidationStatus === 'invalid') {
+      setEditError(t(language, 'stocks.invalidTicker'))
+      return
+    }
+    if (editValidationStatus === 'checking') {
+      setEditError(t(language, 'stocks.validatingTicker'))
+      return
+    }
 
     if (
       (nextQuantity !== undefined && (!Number.isFinite(nextQuantity) || nextQuantity < 0))
@@ -670,25 +718,63 @@ export default function StockDetail() {
     try {
       setEditError(null)
       setSaving(true)
-      await api.stocks.update(ticker, {
+      const updatedStock = await api.stocks.update(ticker, {
+        ticker: nextTicker,
         quantity: nextQuantity,
         purchase_price: nextPurchasePrice,
         courtage: nextCourtage,
-        courtage_currency: nextCourtage !== null ? (stock.currency !== effectiveDisplayCurrency ? effectiveDisplayCurrency : stock.currency) : null,
+        courtage_currency: nextCourtage !== null ? (editNeedsExchangeFields ? effectiveDisplayCurrency : editEffectiveTickerCurrency) : null,
         exchange_rate: nextExchangeRate,
         exchange_rate_currency: nextExchangeRate !== null ? editExchangeRateCurrency : null,
         purchase_date: editPurchaseDate || null,
       })
-      const data = await loadStockPageData(ticker)
-      if (tickerRef.current !== ticker) return
-      applyLoadedStockPageData(data)
       setShowEditModal(false)
+      if (updatedStock.ticker !== ticker) {
+        navigate(`/stocks/${encodeURIComponent(updatedStock.ticker)}`, { replace: true })
+        return
+      }
+      const data = await loadStockPageData(updatedStock.ticker)
+      if (tickerRef.current !== updatedStock.ticker) return
+      applyLoadedStockPageData(data)
     } catch (err) {
       setEditError(err instanceof Error ? err.message : String(err))
     } finally {
       setSaving(false)
     }
   }
+
+  useEffect(() => {
+    if (!showEditModal || !stock) {
+      return
+    }
+
+    const normalizedTicker = editTicker.trim()
+    if (!normalizedTicker) {
+      setEditValidationStatus('idle')
+      return
+    }
+
+    const candidateTicker = getFullTicker(normalizedTicker, editExchange)
+    if (candidateTicker === stock.ticker) {
+      setEditValidationStatus('valid')
+      return
+    }
+
+    setEditValidationStatus('checking')
+    const timeoutId = window.setTimeout(() => {
+      api.stocks.validate(candidateTicker)
+        .then(() => {
+          setEditValidationStatus('valid')
+        })
+        .catch(() => {
+          setEditValidationStatus('invalid')
+        })
+    }, 350)
+
+    return () => {
+      window.clearTimeout(timeoutId)
+    }
+  }, [editExchange, editTicker, showEditModal, stock])
 
   const handleDelete = async () => {
     if (!ticker || !confirm(t(language, 'stockDetail.deleteStockConfirm', { ticker }))) return
@@ -1555,20 +1641,49 @@ export default function StockDetail() {
           >
             <h3 id={editModalHeadingId} style={{ marginBottom: 20, fontSize: 16, fontWeight: 600 }}>{t(language, 'stockDetail.editPosition')}</h3>
             <div style={{ marginBottom: 14 }}>
+              <label style={{ display: 'block', marginBottom: 6, color: 'var(--muted)', fontSize: 12 }}>{t(language, 'stocks.exchange')}</label>
+              <select value={editExchange} onChange={(e) => setEditExchange(e.target.value)} style={{ width: '100%' }}>
+                {EXCHANGES.map((exchange) => (
+                  <option key={exchange.code} value={exchange.code}>{exchange.name}</option>
+                ))}
+              </select>
+            </div>
+            <div style={{ marginBottom: 14 }}>
+              <label style={{ display: 'block', marginBottom: 6, color: 'var(--muted)', fontSize: 12 }}>{t(language, 'stocks.tickerSymbol')}</label>
+              <input
+                type="text"
+                value={editTicker}
+                onChange={(e) => {
+                  setEditTicker(e.target.value.toUpperCase())
+                  setEditError(null)
+                }}
+                style={{ width: '100%' }}
+              />
+              <div style={{ color: 'var(--muted)', fontSize: 11, marginTop: 6, fontFamily: "'Fira Code', monospace" }}>
+                {t(language, 'stocks.full')}: {editFullTicker}
+              </div>
+              {editValidationStatus === 'checking' && (
+                <div style={{ color: 'var(--muted)', fontSize: 11, marginTop: 4 }}>{t(language, 'stocks.validatingTicker')}</div>
+              )}
+              {editValidationStatus === 'invalid' && (
+                <div style={{ color: 'var(--red)', fontSize: 11, marginTop: 4 }}>{t(language, 'stocks.invalidTicker')}</div>
+              )}
+            </div>
+            <div style={{ marginBottom: 14 }}>
               <label htmlFor={editQuantityInputId} style={{ display: 'block', marginBottom: 6, color: 'var(--muted)', fontSize: 12 }}>{t(language, 'stockDetail.quantity')}</label>
               <input id={editQuantityInputId} type="number" step="0.01" min="0" value={editQuantity} onChange={(e) => setEditQuantity(e.target.value)} style={{ width: '100%' }} />
             </div>
             <div style={{ marginBottom: 14 }}>
-              <label htmlFor={editPurchasePriceInputId} style={{ display: 'block', marginBottom: 6, color: 'var(--muted)', fontSize: 12 }}>{t(language, 'stockDetail.purchasePrice')} ({stock?.currency})</label>
+              <label htmlFor={editPurchasePriceInputId} style={{ display: 'block', marginBottom: 6, color: 'var(--muted)', fontSize: 12 }}>{t(language, 'stockDetail.purchasePrice')} ({editEffectiveTickerCurrency})</label>
               <input id={editPurchasePriceInputId} type="number" step="0.01" min="0" value={editPurchasePrice} onChange={(e) => setEditPurchasePrice(e.target.value)} style={{ width: '100%' }} placeholder="e.g. 150.00" />
             </div>
             <div style={{ marginBottom: 14 }}>
-              <label htmlFor={editCourtageInputId} style={{ display: 'block', marginBottom: 6, color: 'var(--muted)', fontSize: 12 }}>{t(language, 'stockDetail.courtage')} ({stock?.currency !== effectiveDisplayCurrency ? effectiveDisplayCurrency : stock?.currency})</label>
+              <label htmlFor={editCourtageInputId} style={{ display: 'block', marginBottom: 6, color: 'var(--muted)', fontSize: 12 }}>{t(language, 'stockDetail.courtage')} ({editNeedsExchangeFields ? effectiveDisplayCurrency : editEffectiveTickerCurrency})</label>
               <input id={editCourtageInputId} type="number" step="0.01" min="0" value={editCourtage} onChange={(e) => setEditCourtage(e.target.value)} style={{ width: '100%' }} placeholder="e.g. 9.00" />
             </div>
-            {(stock?.currency !== effectiveDisplayCurrency || editExchangeRate) && (
+            {(editNeedsExchangeFields || editExchangeRate) && (
             <div style={{ marginBottom: 14 }}>
-              <label htmlFor={editExchangeRateInputId} style={{ display: 'block', marginBottom: 6, color: 'var(--muted)', fontSize: 12 }}>{t(language, 'stockDetail.exchangeRate')} (1 {stock?.currency} = ? {editExchangeRateCurrency || effectiveDisplayCurrency})</label>
+              <label htmlFor={editExchangeRateInputId} style={{ display: 'block', marginBottom: 6, color: 'var(--muted)', fontSize: 12 }}>{t(language, 'stockDetail.exchangeRate')} (1 {editEffectiveTickerCurrency} = ? {editExchangeRateCurrency || effectiveDisplayCurrency})</label>
               <input id={editExchangeRateInputId} type="number" step="0.0001" min="0" value={editExchangeRate} onChange={(e) => setEditExchangeRate(e.target.value)} style={{ width: '100%' }} placeholder="e.g. 10.50" />
             </div>
             )}
