@@ -4,7 +4,7 @@ export const AUTH_EXPIRED_EVENT = 'portfolio-auth-expired'
 export const AUTH_CHANGED_EVENT = 'portfolio-auth-changed'
 const SLOW_API_REQUEST_MS = 800
 const API_REQUEST_TIMEOUT_MS = 15000
-const ENABLE_API_TIMING_LOGS = import.meta.env.VITE_DISABLE_API_TIMING_LOGS !== '1'
+const ENABLE_API_TIMING_LOGS = import.meta.env.DEV || import.meta.env.VITE_ENABLE_API_TIMING_LOGS === '1'
 const encodePathSegment = (value: string) => encodeURIComponent(value)
 // These caches only deduplicate in-flight requests.
 const exchangeRatesRequestCache = new Map<string, Promise<Record<string, number | null>>>()
