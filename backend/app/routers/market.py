@@ -5,6 +5,7 @@ market hours status, and sparkline charts for the header component.
 """
 
 from fastapi import APIRouter, Body, HTTPException, Query
+from pydantic import BaseModel
 from typing import List
 from datetime import date, datetime, timezone, timedelta
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -90,6 +91,7 @@ def _build_exchange_rate_pairs() -> list[tuple[str, str]]:
 
 
 pairs = _build_exchange_rate_pairs()
+_DIRECT_PAIR_SYMBOLS = {key: symbol for symbol, key in pairs}
 
 
 def _all_rate_keys() -> list[str]:
@@ -103,6 +105,12 @@ def _all_rate_keys() -> list[str]:
 
 def _empty_rate_map() -> dict[str, float | None]:
     return {key: None for key in _all_rate_keys()}
+
+
+def _empty_rate_map_for_keys(rate_keys: set[str] | None) -> dict[str, float | None]:
+    if not rate_keys:
+        return _empty_rate_map()
+    return {key: None for key in sorted(rate_keys)}
 
 
 def _store_exchange_rate(rates: dict[str, float | None], key: str, rate: float):
@@ -123,6 +131,55 @@ def _has_resolved_rates(rates: dict[str, float | None]) -> bool:
 
 def _has_complete_rates(rates: dict[str, float | None]) -> bool:
     return all(value is not None for value in rates.values())
+
+
+def _filter_rates(rates: dict[str, float | None], rate_keys: set[str] | None) -> dict[str, float | None]:
+    if not rate_keys:
+        return dict(rates)
+    return {key: rates.get(key) for key in sorted(rate_keys)}
+
+
+def _normalize_currency_code(value: str) -> str:
+    normalized = value.strip().upper()
+    if len(normalized) != 3 or not normalized.isalpha():
+        raise HTTPException(status_code=400, detail="currencies and target_currency must use 3-letter currency codes")
+    return normalized
+
+
+def _resolve_requested_pair_metadata(
+    currencies: list[str] | None,
+    target_currency: str | None,
+) -> tuple[set[str] | None, list[tuple[str, str]] | None]:
+    if not currencies or not target_currency:
+        return None, None
+
+    normalized_target = _normalize_currency_code(target_currency)
+    normalized_currencies = {
+        _normalize_currency_code(currency)
+        for currency in currencies
+        if currency and _normalize_currency_code(currency) != normalized_target
+    }
+    if not normalized_currencies:
+        return set(), []
+
+    requested_rate_keys: set[str] = set()
+    requested_pairs: dict[str, tuple[str, str]] = {}
+
+    for currency in sorted(normalized_currencies):
+        direct_key = f"{currency}_{normalized_target}"
+        reverse_key = f"{normalized_target}_{currency}"
+        requested_rate_keys.add(direct_key)
+        requested_rate_keys.add(reverse_key)
+
+        if direct_key in _DIRECT_PAIR_SYMBOLS:
+            requested_pairs[direct_key] = (_DIRECT_PAIR_SYMBOLS[direct_key], direct_key)
+        elif reverse_key in _DIRECT_PAIR_SYMBOLS:
+            requested_pairs[reverse_key] = (_DIRECT_PAIR_SYMBOLS[reverse_key], reverse_key)
+        else:
+            requested_rate_keys.discard(direct_key)
+            requested_rate_keys.discard(reverse_key)
+
+    return requested_rate_keys, list(requested_pairs.values())
 
 
 def _merge_rates_with_stale_cache(
@@ -410,7 +467,12 @@ def _fetch_latest_exchange_rates() -> dict[str, float | None]:
     return cached_snapshot if cached_snapshot is not None else rates
 
 
-def _fetch_exchange_rates_for_range(start_date: date, end_date: date) -> dict[date, dict[str, float | None]]:
+def _fetch_exchange_rates_for_range(
+    start_date: date,
+    end_date: date,
+    requested_pairs: list[tuple[str, str]] | None = None,
+    requested_rate_keys: set[str] | None = None,
+) -> dict[date, dict[str, float | None]]:
     """
     Fetches exchange rates for every date in the inclusive date range and returns a per-day map of rate keys to values.
     
@@ -422,18 +484,19 @@ def _fetch_exchange_rates_for_range(start_date: date, end_date: date) -> dict[da
         dict[date, dict[str, float | None]]: A mapping where each date in the inclusive range maps to a dictionary of all rate keys (e.g., `USD_SEK`) to their rate value or `None` if unavailable.
     """
     _validate_exchange_rate_span(start_date, end_date)
+    effective_pairs = requested_pairs if requested_pairs is not None else pairs
     rates_by_date: dict[date, dict[str, float | None]] = {
-        start_date + timedelta(days=offset): _empty_rate_map()
+        start_date + timedelta(days=offset): _empty_rate_map_for_keys(requested_rate_keys)
         for offset in range((end_date - start_date).days + 1)
     }
 
     period_start = datetime.combine(start_date - timedelta(days=7), datetime.min.time(), tzinfo=timezone.utc)
     period_end = datetime.combine(end_date + timedelta(days=1), datetime.min.time(), tzinfo=timezone.utc)
 
-    with ThreadPoolExecutor(max_workers=max(1, min(EXCHANGE_RATE_FETCH_WORKERS, len(pairs)))) as executor:
+    with ThreadPoolExecutor(max_workers=max(1, min(EXCHANGE_RATE_FETCH_WORKERS, len(effective_pairs)))) as executor:
         futures = {
             executor.submit(_fetch_range_pair_rates, None, symbol, key, period_start, period_end): (symbol, key)
-            for symbol, key in pairs
+            for symbol, key in effective_pairs
         }
         for future in as_completed(futures):
             symbol, key = futures[future]
@@ -730,8 +793,14 @@ def get_exchange_rates(date: str | None = Query(None)):
     return _fetch_exchange_rates_for_date(None)
 
 
+class ExchangeRatesBatchRequest(BaseModel):
+    dates: List[str]
+    currencies: List[str] | None = None
+    target_currency: str | None = None
+
+
 @router.post("/exchange-rates/batch")
-def get_exchange_rates_batch(dates: List[str] = Body(..., embed=True)):
+def get_exchange_rates_batch(payload: ExchangeRatesBatchRequest = Body(...)):
     """
     Return exchange rate maps for multiple ISO date strings provided in the request body.
     
@@ -746,6 +815,9 @@ def get_exchange_rates_batch(dates: List[str] = Body(..., embed=True)):
     Raises:
         HTTPException: If any input date is not a valid YYYY-MM-DD string (status code 400).
     """
+    dates = payload.dates
+    requested_rate_keys, requested_pairs = _resolve_requested_pair_metadata(payload.currencies, payload.target_currency)
+
     if not dates:
         return {}
 
@@ -766,7 +838,7 @@ def get_exchange_rates_batch(dates: List[str] = Body(..., embed=True)):
             HISTORICAL_EXCHANGE_RATES_CACHE_TTL,
         )
         if cached is not None:
-            rates_by_date[value] = cached
+            rates_by_date[value] = _filter_rates(cached, requested_rate_keys)
         else:
             missing_dates.append((value, target_date))
 
@@ -778,23 +850,44 @@ def get_exchange_rates_batch(dates: List[str] = Body(..., embed=True)):
         end_date = group[-1][1]
         _validate_exchange_rate_span(start_date, end_date)
 
-        range_rates = _fetch_exchange_rates_for_range(start_date, end_date)
+        range_rates = _fetch_exchange_rates_for_range(
+            start_date,
+            end_date,
+            requested_pairs=requested_pairs,
+            requested_rate_keys=requested_rate_keys,
+        )
 
         for original_value, target_date in group:
             cache_key = _historical_exchange_rates_cache_key(target_date)
-            daily_rates = range_rates.get(target_date, _empty_rate_map())
+            daily_rates = range_rates.get(target_date, _empty_rate_map_for_keys(requested_rate_keys))
             if _has_resolved_rates(daily_rates):
-                daily_rates = _merge_rates_with_stale_cache(
-                    cache_key,
-                    HISTORICAL_EXCHANGE_RATES_CACHE_TTL,
-                    daily_rates,
-                )
-                if _has_complete_rates(daily_rates):
-                    _save_json_cache(cache_key, daily_rates)
+                if requested_rate_keys:
+                    stale_rates = _load_json_cache(
+                        cache_key,
+                        HISTORICAL_EXCHANGE_RATES_CACHE_TTL,
+                        allow_stale=True,
+                    )
+                    if stale_rates is not None:
+                        daily_rates = _filter_rates(
+                            _merge_rates_with_stale_cache(
+                                cache_key,
+                                HISTORICAL_EXCHANGE_RATES_CACHE_TTL,
+                                {**stale_rates, **daily_rates},
+                            ),
+                            requested_rate_keys,
+                        )
+                else:
+                    daily_rates = _merge_rates_with_stale_cache(
+                        cache_key,
+                        HISTORICAL_EXCHANGE_RATES_CACHE_TTL,
+                        daily_rates,
+                    )
+                    if _has_complete_rates(daily_rates):
+                        _save_json_cache(cache_key, daily_rates)
             else:
                 stale_rates = _fetch_exchange_rates_for_date(target_date, allow_stale=True)
                 if _has_resolved_rates(stale_rates):
-                    daily_rates = stale_rates
+                    daily_rates = _filter_rates(stale_rates, requested_rate_keys)
 
             rates_by_date[original_value] = daily_rates
 

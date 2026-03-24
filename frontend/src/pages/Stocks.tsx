@@ -86,6 +86,22 @@ function createEmptyPositionEntry(): PositionEntry {
   }
 }
 
+function splitTickerAndExchange(ticker: string): { baseTicker: string; exchangeCode: string } {
+  const normalizedTicker = ticker.trim().toUpperCase()
+  const match = [...EXCHANGES]
+    .sort((a, b) => (b.suffix?.length || 0) - (a.suffix?.length || 0))
+    .find((exchange) => exchange.suffix && normalizedTicker.endsWith(exchange.suffix.toUpperCase()))
+
+  if (!match || !match.suffix) {
+    return { baseTicker: normalizedTicker, exchangeCode: 'US' }
+  }
+
+  return {
+    baseTicker: normalizedTicker.slice(0, -match.suffix.length),
+    exchangeCode: match.code,
+  }
+}
+
 type SortField =
   | 'ticker'
   | 'name'
@@ -121,6 +137,10 @@ export default function Stocks() {
   const [validatedTickerInfo, setValidatedTickerInfo] = useState<TickerValidationResult | null>(null)
   const [editStock, setEditStock] = useState<Stock | null>(null)
   const [editEntries, setEditEntries] = useState<PositionEntry[]>([])
+  const [editTicker, setEditTicker] = useState('')
+  const [editExchange, setEditExchange] = useState('US')
+  const [editValidationStatus, setEditValidationStatus] = useState<'idle' | 'checking' | 'valid' | 'invalid'>('idle')
+  const [editValidatedTickerInfo, setEditValidatedTickerInfo] = useState<TickerValidationResult | null>(null)
   const [saving, setSaving] = useState(false)
   const [editError, setEditError] = useState<string | null>(null)
   const [lastUpdate, setLastUpdate] = useState<string | null>(null)
@@ -192,6 +212,10 @@ export default function Stocks() {
   const existingStock = useMemo(() => stocks.find((stock) => stock.ticker === fullTicker), [fullTicker, stocks])
   const effectiveTickerCurrency = validatedTickerInfo?.currency || selectedExchangeData?.currency || displayCurrency
   const needsExchangeFields = !!effectiveTickerCurrency && effectiveTickerCurrency !== displayCurrency
+  const editExchangeData = EXCHANGES.find((exchange) => exchange.code === editExchange)
+  const editFullTicker = useMemo(() => getFullTicker(editTicker, editExchange), [editTicker, editExchange])
+  const editEffectiveTickerCurrency = editValidatedTickerInfo?.currency || editExchangeData?.currency || editStock?.currency || displayCurrency
+  const editNeedsExchangeFields = !!editEffectiveTickerCurrency && editEffectiveTickerCurrency !== displayCurrency
 
   useEffect(() => {
     const normalizedTicker = newTicker.trim()
@@ -221,6 +245,51 @@ export default function Stocks() {
       window.clearTimeout(timeoutId)
     }
   }, [newTicker, selectedExchange])
+
+  useEffect(() => {
+    if (!editStock) {
+      setEditValidationStatus('idle')
+      setEditValidatedTickerInfo(null)
+      return
+    }
+
+    const normalizedTicker = editTicker.trim()
+    if (!normalizedTicker) {
+      setEditValidationStatus('idle')
+      setEditValidatedTickerInfo(null)
+      return
+    }
+
+    const tickerToValidate = getFullTicker(normalizedTicker, editExchange)
+    if (tickerToValidate === editStock.ticker) {
+      setEditValidationStatus('valid')
+      setEditValidatedTickerInfo({
+        valid: true,
+        name: editStock.name,
+        currency: editStock.currency,
+      })
+      return
+    }
+
+    setEditValidationStatus('checking')
+    setEditValidatedTickerInfo(null)
+
+    const timeoutId = window.setTimeout(() => {
+      api.stocks.validate(tickerToValidate)
+        .then((result) => {
+          setEditValidationStatus(result.valid ? 'valid' : 'invalid')
+          setEditValidatedTickerInfo(result)
+        })
+        .catch(() => {
+          setEditValidationStatus('invalid')
+          setEditValidatedTickerInfo(null)
+        })
+    }, 350)
+
+    return () => {
+      window.clearTimeout(timeoutId)
+    }
+  }, [editExchange, editStock, editTicker])
 
   const handleAddStock = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -289,8 +358,17 @@ export default function Stocks() {
   }
 
   const openEditModal = (stock: Stock) => {
+    const { baseTicker, exchangeCode } = splitTickerAndExchange(stock.ticker)
     setEditError(null)
     setEditStock(stock)
+    setEditTicker(baseTicker)
+    setEditExchange(exchangeCode)
+    setEditValidationStatus('valid')
+    setEditValidatedTickerInfo({
+      valid: true,
+      name: stock.name,
+      currency: stock.currency,
+    })
     setEditEntries(
       stock.position_entries && stock.position_entries.length > 0
         ? stock.position_entries
@@ -310,7 +388,18 @@ export default function Stocks() {
 
   const handleSaveEdit = async () => {
     if (!editStock) return
+    const normalizedTicker = editTicker.trim().toUpperCase()
+    const nextTicker = getFullTicker(normalizedTicker, editExchange)
     const validDateFormat = /^\d{4}-\d{2}-\d{2}$/
+
+    if (!normalizedTicker || editValidationStatus === 'invalid') {
+      setEditError(t(language, 'stocks.invalidTicker'))
+      return
+    }
+    if (editValidationStatus === 'checking') {
+      setEditError(t(language, 'stocks.validatingTicker'))
+      return
+    }
 
     const normalizedEntries = editEntries
       .map((entry) => ({
@@ -318,7 +407,7 @@ export default function Stocks() {
         quantity: Number(entry.quantity),
         purchase_price: entry.purchase_price === null || entry.purchase_price === undefined ? null : Number(entry.purchase_price),
         courtage: entry.courtage === null || entry.courtage === undefined ? 0 : Number(entry.courtage),
-        courtage_currency: entry.courtage_currency || (editStock.currency !== displayCurrency ? displayCurrency : editStock.currency),
+        courtage_currency: entry.courtage_currency || (editNeedsExchangeFields ? displayCurrency : editEffectiveTickerCurrency),
         exchange_rate: entry.exchange_rate === null || entry.exchange_rate === undefined ? null : Number(entry.exchange_rate),
         exchange_rate_currency: entry.exchange_rate ? (entry.exchange_rate_currency || displayCurrency) : null,
         purchase_date: entry.purchase_date || null,
@@ -347,12 +436,13 @@ export default function Stocks() {
       setEditError(null)
       setSaving(true)
       await api.stocks.update(editStock.ticker, {
+        ticker: nextTicker,
         position_entries: normalizedEntries,
       })
       setEditStock(null)
       await fetchStocks()
     } catch (err) {
-      setError(t(language, 'stocks.failedSave'))
+      setEditError(err instanceof Error ? err.message : t(language, 'stocks.failedSave'))
     } finally {
       setSaving(false)
     }
@@ -683,6 +773,48 @@ export default function Stocks() {
             </div>
             <div style={{ padding: '20px', overflowY: 'auto' }}>
               <div style={{ marginBottom: 24, display: 'grid', gap: 12 }}>
+                <div>
+                  <label style={{ display: 'block', marginBottom: 6, color: 'var(--muted)', fontSize: 11, fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase' }}>
+                    {t(language, 'stocks.exchange')}
+                  </label>
+                  <select value={editExchange} onChange={(e) => setEditExchange(e.target.value)}>
+                    {EXCHANGES.map((exchange) => (
+                      <option key={exchange.code} value={exchange.code}>{exchange.name}</option>
+                    ))}
+                  </select>
+                </div>
+                <div>
+                  <label style={{ display: 'block', marginBottom: 6, color: 'var(--muted)', fontSize: 11, fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase' }}>
+                    {t(language, 'stocks.tickerSymbol')}
+                  </label>
+                  <input
+                    type="text"
+                    value={editTicker}
+                    onChange={(e) => {
+                      setEditTicker(e.target.value.toUpperCase())
+                      setEditError(null)
+                    }}
+                    placeholder={editExchange === 'US' ? 'AAPL' : 'SHEL'}
+                  />
+                  {editTicker && (
+                    <p style={{ fontSize: 11, color: 'var(--muted)', marginTop: 4, fontFamily: "'Fira Code', monospace" }}>
+                      {t(language, 'stocks.full')}: {editFullTicker}
+                    </p>
+                  )}
+                  {editValidationStatus === 'checking' && (
+                    <p style={{ fontSize: 11, color: 'var(--muted)', marginTop: 4 }}>{t(language, 'stocks.validatingTicker')}</p>
+                  )}
+                  {editValidationStatus === 'valid' && editValidatedTickerInfo && (
+                    <p style={{ fontSize: 11, color: 'var(--green)', marginTop: 4 }}>
+                      {editValidatedTickerInfo.name || editFullTicker} · {editEffectiveTickerCurrency}
+                    </p>
+                  )}
+                  {editValidationStatus === 'invalid' && (
+                    <p style={{ fontSize: 11, color: 'var(--red)', marginTop: 4 }}>{t(language, 'stocks.invalidTicker')}</p>
+                  )}
+                </div>
+              </div>
+              <div style={{ marginBottom: 24, display: 'grid', gap: 12 }}>
                 {editEntries.map((entry, index) => {
                   const quantityInputId = index === 0 ? editQuantityInputId : `quantity-${entry.id}`
                   const purchasePriceInputId = index === 0 ? editPurchasePriceInputId : `purchasePrice-${entry.id}`
@@ -724,7 +856,7 @@ export default function Stocks() {
                     </div>
                     <div>
                       <label htmlFor={purchasePriceInputId} style={{ display: 'block', marginBottom: 6, color: 'var(--muted)', fontSize: 11, fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase' }}>
-                        {t(language, 'stocks.purchasePrice')} ({editStock.currency})
+                        {t(language, 'stocks.purchasePrice')} ({editEffectiveTickerCurrency})
                       </label>
                       <input
                         id={purchasePriceInputId}
@@ -739,7 +871,7 @@ export default function Stocks() {
                     </div>
                     <div>
                       <label htmlFor={courtageInputId} style={{ display: 'block', marginBottom: 6, color: 'var(--muted)', fontSize: 11, fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase' }}>
-                        {t(language, 'stocks.courtage')} ({entry.courtage_currency || (editStock.currency !== displayCurrency ? displayCurrency : editStock.currency)})
+                        {t(language, 'stocks.courtage')} ({entry.courtage_currency || (editNeedsExchangeFields ? displayCurrency : editEffectiveTickerCurrency)})
                       </label>
                       <input
                         id={courtageInputId}
@@ -752,10 +884,10 @@ export default function Stocks() {
                         style={{ width: '100%' }}
                       />
                     </div>
-                    {(editStock.currency !== displayCurrency || entry.exchange_rate !== null) && (
+                    {(editNeedsExchangeFields || entry.exchange_rate !== null) && (
                     <div>
                       <label htmlFor={exchangeRateInputId} style={{ display: 'block', marginBottom: 6, color: 'var(--muted)', fontSize: 11, fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase' }}>
-                        {t(language, 'stocks.exchangeRate')} (1 {editStock.currency} = ? {entry.exchange_rate_currency || displayCurrency})
+                        {t(language, 'stocks.exchangeRate')} (1 {editEffectiveTickerCurrency} = ? {entry.exchange_rate_currency || displayCurrency})
                       </label>
                       <input
                         id={exchangeRateInputId}
