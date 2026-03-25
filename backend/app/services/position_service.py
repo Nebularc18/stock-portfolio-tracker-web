@@ -60,6 +60,30 @@ def parse_position_date(value: Any) -> Optional[date]:
     return None
 
 
+def _resolve_sold_quantity(entry: dict[str, Any], quantity: float) -> float:
+    sold_quantity_raw = entry.get('sold_quantity')
+    if sold_quantity_raw in (None, ''):
+        return quantity if parse_position_date(entry.get('sell_date')) else 0.0
+    try:
+        sold_quantity = float(sold_quantity_raw)
+    except (TypeError, ValueError):
+        return 0.0
+    if not math.isfinite(sold_quantity) or sold_quantity <= 0:
+        return 0.0
+    return min(sold_quantity, quantity)
+
+
+def get_remaining_quantity(entry: dict[str, Any]) -> float:
+    try:
+        quantity = float(entry.get('quantity') or 0.0)
+    except (TypeError, ValueError):
+        return 0.0
+    if quantity <= 0:
+        return 0.0
+    sold_quantity = _resolve_sold_quantity(entry, quantity)
+    return max(quantity - sold_quantity, 0.0)
+
+
 def normalize_position_entries(
     entries: Any,
     fallback_quantity: Optional[float] = None,
@@ -108,6 +132,7 @@ def normalize_position_entries(
         exchange_rate = _parse_optional_float(entry.get('exchange_rate'))
         exchange_rate_currency = _normalize_exchange_rate_currency(entry.get('exchange_rate_currency'))
         platform = _normalize_platform(entry.get('platform'))
+        sold_quantity = _resolve_sold_quantity(entry, quantity)
         if exchange_rate is None:
             exchange_rate_currency = None
         entry_id = entry.get('id')
@@ -123,6 +148,7 @@ def normalize_position_entries(
                     courtage_currency or "",
                     purchase_date.isoformat() if purchase_date else "",
                     sell_date.isoformat() if sell_date else "",
+                    str(sold_quantity),
                     str(exchange_rate),
                     exchange_rate_currency or "",
                     platform or "",
@@ -138,6 +164,7 @@ def normalize_position_entries(
             'courtage_currency': courtage_currency,
             'purchase_date': purchase_date.isoformat() if purchase_date else None,
             'sell_date': sell_date.isoformat() if sell_date else None,
+            'sold_quantity': sold_quantity or None,
             'exchange_rate': exchange_rate,
             'exchange_rate_currency': exchange_rate_currency,
             'platform': platform,
@@ -177,6 +204,7 @@ def normalize_position_entries(
             'courtage_currency': None,
             'purchase_date': fallback_date.isoformat() if fallback_date else None,
             'sell_date': None,
+            'sold_quantity': None,
             'exchange_rate': None,
             'exchange_rate_currency': None,
             'platform': None,
@@ -269,6 +297,19 @@ def validate_position_entries(entries: Any) -> list[dict[str, Any]]:
         if sell_date_raw not in (None, '') and parse_position_date(sell_date_raw) is None:
             raise ValueError('sell_date must be a valid date')
 
+        sold_quantity_raw = entry.get('sold_quantity')
+        if sold_quantity_raw not in (None, ''):
+            try:
+                sold_quantity = float(sold_quantity_raw)
+            except (TypeError, ValueError):
+                raise ValueError('sold_quantity must be a number') from None
+            if not math.isfinite(sold_quantity) or sold_quantity <= 0:
+                raise ValueError('sold_quantity must be greater than zero')
+            if sold_quantity > quantity:
+                raise ValueError('sold_quantity cannot exceed quantity')
+            if sell_date_raw in (None, ''):
+                raise ValueError('sold_quantity requires sell_date')
+
     normalized = normalize_position_entries(entries)
 
     for entry in normalized:
@@ -286,8 +327,8 @@ def calculate_position_snapshot(
     conversion_callback: Optional[Callable[[float, str, str], Optional[float]]] = None,
 ) -> dict[str, Any]:
     normalized = normalize_position_entries(entries)
-    open_entries = [entry for entry in normalized if not entry.get('sell_date')]
-    quantity = sum(float(entry['quantity']) for entry in open_entries)
+    open_entries = [entry for entry in normalized if get_remaining_quantity(entry) > 0]
+    quantity = sum(get_remaining_quantity(entry) for entry in open_entries)
 
     total_cost = 0.0
     total_quantity_for_cost = 0.0
@@ -295,6 +336,9 @@ def calculate_position_snapshot(
 
     for entry in open_entries:
         purchase_dates.append(entry.get('purchase_date') or '')
+        remaining_quantity = get_remaining_quantity(entry)
+        if remaining_quantity <= 0:
+            continue
         purchase_price = entry.get('purchase_price')
         courtage = entry.get('courtage') or 0.0
         courtage_currency = _resolve_courtage_currency(entry)
@@ -322,8 +366,9 @@ def calculate_position_snapshot(
                     exchange_rate_currency,
                 )
 
-        total_cost += float(purchase_price) * float(entry['quantity']) + native_courtage
-        total_quantity_for_cost += float(entry['quantity'])
+        quantity_ratio = remaining_quantity / float(entry['quantity'])
+        total_cost += float(purchase_price) * remaining_quantity + (native_courtage * quantity_ratio)
+        total_quantity_for_cost += remaining_quantity
 
     return {
         'quantity': quantity,
@@ -350,16 +395,19 @@ def calculate_position_cost_basis(
         fallback_purchase_date=fallback_purchase_date,
         fallback_courtage=fallback_courtage,
     )
-    open_entries = [entry for entry in normalized if not entry.get('sell_date')]
+    open_entries = [entry for entry in normalized if get_remaining_quantity(entry) > 0]
 
     total_cost = 0.0
     has_cost_basis = False
     for entry in open_entries:
+        remaining_quantity = get_remaining_quantity(entry)
+        if remaining_quantity <= 0:
+            continue
         purchase_price = entry.get('purchase_price')
         if purchase_price is None:
             continue
 
-        trade_cost_native = float(purchase_price) * float(entry['quantity'])
+        trade_cost_native = float(purchase_price) * remaining_quantity
         if position_currency == target_currency:
             converted_trade_cost = trade_cost_native
         elif entry.get('exchange_rate') is not None and entry.get('exchange_rate_currency') == target_currency:
@@ -372,7 +420,8 @@ def calculate_position_cost_basis(
         if converted_trade_cost is None:
             return None
 
-        courtage_amount = float(entry.get('courtage') or 0.0)
+        quantity_ratio = remaining_quantity / float(entry['quantity'])
+        courtage_amount = float(entry.get('courtage') or 0.0) * quantity_ratio
         courtage_currency = _resolve_courtage_currency(entry) or position_currency
         if courtage_amount == 0:
             converted_courtage = 0.0
@@ -423,10 +472,11 @@ def get_quantity_held_on_date(
     )
     resolved_target_date = parse_position_date(target_date)
     if resolved_target_date is None:
-        return sum(float(entry['quantity']) for entry in normalized if not entry.get('sell_date'))
+        return sum(get_remaining_quantity(entry) for entry in normalized)
 
     quantity = 0.0
     for entry in normalized:
+        entry_quantity = float(entry['quantity'])
         purchase_date = parse_position_date(entry.get('purchase_date'))
         sell_date = parse_position_date(entry.get('sell_date'))
 
@@ -434,9 +484,12 @@ def get_quantity_held_on_date(
         # sells so ex-date lookups still count positions sold on the target date.
         if purchase_date and purchase_date >= resolved_target_date:
             continue
+
+        held_quantity = entry_quantity
         if sell_date and sell_date < resolved_target_date:
-            continue
-        quantity += float(entry['quantity'])
+            held_quantity = get_remaining_quantity(entry)
+
+        quantity += held_quantity
 
     return quantity
 

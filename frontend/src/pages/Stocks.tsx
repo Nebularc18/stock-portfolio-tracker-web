@@ -40,10 +40,24 @@ function normalizePlatform(value: string | null | undefined): string | null {
   return normalized || null
 }
 
+function getSoldQuantity(entry: PositionEntry): number {
+  const quantity = Number(entry.quantity) || 0
+  if ('sold_quantity' in entry && entry.sold_quantity !== null && entry.sold_quantity !== undefined) {
+    const soldQuantity = Number(entry.sold_quantity)
+    return Number.isFinite(soldQuantity) && soldQuantity > 0 ? Math.min(soldQuantity, quantity) : 0
+  }
+  return entry.sell_date ? quantity : 0
+}
+
+function getRemainingEntryQuantity(entry: PositionEntry): number {
+  const quantity = Number(entry.quantity) || 0
+  return Math.max(quantity - getSoldQuantity(entry), 0)
+}
+
 function getOpenPlatforms(entries: PositionEntry[] | undefined): string[] {
   const platformSet = new Set<string>()
   for (const entry of entries || []) {
-    if (entry.sell_date) continue
+    if (getRemainingEntryQuantity(entry) <= 0) continue
     const platform = normalizePlatform(entry.platform)
     if (platform) {
       platformSet.add(platform)
@@ -99,6 +113,7 @@ function createEmptyPositionEntry(): PositionEntry {
   return {
     id: generateClientId(),
     quantity: 0,
+    sold_quantity: null,
     purchase_price: null,
     courtage: 0,
     courtage_currency: null,
@@ -410,6 +425,7 @@ export default function Stocks() {
         : [{
             id: generateClientId(),
             quantity: stock.quantity,
+            sold_quantity: null,
             purchase_price: stock.purchase_price,
             courtage: 0,
             courtage_currency: stock.currency !== displayCurrency ? displayCurrency : stock.currency,
@@ -441,6 +457,7 @@ export default function Stocks() {
       .map((entry) => ({
         ...entry,
         quantity: Number(entry.quantity),
+        sold_quantity: entry.sold_quantity === null || entry.sold_quantity === undefined || entry.sold_quantity === 0 ? null : Number(entry.sold_quantity),
         purchase_price: entry.purchase_price === null || entry.purchase_price === undefined ? null : Number(entry.purchase_price),
         courtage: entry.courtage === null || entry.courtage === undefined ? 0 : Number(entry.courtage),
         courtage_currency: entry.courtage_currency || (editNeedsExchangeFields ? displayCurrency : editEffectiveTickerCurrency),
@@ -453,6 +470,7 @@ export default function Stocks() {
 
     const hasInvalidEntry = normalizedEntries.some((entry) => {
       const quantityValid = Number.isFinite(entry.quantity) && entry.quantity > 0
+      const soldQuantityValid = entry.sold_quantity === null || (Number.isFinite(entry.sold_quantity) && entry.sold_quantity > 0 && entry.sold_quantity <= entry.quantity)
       const purchaseDateValid = !entry.purchase_date || (validDateFormat.test(entry.purchase_date) && entry.purchase_date <= maxPurchaseDate)
       const sellDateValid = !entry.sell_date || (validDateFormat.test(entry.sell_date) && entry.sell_date <= maxPurchaseDate)
       const purchasePriceValid = entry.purchase_price === null || (Number.isFinite(entry.purchase_price) && entry.purchase_price >= 0)
@@ -462,7 +480,8 @@ export default function Stocks() {
       const courtageHasPrice = entry.courtage === 0 || (entry.purchase_price !== null && entry.purchase_price > 0)
       const sellAfterPurchase = !entry.sell_date || !entry.purchase_date || entry.sell_date >= entry.purchase_date
       const exchangeRatePairValid = entry.exchange_rate === null || !!entry.exchange_rate_currency
-      return !quantityValid || !purchaseDateValid || !sellDateValid || !purchasePriceValid || !courtageValid || !exchangeRateValid || !platformValid || !courtageHasPrice || !sellAfterPurchase || !exchangeRatePairValid
+      const soldQuantityHasSellDate = entry.sold_quantity === null || !!entry.sell_date
+      return !quantityValid || !soldQuantityValid || !purchaseDateValid || !sellDateValid || !purchasePriceValid || !courtageValid || !exchangeRateValid || !platformValid || !courtageHasPrice || !sellAfterPurchase || !exchangeRatePairValid || !soldQuantityHasSellDate
     })
 
     if (hasInvalidEntry) {
@@ -921,6 +940,7 @@ export default function Stocks() {
                   const exchangeRateInputId = `exchange-rate-${entry.id}`
                   const platformInputId = `platform-${entry.id}`
                   const purchaseDateInputId = index === 0 ? editPurchaseDateInputId : `purchaseDate-${entry.id}`
+                  const soldQuantityInputId = `soldQuantity-${entry.id}`
                   const sellDateInputId = `sellDate-${entry.id}`
                   const entryPlatforms = normalizePlatform(entry.platform) && !normalizedPlatforms.includes(entry.platform as string)
                     ? [...normalizedPlatforms, entry.platform as string].sort((a, b) => a.localeCompare(b, locale))
@@ -1034,6 +1054,25 @@ export default function Stocks() {
                         value={entry.purchase_date || ''}
                         onChange={(e) => setEditEntries((current) => current.map((candidate) => candidate.id === entry.id ? { ...candidate, purchase_date: e.target.value || null } : candidate))}
                         max={maxPurchaseDate}
+                        style={{ width: '100%' }}
+                      />
+                    </div>
+                    <div>
+                      <label htmlFor={soldQuantityInputId} style={{ display: 'block', marginBottom: 6, color: 'var(--muted)', fontSize: 11, fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase' }}>
+                        {t(language, 'stocks.soldQuantity')}
+                      </label>
+                      <input
+                        id={soldQuantityInputId}
+                        type="number"
+                        step="0.01"
+                        min="0"
+                        max={entry.quantity}
+                        value={entry.sold_quantity ?? ''}
+                        onChange={(e) => setEditEntries((current) => current.map((candidate) => candidate.id === entry.id ? {
+                          ...candidate,
+                          sold_quantity: e.target.value === '' ? null : Number(e.target.value),
+                        } : candidate))}
+                        placeholder="0"
                         style={{ width: '100%' }}
                       />
                     </div>

@@ -20,7 +20,7 @@ import threading
 from app.main import get_db, get_current_user, User, Stock, PortfolioHistory, UserSettings, StockPriceHistory
 from app.services.brandfetch_service import brandfetch_service
 from app.services.exchange_rate_service import ExchangeRateService
-from app.services.position_service import calculate_position_cost_basis, calculate_position_snapshot, get_quantity_held_on_date, has_position_history, normalize_position_entries
+from app.services.position_service import calculate_position_cost_basis, calculate_position_snapshot, get_quantity_held_on_date, get_remaining_quantity, has_position_history, normalize_position_entries
 from app.utils.time import utc_now
 
 router = APIRouter()
@@ -1105,17 +1105,15 @@ def get_portfolio_distribution(db: Session = Depends(get_db), current_user: User
 
         position_entries = snapshot.position_entries if isinstance(snapshot.position_entries, list) else []
         for entry in position_entries:
-            if entry.get('sell_date'):
-                continue
-            entry_quantity = entry.get('quantity')
-            if not isinstance(entry_quantity, (int, float)) or entry_quantity <= 0:
+            entry_quantity = get_remaining_quantity(entry)
+            if entry_quantity <= 0:
                 continue
 
             entry_unit_price = stock.current_price if stock.current_price is not None else entry.get('purchase_price')
             if entry_unit_price is None:
                 continue
 
-            entry_value_native = entry_unit_price * float(entry_quantity)
+            entry_value_native = entry_unit_price * entry_quantity
             entry_value = convert_value(entry_value_native, stock.currency, display_currency, rates)
             if entry_value is None:
                 continue

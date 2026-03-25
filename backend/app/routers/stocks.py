@@ -20,7 +20,7 @@ from datetime import date, datetime
 from app.main import get_db, get_current_user, User, Stock, StockCreate, StockUpdate, StockResponse, StockPriceHistory
 from app.utils.time import utc_now
 from app.services.brandfetch_service import brandfetch_service
-from app.services.position_service import calculate_position_snapshot, get_quantity_held_on_date, has_position_history, normalize_position_entries, validate_position_entries
+from app.services.position_service import calculate_position_snapshot, get_quantity_held_on_date, get_remaining_quantity, has_position_history, normalize_position_entries, validate_position_entries
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -710,7 +710,7 @@ def update_stock(ticker: str, stock_data: StockUpdate, db: Session = Depends(get
             raise HTTPException(status_code=400, detail="purchase_date must be a valid date")
 
         existing_entries = _get_normalized_stock_position_entries(stock)
-        open_entries = [entry for entry in existing_entries if not entry.get('sell_date')]
+        open_entries = [entry for entry in existing_entries if get_remaining_quantity(entry) > 0]
         existing_open_entry = open_entries[0] if len(open_entries) == 1 else None
         effective_exchange_rate = (
             stock_data.exchange_rate
@@ -763,7 +763,7 @@ def update_stock(ticker: str, stock_data: StockUpdate, db: Session = Depends(get
                     continue
                 updated_entry = dict(entry)
                 updated_entries.append(updated_entry)
-                if not updated_entry.get('sell_date'):
+                if get_remaining_quantity(updated_entry) > 0:
                     open_entry_indexes.append(len(updated_entries) - 1)
 
             if len(open_entry_indexes) > 1:
@@ -786,12 +786,21 @@ def update_stock(ticker: str, stock_data: StockUpdate, db: Session = Depends(get
                     'platform': stock_data.platform if "platform" in scalar_patch_fields else None,
                     'purchase_date': stock.purchase_date,
                     'sell_date': None,
+                    'sold_quantity': None,
                 })
                 open_entry_indexes = [len(updated_entries) - 1]
 
             first_open_entry = updated_entries[open_entry_indexes[0]]
             if "quantity" in scalar_patch_fields:
-                first_open_entry['quantity'] = stock.quantity
+                existing_sold_quantity = first_open_entry.get('sold_quantity')
+                if existing_sold_quantity not in (None, ''):
+                    try:
+                        sold_quantity = float(existing_sold_quantity)
+                    except (TypeError, ValueError):
+                        sold_quantity = 0.0
+                    first_open_entry['quantity'] = stock.quantity + max(sold_quantity, 0.0)
+                else:
+                    first_open_entry['quantity'] = stock.quantity
             if len(open_entry_indexes) == 1:
                 if "purchase_price" in scalar_patch_fields:
                     first_open_entry['purchase_price'] = stock.purchase_price

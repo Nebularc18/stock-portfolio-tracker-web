@@ -318,6 +318,7 @@ export interface Stock {
 export interface PositionEntry {
   id: string
   quantity: number
+  sold_quantity?: number | null
   purchase_price: number | null
   courtage?: number | null
   courtage_currency?: string | null

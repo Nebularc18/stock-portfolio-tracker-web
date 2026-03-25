@@ -32,21 +32,36 @@ function parseOptionalNumber(value: unknown): number | null {
   return Number.isFinite(parsed) ? parsed : null
 }
 
+function getSoldQuantity(entry: PositionEntry): number {
+  const quantity = parseQuantity(entry.quantity)
+  const explicitSoldQuantity = parseOptionalNumber((entry as PositionEntry & { sold_quantity?: unknown }).sold_quantity)
+  if (explicitSoldQuantity !== null) {
+    return Math.min(explicitSoldQuantity, quantity)
+  }
+  return normalizeDate(entry.sell_date) ? quantity : 0
+}
+
+function getRemainingQuantity(entry: PositionEntry): number {
+  const quantity = parseQuantity(entry.quantity)
+  return Math.max(quantity - getSoldQuantity(entry), 0)
+}
+
 export function getQuantityHeldOnDate(entries: PositionEntry[] | null | undefined, targetDate: string | null | undefined, fallbackQuantity: number): number {
   if (!entries || entries.length === 0) return fallbackQuantity
   const normalizedTargetDate = normalizeDate(targetDate)
   if (!normalizedTargetDate) {
-    return entries
-      .filter((entry) => !normalizeDate(entry.sell_date))
-      .reduce((sum, entry) => sum + parseQuantity(entry.quantity), 0)
+    return entries.reduce((sum, entry) => sum + getRemainingQuantity(entry), 0)
   }
 
   return entries.reduce((sum, entry) => {
+    let heldQuantity = parseQuantity(entry.quantity)
     const purchaseDate = normalizeDate(entry.purchase_date)
     const sellDate = normalizeDate(entry.sell_date)
     if (purchaseDate && purchaseDate >= normalizedTargetDate) return sum
-    if (sellDate && sellDate < normalizedTargetDate) return sum
-    return sum + parseQuantity(entry.quantity)
+    if (sellDate && sellDate < normalizedTargetDate) {
+      heldQuantity = getRemainingQuantity(entry)
+    }
+    return sum + heldQuantity
   }, 0)
 }
 
@@ -89,11 +104,11 @@ export function calculatePositionCostInCurrency(
   let hasCostBasis = false
 
   for (const entry of effectiveEntries) {
-    if (normalizeDate(entry.sell_date)) continue
-
-    const quantity = parseQuantity(entry.quantity)
+    const quantity = getRemainingQuantity(entry)
     const purchasePrice = parseOptionalNumber(entry.purchase_price)
-    const courtage = parseOptionalNumber(entry.courtage) ?? 0
+    const rawQuantity = parseQuantity(entry.quantity)
+    const quantityRatio = rawQuantity > 0 ? quantity / rawQuantity : 0
+    const courtage = (parseOptionalNumber(entry.courtage) ?? 0) * quantityRatio
     const courtageCurrency = entry.courtage_currency?.trim().toUpperCase() || positionCurrency
     if (quantity <= 0 || purchasePrice === null) continue
 
