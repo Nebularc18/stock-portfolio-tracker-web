@@ -469,6 +469,7 @@ export interface AvailableIndex {
 export interface SettingsData {
   display_currency: string
   header_indices: string[]
+  platforms: string[]
 }
 
 export interface AnalystData {
@@ -953,7 +954,7 @@ export const api = {
 
   settings: {
     get: () => fetchAPI<SettingsData>('/settings'),
-    update: (data: { display_currency?: string; header_indices?: string[] }) =>
+    update: (data: { display_currency?: string; header_indices?: string[]; platforms?: string[] }) =>
       fetchAPI<SettingsData>('/settings', { method: 'PATCH', body: JSON.stringify(data) }),
     availableIndices: () => fetchAPI<AvailableIndex[]>('/settings/available-indices'),
   },

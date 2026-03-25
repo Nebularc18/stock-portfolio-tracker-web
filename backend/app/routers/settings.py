@@ -41,6 +41,7 @@ class AvailableIndex(BaseModel):
 class SettingsResponse(BaseModel):
     display_currency: str
     header_indices: List[str]
+    platforms: List[str]
 
     class Config:
         from_attributes = True
@@ -49,6 +50,7 @@ class SettingsResponse(BaseModel):
 class SettingsUpdate(BaseModel):
     display_currency: Optional[str] = None
     header_indices: Optional[List[str]] = None
+    platforms: Optional[List[str]] = None
 
 
 def parse_header_indices(header_indices_str: Optional[str]) -> List[str]:
@@ -60,6 +62,28 @@ def parse_header_indices(header_indices_str: Optional[str]) -> List[str]:
         if isinstance(parsed, list):
             return [str(s) for s in parsed if isinstance(s, str)]
         return []
+    except (json.JSONDecodeError, TypeError):
+        return []
+
+
+def parse_platforms(platforms_str: Optional[str]) -> List[str]:
+    if not platforms_str:
+        return []
+    try:
+        parsed = json.loads(platforms_str)
+        if not isinstance(parsed, list):
+            return []
+        result: List[str] = []
+        seen: set[str] = set()
+        for value in parsed:
+            if not isinstance(value, str):
+                continue
+            normalized = value.strip()
+            if not normalized or normalized in seen:
+                continue
+            seen.add(normalized)
+            result.append(normalized)
+        return result
     except (json.JSONDecodeError, TypeError):
         return []
 
@@ -76,7 +100,7 @@ def get_or_create_settings(db: Session, user: User) -> UserSettings:
     """
     settings = db.query(UserSettings).filter(UserSettings.user_id == user.id).first()
     if not settings:
-        settings = UserSettings(user_id=user.id, display_currency="SEK", header_indices="[]")
+        settings = UserSettings(user_id=user.id, display_currency="SEK", header_indices="[]", platforms="[]")
         db.add(settings)
         try:
             db.commit()
@@ -107,7 +131,8 @@ def get_settings(db: Session = Depends(get_db), current_user: User = Depends(get
     header_indices = parse_header_indices(settings.header_indices)
     return SettingsResponse(
         display_currency=settings.display_currency,
-        header_indices=header_indices
+        header_indices=header_indices,
+        platforms=parse_platforms(settings.platforms),
     )
 
 
@@ -152,6 +177,19 @@ def update_settings(data: SettingsUpdate, db: Session = Depends(get_db), current
                 detail=f"Invalid index symbols: {', '.join(invalid)}"
             )
         settings.header_indices = json.dumps(valid_indices)
+
+    if data.platforms is not None:
+        deduped_platforms: List[str] = []
+        seen_platforms: set[str] = set()
+        for platform in data.platforms:
+            normalized = str(platform).strip()
+            if not normalized or normalized in seen_platforms:
+                continue
+            if len(normalized) > 100:
+                raise HTTPException(status_code=400, detail=f"Platform '{normalized}' is too long")
+            seen_platforms.add(normalized)
+            deduped_platforms.append(normalized)
+        settings.platforms = json.dumps(deduped_platforms)
     
     db.commit()
     db.refresh(settings)
@@ -160,5 +198,6 @@ def update_settings(data: SettingsUpdate, db: Session = Depends(get_db), current
     
     return SettingsResponse(
         display_currency=settings.display_currency,
-        header_indices=header_indices
+        header_indices=header_indices,
+        platforms=parse_platforms(settings.platforms),
     )

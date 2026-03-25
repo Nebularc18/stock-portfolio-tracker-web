@@ -14,12 +14,14 @@ import { t } from '../i18n'
  * @returns The rendered Settings page as a JSX element
  */
 export default function Settings() {
-  const { timezone, setTimezone, displayCurrency, setDisplayCurrency, language, setLanguage, headerIndices, setHeaderIndices } = useSettings()
+  const { timezone, setTimezone, displayCurrency, setDisplayCurrency, language, setLanguage, headerIndices, setHeaderIndices, platforms, setPlatforms } = useSettings()
   const { themeName, setTheme } = useTheme()
   const { refreshData } = useHeaderData()
   const [availableIndices, setAvailableIndices] = useState<AvailableIndex[]>([])
   const [loadingIndices, setLoadingIndices] = useState(true)
   const [indicesLoadFailed, setIndicesLoadFailed] = useState(false)
+  const [newPlatform, setNewPlatform] = useState('')
+  const [platformError, setPlatformError] = useState<string | null>(null)
 
   useEffect(() => {
     let cancelled = false
@@ -63,6 +65,30 @@ export default function Settings() {
   const clearSelection = () => {
     setHeaderIndices([])
     invalidateHeaderCache()
+  }
+
+  const handleAddPlatform = () => {
+    const normalized = newPlatform.trim()
+    if (!normalized) {
+      setPlatformError(t(language, 'settings.platformMissing'))
+      return
+    }
+    if (normalized.length > 100) {
+      setPlatformError(t(language, 'settings.platformTooLong'))
+      return
+    }
+    if (platforms.some((platform) => platform.localeCompare(normalized, undefined, { sensitivity: 'base' }) === 0)) {
+      setPlatformError(t(language, 'settings.platformDuplicate'))
+      return
+    }
+    setPlatforms([...platforms, normalized].sort((a, b) => a.localeCompare(b)))
+    setNewPlatform('')
+    setPlatformError(null)
+  }
+
+  const handleRemovePlatform = (platformToRemove: string) => {
+    setPlatforms(platforms.filter((platform) => platform !== platformToRemove))
+    setPlatformError(null)
   }
 
   const secLabel: React.CSSProperties = { fontSize: 9, fontWeight: 700, letterSpacing: '0.18em', textTransform: 'uppercase', color: 'var(--muted)' }
@@ -187,6 +213,66 @@ export default function Settings() {
                   </label>
                 )
               })}
+            </div>
+          )}
+        </div>
+      </div>
+
+      <div style={panelStyle}>
+        <div className="sec-row" style={{ padding: '12px 16px', borderBottom: '1px solid var(--border)' }}>
+          <span className="sec-title">{t(language, 'settings.platforms')}</span>
+        </div>
+        <div style={{ padding: '16px' }}>
+          <p style={{ color: 'var(--muted)', fontSize: 12, marginBottom: 14 }}>
+            {t(language, 'settings.platformsDescription')}
+          </p>
+          <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', marginBottom: 14 }}>
+            <input
+              type="text"
+              value={newPlatform}
+              onChange={(e) => {
+                setNewPlatform(e.target.value)
+                setPlatformError(null)
+              }}
+              placeholder={t(language, 'settings.platformInputPlaceholder')}
+              style={{ flex: '1 1 240px' }}
+            />
+            <button type="button" className="btn btn-primary" onClick={handleAddPlatform}>
+              {t(language, 'settings.platformAdd')}
+            </button>
+          </div>
+          {platformError && (
+            <p style={{ color: 'var(--red)', fontSize: 12, marginBottom: 12 }}>{platformError}</p>
+          )}
+          {platforms.length === 0 ? (
+            <p style={{ color: 'var(--muted)', fontSize: 13 }}>{t(language, 'settings.platformEmpty')}</p>
+          ) : (
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+              {platforms.map((platform) => (
+                <span
+                  key={platform}
+                  style={{
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: 8,
+                    padding: '7px 12px',
+                    background: 'var(--bg3)',
+                    border: '1px solid var(--border)',
+                    borderRadius: 999,
+                    fontSize: 13,
+                  }}
+                >
+                  <span>{platform}</span>
+                  <button
+                    type="button"
+                    onClick={() => handleRemovePlatform(platform)}
+                    style={{ background: 'none', border: 'none', color: 'var(--muted)', cursor: 'pointer', fontSize: 14, lineHeight: 1 }}
+                    aria-label={`${t(language, 'common.delete')} ${platform}`}
+                  >
+                    ×
+                  </button>
+                </span>
+              ))}
             </div>
           )}
         </div>

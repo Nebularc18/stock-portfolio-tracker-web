@@ -177,7 +177,7 @@ export default function Stocks() {
   const editQuantityInputId = useId()
   const editPurchasePriceInputId = useId()
   const editPurchaseDateInputId = useId()
-  const { timezone, language, displayCurrency } = useSettings()
+  const { timezone, language, displayCurrency, platforms } = useSettings()
   const locale = getLocaleForLanguage(language)
   const unassignedPlatformLabel = t(language, 'stocks.platformUnassigned')
   const maxPurchaseDate = getLocalDateInputValue()
@@ -243,6 +243,7 @@ export default function Stocks() {
   const editFullTicker = useMemo(() => getFullTicker(editTicker, editExchange), [editTicker, editExchange])
   const editEffectiveTickerCurrency = editValidatedTickerInfo?.currency || editExchangeData?.currency || editStock?.currency || displayCurrency
   const editNeedsExchangeFields = !!editEffectiveTickerCurrency && editEffectiveTickerCurrency !== displayCurrency
+  const normalizedPlatforms = useMemo(() => [...platforms].sort((a, b) => a.localeCompare(b, locale)), [locale, platforms])
 
   useEffect(() => {
     const normalizedTicker = newTicker.trim()
@@ -677,12 +678,12 @@ export default function Stocks() {
                   <label style={{ display: 'block', marginBottom: 6, color: 'var(--muted)', fontSize: 11, fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase' }}>
                     {t(language, 'stocks.platform')}
                   </label>
-                  <input
-                    type="text"
-                    value={newPlatform}
-                    onChange={(e) => setNewPlatform(e.target.value)}
-                    placeholder={t(language, 'stocks.platformPlaceholder')}
-                  />
+                  <select value={newPlatform} onChange={(e) => setNewPlatform(e.target.value)}>
+                    <option value="">{unassignedPlatformLabel}</option>
+                    {normalizedPlatforms.map((platform) => (
+                      <option key={platform} value={platform}>{platform}</option>
+                    ))}
+                  </select>
                 </div>
                 <div className="stocks-add-action">
                   <button type="submit" className="btn btn-primary" style={{ width: '100%' }} disabled={adding || validationStatus === 'checking' || validationStatus === 'invalid'}>
@@ -911,6 +912,9 @@ export default function Stocks() {
                   const platformInputId = `platform-${entry.id}`
                   const purchaseDateInputId = index === 0 ? editPurchaseDateInputId : `purchaseDate-${entry.id}`
                   const sellDateInputId = `sellDate-${entry.id}`
+                  const entryPlatforms = normalizePlatform(entry.platform) && !normalizedPlatforms.includes(entry.platform as string)
+                    ? [...normalizedPlatforms, entry.platform as string].sort((a, b) => a.localeCompare(b, locale))
+                    : normalizedPlatforms
 
                   return (
                   <div key={entry.id} style={{ padding: 12, border: '1px solid var(--border)', borderRadius: 8, background: 'rgba(255,255,255,0.02)', display: 'grid', gap: 10 }}>
@@ -998,14 +1002,17 @@ export default function Stocks() {
                       <label htmlFor={platformInputId} style={{ display: 'block', marginBottom: 6, color: 'var(--muted)', fontSize: 11, fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase' }}>
                         {t(language, 'stocks.platform')}
                       </label>
-                      <input
+                      <select
                         id={platformInputId}
-                        type="text"
                         value={entry.platform ?? ''}
                         onChange={(e) => setEditEntries((current) => current.map((candidate) => candidate.id === entry.id ? { ...candidate, platform: e.target.value || null } : candidate))}
-                        placeholder={t(language, 'stocks.platformPlaceholder')}
                         style={{ width: '100%' }}
-                      />
+                      >
+                        <option value="">{unassignedPlatformLabel}</option>
+                        {entryPlatforms.map((platform) => (
+                          <option key={`${entry.id}-${platform}`} value={platform}>{platform}</option>
+                        ))}
+                      </select>
                     </div>
                     <div>
                       <label htmlFor={purchaseDateInputId} style={{ display: 'block', marginBottom: 6, color: 'var(--muted)', fontSize: 11, fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase' }}>
