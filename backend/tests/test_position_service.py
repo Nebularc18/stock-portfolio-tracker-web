@@ -93,6 +93,74 @@ def test_get_quantity_held_on_date_includes_lot_sold_on_target_date():
     assert quantity == 5
 
 
+def test_validate_position_entries_rejects_sold_quantity_above_lot_quantity():
+    with pytest.raises(ValueError, match="sold_quantity cannot exceed quantity"):
+        validate_position_entries([{
+            "quantity": 5,
+            "sold_quantity": 6,
+            "purchase_price": 10,
+            "purchase_date": "2024-01-01",
+            "sell_date": "2024-02-01",
+        }])
+
+
+def test_validate_position_entries_requires_sell_date_when_sold_quantity_present():
+    with pytest.raises(ValueError, match="sold_quantity requires sell_date"):
+        validate_position_entries([{
+            "quantity": 5,
+            "sold_quantity": 2,
+            "purchase_price": 10,
+            "purchase_date": "2024-01-01",
+            "sell_date": None,
+        }])
+
+
+def test_get_quantity_held_on_date_uses_remaining_quantity_after_partial_sale():
+    quantity = get_quantity_held_on_date(
+        [{
+            "quantity": 5,
+            "sold_quantity": 2,
+            "purchase_price": 10,
+            "purchase_date": "2024-01-01",
+            "sell_date": "2024-02-01",
+        }],
+        "2024-02-02",
+    )
+
+    assert quantity == 3
+
+
+def test_calculate_position_snapshot_uses_remaining_quantity_for_partial_sale():
+    snapshot = calculate_position_snapshot([{
+        "quantity": 10,
+        "sold_quantity": 4,
+        "purchase_price": 100,
+        "courtage": 10,
+        "purchase_date": "2024-01-01",
+        "sell_date": "2024-02-01",
+    }])
+
+    assert snapshot["quantity"] == pytest.approx(6)
+    assert snapshot["purchase_price"] == pytest.approx(101.0)
+
+
+def test_calculate_position_cost_basis_prorates_courtage_for_partial_sale():
+    total_cost = calculate_position_cost_basis(
+        [{
+            "quantity": 10,
+            "sold_quantity": 4,
+            "purchase_price": 100,
+            "courtage": 10,
+            "purchase_date": "2024-01-01",
+            "sell_date": "2024-02-01",
+        }],
+        "USD",
+        "USD",
+    )
+
+    assert total_cost == pytest.approx(606.0)
+
+
 def test_validate_position_entries_rejects_negative_courtage():
     with pytest.raises(ValueError, match="courtage must be greater than or equal to zero"):
         validate_position_entries([{

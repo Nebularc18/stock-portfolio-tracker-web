@@ -1,7 +1,7 @@
 import { useState, useEffect, useId, useRef, useCallback } from 'react'
 import type { KeyboardEvent as ReactKeyboardEvent } from 'react'
 import { useParams, Link, useNavigate } from 'react-router-dom'
-import { api, Stock, Dividend, UpcomingDividend, AnalystData, ManualDividend, CompanyProfile, FinancialMetrics, VerificationResult, MarketstackUsage, PortfolioSummaryStock, UpcomingDividendsResponse } from '../services/api'
+import { api, Stock, Dividend, UpcomingDividend, AnalystData, ManualDividend, CompanyProfile, FinancialMetrics, VerificationResult, MarketstackUsage, PortfolioSummaryStock, UpcomingDividendsResponse, PositionEntry } from '../services/api'
 import CompanyProfileComponent from '../components/CompanyProfile'
 import FinancialMetricsComponent from '../components/FinancialMetrics'
 import PeerCompanies from '../components/PeerCompanies'
@@ -65,6 +65,15 @@ function normalizeToDay(dateInput: string | null | undefined): Date | null {
   if (!Number.isFinite(parsed.getTime())) return null
   parsed.setUTCHours(0, 0, 0, 0)
   return parsed
+}
+
+function getRemainingEntryQuantity(entry: PositionEntry | undefined): number {
+  if (!entry) return 0
+  const quantity = Number(entry.quantity) || 0
+  const soldQuantity = entry.sold_quantity === null || entry.sold_quantity === undefined
+    ? (entry.sell_date ? quantity : 0)
+    : Number(entry.sold_quantity) || 0
+  return Math.max(quantity - Math.min(soldQuantity, quantity), 0)
 }
 
 /**
@@ -647,7 +656,7 @@ export default function StockDetail() {
   const openEditModal = () => {
     if (stock) {
       const { baseTicker, exchangeCode } = splitTickerAndExchange(stock.ticker)
-      const editableEntry = stock.position_entries?.find((entry) => !entry.sell_date) ?? stock.position_entries?.[0]
+      const editableEntry = stock.position_entries?.find((entry) => getRemainingEntryQuantity(entry) > 0) ?? stock.position_entries?.[0]
       setEditError(null)
       setEditTicker(baseTicker)
       setEditExchange(exchangeCode)
