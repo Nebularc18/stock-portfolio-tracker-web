@@ -54,14 +54,14 @@ export function getQuantityHeldOnDate(entries: PositionEntry[] | null | undefine
   }
 
   return entries.reduce((sum, entry) => {
-    const quantity = parseQuantity(entry.quantity)
+    let heldQuantity = parseQuantity(entry.quantity)
     const purchaseDate = normalizeDate(entry.purchase_date)
     const sellDate = normalizeDate(entry.sell_date)
     if (purchaseDate && purchaseDate >= normalizedTargetDate) return sum
     if (sellDate && sellDate < normalizedTargetDate) {
-      return sum + getRemainingQuantity(entry)
+      heldQuantity = getRemainingQuantity(entry)
     }
-    return sum + quantity
+    return sum + heldQuantity
   }, 0)
 }
 

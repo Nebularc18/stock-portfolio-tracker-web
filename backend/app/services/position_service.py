@@ -476,6 +476,7 @@ def get_quantity_held_on_date(
 
     quantity = 0.0
     for entry in normalized:
+        entry_quantity = float(entry['quantity'])
         purchase_date = parse_position_date(entry.get('purchase_date'))
         sell_date = parse_position_date(entry.get('sell_date'))
 
@@ -483,11 +484,12 @@ def get_quantity_held_on_date(
         # sells so ex-date lookups still count positions sold on the target date.
         if purchase_date and purchase_date >= resolved_target_date:
             continue
-        sold_quantity = _resolve_sold_quantity(entry, float(entry['quantity']))
+
+        held_quantity = entry_quantity
         if sell_date and sell_date < resolved_target_date:
-            quantity += max(float(entry['quantity']) - sold_quantity, 0.0)
-            continue
-        quantity += float(entry['quantity'])
+            held_quantity = get_remaining_quantity(entry)
+
+        quantity += held_quantity
 
     return quantity
 
