@@ -79,9 +79,10 @@ def parse_platforms(platforms_str: Optional[str]) -> List[str]:
             if not isinstance(value, str):
                 continue
             normalized = value.strip()
-            if not normalized or normalized in seen:
+            dedupe_key = normalized.casefold()
+            if not normalized or dedupe_key in seen:
                 continue
-            seen.add(normalized)
+            seen.add(dedupe_key)
             result.append(normalized)
         return result
     except (json.JSONDecodeError, TypeError):
@@ -183,11 +184,12 @@ def update_settings(data: SettingsUpdate, db: Session = Depends(get_db), current
         seen_platforms: set[str] = set()
         for platform in data.platforms:
             normalized = str(platform).strip()
-            if not normalized or normalized in seen_platforms:
+            dedupe_key = normalized.casefold()
+            if not normalized or dedupe_key in seen_platforms:
                 continue
             if len(normalized) > 100:
                 raise HTTPException(status_code=400, detail=f"Platform '{normalized}' is too long")
-            seen_platforms.add(normalized)
+            seen_platforms.add(dedupe_key)
             deduped_platforms.append(normalized)
         settings.platforms = json.dumps(deduped_platforms)
     
