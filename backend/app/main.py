@@ -339,6 +339,7 @@ class UserSettings(Base):
         id: Primary key.
         display_currency: Preferred display currency (default 'SEK').
         header_indices: JSON string of selected header indices symbols.
+        platforms: JSON string of selected broker/platform names.
     """
     __tablename__ = "user_settings"
     __table_args__ = (
@@ -349,6 +350,7 @@ class UserSettings(Base):
     user_id = Column(Integer, ForeignKey("users.id", name="fk_user_settings_user_id_users"), index=True, nullable=False)
     display_currency = Column(String, default="SEK")
     header_indices = Column(String, default="[]")
+    platforms = Column(String, default="[]")
 
 
 Base.metadata.create_all(bind=engine)
@@ -403,6 +405,7 @@ def ensure_account_schema_and_seed() -> None:
         conn.execute(text("ALTER TABLE stocks ADD COLUMN IF NOT EXISTS purchase_date DATE"))
         conn.execute(text("ALTER TABLE stocks ADD COLUMN IF NOT EXISTS position_entries JSON"))
         conn.execute(text("ALTER TABLE user_settings ADD COLUMN IF NOT EXISTS user_id INTEGER"))
+        conn.execute(text("ALTER TABLE user_settings ADD COLUMN IF NOT EXISTS platforms VARCHAR(1000) DEFAULT '[]'"))
         conn.execute(text("ALTER TABLE portfolio_history ADD COLUMN IF NOT EXISTS user_id INTEGER"))
         conn.execute(text("ALTER TABLE stock_price_history ADD COLUMN IF NOT EXISTS user_id INTEGER"))
 
@@ -868,6 +871,7 @@ class StockCreate(BaseModel):
     courtage_currency: Optional[str] = None
     exchange_rate: Optional[float] = None
     exchange_rate_currency: Optional[str] = None
+    platform: Optional[str] = None
     purchase_date: Optional[date] = None
     position_entries: Optional[List[dict]] = None
 
@@ -942,6 +946,15 @@ class StockCreate(BaseModel):
                 "exchange_rate_currency requires exchange_rate."
             )
 
+        if self.platform is not None:
+            normalized_platform = self.platform.strip()
+            if len(normalized_platform) > 100:
+                raise ValueError(
+                    "StockCreate validation failed for create_stock payload (/api/stocks): "
+                    "platform must be 100 characters or fewer."
+                )
+            self.platform = normalized_platform or None
+
         return self
 
 
@@ -953,6 +966,7 @@ class StockUpdate(BaseModel):
     courtage_currency: Optional[str] = None
     exchange_rate: Optional[float] = None
     exchange_rate_currency: Optional[str] = None
+    platform: Optional[str] = None
     purchase_date: Optional[date] = None
     position_entries: Optional[List[dict]] = None
 
@@ -985,6 +999,12 @@ class StockUpdate(BaseModel):
                 raise ValueError("exchange_rate_currency must be a 3-letter currency code.")
         elif self.exchange_rate_currency is not None:
             raise ValueError("exchange_rate_currency requires exchange_rate.")
+
+        if self.platform is not None:
+            normalized_platform = self.platform.strip()
+            if len(normalized_platform) > 100:
+                raise ValueError("platform must be 100 characters or fewer.")
+            self.platform = normalized_platform or None
 
         return self
 

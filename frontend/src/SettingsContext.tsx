@@ -11,6 +11,8 @@ interface SettingsContextType {
   setLanguage: (language: Language) => void
   headerIndices: string[]
   setHeaderIndices: (indices: string[]) => void
+  platforms: string[]
+  setPlatforms: (platforms: string[]) => void
   loading: boolean
 }
 
@@ -63,6 +65,14 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
       return []
     }
   })
+  const [platforms, setPlatformsState] = useState<string[]>(() => {
+    const saved = localStorage.getItem('platforms')
+    try {
+      return saved ? JSON.parse(saved) : []
+    } catch {
+      return []
+    }
+  })
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
@@ -75,6 +85,10 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
         if (data.header_indices) {
           setHeaderIndicesState(data.header_indices)
           localStorage.setItem('headerIndices', JSON.stringify(data.header_indices))
+        }
+        if (data.platforms) {
+          setPlatformsState(data.platforms)
+          localStorage.setItem('platforms', JSON.stringify(data.platforms))
         }
       })
       .catch(() => {})
@@ -105,10 +119,16 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
     api.settings.update({ header_indices: indices }).catch((err) => console.error('Failed to update header indices:', err))
   }
 
+  const setPlatforms = (nextPlatforms: string[]) => {
+    setPlatformsState(nextPlatforms)
+    localStorage.setItem('platforms', JSON.stringify(nextPlatforms))
+    api.settings.update({ platforms: nextPlatforms }).catch((err) => console.error('Failed to update platforms:', err))
+  }
+
   return (
     <SettingsContext.Provider value={{ 
       timezone, setTimezone, displayCurrency, setDisplayCurrency, language, setLanguage,
-      headerIndices, setHeaderIndices, loading 
+      headerIndices, setHeaderIndices, platforms, setPlatforms, loading 
     }}>
       {children}
     </SettingsContext.Provider>

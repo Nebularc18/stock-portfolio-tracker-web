@@ -35,9 +35,32 @@ function formatPurchaseDate(value: string | null, locale: string): string {
   return date.toLocaleDateString(locale, { year: 'numeric', month: 'short', day: 'numeric', timeZone: 'UTC' })
 }
 
+function normalizePlatform(value: string | null | undefined): string | null {
+  const normalized = value?.trim() || ''
+  return normalized || null
+}
+
+function getOpenPlatforms(entries: PositionEntry[] | undefined): string[] {
+  const platformSet = new Set<string>()
+  for (const entry of entries || []) {
+    if (entry.sell_date) continue
+    const platform = normalizePlatform(entry.platform)
+    if (platform) {
+      platformSet.add(platform)
+    }
+  }
+  return [...platformSet].sort((a, b) => a.localeCompare(b))
+}
+
+function getPlatformSortValue(stock: Stock, unassignedLabel: string): string {
+  const platforms = getOpenPlatforms(stock.position_entries)
+  return platforms.length > 0 ? platforms.join(', ') : unassignedLabel
+}
+
 const EXCHANGES = [
   ...supportedExchanges,
 ]
+const MAX_PLATFORM_LENGTH = 100
 
 /**
  * Formats a Date as a local `YYYY-MM-DD` string suitable for date input values.
@@ -81,6 +104,7 @@ function createEmptyPositionEntry(): PositionEntry {
     courtage_currency: null,
     exchange_rate: null,
     exchange_rate_currency: null,
+    platform: null,
     purchase_date: null,
     sell_date: null,
   }
@@ -107,6 +131,7 @@ type SortField =
   | 'name'
   | 'quantity'
   | 'currency'
+  | 'platform'
   | 'purchasePrice'
   | 'purchaseDate'
   | 'currentPrice'
@@ -129,8 +154,10 @@ export default function Stocks() {
   const [newPurchasePrice, setNewPurchasePrice] = useState('')
   const [newCourtage, setNewCourtage] = useState('')
   const [newExchangeRate, setNewExchangeRate] = useState('')
+  const [newPlatform, setNewPlatform] = useState('')
   const [newPurchaseDate, setNewPurchaseDate] = useState('')
   const [selectedExchange, setSelectedExchange] = useState('ST')
+  const [platformFilter, setPlatformFilter] = useState('all')
   const [adding, setAdding] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [validationStatus, setValidationStatus] = useState<'idle' | 'checking' | 'valid' | 'invalid'>('idle')
@@ -151,8 +178,9 @@ export default function Stocks() {
   const editQuantityInputId = useId()
   const editPurchasePriceInputId = useId()
   const editPurchaseDateInputId = useId()
-  const { timezone, language, displayCurrency } = useSettings()
+  const { timezone, language, displayCurrency, platforms } = useSettings()
   const locale = getLocaleForLanguage(language)
+  const unassignedPlatformLabel = t(language, 'stocks.platformUnassigned')
   const maxPurchaseDate = getLocalDateInputValue()
   const { sortState, requestSort } = useTableSort<SortField>({ field: 'ticker', direction: 'asc' })
   const logoTileStyle = {
@@ -216,6 +244,7 @@ export default function Stocks() {
   const editFullTicker = useMemo(() => getFullTicker(editTicker, editExchange), [editTicker, editExchange])
   const editEffectiveTickerCurrency = editValidatedTickerInfo?.currency || editExchangeData?.currency || editStock?.currency || displayCurrency
   const editNeedsExchangeFields = !!editEffectiveTickerCurrency && editEffectiveTickerCurrency !== displayCurrency
+  const normalizedPlatforms = useMemo(() => [...platforms].sort((a, b) => a.localeCompare(b, locale)), [locale, platforms])
 
   useEffect(() => {
     const normalizedTicker = newTicker.trim()
@@ -316,6 +345,10 @@ export default function Stocks() {
       setError(t(language, 'stocks.invalidEditValues'))
       return
     }
+    if ((normalizePlatform(newPlatform)?.length || 0) > MAX_PLATFORM_LENGTH) {
+      setError(t(language, 'stocks.platformTooLong'))
+      return
+    }
     try {
       setAdding(true)
       setError(null)
@@ -327,6 +360,7 @@ export default function Stocks() {
         courtage_currency: parsedCourtage !== null ? (needsExchangeFields ? displayCurrency : effectiveTickerCurrency) : undefined,
         exchange_rate: needsExchangeFields ? (parsedExchangeRate ?? undefined) : undefined,
         exchange_rate_currency: needsExchangeFields && parsedExchangeRate !== null ? displayCurrency : undefined,
+        platform: normalizePlatform(newPlatform) ?? undefined,
         purchase_date: newPurchaseDate || undefined,
       })
       setNewTicker('')
@@ -334,6 +368,7 @@ export default function Stocks() {
       setNewPurchasePrice('')
       setNewCourtage('')
       setNewExchangeRate('')
+      setNewPlatform('')
       setNewPurchaseDate('')
       setValidationStatus('idle')
       setValidatedTickerInfo(null)
@@ -380,6 +415,7 @@ export default function Stocks() {
             courtage_currency: stock.currency !== displayCurrency ? displayCurrency : stock.currency,
             exchange_rate: null,
             exchange_rate_currency: null,
+            platform: null,
             purchase_date: stock.purchase_date,
             sell_date: null,
           }]
@@ -410,6 +446,7 @@ export default function Stocks() {
         courtage_currency: entry.courtage_currency || (editNeedsExchangeFields ? displayCurrency : editEffectiveTickerCurrency),
         exchange_rate: entry.exchange_rate === null || entry.exchange_rate === undefined ? null : Number(entry.exchange_rate),
         exchange_rate_currency: entry.exchange_rate ? (entry.exchange_rate_currency || displayCurrency) : null,
+        platform: normalizePlatform(entry.platform),
         purchase_date: entry.purchase_date || null,
         sell_date: entry.sell_date || null,
       }))
@@ -421,14 +458,19 @@ export default function Stocks() {
       const purchasePriceValid = entry.purchase_price === null || (Number.isFinite(entry.purchase_price) && entry.purchase_price >= 0)
       const courtageValid = Number.isFinite(entry.courtage) && entry.courtage >= 0
       const exchangeRateValid = entry.exchange_rate === null || (Number.isFinite(entry.exchange_rate) && entry.exchange_rate > 0)
+      const platformValid = (entry.platform?.length || 0) <= MAX_PLATFORM_LENGTH
       const courtageHasPrice = entry.courtage === 0 || (entry.purchase_price !== null && entry.purchase_price > 0)
       const sellAfterPurchase = !entry.sell_date || !entry.purchase_date || entry.sell_date >= entry.purchase_date
       const exchangeRatePairValid = entry.exchange_rate === null || !!entry.exchange_rate_currency
-      return !quantityValid || !purchaseDateValid || !sellDateValid || !purchasePriceValid || !courtageValid || !exchangeRateValid || !courtageHasPrice || !sellAfterPurchase || !exchangeRatePairValid
+      return !quantityValid || !purchaseDateValid || !sellDateValid || !purchasePriceValid || !courtageValid || !exchangeRateValid || !platformValid || !courtageHasPrice || !sellAfterPurchase || !exchangeRatePairValid
     })
 
     if (hasInvalidEntry) {
-      setEditError(t(language, 'stocks.invalidEditValues'))
+      if (normalizedEntries.some((entry) => (entry.platform?.length || 0) > MAX_PLATFORM_LENGTH)) {
+        setEditError(t(language, 'stocks.platformTooLong'))
+      } else {
+        setEditError(t(language, 'stocks.invalidEditValues'))
+      }
       return
     }
 
@@ -448,15 +490,34 @@ export default function Stocks() {
     }
   }
 
+  const availablePlatforms = useMemo(() => (
+    [...new Set(
+      stocks.flatMap((stock) => getOpenPlatforms(stock.position_entries))
+    )].sort((a, b) => a.localeCompare(b, locale))
+  ), [locale, stocks])
+
+  const filteredStocks = useMemo(() => (
+    platformFilter === 'all'
+      ? stocks
+      : stocks.filter((stock) => {
+          const platforms = getOpenPlatforms(stock.position_entries)
+          if (platformFilter === '__unassigned__') {
+            return platforms.length === 0
+          }
+          return platforms.includes(platformFilter)
+        })
+  ), [platformFilter, stocks])
+
   const sortedStocks = useMemo(() => (
     sortTableItems(
-      stocks,
+      filteredStocks,
       sortState,
       {
         ticker: (stock) => stock.ticker,
         name: (stock) => stock.name || stock.ticker,
         quantity: (stock) => stock.quantity,
         currency: (stock) => stock.currency,
+        platform: (stock) => getPlatformSortValue(stock, unassignedPlatformLabel),
         purchasePrice: (stock) => stock.purchase_price,
         purchaseDate: (stock) => stock.purchase_date,
         currentPrice: (stock) => stock.current_price,
@@ -471,7 +532,7 @@ export default function Stocks() {
       locale,
       (stock) => stock.ticker
     )
-  ), [locale, sortState, stocks])
+  ), [filteredStocks, locale, sortState, unassignedPlatformLabel])
 
   if (loading) {
     return <div className="loading-state">{t(language, 'common.loading')}</div>
@@ -623,6 +684,17 @@ export default function Stocks() {
                     max={maxPurchaseDate}
                   />
                 </div>
+                <div>
+                  <label style={{ display: 'block', marginBottom: 6, color: 'var(--muted)', fontSize: 11, fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase' }}>
+                    {t(language, 'stocks.platform')}
+                  </label>
+                  <select value={newPlatform} onChange={(e) => setNewPlatform(e.target.value)}>
+                    <option value="">{unassignedPlatformLabel}</option>
+                    {normalizedPlatforms.map((platform) => (
+                      <option key={platform} value={platform}>{platform}</option>
+                    ))}
+                  </select>
+                </div>
                 <div className="stocks-add-action">
                   <button type="submit" className="btn btn-primary" style={{ width: '100%' }} disabled={adding || validationStatus === 'checking' || validationStatus === 'invalid'}>
                     {adding ? t(language, 'stocks.adding') : t(language, 'stocks.add')}
@@ -635,13 +707,27 @@ export default function Stocks() {
 
         {/* ── HOLDINGS TABLE ── */}
         <div style={{ marginTop: 20, background: 'var(--bg2)', border: '1px solid var(--border)', borderRadius: 8 }}>
-          <div style={{ padding: '12px 18px', borderBottom: '1px solid var(--border)' }}>
+          <div style={{ padding: '12px 18px', borderBottom: '1px solid var(--border)', display: 'flex', justifyContent: 'space-between', gap: 12, alignItems: 'center', flexWrap: 'wrap' }}>
             <span style={{ fontSize: 9, fontWeight: 700, letterSpacing: '0.18em', textTransform: 'uppercase', color: 'var(--muted)' }}>
               {t(language, 'stocks.title')}
             </span>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+              <label style={{ fontSize: 11, color: 'var(--muted)', fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase' }}>
+                {t(language, 'stocks.platformFilter')}
+              </label>
+              <select value={platformFilter} onChange={(e) => setPlatformFilter(e.target.value)} style={{ minWidth: 180 }}>
+                <option value="all">{t(language, 'stocks.platformAll')}</option>
+                <option value="__unassigned__">{unassignedPlatformLabel}</option>
+                {availablePlatforms.map((platform) => (
+                  <option key={platform} value={platform}>{platform}</option>
+                ))}
+              </select>
+            </div>
           </div>
           {!stocks.length ? (
             <div className="empty-state" style={{ padding: '40px' }}>{t(language, 'stocks.noStocksMessage')}</div>
+          ) : !sortedStocks.length ? (
+            <div className="empty-state" style={{ padding: '40px' }}>{t(language, 'stocks.noPlatformMatch')}</div>
           ) : (
             <table>
               <thead>
@@ -650,6 +736,7 @@ export default function Stocks() {
                   <SortableHeader field="name" label={t(language, 'stocks.tableName')} sortState={sortState} onSort={requestSort} />
                   <SortableHeader field="quantity" label={t(language, 'stocks.tableQty')} sortState={sortState} onSort={requestSort} align="right" />
                   <SortableHeader field="currency" label={t(language, 'stocks.tableCurr')} sortState={sortState} onSort={requestSort} />
+                  <SortableHeader field="platform" label={t(language, 'stocks.tablePlatform')} sortState={sortState} onSort={requestSort} />
                   <SortableHeader field="purchasePrice" label={t(language, 'stocks.tablePurchase')} sortState={sortState} onSort={requestSort} align="right" />
                   <SortableHeader field="purchaseDate" label={t(language, 'stocks.purchaseDate')} sortState={sortState} onSort={requestSort} />
                   <SortableHeader field="currentPrice" label={t(language, 'stocks.tablePrice')} sortState={sortState} onSort={requestSort} align="right" />
@@ -661,6 +748,7 @@ export default function Stocks() {
               <tbody>
                 {sortedStocks.map((stock) => {
                   const logoUrl = resolveBackendAssetUrl(stock.logo)
+                  const platforms = getOpenPlatforms(stock.position_entries)
                   const dailyChange = stock.current_price !== null && stock.previous_close !== null
                     ? stock.current_price - stock.previous_close
                     : null
@@ -697,6 +785,17 @@ export default function Stocks() {
                       <td style={{ color: 'var(--text2)' }}>{stock.name || '-'}</td>
                       <td style={{ fontFamily: "'Fira Code', monospace" }}>{stock.quantity}</td>
                       <td><span className="badge badge-muted">{stock.currency}</span></td>
+                      <td>
+                        {platforms.length > 0 ? (
+                          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+                            {platforms.map((platform) => (
+                              <span key={`${stock.ticker}-${platform}`} className="badge badge-muted">{platform}</span>
+                            ))}
+                          </div>
+                        ) : (
+                          <span className="badge badge-muted">{unassignedPlatformLabel}</span>
+                        )}
+                      </td>
                       <td style={{ fontFamily: "'Fira Code', monospace", textAlign: 'right' }}>{formatCurrency(stock.purchase_price, locale, stock.currency)}</td>
                       <td style={{ fontFamily: "'Fira Code', monospace", color: 'var(--muted)' }}>{formatPurchaseDate(stock.purchase_date, locale)}</td>
                       <td style={{ fontFamily: "'Fira Code', monospace", textAlign: 'right' }}>{formatCurrency(stock.current_price, locale, stock.currency)}</td>
@@ -820,8 +919,12 @@ export default function Stocks() {
                   const purchasePriceInputId = index === 0 ? editPurchasePriceInputId : `purchasePrice-${entry.id}`
                   const courtageInputId = `courtage-${entry.id}`
                   const exchangeRateInputId = `exchange-rate-${entry.id}`
+                  const platformInputId = `platform-${entry.id}`
                   const purchaseDateInputId = index === 0 ? editPurchaseDateInputId : `purchaseDate-${entry.id}`
                   const sellDateInputId = `sellDate-${entry.id}`
+                  const entryPlatforms = normalizePlatform(entry.platform) && !normalizedPlatforms.includes(entry.platform as string)
+                    ? [...normalizedPlatforms, entry.platform as string].sort((a, b) => a.localeCompare(b, locale))
+                    : normalizedPlatforms
 
                   return (
                   <div key={entry.id} style={{ padding: 12, border: '1px solid var(--border)', borderRadius: 8, background: 'rgba(255,255,255,0.02)', display: 'grid', gap: 10 }}>
@@ -905,6 +1008,22 @@ export default function Stocks() {
                       />
                     </div>
                     )}
+                    <div>
+                      <label htmlFor={platformInputId} style={{ display: 'block', marginBottom: 6, color: 'var(--muted)', fontSize: 11, fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase' }}>
+                        {t(language, 'stocks.platform')}
+                      </label>
+                      <select
+                        id={platformInputId}
+                        value={entry.platform ?? ''}
+                        onChange={(e) => setEditEntries((current) => current.map((candidate) => candidate.id === entry.id ? { ...candidate, platform: e.target.value || null } : candidate))}
+                        style={{ width: '100%' }}
+                      >
+                        <option value="">{unassignedPlatformLabel}</option>
+                        {entryPlatforms.map((platform) => (
+                          <option key={`${entry.id}-${platform}`} value={platform}>{platform}</option>
+                        ))}
+                      </select>
+                    </div>
                     <div>
                       <label htmlFor={purchaseDateInputId} style={{ display: 'block', marginBottom: 6, color: 'var(--muted)', fontSize: 11, fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase' }}>
                         {t(language, 'stocks.purchaseDate')}
