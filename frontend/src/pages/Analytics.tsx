@@ -9,6 +9,7 @@ import { getQuantityHeldOnDate } from '../utils/positions'
 const STOCK_COLORS = ['#7c3aed', '#06b6d4', '#22c55e', '#f59e0b', '#f43f5e', '#8b5cf6', '#14b8a6', '#3b82f6']
 const SECTOR_COLORS = ['#f97316', '#eab308', '#84cc16', '#06b6d4', '#3b82f6', '#8b5cf6', '#ec4899', '#ef4444']
 const COUNTRY_COLORS = ['#0ea5e9', '#38bdf8', '#14b8a6', '#22c55e', '#eab308', '#f97316', '#f43f5e', '#a855f7']
+const PLATFORM_COLORS = ['#fb7185', '#f97316', '#facc15', '#4ade80', '#22d3ee', '#60a5fa', '#818cf8', '#f472b6']
 const COMPARISON_COLORS = ['#818cf8', '#4ade80', '#fbbf24']
 
 type DividendComparisonRow = {
@@ -193,6 +194,7 @@ export default function Analytics() {
   const stockPieLabel = createColoredPieLabel(STOCK_COLORS, locale)
   const sectorPieLabel = createColoredPieLabel(SECTOR_COLORS, locale)
   const countryPieLabel = createColoredPieLabel(COUNTRY_COLORS, locale)
+  const platformPieLabel = createColoredPieLabel(PLATFORM_COLORS, locale)
 
   const fetchData = useCallback(async () => {
     const fetchId = latestFetchId.current + 1
@@ -344,11 +346,15 @@ export default function Analytics() {
         return { id: ticker, name: label, value }
       })
     : []
+  const rawPlatformData = distribution?.by_platform
+    ? Object.entries(distribution.by_platform).map(([name, value]) => ({ name, value }))
+    : []
 
   const othersLabel = t(language, 'analytics.others')
   const sectorData = aggregateDistributionData(rawSectorData, othersLabel)
   const countryData = aggregateDistributionData(rawCountryData, othersLabel)
   const stockData = aggregateDistributionData(rawStockData, othersLabel).sort((a, b) => b.value - a.value)
+  const platformData = aggregateDistributionData(rawPlatformData, othersLabel).sort((a, b) => b.value - a.value)
 
   const handleToggleComparisonYear = (year: number) => {
     setSelectedComparisonYears((currentYears) => {
@@ -408,7 +414,7 @@ export default function Analytics() {
 
       <div style={{ padding: '0 28px 28px' }}>
 
-        {(sectorData.length > 0 || stockData.length > 0 || countryData.length > 0 || hasDividendComparisonData) ? (
+        {(sectorData.length > 0 || stockData.length > 0 || countryData.length > 0 || platformData.length > 0 || hasDividendComparisonData) ? (
           <>
             {/* ── DISTRIBUTION CHARTS ── */}
             <div className="grid grid-3" style={{ marginTop: 20, marginBottom: 20 }}>
@@ -522,6 +528,44 @@ export default function Analytics() {
                   </div>
                   <div style={{ padding: '0 18px 18px', display: 'grid', gap: 8 }}>
                     {renderDistributionLegend(countryData, COUNTRY_COLORS, locale)}
+                  </div>
+                </div>
+              )}
+
+              {platformData.length > 0 && (
+                <div style={{ background: 'linear-gradient(180deg, rgba(251,113,133,0.16) 0%, rgba(96,165,250,0.06) 42%, var(--bg2) 100%)', border: '1px solid rgba(251,113,133,0.22)', borderRadius: 14, overflow: 'hidden', boxShadow: '0 18px 40px rgba(12,18,38,0.22)' }}>
+                  <div style={{ padding: '12px 18px', borderBottom: '1px solid rgba(255,255,255,0.06)' }}>
+                    <span style={{ fontSize: 9, fontWeight: 700, letterSpacing: '0.18em', textTransform: 'uppercase', color: 'var(--muted)' }}>
+                      {t(language, 'analytics.platformDistribution')}
+                    </span>
+                  </div>
+                  <div style={{ padding: 18, height: 280 }}>
+                    <ResponsiveContainer width="100%" height="100%">
+                      <PieChart>
+                        <Pie
+                          data={platformData}
+                          cx="50%"
+                          cy="50%"
+                          labelLine={false}
+                          label={platformPieLabel}
+                          outerRadius={92}
+                          innerRadius={42}
+                          dataKey="value"
+                        >
+                          {platformData.map((_, index) => (
+                            <Cell key={`platform-cell-${index}`} fill={PLATFORM_COLORS[index % PLATFORM_COLORS.length]} stroke="rgba(255,255,255,0.72)" strokeWidth={1.2} />
+                          ))}
+                        </Pie>
+                        <Tooltip
+                          formatter={(value: number) => formatCurrency(value, locale, chartCurrency)}
+                          contentStyle={tooltipStyle}
+                          itemStyle={{ color: 'var(--text2)' }}
+                        />
+                      </PieChart>
+                    </ResponsiveContainer>
+                  </div>
+                  <div style={{ padding: '0 18px 18px', display: 'grid', gap: 8 }}>
+                    {renderDistributionLegend(platformData, PLATFORM_COLORS, locale)}
                   </div>
                 </div>
               )}

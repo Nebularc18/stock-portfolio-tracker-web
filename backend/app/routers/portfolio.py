@@ -243,6 +243,13 @@ def apply_position_snapshot(stock: Stock) -> PositionSnapshot:
     )
 
 
+def _normalize_platform_name(value: object) -> str:
+    if value is None:
+        return "Unassigned"
+    normalized = str(value).strip()
+    return normalized or "Unassigned"
+
+
 def _compute_upcoming_portfolio_dividends_result(
     stocks: list[Stock],
     display_currency: str,
@@ -1069,6 +1076,7 @@ def get_portfolio_distribution(db: Session = Depends(get_db), current_user: User
     by_country = {}
     by_currency = {}
     by_stock = {}
+    by_platform = {}
     
     for stock in stocks:
         snapshot = apply_position_snapshot(stock)
@@ -1094,6 +1102,25 @@ def get_portfolio_distribution(db: Session = Depends(get_db), current_user: User
         by_country[country] = by_country.get(country, 0) + value
 
         by_stock[stock.ticker] = by_stock.get(stock.ticker, 0) + value
+
+        for entry in snapshot.position_entries:
+            if entry.get('sell_date'):
+                continue
+            entry_quantity = entry.get('quantity')
+            if not isinstance(entry_quantity, (int, float)) or entry_quantity <= 0:
+                continue
+
+            entry_unit_price = stock.current_price if stock.current_price is not None else entry.get('purchase_price')
+            if entry_unit_price is None:
+                continue
+
+            entry_value_native = entry_unit_price * float(entry_quantity)
+            entry_value = convert_value(entry_value_native, stock.currency, display_currency, rates)
+            if entry_value is None:
+                continue
+
+            platform_name = _normalize_platform_name(entry.get('platform'))
+            by_platform[platform_name] = by_platform.get(platform_name, 0) + entry_value
     
     return {
         "display_currency": display_currency,
@@ -1101,6 +1128,7 @@ def get_portfolio_distribution(db: Session = Depends(get_db), current_user: User
         "by_country": by_country,
         "by_currency": by_currency,
         "by_stock": by_stock,
+        "by_platform": by_platform,
     }
 
 

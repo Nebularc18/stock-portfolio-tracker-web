@@ -104,10 +104,10 @@ def _apply_stock_position_snapshot(stock: Stock) -> Stock:
 
 def _build_position_snapshot_from_stock_data(stock_data: StockCreate | StockUpdate, payload_fields: set[str]) -> dict:
     if stock_data.position_entries:
-        if {"quantity", "purchase_price", "purchase_date", "courtage", "courtage_currency", "exchange_rate", "exchange_rate_currency"} & payload_fields:
+        if {"quantity", "purchase_price", "purchase_date", "courtage", "courtage_currency", "exchange_rate", "exchange_rate_currency", "platform"} & payload_fields:
             raise HTTPException(
                 status_code=400,
-                detail="Provide either position_entries or scalar fields quantity, purchase_price, purchase_date, courtage, and exchange_rate, not both.",
+                detail="Provide either position_entries or scalar fields quantity, purchase_price, purchase_date, courtage, exchange_rate, and platform, not both.",
             )
         try:
             position_entries = validate_position_entries(stock_data.position_entries)
@@ -128,6 +128,7 @@ def _build_position_snapshot_from_stock_data(stock_data: StockCreate | StockUpda
             'courtage_currency': getattr(stock_data, 'courtage_currency', None),
             'exchange_rate': getattr(stock_data, 'exchange_rate', None),
             'exchange_rate_currency': getattr(stock_data, 'exchange_rate_currency', None),
+            'platform': getattr(stock_data, 'platform', None),
             'purchase_date': getattr(stock_data, 'purchase_date', None),
             'sell_date': None,
         }])
@@ -663,10 +664,10 @@ def update_stock(ticker: str, stock_data: StockUpdate, db: Session = Depends(get
             target_ticker = normalized_ticker
 
     if "position_entries" in provided_fields:
-        if {"quantity", "purchase_price", "purchase_date", "courtage", "courtage_currency", "exchange_rate", "exchange_rate_currency"} & set(provided_fields):
+        if {"quantity", "purchase_price", "purchase_date", "courtage", "courtage_currency", "exchange_rate", "exchange_rate_currency", "platform"} & set(provided_fields):
             raise HTTPException(
                 status_code=400,
-                detail="Provide either position_entries or scalar fields quantity, purchase_price, purchase_date, courtage, and exchange_rate, not both.",
+                detail="Provide either position_entries or scalar fields quantity, purchase_price, purchase_date, courtage, exchange_rate, and platform, not both.",
             )
         try:
             position_entries = validate_position_entries(stock_data.position_entries or [])
@@ -753,7 +754,7 @@ def update_stock(ticker: str, stock_data: StockUpdate, db: Session = Depends(get
             stock.purchase_price = stock_data.purchase_price
         if "purchase_date" in provided_fields:
             stock.purchase_date = stock_data.purchase_date
-        scalar_patch_fields = {"quantity", "purchase_price", "purchase_date", "courtage", "courtage_currency", "exchange_rate", "exchange_rate_currency"} & set(provided_fields)
+        scalar_patch_fields = {"quantity", "purchase_price", "purchase_date", "courtage", "courtage_currency", "exchange_rate", "exchange_rate_currency", "platform"} & set(provided_fields)
         if scalar_patch_fields and isinstance(getattr(stock, 'position_entries', None), list):
             updated_entries = []
             open_entry_indexes = []
@@ -782,6 +783,7 @@ def update_stock(ticker: str, stock_data: StockUpdate, db: Session = Depends(get
                     'courtage_currency': effective_courtage_currency,
                     'exchange_rate': stock_data.exchange_rate if "exchange_rate" in scalar_patch_fields else None,
                     'exchange_rate_currency': effective_exchange_rate_currency if "exchange_rate_currency" in scalar_patch_fields or "exchange_rate" in scalar_patch_fields else None,
+                    'platform': stock_data.platform if "platform" in scalar_patch_fields else None,
                     'purchase_date': stock.purchase_date,
                     'sell_date': None,
                 })
@@ -805,6 +807,8 @@ def update_stock(ticker: str, stock_data: StockUpdate, db: Session = Depends(get
                     first_open_entry['exchange_rate_currency'] = effective_exchange_rate_currency
                 elif "exchange_rate" in scalar_patch_fields:
                     first_open_entry['exchange_rate_currency'] = effective_exchange_rate_currency
+                if "platform" in scalar_patch_fields:
+                    first_open_entry['platform'] = stock_data.platform
             stock.position_entries = updated_entries
         stock.position_entries = normalize_position_entries(
             getattr(stock, 'position_entries', None),

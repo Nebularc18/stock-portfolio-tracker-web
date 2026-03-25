@@ -323,6 +323,7 @@ export interface PositionEntry {
   courtage_currency?: string | null
   exchange_rate?: number | null
   exchange_rate_currency?: string | null
+  platform?: string | null
   purchase_date: string | null
   sell_date: string | null
 }
@@ -449,6 +450,7 @@ export interface DistributionResponse {
   by_country: Record<string, number>
   by_currency: Record<string, number>
   by_stock: Record<string, number>
+  by_platform: Record<string, number>
 }
 
 export interface TickerMapping {
@@ -648,12 +650,12 @@ export const api = {
       return request
     },
     get: (ticker: string) => fetchAPI<Stock>(`/stocks/${encodePathSegment(ticker)}`),
-    create: (data: { ticker: string; quantity: number; purchase_price?: number; courtage?: number; courtage_currency?: string; exchange_rate?: number; exchange_rate_currency?: string; purchase_date?: string; position_entries?: PositionEntry[] }) => 
+    create: (data: { ticker: string; quantity: number; purchase_price?: number; courtage?: number; courtage_currency?: string; exchange_rate?: number; exchange_rate_currency?: string; platform?: string; purchase_date?: string; position_entries?: PositionEntry[] }) => 
       fetchAPI<Stock>('/stocks', { method: 'POST', body: JSON.stringify(data) }).then((value) => {
         clearPortfolioDataCaches()
         return value
       }),
-    update: (ticker: string, data: { ticker?: string; quantity?: number; purchase_price?: number; courtage?: number | null; courtage_currency?: string | null; exchange_rate?: number | null; exchange_rate_currency?: string | null; purchase_date?: string | null; position_entries?: PositionEntry[] }) =>
+    update: (ticker: string, data: { ticker?: string; quantity?: number; purchase_price?: number; courtage?: number | null; courtage_currency?: string | null; exchange_rate?: number | null; exchange_rate_currency?: string | null; platform?: string | null; purchase_date?: string | null; position_entries?: PositionEntry[] }) =>
       fetchAPI<Stock>(`/stocks/${encodePathSegment(ticker)}`, { method: 'PATCH', body: JSON.stringify(data) }).then((value) => {
         clearPortfolioDataCaches()
         return value

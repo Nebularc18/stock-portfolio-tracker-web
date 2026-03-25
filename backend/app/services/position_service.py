@@ -30,6 +30,13 @@ def _normalize_exchange_rate_currency(value: Any) -> Optional[str]:
     return normalized
 
 
+def _normalize_platform(value: Any) -> Optional[str]:
+    if value in (None, ''):
+        return None
+    normalized = str(value).strip()
+    return normalized or None
+
+
 def _resolve_courtage_currency(entry: dict[str, Any]) -> Optional[str]:
     normalized = _normalize_exchange_rate_currency(entry.get('courtage_currency'))
     return normalized
@@ -100,6 +107,7 @@ def normalize_position_entries(
         sell_date = parse_position_date(entry.get('sell_date'))
         exchange_rate = _parse_optional_float(entry.get('exchange_rate'))
         exchange_rate_currency = _normalize_exchange_rate_currency(entry.get('exchange_rate_currency'))
+        platform = _normalize_platform(entry.get('platform'))
         if exchange_rate is None:
             exchange_rate_currency = None
         entry_id = entry.get('id')
@@ -117,6 +125,7 @@ def normalize_position_entries(
                     sell_date.isoformat() if sell_date else "",
                     str(exchange_rate),
                     exchange_rate_currency or "",
+                    platform or "",
                 ]),
             ))
             entry['id'] = entry_id
@@ -131,6 +140,7 @@ def normalize_position_entries(
             'sell_date': sell_date.isoformat() if sell_date else None,
             'exchange_rate': exchange_rate,
             'exchange_rate_currency': exchange_rate_currency,
+            'platform': platform,
         })
 
     if normalized:
@@ -169,6 +179,7 @@ def normalize_position_entries(
             'sell_date': None,
             'exchange_rate': None,
             'exchange_rate_currency': None,
+            'platform': None,
         }]
 
     return []
@@ -241,6 +252,14 @@ def validate_position_entries(entries: Any) -> list[dict[str, Any]]:
 
         if exchange_rate is None and exchange_rate_currency not in (None, ''):
             raise ValueError('exchange_rate_currency requires exchange_rate')
+
+        platform = entry.get('platform')
+        if platform not in (None, ''):
+            normalized_platform = str(platform).strip()
+            if not normalized_platform:
+                raise ValueError('platform cannot be empty')
+            if len(normalized_platform) > 100:
+                raise ValueError('platform must be 100 characters or fewer')
 
         purchase_date_raw = entry.get('purchase_date')
         if purchase_date_raw not in (None, '') and parse_position_date(purchase_date_raw) is None:
