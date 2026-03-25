@@ -34,11 +34,17 @@ _LOGO_CACHE_TTL = 86400
 MAX_LOGO_BYTES = 5 * 1024 * 1024
 _LOGO_CACHE: dict[str, tuple[Optional[str], float]] = {}
 _CURATED_LOGO_QUERIES: dict[str, list[str]] = {
+    "CIBUS": ["cibusrealestate.com", "Cibus Nordic"],
+    "CIBUS.ST": ["cibusrealestate.com", "Cibus Nordic"],
     "EQT.ST": ["eqtpartners.com", "EQT Group"],
     "INVE-B.ST": ["investorab.com", "Investor AB"],
     "VOLV-B.ST": ["volvogroup.com", "Volvo Group"],
     "RIO.AX": ["riotinto.com", "Rio Tinto"],
     "OR.PA": ["loreal.com", "L'Oreal"],
+}
+_CURATED_LOCAL_LOGOS: dict[str, str] = {
+    "CIBUS": "cibus.svg",
+    "CIBUS.ST": "cibus.svg",
 }
 
 _session: Optional[requests.Session] = None
@@ -183,6 +189,27 @@ def _save_file_cache(filename: str, value: Optional[str], ttl: int = _LOGO_CACHE
 
 
 class BrandfetchService:
+    def _curated_local_logo_path(self, ticker: str) -> Optional[str]:
+        """
+        Return a curated local logo path for a ticker when one is bundled with the app.
+
+        Parameters:
+            ticker (str): Stock ticker symbol (case-insensitive).
+
+        Returns:
+            Optional[str]: Public local logo path when a curated asset exists, otherwise `None`.
+        """
+        filename = _CURATED_LOCAL_LOGOS.get(ticker.strip().upper())
+        if not filename:
+            return None
+
+        filepath = os.path.join(LOGO_DIR, filename)
+        if not os.path.exists(filepath):
+            logger.warning("Curated local logo is missing for %s: %s", ticker, filepath)
+            return None
+
+        return self._logo_public_path(filename)
+
     def normalize_stored_logo_url(self, value: Optional[str]) -> Optional[str]:
         """
         Return a stored logo URL only when it still points to a usable local asset.
@@ -754,6 +781,12 @@ class BrandfetchService:
         """
         ticker_upper = ticker.strip().upper()
         cache_file = _safe_logo_cache_filename(ticker_upper)
+        curated_local_logo = self._curated_local_logo_path(ticker_upper)
+
+        if curated_local_logo:
+            _LOGO_CACHE[ticker_upper] = (curated_local_logo, datetime.now().timestamp())
+            _save_file_cache(cache_file, curated_local_logo)
+            return curated_local_logo
 
         if existing_logo and self._is_legacy_remote_logo_url(existing_logo):
             force_refresh = True

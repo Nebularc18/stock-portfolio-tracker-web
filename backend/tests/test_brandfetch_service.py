@@ -20,6 +20,12 @@ def test_build_query_candidates_includes_curated_eqt_domain(brandfetch_service: 
     assert "eqtpartners.com" in candidates
 
 
+def test_build_query_candidates_includes_curated_cibus_domain(brandfetch_service: BrandfetchService):
+    candidates = brandfetch_service._build_query_candidates("CIBUS.ST", "Cibus Nordic Real Estate AB (publ)")
+
+    assert "cibusrealestate.com" in candidates
+
+
 def test_confident_match_accepts_curated_domain_for_single_token_name(brandfetch_service: BrandfetchService):
     candidate = {
         "name": "EQT Group",
@@ -51,3 +57,13 @@ def test_confident_match_rejects_same_root_different_host_for_curated_domain(bra
     }
 
     assert brandfetch_service._is_confident_match(candidate, "EQT.ST", "EQT AB", "eqt.com.au") is False
+
+
+def test_get_logo_url_for_ticker_prefers_curated_local_logo(brandfetch_service: BrandfetchService):
+    logo_url = brandfetch_service.get_logo_url_for_ticker(
+        "CIBUS.ST",
+        "Cibus Nordic Real Estate AB (publ)",
+        existing_logo="/static/logos/logo_wrong.png",
+    )
+
+    assert logo_url == "/static/logos/cibus.svg"
