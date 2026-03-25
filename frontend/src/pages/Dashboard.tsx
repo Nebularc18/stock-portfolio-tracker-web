@@ -554,6 +554,7 @@ export default function Dashboard() {
   const autoRefreshTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const lastAutoRefreshRunRef = useRef<symbol | null>(null)
   const userIdRef = useRef<number | null | undefined>(user?.id)
+  const lastHistoryRangeUserIdRef = useRef<number | null | undefined>(initialDashboardState.initialUserId)
   // Keep the latest range available to long-lived callbacks without restarting their effects.
   const historyRangeRef = useRef(historyRange)
   const currentUserId = user?.id
@@ -697,11 +698,15 @@ export default function Dashboard() {
   }, [currentUserId, displayCurrency, fetchData, initialDashboardState])
 
   useEffect(() => {
-    const storedRange = getStoredHistoryRange(currentUserId)
-    if (historyRange !== storedRange) {
-      setHistoryRange(storedRange)
-      return
+    if (lastHistoryRangeUserIdRef.current !== currentUserId) {
+      lastHistoryRangeUserIdRef.current = currentUserId
+      const storedRange = getStoredHistoryRange(currentUserId)
+      if (historyRange !== storedRange) {
+        setHistoryRange(storedRange)
+        return
+      }
     }
+
     const controller = new AbortController()
     historyAbortControllerRef.current?.abort()
     historyAbortControllerRef.current = controller
