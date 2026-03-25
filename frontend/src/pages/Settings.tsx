@@ -6,6 +6,10 @@ import { api, AvailableIndex } from '../services/api'
 import AvanzaMappings from '../components/AvanzaMappings'
 import { t } from '../i18n'
 
+function getPlatformDuplicateKey(value: string): string {
+  return value.trim().toLowerCase()
+}
+
 /**
  * Render the Settings page and provide controls for appearance, header indices, language, display currency, and timezone.
  *
@@ -77,7 +81,8 @@ export default function Settings() {
       setPlatformError(t(language, 'settings.platformTooLong'))
       return
     }
-    if (platforms.some((platform) => platform.localeCompare(normalized, undefined, { sensitivity: 'base' }) === 0)) {
+    const normalizedKey = getPlatformDuplicateKey(normalized)
+    if (platforms.some((platform) => getPlatformDuplicateKey(platform) === normalizedKey)) {
       setPlatformError(t(language, 'settings.platformDuplicate'))
       return
     }
