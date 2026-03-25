@@ -60,6 +60,7 @@ function getPlatformSortValue(stock: Stock, unassignedLabel: string): string {
 const EXCHANGES = [
   ...supportedExchanges,
 ]
+const MAX_PLATFORM_LENGTH = 100
 
 /**
  * Formats a Date as a local `YYYY-MM-DD` string suitable for date input values.
@@ -344,6 +345,10 @@ export default function Stocks() {
       setError(t(language, 'stocks.invalidEditValues'))
       return
     }
+    if ((normalizePlatform(newPlatform)?.length || 0) > MAX_PLATFORM_LENGTH) {
+      setError(t(language, 'stocks.platformTooLong'))
+      return
+    }
     try {
       setAdding(true)
       setError(null)
@@ -453,14 +458,19 @@ export default function Stocks() {
       const purchasePriceValid = entry.purchase_price === null || (Number.isFinite(entry.purchase_price) && entry.purchase_price >= 0)
       const courtageValid = Number.isFinite(entry.courtage) && entry.courtage >= 0
       const exchangeRateValid = entry.exchange_rate === null || (Number.isFinite(entry.exchange_rate) && entry.exchange_rate > 0)
+      const platformValid = (entry.platform?.length || 0) <= MAX_PLATFORM_LENGTH
       const courtageHasPrice = entry.courtage === 0 || (entry.purchase_price !== null && entry.purchase_price > 0)
       const sellAfterPurchase = !entry.sell_date || !entry.purchase_date || entry.sell_date >= entry.purchase_date
       const exchangeRatePairValid = entry.exchange_rate === null || !!entry.exchange_rate_currency
-      return !quantityValid || !purchaseDateValid || !sellDateValid || !purchasePriceValid || !courtageValid || !exchangeRateValid || !courtageHasPrice || !sellAfterPurchase || !exchangeRatePairValid
+      return !quantityValid || !purchaseDateValid || !sellDateValid || !purchasePriceValid || !courtageValid || !exchangeRateValid || !platformValid || !courtageHasPrice || !sellAfterPurchase || !exchangeRatePairValid
     })
 
     if (hasInvalidEntry) {
-      setEditError(t(language, 'stocks.invalidEditValues'))
+      if (normalizedEntries.some((entry) => (entry.platform?.length || 0) > MAX_PLATFORM_LENGTH)) {
+        setEditError(t(language, 'stocks.platformTooLong'))
+      } else {
+        setEditError(t(language, 'stocks.invalidEditValues'))
+      }
       return
     }
 

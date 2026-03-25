@@ -405,7 +405,7 @@ def ensure_account_schema_and_seed() -> None:
         conn.execute(text("ALTER TABLE stocks ADD COLUMN IF NOT EXISTS purchase_date DATE"))
         conn.execute(text("ALTER TABLE stocks ADD COLUMN IF NOT EXISTS position_entries JSON"))
         conn.execute(text("ALTER TABLE user_settings ADD COLUMN IF NOT EXISTS user_id INTEGER"))
-        conn.execute(text("ALTER TABLE user_settings ADD COLUMN IF NOT EXISTS platforms VARCHAR DEFAULT '[]'"))
+        conn.execute(text("ALTER TABLE user_settings ADD COLUMN IF NOT EXISTS platforms VARCHAR(1000) DEFAULT '[]'"))
         conn.execute(text("ALTER TABLE portfolio_history ADD COLUMN IF NOT EXISTS user_id INTEGER"))
         conn.execute(text("ALTER TABLE stock_price_history ADD COLUMN IF NOT EXISTS user_id INTEGER"))
 

@@ -1103,7 +1103,8 @@ def get_portfolio_distribution(db: Session = Depends(get_db), current_user: User
 
         by_stock[stock.ticker] = by_stock.get(stock.ticker, 0) + value
 
-        for entry in snapshot.position_entries:
+        position_entries = snapshot.position_entries if isinstance(snapshot.position_entries, list) else []
+        for entry in position_entries:
             if entry.get('sell_date'):
                 continue
             entry_quantity = entry.get('quantity')
