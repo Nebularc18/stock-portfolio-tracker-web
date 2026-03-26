@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import { Link } from 'react-router-dom'
 import { api, UpcomingDividend } from '../services/api'
 import { useSettings } from '../SettingsContext'
@@ -83,6 +83,7 @@ export default function UpcomingDividends() {
   const [error, setError] = useState<string | null>(null)
   const [refreshError, setRefreshError] = useState<string | null>(null)
   const { sortState, requestSort } = useTableSort<SortField>({ field: 'name', direction: 'asc' })
+  const fetchDataRef = useRef<((showLoadingState?: boolean) => Promise<void>) | null>(null)
 
   const fetchData = useCallback(async (showLoadingState: boolean = true) => {
     try {
@@ -118,15 +119,17 @@ export default function UpcomingDividends() {
     }
   }, [language])
 
+  fetchDataRef.current = fetchData
+
   useEffect(() => {
     fetchData(true)
   }, [fetchData])
 
   useEffect(() => {
     return subscribeToPortfolioDataUpdates(() => {
-      void fetchData(true)
+      void fetchDataRef.current?.(true)
     })
-  }, [fetchData])
+  }, [])
 
   const groupedByMonth = dividends.reduce((acc, div) => {
     const payoutDate = div.payment_date

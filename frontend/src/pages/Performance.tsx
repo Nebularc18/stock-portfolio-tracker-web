@@ -160,6 +160,7 @@ export default function Performance() {
   const { language } = useSettings()
   const locale = getLocaleForLanguage(language)
   const latestFetchIdRef = useRef(0)
+  const fetchDataRef = useRef<(() => Promise<void>) | null>(null)
 
   const fetchData = useCallback(async () => {
     const fetchId = latestFetchIdRef.current + 1
@@ -195,6 +196,8 @@ export default function Performance() {
     }
   }, [])
 
+  fetchDataRef.current = fetchData
+
   useEffect(() => {
     fetchData()
     return () => {
@@ -204,9 +207,9 @@ export default function Performance() {
 
   useEffect(() => {
     return subscribeToPortfolioDataUpdates(() => {
-      void fetchData()
+      void fetchDataRef.current?.()
     })
-  }, [fetchData])
+  }, [])
 
   const displayCurrency = summary?.display_currency ?? 'SEK'
   const summaryStocksByTicker = useMemo(() => (

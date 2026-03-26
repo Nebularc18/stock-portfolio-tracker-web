@@ -189,6 +189,7 @@ export default function Analytics() {
   const [dividendComparisonAttempted, setDividendComparisonAttempted] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const latestFetchId = useRef(0)
+  const fetchDataRef = useRef<(() => Promise<void>) | null>(null)
   const { displayCurrency, language } = useSettings()
   const locale = getLocaleForLanguage(language)
   const chartCurrency = distribution?.display_currency || displayCurrency
@@ -329,15 +330,17 @@ export default function Analytics() {
     }
   }, [displayCurrency, language, locale])
 
+  fetchDataRef.current = fetchData
+
   useEffect(() => {
     fetchData()
   }, [fetchData])
 
   useEffect(() => {
     return subscribeToPortfolioDataUpdates(() => {
-      void fetchData()
+      void fetchDataRef.current?.()
     })
-  }, [fetchData])
+  }, [])
 
   const rawSectorData = distribution?.by_sector
     ? Object.entries(distribution.by_sector).map(([name, value]) => ({ name, value }))

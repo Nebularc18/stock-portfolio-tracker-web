@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo, useCallback } from 'react'
+import { useState, useEffect, useMemo, useCallback, useRef } from 'react'
 import { Link } from 'react-router-dom'
 import { api, Dividend, Stock } from '../services/api'
 import { getLocaleForLanguage, t, type Language } from '../i18n'
@@ -83,6 +83,7 @@ export default function HistoricalDividends() {
   const [showDividendRangeWarning, setShowDividendRangeWarning] = useState(false)
   const [fetchError, setFetchError] = useState<string | null>(null)
   const { sortState, requestSort } = useTableSort<SortField>({ field: 'name', direction: 'asc' })
+  const loadStocksRef = useRef<(() => Promise<void>) | null>(null)
 
   const loadStocks = useCallback(async () => {
     try {
@@ -98,15 +99,17 @@ export default function HistoricalDividends() {
     }
   }, [language])
 
+  loadStocksRef.current = loadStocks
+
   useEffect(() => {
     loadStocks()
   }, [loadStocks])
 
   useEffect(() => {
     return subscribeToPortfolioDataUpdates(() => {
-      void loadStocks()
+      void loadStocksRef.current?.()
     })
-  }, [loadStocks])
+  }, [])
 
   useEffect(() => {
     if (stocks.length === 0) {
