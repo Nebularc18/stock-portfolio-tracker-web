@@ -842,10 +842,11 @@ export default function Dashboard() {
       .filter((point): point is ChartPoint => point !== null)
   ), [portfolioHistory])
 
-  const rangeChartData = useMemo(() => {
-    if (historyRange !== '1D') return rawChartData
-    return rawChartData.filter((point) => isHistoryPointInCurrentDay(point.date, timezone))
-  }, [historyRange, rawChartData, timezone])
+  const currentDayChartData = useMemo(() => (
+    rawChartData.filter((point) => isHistoryPointInCurrentDay(point.date, timezone))
+  ), [rawChartData, timezone])
+
+  const rangeChartData = historyRange === '1D' ? currentDayChartData : rawChartData
 
   const {
     displayedChartData,
