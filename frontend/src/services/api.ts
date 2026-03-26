@@ -369,6 +369,7 @@ export interface PortfolioSummary {
   display_currency: string
   stocks: PortfolioSummaryStock[]
   stock_count: number
+  auto_refresh_active: boolean
 }
 
 export interface PortfolioSummaryStock {

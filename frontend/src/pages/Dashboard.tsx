@@ -11,7 +11,6 @@ import { formatDisplayName } from '../utils/displayName'
 import SortableHeader from '../components/SortableHeader'
 import { sortTableItems, useTableSort } from '../utils/tableSort'
 import { subscribeToPortfolioDataUpdates } from '../utils/portfolioSync'
-import supportedExchanges from '../config/supportedExchanges.json'
 type HistoryRangeKey = '1D' | '1W' | '1M' | 'YTD' | '1Y' | 'SINCE_START'
 type FetchOptions = { background?: boolean; signal?: AbortSignal }
 
@@ -55,27 +54,6 @@ const DASHBOARD_CACHE_TTL_MS = 30 * 60 * 1000
 const DASHBOARD_AUTO_REFRESH_INTERVAL_MS = 10 * 60 * 1000
 const DASHBOARD_AUTO_REFRESH_BUFFER_MS = 5_000
 const DASHBOARD_AUTO_REFRESH_MIN_DELAY_MS = 5_000
-const DASHBOARD_MARKET_REFRESH_WINDOW_MINUTES = 10
-
-type DashboardMarketCode = 'SE' | 'US' | 'UK' | 'DE'
-const DASHBOARD_MARKET_CONFIG: Record<DashboardMarketCode, { timezone: string; openMinutes: number; closeMinutes: number; days: number[] }> = {
-  SE: { timezone: 'Europe/Stockholm', openMinutes: 9 * 60, closeMinutes: 17 * 60 + 25, days: [1, 2, 3, 4, 5] },
-  US: { timezone: 'America/New_York', openMinutes: 9 * 60 + 30, closeMinutes: 16 * 60, days: [1, 2, 3, 4, 5] },
-  UK: { timezone: 'Europe/London', openMinutes: 8 * 60, closeMinutes: 16 * 60 + 30, days: [1, 2, 3, 4, 5] },
-  DE: { timezone: 'Europe/Berlin', openMinutes: 9 * 60, closeMinutes: 17 * 60 + 30, days: [1, 2, 3, 4, 5] },
-}
-const DASHBOARD_MARKET_BY_EXCHANGE_CODE: Partial<Record<string, DashboardMarketCode>> = {
-  ST: 'SE',
-  US: 'US',
-  L: 'UK',
-  DE: 'DE',
-}
-const DASHBOARD_MARKET_BY_TICKER_SUFFIX = supportedExchanges.reduce<Record<string, DashboardMarketCode>>((accumulator, exchange) => {
-  const market = DASHBOARD_MARKET_BY_EXCHANGE_CODE[exchange.code]
-  if (!market || !exchange.suffix) return accumulator
-  accumulator[exchange.suffix.toUpperCase()] = market
-  return accumulator
-}, {})
 
 type HoldingSortField = 'ticker' | 'name' | 'quantity' | 'price' | 'value' | 'gainLoss' | 'gainLossPercent'
 type UpcomingSortField = 'name' | 'exDate' | 'paymentDate' | 'perShare' | 'total' | 'source'
@@ -172,6 +150,7 @@ function isPortfolioSummaryCache(value: unknown): value is PortfolioSummary {
     && typeof value.dividend_yield_partial === 'boolean'
     && isNullableString(value.last_updated)
     && typeof value.display_currency === 'string'
+    && typeof value.auto_refresh_active === 'boolean'
     && Array.isArray(value.stocks)
     && value.stocks.every(isPortfolioSummaryStock)
     && isFiniteNumber(value.stock_count)
@@ -357,71 +336,10 @@ function getNextDashboardRefreshDelayMs(now: number = Date.now()): number {
   )
 }
 
-function getWeekdayNumber(value: string): number | null {
-  if (value === 'Mon') return 1
-  if (value === 'Tue') return 2
-  if (value === 'Wed') return 3
-  if (value === 'Thu') return 4
-  if (value === 'Fri') return 5
-  if (value === 'Sat') return 6
-  if (value === 'Sun') return 0
-  return null
-}
-
-function getTimePartsInTimezone(date: Date, timezone: string): { weekday: number | null; hour: number; minute: number } | null {
-  const formatter = new Intl.DateTimeFormat('en-US', {
-    timeZone: timezone,
-    weekday: 'short',
-    hour: '2-digit',
-    minute: '2-digit',
-    hour12: false,
-  })
-  const parts = formatter.formatToParts(date)
-  const weekday = getWeekdayNumber(parts.find((part) => part.type === 'weekday')?.value ?? '')
-  const hour = Number(parts.find((part) => part.type === 'hour')?.value ?? Number.NaN)
-  const minute = Number(parts.find((part) => part.type === 'minute')?.value ?? Number.NaN)
-  if (!Number.isFinite(hour) || !Number.isFinite(minute)) return null
-  return { weekday, hour, minute }
-}
-
-export function inferDashboardMarketForTicker(ticker: string | null | undefined): DashboardMarketCode | null {
-  const normalizedTicker = (ticker ?? '').trim().toUpperCase()
-  if (!normalizedTicker) return null
-  for (const [suffix, market] of Object.entries(DASHBOARD_MARKET_BY_TICKER_SUFFIX)) {
-    if (normalizedTicker.endsWith(suffix)) return market
-  }
-  if (!normalizedTicker.includes('.')) return 'US'
-  return null
-}
-
-function isDashboardMarketInRefreshWindow(
-  market: DashboardMarketCode,
-  now: Date = new Date(),
-  windowMinutes: number = DASHBOARD_MARKET_REFRESH_WINDOW_MINUTES,
-): boolean {
-  const config = DASHBOARD_MARKET_CONFIG[market]
-  const parts = getTimePartsInTimezone(now, config.timezone)
-  if (!parts || parts.weekday === null || !config.days.includes(parts.weekday)) return false
-  const currentMinutes = parts.hour * 60 + parts.minute
-  return currentMinutes >= config.openMinutes && currentMinutes <= config.closeMinutes + windowMinutes
-}
-
 export function shouldAutoRefreshDashboard(
-  stocks: Array<Pick<PortfolioSummary['stocks'][number], 'ticker'>> | null | undefined,
-  now: Date = new Date(),
+  summary: Pick<PortfolioSummary, 'auto_refresh_active'> | null | undefined,
 ): boolean {
-  if (!stocks?.length) return true
-  const markets = new Set<DashboardMarketCode>()
-  for (const stock of stocks) {
-    const market = inferDashboardMarketForTicker(stock.ticker)
-    if (market === null) return false
-    markets.add(market)
-  }
-  if (markets.size === 0) return false
-  for (const market of markets) {
-    if (isDashboardMarketInRefreshWindow(market, now)) return true
-  }
-  return false
+  return summary?.auto_refresh_active ?? true
 }
 
 /**
@@ -874,7 +792,7 @@ export default function Dashboard() {
       if (lastAutoRefreshRunRef.current !== runId) return
       autoRefreshTimeoutRef.current = setTimeout(() => {
         if (lastAutoRefreshRunRef.current !== runId) return
-        if (!shouldAutoRefreshDashboard(summaryRef.current?.stocks)) {
+        if (!shouldAutoRefreshDashboard(summaryRef.current)) {
           scheduleNextRefresh()
           return
         }
@@ -912,7 +830,7 @@ export default function Dashboard() {
       if (document.visibilityState !== 'visible') return
       const now = Date.now()
       if (now - lastResumeRefreshAt < DASHBOARD_AUTO_REFRESH_MIN_DELAY_MS) return
-      if (!shouldAutoRefreshDashboard(summaryRef.current?.stocks)) return
+      if (!shouldAutoRefreshDashboard(summaryRef.current)) return
       lastResumeRefreshAt = now
       void fetchData({ background: true })
       void fetchHistory(historyRangeRef.current, { background: true })

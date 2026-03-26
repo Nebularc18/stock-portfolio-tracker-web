@@ -7,7 +7,6 @@ import {
   getDashboardDataCacheKey,
   getDashboardHistoryCacheKey,
   getStoredHistoryRange,
-  inferDashboardMarketForTicker,
   isHistoryPointInCurrentDay,
   readDashboardDataCache,
   readDashboardHistoryCache,
@@ -35,6 +34,7 @@ function createValidDashboardDataCache() {
       display_currency: 'SEK',
       stocks: [],
       stock_count: 0,
+      auto_refresh_active: true,
     },
     upcomingDividends: [],
   }
@@ -206,37 +206,15 @@ describe('dashboard storage helpers', () => {
     expect(isHistoryPointInCurrentDay('2026-03-25T22:30:00Z', 'Europe/Stockholm', now)).toBe(false)
   })
 
-  it('maps Swedish tickers to the Stockholm market', () => {
-    expect(inferDashboardMarketForTicker('VOLV-B.ST')).toBe('SE')
+  it('uses the backend-provided auto-refresh flag when active', () => {
+    expect(shouldAutoRefreshDashboard({ auto_refresh_active: true })).toBe(true)
   })
 
-  it('does not infer unsupported exchange suffixes as a tracked market', () => {
-    expect(inferDashboardMarketForTicker('SHOP.TO')).toBeNull()
+  it('uses the backend-provided auto-refresh flag when inactive', () => {
+    expect(shouldAutoRefreshDashboard({ auto_refresh_active: false })).toBe(false)
   })
 
-  it('stops dashboard auto-refresh shortly after the Swedish market closes', () => {
-    expect(shouldAutoRefreshDashboard(
-      [{ ticker: 'VOLV-B.ST' }],
-      new Date('2026-03-26T16:30:00Z'),
-    )).toBe(true)
-
-    expect(shouldAutoRefreshDashboard(
-      [{ ticker: 'VOLV-B.ST' }],
-      new Date('2026-03-26T16:40:00Z'),
-    )).toBe(false)
-  })
-
-  it('keeps dashboard auto-refresh active when another held market is still open', () => {
-    expect(shouldAutoRefreshDashboard(
-      [{ ticker: 'VOLV-B.ST' }, { ticker: 'MSFT' }],
-      new Date('2026-03-26T18:00:00Z'),
-    )).toBe(true)
-  })
-
-  it('fails closed for unknown-market tickers', () => {
-    expect(shouldAutoRefreshDashboard(
-      [{ ticker: 'SHOP.TO' }],
-      new Date('2026-03-26T18:00:00Z'),
-    )).toBe(false)
+  it('defaults to active when summary data is unavailable', () => {
+    expect(shouldAutoRefreshDashboard(null)).toBe(true)
   })
 })
