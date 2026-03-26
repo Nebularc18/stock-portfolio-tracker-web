@@ -7,6 +7,7 @@ import {
   getDashboardDataCacheKey,
   getDashboardHistoryCacheKey,
   getStoredHistoryRange,
+  isHistoryPointInCurrentDay,
   readDashboardDataCache,
   readDashboardHistoryCache,
 } from './Dashboard'
@@ -194,5 +195,12 @@ describe('dashboard storage helpers', () => {
       { date: '2026-03-22', value: 30 },
       { date: '2026-03-24', value: 50 },
     ])
+  })
+
+  it('treats 1D history as the current calendar day in the selected timezone', () => {
+    const now = new Date('2026-03-26T08:00:00Z')
+
+    expect(isHistoryPointInCurrentDay('2026-03-25T23:30:00Z', 'Europe/Stockholm', now)).toBe(true)
+    expect(isHistoryPointInCurrentDay('2026-03-25T22:30:00Z', 'Europe/Stockholm', now)).toBe(false)
   })
 })

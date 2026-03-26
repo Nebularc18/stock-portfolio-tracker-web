@@ -49,6 +49,13 @@ export default function AvanzaMappings() {
     )
   ), [locale, mappings, sortState])
 
+  const stockNameByTicker = useMemo(() => (
+    stocks.reduce<Record<string, string>>((accumulator, stock) => {
+      accumulator[stock.ticker.toUpperCase()] = stock.name || stock.ticker
+      return accumulator
+    }, {})
+  ), [stocks])
+
   useEffect(() => {
     fetchData()
   }, [])
@@ -192,7 +199,7 @@ export default function AvanzaMappings() {
                 <option value="">{t(language, 'avanzaMappings.selectStockOption')}</option>
                 {unmappedStocks.map((stock) => (
                   <option key={stock.ticker} value={stock.ticker}>
-                    {stock.name || stock.ticker}
+                    {stock.name ? `${stock.name} (${stock.ticker})` : stock.ticker}
                   </option>
                 ))}
               </select>
@@ -240,6 +247,11 @@ export default function AvanzaMappings() {
                     boxSizing: 'border-box'
                   }}
                 />
+                {newMapping.yahoo_ticker && (
+                  <p style={{ fontSize: '11px', color: 'var(--text-secondary)', marginTop: '4px' }}>
+                    {stockNameByTicker[newMapping.yahoo_ticker.toUpperCase()] || newMapping.yahoo_ticker}
+                  </p>
+                )}
               </div>
             </div>
             
@@ -314,14 +326,20 @@ export default function AvanzaMappings() {
               <tr key={mapping.avanza_name}>
                 <td style={{ fontWeight: '600' }}>{mapping.avanza_name}</td>
                 <td>
-                  <code style={{ 
-                    background: 'var(--bg-tertiary)', 
-                    padding: '2px 6px', 
-                    borderRadius: '4px',
-                    fontSize: '13px'
-                  }}>
-                    {mapping.yahoo_ticker}
-                  </code>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                    <code style={{
+                      background: 'var(--bg-tertiary)',
+                      padding: '2px 6px',
+                      borderRadius: '4px',
+                      fontSize: '13px',
+                      width: 'fit-content'
+                    }}>
+                      {mapping.yahoo_ticker}
+                    </code>
+                    <span style={{ color: 'var(--text-secondary)', fontSize: '12px' }}>
+                      {stockNameByTicker[mapping.yahoo_ticker.toUpperCase()] || mapping.yahoo_ticker}
+                    </span>
+                  </div>
                 </td>
                 <td style={{ color: 'var(--text-secondary)', fontSize: '13px' }}>
                   {mapping.instrument_id || '-'}

@@ -481,6 +481,21 @@ function formatTooltipDate(dateValue: string, range: HistoryRangeKey, locale: st
   return date.toLocaleDateString(locale, { weekday: 'short', month: 'short', day: 'numeric', year: 'numeric', timeZone: timezone })
 }
 
+function formatDateKeyInTimezone(date: Date, timezone: string): string {
+  return new Intl.DateTimeFormat('en-CA', {
+    timeZone: timezone,
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).format(date)
+}
+
+export function isHistoryPointInCurrentDay(dateValue: string, timezone: string, now: Date = new Date()): boolean {
+  const date = parseHistoryDate(dateValue)
+  if (Number.isNaN(date.getTime())) return false
+  return formatDateKeyInTimezone(date, timezone) === formatDateKeyInTimezone(now, timezone)
+}
+
 /**
  * Reduce a time-series to at most `targetPoints` by sampling the first and last points and evenly selecting intermediate points.
  *
@@ -818,6 +833,21 @@ export default function Dashboard() {
   const dividendYieldPercent = summary?.dividend_yield ?? 0
   const lastUpdate = summary?.last_updated ?? null
 
+  const rawChartData = useMemo(() => (
+    portfolioHistory
+      .map((entry) => {
+        if (!Number.isFinite(entry.value)) return null
+        return { date: entry.date, value: entry.value }
+      })
+      .filter((point): point is ChartPoint => point !== null)
+  ), [portfolioHistory])
+
+  const currentDayChartData = useMemo(() => (
+    rawChartData.filter((point) => isHistoryPointInCurrentDay(point.date, timezone))
+  ), [rawChartData, timezone])
+
+  const rangeChartData = historyRange === '1D' ? currentDayChartData : rawChartData
+
   const {
     displayedChartData,
     hasChartData,
@@ -827,26 +857,20 @@ export default function Dashboard() {
     yMax,
     baselineValue,
   } = useMemo(() => {
-    const nextRawChartData: ChartPoint[] = portfolioHistory
-      .map((entry) => {
-        if (!Number.isFinite(entry.value)) return null
-        return { date: entry.date, value: entry.value }
-      })
-      .filter((point): point is ChartPoint => point !== null)
     const rangeTargetPoints = getRangeTargetPoints(historyRange)
     const nextDisplayedChartData = rangeTargetPoints
-      ? downsampleChartData(nextRawChartData, rangeTargetPoints)
-      : nextRawChartData
-    const nextHasChartData = nextRawChartData.length > 0
+      ? downsampleChartData(rangeChartData, rangeTargetPoints)
+      : rangeChartData
+    const nextHasChartData = rangeChartData.length > 0
     let nextMinValue = 0
     let nextMaxValue = 0
 
     if (nextHasChartData) {
-      nextMinValue = nextRawChartData[0].value
-      nextMaxValue = nextRawChartData[0].value
-      for (let index = 1; index < nextRawChartData.length; index += 1) {
-        if (nextRawChartData[index].value < nextMinValue) nextMinValue = nextRawChartData[index].value
-        if (nextRawChartData[index].value > nextMaxValue) nextMaxValue = nextRawChartData[index].value
+      nextMinValue = rangeChartData[0].value
+      nextMaxValue = rangeChartData[0].value
+      for (let index = 1; index < rangeChartData.length; index += 1) {
+        if (rangeChartData[index].value < nextMinValue) nextMinValue = rangeChartData[index].value
+        if (rangeChartData[index].value > nextMaxValue) nextMaxValue = rangeChartData[index].value
       }
     }
 
@@ -860,7 +884,7 @@ export default function Dashboard() {
       yMax: nextMaxValue + valueRange * 0.1,
       baselineValue: nextDisplayedChartData.length > 0 ? nextDisplayedChartData[0].value : 0,
     }
-  }, [historyRange, portfolioHistory])
+  }, [historyRange, rangeChartData])
 
   const groupedDividends = useMemo(() => (
     upcomingDividends
