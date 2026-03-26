@@ -7,9 +7,11 @@ import {
   getDashboardDataCacheKey,
   getDashboardHistoryCacheKey,
   getStoredHistoryRange,
+  inferDashboardMarketForTicker,
   isHistoryPointInCurrentDay,
   readDashboardDataCache,
   readDashboardHistoryCache,
+  shouldAutoRefreshDashboard,
 } from './Dashboard'
 
 function createValidDashboardDataCache() {
@@ -202,5 +204,28 @@ describe('dashboard storage helpers', () => {
 
     expect(isHistoryPointInCurrentDay('2026-03-25T23:30:00Z', 'Europe/Stockholm', now)).toBe(true)
     expect(isHistoryPointInCurrentDay('2026-03-25T22:30:00Z', 'Europe/Stockholm', now)).toBe(false)
+  })
+
+  it('maps Swedish tickers to the Stockholm market', () => {
+    expect(inferDashboardMarketForTicker('VOLV-B.ST')).toBe('SE')
+  })
+
+  it('stops dashboard auto-refresh shortly after the Swedish market closes', () => {
+    expect(shouldAutoRefreshDashboard(
+      [{ ticker: 'VOLV-B.ST' }],
+      new Date('2026-03-26T16:30:00Z'),
+    )).toBe(true)
+
+    expect(shouldAutoRefreshDashboard(
+      [{ ticker: 'VOLV-B.ST' }],
+      new Date('2026-03-26T16:40:00Z'),
+    )).toBe(false)
+  })
+
+  it('keeps dashboard auto-refresh active when another held market is still open', () => {
+    expect(shouldAutoRefreshDashboard(
+      [{ ticker: 'VOLV-B.ST' }, { ticker: 'MSFT' }],
+      new Date('2026-03-26T18:00:00Z'),
+    )).toBe(true)
   })
 })

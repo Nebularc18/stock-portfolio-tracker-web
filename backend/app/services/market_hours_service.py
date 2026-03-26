@@ -5,8 +5,8 @@ determine if markets are currently open, and check if data refresh
 should occur based on market hours.
 """
 
-from datetime import date, datetime, time
-from typing import Dict, List
+from datetime import date, datetime, time, timedelta
+from typing import Dict, Iterable, List
 import logging
 
 logger = logging.getLogger(__name__)
@@ -50,6 +50,14 @@ MARKET_CONFIG = {
     },
 }
 
+MARKET_BY_TICKER_SUFFIX = {
+    ".ST": "SE",
+    ".L": "UK",
+    ".DE": "DE",
+}
+DEFAULT_UNSUFFIXED_MARKET = "US"
+DEFAULT_REFRESH_INTERVAL_MINUTES = 10
+
 
 def convert_time_to_timezone(time_str: str, from_tz: str, to_tz: str, base_date: date | None = None) -> str:
     """Convert a time string from one timezone to another.
@@ -88,7 +96,33 @@ class MarketHoursService:
     """
     
     @staticmethod
-    def is_market_open(market: str) -> bool:
+    def infer_market_for_ticker(ticker: str | None) -> str | None:
+        """Infer the configured market for a ticker from its Yahoo-style suffix."""
+        normalized_ticker = (ticker or "").strip().upper()
+        if not normalized_ticker:
+            return None
+        for suffix, market in MARKET_BY_TICKER_SUFFIX.items():
+            if normalized_ticker.endswith(suffix):
+                return market
+        if "." not in normalized_ticker:
+            return DEFAULT_UNSUFFIXED_MARKET
+        return None
+
+    @staticmethod
+    def infer_markets_for_tickers(tickers: Iterable[str | None]) -> list[str]:
+        """Return the distinct configured markets represented by the supplied tickers."""
+        markets: list[str] = []
+        seen: set[str] = set()
+        for ticker in tickers:
+            market = MarketHoursService.infer_market_for_ticker(ticker)
+            if market is None or market in seen:
+                continue
+            seen.add(market)
+            markets.append(market)
+        return markets
+
+    @staticmethod
+    def is_market_open(market: str, now: datetime | None = None) -> bool:
         """Check if a market is currently open.
         
         Args:
@@ -105,7 +139,7 @@ class MarketHoursService:
         try:
             from zoneinfo import ZoneInfo
             tz = ZoneInfo(config["timezone"])
-            now = datetime.now(tz)
+            now = now.astimezone(tz) if now is not None else datetime.now(tz)
             
             if now.weekday() not in config["days"]:
                 return False
@@ -216,7 +250,11 @@ class MarketHoursService:
         return open_markets
 
     @staticmethod
-    def is_within_post_close_window(market: str, minutes_after_close: int = 30) -> bool:
+    def is_within_post_close_window(
+        market: str,
+        minutes_after_close: int = 30,
+        now: datetime | None = None,
+    ) -> bool:
         """Check if current time is within post-close window.
         
         Args:
@@ -233,10 +271,8 @@ class MarketHoursService:
         
         try:
             from zoneinfo import ZoneInfo
-            from datetime import timedelta
-            
             tz = ZoneInfo(config["timezone"])
-            now = datetime.now(tz)
+            now = now.astimezone(tz) if now is not None else datetime.now(tz)
             
             if now.weekday() not in config["days"]:
                 return False
@@ -253,18 +289,28 @@ class MarketHoursService:
             return False
 
     @staticmethod
-    def should_refresh() -> bool:
+    def should_refresh(
+        markets: list[str] | None = None,
+        minutes_after_close: int = DEFAULT_REFRESH_INTERVAL_MINUTES,
+        now: datetime | None = None,
+    ) -> bool:
         """Check if market data should be refreshed.
         
-        Returns True if SE or US markets are open or within 30 minutes
-        after close.
+        Returns True if any supplied market is open or within the configured
+        post-close refresh window. When no markets are supplied, defaults to
+        the legacy SE/US behavior used by shared market widgets.
         
         Returns:
             bool: True if refresh should occur, False otherwise.
         """
-        for market in ["SE", "US"]:
-            if MarketHoursService.is_market_open(market):
+        target_markets = list(dict.fromkeys(markets or ["SE", "US"]))
+        for market in target_markets:
+            if MarketHoursService.is_market_open(market, now=now):
                 return True
-            if MarketHoursService.is_within_post_close_window(market):
+            if MarketHoursService.is_within_post_close_window(
+                market,
+                minutes_after_close=minutes_after_close,
+                now=now,
+            ):
                 return True
         return False

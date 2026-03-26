@@ -54,6 +54,20 @@ const DASHBOARD_CACHE_TTL_MS = 30 * 60 * 1000
 const DASHBOARD_AUTO_REFRESH_INTERVAL_MS = 10 * 60 * 1000
 const DASHBOARD_AUTO_REFRESH_BUFFER_MS = 5_000
 const DASHBOARD_AUTO_REFRESH_MIN_DELAY_MS = 5_000
+const DASHBOARD_MARKET_REFRESH_WINDOW_MINUTES = 10
+
+type DashboardMarketCode = 'SE' | 'US' | 'UK' | 'DE'
+const DASHBOARD_MARKET_BY_TICKER_SUFFIX: Record<string, DashboardMarketCode> = {
+  '.ST': 'SE',
+  '.L': 'UK',
+  '.DE': 'DE',
+}
+const DASHBOARD_MARKET_CONFIG: Record<DashboardMarketCode, { timezone: string; openMinutes: number; closeMinutes: number; days: number[] }> = {
+  SE: { timezone: 'Europe/Stockholm', openMinutes: 9 * 60, closeMinutes: 17 * 60 + 25, days: [1, 2, 3, 4, 5] },
+  US: { timezone: 'America/New_York', openMinutes: 9 * 60 + 30, closeMinutes: 16 * 60, days: [1, 2, 3, 4, 5] },
+  UK: { timezone: 'Europe/London', openMinutes: 8 * 60, closeMinutes: 16 * 60 + 30, days: [1, 2, 3, 4, 5] },
+  DE: { timezone: 'Europe/Berlin', openMinutes: 9 * 60, closeMinutes: 17 * 60 + 30, days: [1, 2, 3, 4, 5] },
+}
 
 type HoldingSortField = 'ticker' | 'name' | 'quantity' | 'price' | 'value' | 'gainLoss' | 'gainLossPercent'
 type UpcomingSortField = 'name' | 'exDate' | 'paymentDate' | 'perShare' | 'total' | 'source'
@@ -335,6 +349,73 @@ function getNextDashboardRefreshDelayMs(now: number = Date.now()): number {
   )
 }
 
+function getWeekdayNumber(value: string): number | null {
+  if (value === 'Mon') return 1
+  if (value === 'Tue') return 2
+  if (value === 'Wed') return 3
+  if (value === 'Thu') return 4
+  if (value === 'Fri') return 5
+  if (value === 'Sat') return 6
+  if (value === 'Sun') return 0
+  return null
+}
+
+function getTimePartsInTimezone(date: Date, timezone: string): { weekday: number | null; hour: number; minute: number } | null {
+  const formatter = new Intl.DateTimeFormat('en-US', {
+    timeZone: timezone,
+    weekday: 'short',
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: false,
+  })
+  const parts = formatter.formatToParts(date)
+  const weekday = getWeekdayNumber(parts.find((part) => part.type === 'weekday')?.value ?? '')
+  const hour = Number(parts.find((part) => part.type === 'hour')?.value ?? Number.NaN)
+  const minute = Number(parts.find((part) => part.type === 'minute')?.value ?? Number.NaN)
+  if (!Number.isFinite(hour) || !Number.isFinite(minute)) return null
+  return { weekday, hour, minute }
+}
+
+export function inferDashboardMarketForTicker(ticker: string | null | undefined): DashboardMarketCode | null {
+  const normalizedTicker = (ticker ?? '').trim().toUpperCase()
+  if (!normalizedTicker) return null
+  for (const [suffix, market] of Object.entries(DASHBOARD_MARKET_BY_TICKER_SUFFIX)) {
+    if (normalizedTicker.endsWith(suffix)) return market
+  }
+  if (!normalizedTicker.includes('.')) return 'US'
+  return null
+}
+
+function isDashboardMarketInRefreshWindow(
+  market: DashboardMarketCode,
+  now: Date = new Date(),
+  windowMinutes: number = DASHBOARD_MARKET_REFRESH_WINDOW_MINUTES,
+): boolean {
+  const config = DASHBOARD_MARKET_CONFIG[market]
+  const parts = getTimePartsInTimezone(now, config.timezone)
+  if (!parts || parts.weekday === null || !config.days.includes(parts.weekday)) return false
+  const currentMinutes = parts.hour * 60 + parts.minute
+  return currentMinutes >= config.openMinutes && currentMinutes <= config.closeMinutes + windowMinutes
+}
+
+export function shouldAutoRefreshDashboard(
+  stocks: Array<Pick<PortfolioSummary['stocks'][number], 'ticker'>> | null | undefined,
+  now: Date = new Date(),
+): boolean {
+  if (!stocks?.length) return true
+  const markets = new Set<DashboardMarketCode>()
+  for (const stock of stocks) {
+    const market = inferDashboardMarketForTicker(stock.ticker)
+    if (market === null) return true
+    markets.add(market)
+  }
+  if (markets.size === 0) return true
+  for (const market of markets) {
+    if (isDashboardMarketInRefreshWindow(market, now)) return true
+  }
+  return false
+}
+
 /**
  * Format a numeric amount as a localized currency string.
  *
@@ -575,12 +656,14 @@ export default function Dashboard() {
   const historyRangeRef = useRef(historyRange)
   const fetchDataRef = useRef<((options?: FetchOptions) => Promise<void>) | null>(null)
   const fetchHistoryRef = useRef<((range: HistoryRangeKey, options?: FetchOptions) => Promise<void>) | null>(null)
+  const summaryRef = useRef<PortfolioSummary | null>(initialDashboardState.cachedData?.summary ?? null)
   const currentUserId = user?.id
   const locale = getLocaleForLanguage(language)
   const { sortState: holdingsSortState, requestSort: requestHoldingsSort } = useTableSort<HoldingSortField>({ field: 'ticker', direction: 'asc' })
   const { sortState: upcomingSortState, requestSort: requestUpcomingSort } = useTableSort<UpcomingSortField>({ field: 'name', direction: 'asc' })
   upcomingDividendsRef.current = upcomingDividends
   totalRemainingDividendsRef.current = totalRemainingDividends
+  summaryRef.current = summary
 
   useEffect(() => {
     userIdRef.current = currentUserId
@@ -783,6 +866,10 @@ export default function Dashboard() {
       if (lastAutoRefreshRunRef.current !== runId) return
       autoRefreshTimeoutRef.current = setTimeout(() => {
         if (lastAutoRefreshRunRef.current !== runId) return
+        if (!shouldAutoRefreshDashboard(summaryRef.current?.stocks)) {
+          scheduleNextRefresh()
+          return
+        }
         refreshController?.abort()
         refreshController = new AbortController()
         void Promise.allSettled([
@@ -817,6 +904,7 @@ export default function Dashboard() {
       if (document.visibilityState !== 'visible') return
       const now = Date.now()
       if (now - lastResumeRefreshAt < DASHBOARD_AUTO_REFRESH_MIN_DELAY_MS) return
+      if (!shouldAutoRefreshDashboard(summaryRef.current?.stocks)) return
       lastResumeRefreshAt = now
       void fetchData({ background: true })
       void fetchHistory(historyRangeRef.current, { background: true })
@@ -1111,7 +1199,7 @@ export default function Dashboard() {
         ))}
       </div>
 
-      {/* last updated */}
+        {/* last updated */}
       <div style={{ padding: '8px 28px', background: 'var(--bg1)', borderBottom: '1px solid var(--border)', display: 'flex', alignItems: 'center', gap: 16 }}>
         <span style={{ fontSize: 10, color: 'var(--muted)', letterSpacing: '0.04em' }}>
           {t(language, 'common.lastUpdated')}: <span style={{ fontFamily: "'Fira Code', monospace" }}>{formatTimeInTimezone(lastUpdate, timezone, locale)}</span>
@@ -1178,7 +1266,7 @@ export default function Dashboard() {
             ) : hasChartData ? (
               <div style={{ height: 280 }}>
                 <ResponsiveContainer width="100%" height="100%">
-                  <AreaChart data={displayedChartData} margin={{ top: 4, right: 0, left: 0, bottom: 0 }}>
+                  <AreaChart data={displayedChartData} margin={{ top: 4, right: 12, left: 0, bottom: 0 }}>
                     <defs>
                       <linearGradient id="chartGrad" x1="0" y1="0" x2="0" y2="1">
                         <stop offset="5%" stopColor="#818cf8" stopOpacity={0.25} />
@@ -1192,6 +1280,7 @@ export default function Dashboard() {
                       tick={{ fill: 'var(--muted)', fontSize: 10, fontFamily: "'Fira Code', monospace" }}
                       interval="preserveStartEnd"
                       minTickGap={32}
+                      padding={{ left: 6, right: 10 }}
                       tickLine={false}
                       axisLine={false}
                       tickFormatter={(v) => formatXAxisTick(String(v), historyRange, locale, timezone)}
