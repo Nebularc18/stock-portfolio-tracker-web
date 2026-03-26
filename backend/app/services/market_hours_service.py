@@ -95,7 +95,11 @@ class MarketHoursService:
     """
     
     @staticmethod
-    def infer_market_for_ticker(ticker: str | None) -> str | None:
+    def infer_market_for_ticker(
+        ticker: str | None,
+        *,
+        assume_unsuffixed_us: bool = False,
+    ) -> str | None:
         """Infer the configured market for a ticker from its Yahoo-style suffix."""
         normalized_ticker = (ticker or "").strip().upper()
         if not normalized_ticker:
@@ -103,7 +107,7 @@ class MarketHoursService:
         for suffix, market in MARKET_BY_TICKER_SUFFIX.items():
             if normalized_ticker.endswith(suffix):
                 return market
-        if "." not in normalized_ticker:
+        if assume_unsuffixed_us and "." not in normalized_ticker:
             return "US"
         return None
 

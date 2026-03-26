@@ -5,7 +5,8 @@ from app.services.market_hours_service import MarketHoursService
 
 def test_infer_market_for_ticker_uses_configured_suffixes():
     assert MarketHoursService.infer_market_for_ticker("VOLV-B.ST") == "SE"
-    assert MarketHoursService.infer_market_for_ticker("MSFT") == "US"
+    assert MarketHoursService.infer_market_for_ticker("MSFT") is None
+    assert MarketHoursService.infer_market_for_ticker("MSFT", assume_unsuffixed_us=True) == "US"
     assert MarketHoursService.infer_market_for_ticker("SHOP.TO") is None
     assert MarketHoursService.infer_market_for_ticker("NESN.SW") is None
 

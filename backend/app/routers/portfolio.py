@@ -49,7 +49,10 @@ def _should_auto_refresh_portfolio(stocks: list[Stock]) -> bool:
     inferred_markets: list[str] = []
     seen_markets: set[str] = set()
     for stock in stocks:
-        market = MarketHoursService.infer_market_for_ticker(stock.ticker)
+        market = MarketHoursService.infer_market_for_ticker(
+            stock.ticker,
+            assume_unsuffixed_us=True,
+        )
         if market is None:
             return False
         if market in seen_markets:
