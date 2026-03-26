@@ -521,6 +521,7 @@ def create_stock(payload: dict = Body(...), db: Session = Depends(get_db), curre
     """
     from app.services.stock_service import StockService
     from app.services.brandfetch_service import brandfetch_service
+    from app.services.avanza_service import avanza_service
     stock_service = StockService()
     
     try:
@@ -566,6 +567,7 @@ def create_stock(payload: dict = Body(...), db: Session = Depends(get_db), curre
     if not info:
         raise HTTPException(status_code=400, detail=f"Could not fetch stock information for '{ticker}'. Please try again.")
 
+    avanza_service.ensure_mapping_for_ticker(ticker)
     logo = brandfetch_service.get_logo_url_for_ticker(ticker, info.get("name"))
     
     stock = Stock(

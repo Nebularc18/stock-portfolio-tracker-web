@@ -353,6 +353,23 @@ class UserSettings(Base):
     platforms = Column(String, default="[]")
 
 
+class SharedTickerMapping(Base):
+    """Shared Avanza-to-Yahoo ticker mappings visible to all users of the app."""
+
+    __tablename__ = "shared_ticker_mappings"
+    __table_args__ = (
+        UniqueConstraint("avanza_name", name="ux_shared_ticker_mappings_avanza_name"),
+        UniqueConstraint("yahoo_ticker", name="ux_shared_ticker_mappings_yahoo_ticker"),
+    )
+
+    id = Column(Integer, primary_key=True, index=True)
+    avanza_name = Column(String, nullable=False)
+    yahoo_ticker = Column(String, index=True, nullable=False)
+    instrument_id = Column(String, nullable=True)
+    manually_added = Column(Boolean, default=True, nullable=False)
+    added_at = Column(DateTime(timezone=True), default=utc_now, nullable=False)
+
+
 Base.metadata.create_all(bind=engine)
 
 
@@ -408,6 +425,18 @@ def ensure_account_schema_and_seed() -> None:
         conn.execute(text("ALTER TABLE user_settings ADD COLUMN IF NOT EXISTS platforms VARCHAR(1000) DEFAULT '[]'"))
         conn.execute(text("ALTER TABLE portfolio_history ADD COLUMN IF NOT EXISTS user_id INTEGER"))
         conn.execute(text("ALTER TABLE stock_price_history ADD COLUMN IF NOT EXISTS user_id INTEGER"))
+        conn.execute(text("""
+            CREATE TABLE IF NOT EXISTS shared_ticker_mappings (
+                id SERIAL PRIMARY KEY,
+                avanza_name VARCHAR NOT NULL,
+                yahoo_ticker VARCHAR NOT NULL,
+                instrument_id VARCHAR NULL,
+                manually_added BOOLEAN NOT NULL DEFAULT TRUE,
+                added_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+            )
+        """))
+        conn.execute(text("CREATE UNIQUE INDEX IF NOT EXISTS ux_shared_ticker_mappings_avanza_name ON shared_ticker_mappings (avanza_name)"))
+        conn.execute(text("CREATE UNIQUE INDEX IF NOT EXISTS ux_shared_ticker_mappings_yahoo_ticker ON shared_ticker_mappings (yahoo_ticker)"))
 
         conn.execute(text("""
             INSERT INTO users (username, password_hash, is_guest)
@@ -687,6 +716,51 @@ def ensure_account_schema_and_seed() -> None:
                 "dividend_per_share": stock["dividend_per_share"],
                 "last_updated": now,
             })
+
+        legacy_mapping_path = Path(ROOT_DIR) / "backend" / "data" / "ticker_mapping.json"
+        if legacy_mapping_path.is_file():
+            try:
+                legacy_payload = json.loads(legacy_mapping_path.read_text(encoding="utf-8"))
+            except (OSError, json.JSONDecodeError):
+                logger.exception("Failed to read legacy ticker mapping file from %s", legacy_mapping_path)
+            else:
+                for item in legacy_payload.get("mappings", []):
+                    avanza_name = str(item.get("avanza_name") or "").strip()
+                    yahoo_ticker = str(item.get("yahoo_ticker") or "").strip().upper()
+                    instrument_id = item.get("instrument_id")
+                    if instrument_id is not None:
+                        instrument_id = str(instrument_id).strip() or None
+                    manually_added = bool(item.get("manually_added", True))
+                    added_at = item.get("added_at")
+                    if not avanza_name or not yahoo_ticker:
+                        continue
+
+                    conn.execute(text("""
+                        INSERT INTO shared_ticker_mappings (
+                            avanza_name,
+                            yahoo_ticker,
+                            instrument_id,
+                            manually_added,
+                            added_at
+                        ) VALUES (
+                            :avanza_name,
+                            :yahoo_ticker,
+                            :instrument_id,
+                            :manually_added,
+                            COALESCE(CAST(:added_at AS TIMESTAMPTZ), NOW())
+                        )
+                        ON CONFLICT (avanza_name) DO UPDATE SET
+                            yahoo_ticker = EXCLUDED.yahoo_ticker,
+                            instrument_id = EXCLUDED.instrument_id,
+                            manually_added = EXCLUDED.manually_added,
+                            added_at = EXCLUDED.added_at
+                    """), {
+                        "avanza_name": avanza_name,
+                        "yahoo_ticker": yahoo_ticker,
+                        "instrument_id": instrument_id,
+                        "manually_added": manually_added,
+                        "added_at": added_at,
+                    })
 
 def get_db():
     """Create and yield a database session.
