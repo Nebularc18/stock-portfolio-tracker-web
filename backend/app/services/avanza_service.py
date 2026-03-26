@@ -239,6 +239,14 @@ class AvanzaService:
             existing_by_ticker = db.query(SharedTickerMapping).filter(
                 func.upper(SharedTickerMapping.yahoo_ticker) == mapping.yahoo_ticker.upper()
             ).first()
+            if (
+                existing_by_name is not None
+                and existing_by_ticker is not None
+                and existing_by_name.id != existing_by_ticker.id
+            ):
+                raise ValueError(
+                    "Conflicting shared mapping exists: avanza_name and yahoo_ticker match different records."
+                )
             existing = existing_by_name or existing_by_ticker
 
             if existing is None:
@@ -272,10 +280,37 @@ class AvanzaService:
                 self.mapping[persisted.avanza_name.lower()] = persisted
                 self._mapping_cache_loaded_at = time.time()
             return persisted
+        except ValueError:
+            db.rollback()
+            raise
         except Exception as exc:
             db.rollback()
             logger.warning("Failed to persist shared mapping to DB: %s", exc)
             return None
+        finally:
+            db.close()
+
+    def get_relevant_mappings_for_user(self, user_id: int) -> List[TickerMapping]:
+        SessionLocal, SharedTickerMapping, func = self._get_db_components()
+        if not SessionLocal or not SharedTickerMapping or not func:
+            return []
+
+        from app.main import Stock
+
+        db = SessionLocal()
+        try:
+            user_tickers = db.query(Stock.ticker.label("ticker")).filter(
+                Stock.user_id == user_id,
+                Stock.ticker.isnot(None),
+            ).distinct().subquery()
+            records = db.query(SharedTickerMapping).join(
+                user_tickers,
+                func.upper(SharedTickerMapping.yahoo_ticker) == func.upper(user_tickers.c.ticker),
+            ).order_by(
+                func.upper(SharedTickerMapping.yahoo_ticker),
+                func.lower(SharedTickerMapping.avanza_name),
+            ).all()
+            return [self._mapping_from_db_record(record) for record in records]
         finally:
             db.close()
 

@@ -3,10 +3,9 @@ from pydantic import BaseModel
 from typing import Optional, List
 import logging
 from sqlalchemy.orm import Session
-from sqlalchemy import func
 
 from app.services.avanza_service import avanza_service
-from app.main import SharedTickerMapping, Stock, User, get_current_user, get_db
+from app.main import User, get_current_user, get_db
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -72,18 +71,7 @@ def get_all_mappings(db: Session = Depends(get_db), current_user: User = Depends
     Returns:
         list: A list of mapping objects where each item contains `avanza_name`, `yahoo_ticker`, `instrument_id` (or `None`), and `manually_added` (bool).
     """
-    user_tickers = db.query(Stock.ticker.label("ticker")).filter(
-        Stock.user_id == current_user.id,
-        Stock.ticker.isnot(None),
-    ).distinct().subquery()
-    records = db.query(SharedTickerMapping).join(
-        user_tickers,
-        func.upper(SharedTickerMapping.yahoo_ticker) == func.upper(user_tickers.c.ticker),
-    ).order_by(
-        func.upper(SharedTickerMapping.yahoo_ticker),
-        func.lower(SharedTickerMapping.avanza_name),
-    ).all()
-    mappings = [avanza_service._mapping_from_db_record(record) for record in records]
+    mappings = avanza_service.get_relevant_mappings_for_user(current_user.id)
     return [{
         'avanza_name': m.avanza_name,
         'yahoo_ticker': m.yahoo_ticker,
@@ -104,11 +92,14 @@ def add_mapping(mapping: TickerMappingCreate, current_user: User = Depends(get_c
     Returns:
         dict: Created mapping with keys `avanza_name`, `yahoo_ticker`, `instrument_id`, and `manually_added` set to `True`.
     """
-    created = avanza_service.add_manual_mapping(
-        avanza_name=mapping.avanza_name,
-        yahoo_ticker=mapping.yahoo_ticker,
-        instrument_id=mapping.instrument_id
-    )
+    try:
+        created = avanza_service.add_manual_mapping(
+            avanza_name=mapping.avanza_name,
+            yahoo_ticker=mapping.yahoo_ticker,
+            instrument_id=mapping.instrument_id
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
     return {
         'avanza_name': created.avanza_name,
         'yahoo_ticker': created.yahoo_ticker,
