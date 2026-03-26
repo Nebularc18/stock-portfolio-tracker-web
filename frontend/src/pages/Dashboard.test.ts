@@ -210,6 +210,10 @@ describe('dashboard storage helpers', () => {
     expect(inferDashboardMarketForTicker('VOLV-B.ST')).toBe('SE')
   })
 
+  it('does not infer unsupported exchange suffixes as a tracked market', () => {
+    expect(inferDashboardMarketForTicker('SHOP.TO')).toBeNull()
+  })
+
   it('stops dashboard auto-refresh shortly after the Swedish market closes', () => {
     expect(shouldAutoRefreshDashboard(
       [{ ticker: 'VOLV-B.ST' }],
@@ -227,5 +231,12 @@ describe('dashboard storage helpers', () => {
       [{ ticker: 'VOLV-B.ST' }, { ticker: 'MSFT' }],
       new Date('2026-03-26T18:00:00Z'),
     )).toBe(true)
+  })
+
+  it('fails closed for unknown-market tickers', () => {
+    expect(shouldAutoRefreshDashboard(
+      [{ ticker: 'SHOP.TO' }],
+      new Date('2026-03-26T18:00:00Z'),
+    )).toBe(false)
   })
 })

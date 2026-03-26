@@ -11,6 +11,7 @@ import { formatDisplayName } from '../utils/displayName'
 import SortableHeader from '../components/SortableHeader'
 import { sortTableItems, useTableSort } from '../utils/tableSort'
 import { subscribeToPortfolioDataUpdates } from '../utils/portfolioSync'
+import supportedExchanges from '../config/supportedExchanges.json'
 type HistoryRangeKey = '1D' | '1W' | '1M' | 'YTD' | '1Y' | 'SINCE_START'
 type FetchOptions = { background?: boolean; signal?: AbortSignal }
 
@@ -57,17 +58,24 @@ const DASHBOARD_AUTO_REFRESH_MIN_DELAY_MS = 5_000
 const DASHBOARD_MARKET_REFRESH_WINDOW_MINUTES = 10
 
 type DashboardMarketCode = 'SE' | 'US' | 'UK' | 'DE'
-const DASHBOARD_MARKET_BY_TICKER_SUFFIX: Record<string, DashboardMarketCode> = {
-  '.ST': 'SE',
-  '.L': 'UK',
-  '.DE': 'DE',
-}
 const DASHBOARD_MARKET_CONFIG: Record<DashboardMarketCode, { timezone: string; openMinutes: number; closeMinutes: number; days: number[] }> = {
   SE: { timezone: 'Europe/Stockholm', openMinutes: 9 * 60, closeMinutes: 17 * 60 + 25, days: [1, 2, 3, 4, 5] },
   US: { timezone: 'America/New_York', openMinutes: 9 * 60 + 30, closeMinutes: 16 * 60, days: [1, 2, 3, 4, 5] },
   UK: { timezone: 'Europe/London', openMinutes: 8 * 60, closeMinutes: 16 * 60 + 30, days: [1, 2, 3, 4, 5] },
   DE: { timezone: 'Europe/Berlin', openMinutes: 9 * 60, closeMinutes: 17 * 60 + 30, days: [1, 2, 3, 4, 5] },
 }
+const DASHBOARD_MARKET_BY_EXCHANGE_CODE: Partial<Record<string, DashboardMarketCode>> = {
+  ST: 'SE',
+  US: 'US',
+  L: 'UK',
+  DE: 'DE',
+}
+const DASHBOARD_MARKET_BY_TICKER_SUFFIX = supportedExchanges.reduce<Record<string, DashboardMarketCode>>((accumulator, exchange) => {
+  const market = DASHBOARD_MARKET_BY_EXCHANGE_CODE[exchange.code]
+  if (!market || !exchange.suffix) return accumulator
+  accumulator[exchange.suffix.toUpperCase()] = market
+  return accumulator
+}, {})
 
 type HoldingSortField = 'ticker' | 'name' | 'quantity' | 'price' | 'value' | 'gainLoss' | 'gainLossPercent'
 type UpcomingSortField = 'name' | 'exDate' | 'paymentDate' | 'perShare' | 'total' | 'source'
@@ -406,10 +414,10 @@ export function shouldAutoRefreshDashboard(
   const markets = new Set<DashboardMarketCode>()
   for (const stock of stocks) {
     const market = inferDashboardMarketForTicker(stock.ticker)
-    if (market === null) return true
+    if (market === null) return false
     markets.add(market)
   }
-  if (markets.size === 0) return true
+  if (markets.size === 0) return false
   for (const market of markets) {
     if (isDashboardMarketInRefreshWindow(market, now)) return true
   }

@@ -6,7 +6,7 @@ should occur based on market hours.
 """
 
 from datetime import date, datetime, time, timedelta
-from typing import Dict, Iterable, List
+from typing import Dict, List
 import logging
 
 logger = logging.getLogger(__name__)
@@ -55,7 +55,6 @@ MARKET_BY_TICKER_SUFFIX = {
     ".L": "UK",
     ".DE": "DE",
 }
-DEFAULT_UNSUFFIXED_MARKET = "US"
 DEFAULT_REFRESH_INTERVAL_MINUTES = 10
 
 
@@ -105,21 +104,8 @@ class MarketHoursService:
             if normalized_ticker.endswith(suffix):
                 return market
         if "." not in normalized_ticker:
-            return DEFAULT_UNSUFFIXED_MARKET
+            return "US"
         return None
-
-    @staticmethod
-    def infer_markets_for_tickers(tickers: Iterable[str | None]) -> list[str]:
-        """Return the distinct configured markets represented by the supplied tickers."""
-        markets: list[str] = []
-        seen: set[str] = set()
-        for ticker in tickers:
-            market = MarketHoursService.infer_market_for_ticker(ticker)
-            if market is None or market in seen:
-                continue
-            seen.add(market)
-            markets.append(market)
-        return markets
 
     @staticmethod
     def is_market_open(market: str, now: datetime | None = None) -> bool:

@@ -47,10 +47,10 @@ def refresh_all_stocks():
         for stock in stocks:
             inferred_market = MarketHoursService.infer_market_for_ticker(stock.ticker)
             if inferred_market is None:
-                if not MarketHoursService.should_refresh():
-                    market_closed_count += 1
-                    continue
-            elif not MarketHoursService.should_refresh([inferred_market]):
+                logger.info("Skipping refresh for %s - market could not be inferred", stock.ticker)
+                market_closed_count += 1
+                continue
+            if not MarketHoursService.should_refresh([inferred_market]):
                 market_closed_count += 1
                 continue
             eligible_stocks.append(stock)
