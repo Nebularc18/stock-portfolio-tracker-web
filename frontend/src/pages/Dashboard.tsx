@@ -481,6 +481,21 @@ function formatTooltipDate(dateValue: string, range: HistoryRangeKey, locale: st
   return date.toLocaleDateString(locale, { weekday: 'short', month: 'short', day: 'numeric', year: 'numeric', timeZone: timezone })
 }
 
+function formatDateKeyInTimezone(date: Date, timezone: string): string {
+  return new Intl.DateTimeFormat('en-CA', {
+    timeZone: timezone,
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).format(date)
+}
+
+export function isHistoryPointInCurrentDay(dateValue: string, timezone: string, now: Date = new Date()): boolean {
+  const date = parseHistoryDate(dateValue)
+  if (Number.isNaN(date.getTime())) return false
+  return formatDateKeyInTimezone(date, timezone) === formatDateKeyInTimezone(now, timezone)
+}
+
 /**
  * Reduce a time-series to at most `targetPoints` by sampling the first and last points and evenly selecting intermediate points.
  *
@@ -833,20 +848,23 @@ export default function Dashboard() {
         return { date: entry.date, value: entry.value }
       })
       .filter((point): point is ChartPoint => point !== null)
+    const nextRangeChartData = historyRange === '1D'
+      ? nextRawChartData.filter((point) => isHistoryPointInCurrentDay(point.date, timezone))
+      : nextRawChartData
     const rangeTargetPoints = getRangeTargetPoints(historyRange)
     const nextDisplayedChartData = rangeTargetPoints
-      ? downsampleChartData(nextRawChartData, rangeTargetPoints)
-      : nextRawChartData
-    const nextHasChartData = nextRawChartData.length > 0
+      ? downsampleChartData(nextRangeChartData, rangeTargetPoints)
+      : nextRangeChartData
+    const nextHasChartData = nextRangeChartData.length > 0
     let nextMinValue = 0
     let nextMaxValue = 0
 
     if (nextHasChartData) {
-      nextMinValue = nextRawChartData[0].value
-      nextMaxValue = nextRawChartData[0].value
-      for (let index = 1; index < nextRawChartData.length; index += 1) {
-        if (nextRawChartData[index].value < nextMinValue) nextMinValue = nextRawChartData[index].value
-        if (nextRawChartData[index].value > nextMaxValue) nextMaxValue = nextRawChartData[index].value
+      nextMinValue = nextRangeChartData[0].value
+      nextMaxValue = nextRangeChartData[0].value
+      for (let index = 1; index < nextRangeChartData.length; index += 1) {
+        if (nextRangeChartData[index].value < nextMinValue) nextMinValue = nextRangeChartData[index].value
+        if (nextRangeChartData[index].value > nextMaxValue) nextMaxValue = nextRangeChartData[index].value
       }
     }
 
@@ -860,7 +878,7 @@ export default function Dashboard() {
       yMax: nextMaxValue + valueRange * 0.1,
       baselineValue: nextDisplayedChartData.length > 0 ? nextDisplayedChartData[0].value : 0,
     }
-  }, [historyRange, portfolioHistory])
+  }, [historyRange, portfolioHistory, timezone])
 
   const groupedDividends = useMemo(() => (
     upcomingDividends
