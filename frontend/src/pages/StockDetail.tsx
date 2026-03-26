@@ -1264,11 +1264,11 @@ export default function StockDetail() {
                   <td className="mono" style={{ textAlign: 'right' }}>{stock.quantity}</td>
                 </tr>
                 <tr>
-                  <td style={{ color: 'var(--muted)', fontSize: 13 }}>{t(language, 'stockDetail.purchasePrice')}</td>
+                  <td style={{ color: 'var(--muted)', fontSize: 13 }}>{t(language, 'stockDetail.costBasisPrice')}</td>
                   <td>{renderValueWithDisplayCurrency(nativePurchasePrice, stock.currency, displayPurchasePrice)}</td>
                 </tr>
                 <tr>
-                  <td style={{ color: 'var(--muted)', fontSize: 13 }}>{t(language, 'stockDetail.purchaseDate')}</td>
+                  <td style={{ color: 'var(--muted)', fontSize: 13 }}>{t(language, 'stockDetail.costBasisDate')}</td>
                   <td className="mono" style={{ textAlign: 'right' }}>{stock.purchase_date ? formatDate(stock.purchase_date, locale) : '-'}</td>
                 </tr>
                 <tr>

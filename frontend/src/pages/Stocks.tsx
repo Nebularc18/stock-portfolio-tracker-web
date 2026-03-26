@@ -54,6 +54,15 @@ function getRemainingEntryQuantity(entry: PositionEntry): number {
   return Math.max(quantity - getSoldQuantity(entry), 0)
 }
 
+function sortEntriesForSale(entries: PositionEntry[]): PositionEntry[] {
+  return [...entries].sort((a, b) => {
+    const aDate = a.purchase_date || '9999-12-31'
+    const bDate = b.purchase_date || '9999-12-31'
+    if (aDate !== bDate) return aDate.localeCompare(bDate)
+    return a.id.localeCompare(b.id)
+  })
+}
+
 function getOpenPlatforms(entries: PositionEntry[] | undefined): string[] {
   const platformSet = new Set<string>()
   for (const entry of entries || []) {
@@ -185,14 +194,25 @@ export default function Stocks() {
   const [editValidatedTickerInfo, setEditValidatedTickerInfo] = useState<TickerValidationResult | null>(null)
   const [saving, setSaving] = useState(false)
   const [editError, setEditError] = useState<string | null>(null)
+  const [sellStock, setSellStock] = useState<Stock | null>(null)
+  const [sellQuantity, setSellQuantity] = useState('')
+  const [sellDate, setSellDate] = useState(getLocalDateInputValue())
+  const [sellError, setSellError] = useState<string | null>(null)
+  const [selling, setSelling] = useState(false)
+  const [refreshingAll, setRefreshingAll] = useState(false)
   const [lastUpdate, setLastUpdate] = useState<string | null>(null)
   const [failedLogos, setFailedLogos] = useState<Record<string, boolean>>({})
   const editModalRef = useRef<HTMLDivElement | null>(null)
+  const sellModalRef = useRef<HTMLDivElement | null>(null)
   const editQuantityInputRef = useRef<HTMLInputElement | null>(null)
+  const sellQuantityInputRef = useRef<HTMLInputElement | null>(null)
   const editModalHeadingId = useId()
+  const sellModalHeadingId = useId()
   const editQuantityInputId = useId()
   const editPurchasePriceInputId = useId()
   const editPurchaseDateInputId = useId()
+  const sellQuantityInputId = useId()
+  const sellDateInputId = useId()
   const { timezone, language, displayCurrency, platforms } = useSettings()
   const locale = getLocaleForLanguage(language)
   const unassignedPlatformLabel = t(language, 'stocks.platformUnassigned')
@@ -205,12 +225,25 @@ export default function Stocks() {
   }
 
   const closeEditModal = useCallback(() => setEditStock(null), [])
+  const closeSellModal = useCallback(() => {
+    setSellStock(null)
+    setSellQuantity('')
+    setSellDate(getLocalDateInputValue())
+    setSellError(null)
+  }, [])
 
   useModalFocusTrap({
     modalRef: editModalRef,
     open: editStock !== null,
     onClose: closeEditModal,
     initialFocusRef: editQuantityInputRef,
+  })
+
+  useModalFocusTrap({
+    modalRef: sellModalRef,
+    open: sellStock !== null,
+    onClose: closeSellModal,
+    initialFocusRef: sellQuantityInputRef,
   })
 
   const fetchStocks = useCallback(async () => {
@@ -260,6 +293,13 @@ export default function Stocks() {
   const editEffectiveTickerCurrency = editValidatedTickerInfo?.currency || editExchangeData?.currency || editStock?.currency || displayCurrency
   const editNeedsExchangeFields = !!editEffectiveTickerCurrency && editEffectiveTickerCurrency !== displayCurrency
   const normalizedPlatforms = useMemo(() => [...platforms].sort((a, b) => a.localeCompare(b, locale)), [locale, platforms])
+  const sellableEntries = useMemo(() => (
+    sortEntriesForSale((sellStock?.position_entries || [])
+      .filter((entry) => getRemainingEntryQuantity(entry) > 0))
+  ), [sellStock])
+  const totalSellableQuantity = useMemo(() => (
+    sellableEntries.reduce((sum, entry) => sum + getRemainingEntryQuantity(entry), 0)
+  ), [sellableEntries])
 
   useEffect(() => {
     const normalizedTicker = newTicker.trim()
@@ -404,6 +444,118 @@ export default function Stocks() {
       await fetchStocks()
     } catch (err) {
       setError(t(language, 'stocks.failedDelete'))
+    }
+  }
+
+  const handleRefreshAllStocks = async () => {
+    try {
+      setRefreshingAll(true)
+      setError(null)
+      await api.portfolio.refreshAll()
+      await fetchStocks()
+    } catch (err) {
+      setError(t(language, 'stocks.failedLoad'))
+    } finally {
+      setRefreshingAll(false)
+    }
+  }
+
+  const openSellModal = (stock: Stock) => {
+    const openEntries = (stock.position_entries || []).filter((entry) => getRemainingEntryQuantity(entry) > 0)
+    if (openEntries.length === 0) return
+    setSellStock(stock)
+    setSellQuantity('')
+    setSellDate(getLocalDateInputValue())
+    setSellError(null)
+  }
+
+  const handleSellStock = async () => {
+    if (!sellStock) return
+    const parsedSellQuantity = Number(sellQuantity)
+    const latestAllowedSellDate = getLocalDateInputValue()
+
+    if (!Number.isFinite(parsedSellQuantity) || parsedSellQuantity <= 0 || parsedSellQuantity > totalSellableQuantity) {
+      setSellError(t(language, 'stocks.sellInvalidQuantity'))
+      return
+    }
+    const earliestPurchaseDate = sellableEntries[0]?.purchase_date || null
+    if (!sellDate || sellDate > latestAllowedSellDate || (earliestPurchaseDate && sellDate < earliestPurchaseDate)) {
+      setSellError(t(language, 'stocks.sellInvalidDate'))
+      return
+    }
+
+    const updatedEntries: PositionEntry[] = []
+    let remainingToSell = parsedSellQuantity
+    const sortedSellableEntryIds = new Set(sellableEntries.map((entry) => entry.id))
+    const orderedEntries = [
+      ...sellableEntries,
+      ...(sellStock.position_entries || []).filter((entry) => !sortedSellableEntryIds.has(entry.id)),
+    ]
+
+    for (const entry of orderedEntries) {
+      const currentRemainingQuantity = getRemainingEntryQuantity(entry)
+      if (currentRemainingQuantity <= 0 || remainingToSell <= 0) {
+        updatedEntries.push(entry)
+        continue
+      }
+
+      const existingSoldQuantity = getSoldQuantity(entry)
+      const soldFromEntry = Math.min(currentRemainingQuantity, remainingToSell)
+      const remainingAfterSale = currentRemainingQuantity - soldFromEntry
+
+      const baseEntry = {
+        purchase_price: entry.purchase_price ?? null,
+        courtage: entry.courtage ?? 0,
+        courtage_currency: entry.courtage_currency ?? null,
+        exchange_rate: entry.exchange_rate ?? null,
+        exchange_rate_currency: entry.exchange_rate_currency ?? null,
+        platform: entry.platform ?? null,
+        purchase_date: entry.purchase_date ?? null,
+      }
+
+      if (existingSoldQuantity > 0) {
+        updatedEntries.push({
+          id: generateClientId(),
+          ...baseEntry,
+          quantity: existingSoldQuantity,
+          sold_quantity: existingSoldQuantity,
+          sell_date: entry.sell_date ?? null,
+        })
+      }
+
+      updatedEntries.push({
+        id: generateClientId(),
+        ...baseEntry,
+        quantity: soldFromEntry,
+        sold_quantity: soldFromEntry,
+        sell_date: sellDate,
+      })
+
+      if (remainingAfterSale > 0) {
+        updatedEntries.push({
+          id: generateClientId(),
+          ...baseEntry,
+          quantity: remainingAfterSale,
+          sold_quantity: null,
+          sell_date: null,
+        })
+      }
+
+      remainingToSell -= soldFromEntry
+    }
+
+    try {
+      setSellError(null)
+      setSelling(true)
+      await api.stocks.update(sellStock.ticker, {
+        position_entries: updatedEntries,
+      })
+      closeSellModal()
+      await fetchStocks()
+    } catch (err) {
+      setSellError(err instanceof Error ? err.message : t(language, 'stocks.failedSave'))
+    } finally {
+      setSelling(false)
     }
   }
 
@@ -575,9 +727,14 @@ export default function Stocks() {
           </div>
           <h2 style={{ fontSize: 22, fontWeight: 800, letterSpacing: '-0.02em' }}>{t(language, 'stocks.title')}</h2>
         </div>
-        <button className="btn btn-primary" onClick={() => setShowAddForm(!showAddForm)}>
-          {showAddForm ? t(language, 'stocks.cancel') : t(language, 'stocks.addStock')}
-        </button>
+        <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', justifyContent: 'flex-end' }}>
+          <button className="btn btn-secondary" onClick={handleRefreshAllStocks} disabled={refreshingAll}>
+            {refreshingAll ? t(language, 'common.refreshing') : t(language, 'common.refresh')}
+          </button>
+          <button className="btn btn-primary" onClick={() => setShowAddForm(!showAddForm)}>
+            {showAddForm ? t(language, 'stocks.cancel') : t(language, 'stocks.addStock')}
+          </button>
+        </div>
       </div>
 
       <div style={{ padding: '0 28px 28px' }}>
@@ -757,7 +914,7 @@ export default function Stocks() {
                   <SortableHeader field="currency" label={t(language, 'stocks.tableCurr')} sortState={sortState} onSort={requestSort} />
                   <SortableHeader field="platform" label={t(language, 'stocks.tablePlatform')} sortState={sortState} onSort={requestSort} />
                   <SortableHeader field="purchasePrice" label={t(language, 'stocks.tablePurchase')} sortState={sortState} onSort={requestSort} align="right" />
-                  <SortableHeader field="purchaseDate" label={t(language, 'stocks.purchaseDate')} sortState={sortState} onSort={requestSort} />
+                  <SortableHeader field="purchaseDate" label={t(language, 'stocks.tablePurchaseDate')} sortState={sortState} onSort={requestSort} />
                   <SortableHeader field="currentPrice" label={t(language, 'stocks.tablePrice')} sortState={sortState} onSort={requestSort} align="right" />
                   <SortableHeader field="dailyChangePercent" label={t(language, 'stocks.tableChange')} sortState={sortState} onSort={requestSort} align="right" />
                   <SortableHeader field="dividendYield" label={t(language, 'stocks.tableDivYield')} sortState={sortState} onSort={requestSort} align="right" />
@@ -768,6 +925,7 @@ export default function Stocks() {
                 {sortedStocks.map((stock) => {
                   const logoUrl = resolveBackendAssetUrl(stock.logo)
                   const platforms = getOpenPlatforms(stock.position_entries)
+                  const hasSellableQuantity = (stock.position_entries || []).some((entry) => getRemainingEntryQuantity(entry) > 0)
                   const dailyChange = stock.current_price !== null && stock.previous_close !== null
                     ? stock.current_price - stock.previous_close
                     : null
@@ -832,6 +990,14 @@ export default function Stocks() {
                             onClick={() => openEditModal(stock)}
                           >
                             {t(language, 'stocks.edit')}
+                          </button>
+                          <button
+                            className="btn btn-secondary"
+                            style={{ padding: '4px 10px', fontSize: 11 }}
+                            onClick={() => openSellModal(stock)}
+                            disabled={!hasSellableQuantity}
+                          >
+                            {t(language, 'stocks.sell')}
                           </button>
                           <button
                             className="btn btn-danger"
@@ -1105,6 +1271,91 @@ export default function Stocks() {
                 </button>
                 <button type="button" className="btn btn-primary" onClick={handleSaveEdit} disabled={saving}>
                   {saving ? t(language, 'stocks.saving') : t(language, 'stocks.save')}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {sellStock && (
+        <div
+          style={{
+            position: 'fixed', top: 0, left: 0, right: 0, bottom: 0,
+            background: 'rgba(5, 8, 15, 0.82)',
+            display: 'flex', alignItems: 'flex-start', justifyContent: 'center', zIndex: 1000,
+            padding: '16px',
+            overflowY: 'auto',
+          }}
+          onClick={closeSellModal}
+        >
+          <div
+            ref={sellModalRef}
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby={sellModalHeadingId}
+            tabIndex={-1}
+            style={{
+              width: 420,
+              maxWidth: '100%',
+              background: 'var(--bg2)',
+              border: '1px solid var(--border2)',
+              borderRadius: 10,
+              overflow: 'hidden',
+              display: 'flex',
+              flexDirection: 'column',
+              marginTop: 24,
+            }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div style={{ padding: '16px 20px', borderBottom: '1px solid var(--border)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <span id={sellModalHeadingId} style={{ fontSize: 9, fontWeight: 700, letterSpacing: '0.18em', textTransform: 'uppercase', color: 'var(--v2)' }}>
+                {t(language, 'stocks.sellTitle', { ticker: sellStock.ticker })}
+              </span>
+              <button type="button" aria-label="Close" style={{ background: 'none', border: 'none', color: 'var(--muted)', cursor: 'pointer', fontSize: 18, lineHeight: 1 }} onClick={closeSellModal}>x</button>
+            </div>
+            <div style={{ padding: '20px', display: 'grid', gap: 14 }}>
+              <p style={{ margin: 0, color: 'var(--muted)', fontSize: 12 }}>
+                {t(language, 'stocks.sellAvailable', { quantity: totalSellableQuantity })}
+              </p>
+              <div>
+                <label htmlFor={sellQuantityInputId} style={{ display: 'block', marginBottom: 6, color: 'var(--muted)', fontSize: 11, fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase' }}>
+                  {t(language, 'stocks.sellQuantity')}
+                </label>
+                <input
+                  id={sellQuantityInputId}
+                  ref={sellQuantityInputRef}
+                  type="number"
+                  step="0.01"
+                  min="0"
+                  value={sellQuantity}
+                  onChange={(e) => setSellQuantity(e.target.value)}
+                  placeholder={t(language, 'stocks.placeholderQuantity')}
+                  style={{ width: '100%' }}
+                />
+              </div>
+              <div>
+                <label htmlFor={sellDateInputId} style={{ display: 'block', marginBottom: 6, color: 'var(--muted)', fontSize: 11, fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase' }}>
+                  {t(language, 'stocks.sellDate')}
+                </label>
+                <input
+                  id={sellDateInputId}
+                  type="date"
+                  value={sellDate}
+                  onChange={(e) => setSellDate(e.target.value)}
+                  max={maxPurchaseDate}
+                  style={{ width: '100%' }}
+                />
+              </div>
+              {sellError && (
+                <p style={{ color: 'var(--red)', fontSize: 12 }}>{sellError}</p>
+              )}
+              <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
+                <button type="button" className="btn btn-secondary" onClick={closeSellModal}>
+                  {t(language, 'stocks.cancel')}
+                </button>
+                <button type="button" className="btn btn-primary" onClick={handleSellStock} disabled={selling}>
+                  {selling ? t(language, 'stocks.saving') : t(language, 'stocks.sell')}
                 </button>
               </div>
             </div>
