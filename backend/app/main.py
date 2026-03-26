@@ -735,32 +735,76 @@ def ensure_account_schema_and_seed() -> None:
                     if not avanza_name or not yahoo_ticker:
                         continue
 
-                    conn.execute(text("""
-                        INSERT INTO shared_ticker_mappings (
-                            avanza_name,
-                            yahoo_ticker,
-                            instrument_id,
-                            manually_added,
-                            added_at
-                        ) VALUES (
-                            :avanza_name,
-                            :yahoo_ticker,
-                            :instrument_id,
-                            :manually_added,
-                            COALESCE(CAST(:added_at AS TIMESTAMPTZ), NOW())
-                        )
-                        ON CONFLICT (avanza_name) DO UPDATE SET
-                            yahoo_ticker = EXCLUDED.yahoo_ticker,
-                            instrument_id = EXCLUDED.instrument_id,
-                            manually_added = EXCLUDED.manually_added,
-                            added_at = EXCLUDED.added_at
+                    existing_by_name = conn.execute(text("""
+                        SELECT id
+                        FROM shared_ticker_mappings
+                        WHERE LOWER(avanza_name) = LOWER(:avanza_name)
+                        LIMIT 1
                     """), {
                         "avanza_name": avanza_name,
+                    }).scalar_one_or_none()
+                    existing_by_ticker = conn.execute(text("""
+                        SELECT id
+                        FROM shared_ticker_mappings
+                        WHERE UPPER(yahoo_ticker) = UPPER(:yahoo_ticker)
+                        LIMIT 1
+                    """), {
                         "yahoo_ticker": yahoo_ticker,
-                        "instrument_id": instrument_id,
-                        "manually_added": manually_added,
-                        "added_at": added_at,
-                    })
+                    }).scalar_one_or_none()
+
+                    if (
+                        existing_by_name is not None
+                        and existing_by_ticker is not None
+                        and existing_by_name != existing_by_ticker
+                    ):
+                        logger.warning(
+                            "Skipping conflicting legacy shared mapping import for avanza_name=%s yahoo_ticker=%s",
+                            avanza_name,
+                            yahoo_ticker,
+                        )
+                        continue
+
+                    target_id = existing_by_name or existing_by_ticker
+
+                    if target_id is None:
+                        conn.execute(text("""
+                            INSERT INTO shared_ticker_mappings (
+                                avanza_name,
+                                yahoo_ticker,
+                                instrument_id,
+                                manually_added,
+                                added_at
+                            ) VALUES (
+                                :avanza_name,
+                                :yahoo_ticker,
+                                :instrument_id,
+                                :manually_added,
+                                COALESCE(CAST(:added_at AS TIMESTAMPTZ), NOW())
+                            )
+                        """), {
+                            "avanza_name": avanza_name,
+                            "yahoo_ticker": yahoo_ticker,
+                            "instrument_id": instrument_id,
+                            "manually_added": manually_added,
+                            "added_at": added_at,
+                        })
+                    else:
+                        conn.execute(text("""
+                            UPDATE shared_ticker_mappings
+                            SET avanza_name = :avanza_name,
+                                yahoo_ticker = :yahoo_ticker,
+                                instrument_id = :instrument_id,
+                                manually_added = :manually_added,
+                                added_at = COALESCE(CAST(:added_at AS TIMESTAMPTZ), added_at)
+                            WHERE id = :target_id
+                        """), {
+                            "target_id": target_id,
+                            "avanza_name": avanza_name,
+                            "yahoo_ticker": yahoo_ticker,
+                            "instrument_id": instrument_id,
+                            "manually_added": manually_added,
+                            "added_at": added_at,
+                        })
 
 def get_db():
     """Create and yield a database session.

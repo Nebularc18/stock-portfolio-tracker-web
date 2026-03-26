@@ -2,10 +2,9 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 from typing import Optional, List
 import logging
-from sqlalchemy.orm import Session
 
 from app.services.avanza_service import avanza_service
-from app.main import User, get_current_user, get_db
+from app.main import User, get_current_user
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -14,7 +13,7 @@ logger = logging.getLogger(__name__)
 class TickerMappingCreate(BaseModel):
     avanza_name: str
     yahoo_ticker: str
-    instrument_id: str
+    instrument_id: Optional[str] = None
 
 
 class TickerMappingResponse(BaseModel):
@@ -64,7 +63,7 @@ def get_avanza_dividends():
 
 
 @router.get("/mappings")
-def get_all_mappings(db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
+def get_all_mappings(current_user: User = Depends(get_current_user)):
     """
     Retrieve ticker mappings relevant to the current user's stocks.
 
