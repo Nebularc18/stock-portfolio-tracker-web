@@ -833,6 +833,20 @@ export default function Dashboard() {
   const dividendYieldPercent = summary?.dividend_yield ?? 0
   const lastUpdate = summary?.last_updated ?? null
 
+  const rawChartData = useMemo(() => (
+    portfolioHistory
+      .map((entry) => {
+        if (!Number.isFinite(entry.value)) return null
+        return { date: entry.date, value: entry.value }
+      })
+      .filter((point): point is ChartPoint => point !== null)
+  ), [portfolioHistory])
+
+  const rangeChartData = useMemo(() => {
+    if (historyRange !== '1D') return rawChartData
+    return rawChartData.filter((point) => isHistoryPointInCurrentDay(point.date, timezone))
+  }, [historyRange, rawChartData, timezone])
+
   const {
     displayedChartData,
     hasChartData,
@@ -842,29 +856,20 @@ export default function Dashboard() {
     yMax,
     baselineValue,
   } = useMemo(() => {
-    const nextRawChartData: ChartPoint[] = portfolioHistory
-      .map((entry) => {
-        if (!Number.isFinite(entry.value)) return null
-        return { date: entry.date, value: entry.value }
-      })
-      .filter((point): point is ChartPoint => point !== null)
-    const nextRangeChartData = historyRange === '1D'
-      ? nextRawChartData.filter((point) => isHistoryPointInCurrentDay(point.date, timezone))
-      : nextRawChartData
     const rangeTargetPoints = getRangeTargetPoints(historyRange)
     const nextDisplayedChartData = rangeTargetPoints
-      ? downsampleChartData(nextRangeChartData, rangeTargetPoints)
-      : nextRangeChartData
-    const nextHasChartData = nextRangeChartData.length > 0
+      ? downsampleChartData(rangeChartData, rangeTargetPoints)
+      : rangeChartData
+    const nextHasChartData = rangeChartData.length > 0
     let nextMinValue = 0
     let nextMaxValue = 0
 
     if (nextHasChartData) {
-      nextMinValue = nextRangeChartData[0].value
-      nextMaxValue = nextRangeChartData[0].value
-      for (let index = 1; index < nextRangeChartData.length; index += 1) {
-        if (nextRangeChartData[index].value < nextMinValue) nextMinValue = nextRangeChartData[index].value
-        if (nextRangeChartData[index].value > nextMaxValue) nextMaxValue = nextRangeChartData[index].value
+      nextMinValue = rangeChartData[0].value
+      nextMaxValue = rangeChartData[0].value
+      for (let index = 1; index < rangeChartData.length; index += 1) {
+        if (rangeChartData[index].value < nextMinValue) nextMinValue = rangeChartData[index].value
+        if (rangeChartData[index].value > nextMaxValue) nextMaxValue = rangeChartData[index].value
       }
     }
 
@@ -878,7 +883,7 @@ export default function Dashboard() {
       yMax: nextMaxValue + valueRange * 0.1,
       baselineValue: nextDisplayedChartData.length > 0 ? nextDisplayedChartData[0].value : 0,
     }
-  }, [historyRange, portfolioHistory, timezone])
+  }, [historyRange, rangeChartData])
 
   const groupedDividends = useMemo(() => (
     upcomingDividends
