@@ -17,7 +17,7 @@ A modern web-based stock portfolio tracker built with React, FastAPI, and Postgr
 - **Sparkline Charts**: Mini charts showing index trends
 - **Swedish Indices in Header**: OMX30 and OMXPI displayed in navigation
 - **Market Hours**: View market open/close times in your local timezone
-- **Multi-Exchange Support**: 14 stock exchanges with automatic currency detection
+- **Multi-Exchange Support**: 18 stock exchanges with automatic currency detection
 - **Stock Detail View**: Comprehensive stock information with analyst data
 
 ## Tech Stack
@@ -200,6 +200,10 @@ Avanza ticker mappings are now shared through the app database, so users on the 
 | Code | Exchange | Currency |
 |------|----------|----------|
 | ST | Sweden (Stockholm) | SEK |
+| CO | Denmark (Copenhagen) | DKK |
+| HE | Finland (Helsinki) | EUR |
+| OL | Norway (Oslo) | NOK |
+| IC | Iceland | ISK |
 | US | USA (NASDAQ/NYSE) | USD |
 | L | UK (London) | GBP |
 | DE | Germany (Xetra) | EUR |

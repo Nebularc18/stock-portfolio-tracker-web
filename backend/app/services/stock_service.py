@@ -53,7 +53,8 @@ def _save_file_cache(filename: str, value: Any, ttl: int = 3600):
         logger.warning(f"Failed to save cache {filename}: {e}")
 
 CURRENCY_MAP = {
-    ".ST": "SEK", ".SE": "SEK", ".TO": "CAD", ".L": "GBP",
+    ".ST": "SEK", ".SE": "SEK", ".CO": "DKK", ".HE": "EUR",
+    ".OL": "NOK", ".IC": "ISK", ".TO": "CAD", ".L": "GBP",
     ".PA": "EUR", ".DE": "EUR", ".AM": "EUR", ".BR": "EUR",
     ".MI": "EUR", ".AS": "EUR", ".SW": "CHF", ".AX": "AUD",
     ".NZ": "NZD", ".HK": "HKD", ".T": "JPY", ".KS": "KRW",

@@ -1,5 +1,9 @@
 [
   { "code": "ST", "name": "Sweden (Stockholm)", "suffix": ".ST", "currency": "SEK" },
+  { "code": "CO", "name": "Denmark (Copenhagen)", "suffix": ".CO", "currency": "DKK" },
+  { "code": "HE", "name": "Finland (Helsinki)", "suffix": ".HE", "currency": "EUR" },
+  { "code": "OL", "name": "Norway (Oslo)", "suffix": ".OL", "currency": "NOK" },
+  { "code": "IC", "name": "Iceland", "suffix": ".IC", "currency": "ISK" },
   { "code": "US", "name": "USA (NASDAQ/NYSE)", "suffix": "", "currency": "USD" },
   { "code": "L", "name": "UK (London)", "suffix": ".L", "currency": "GBP" },
   { "code": "DE", "name": "Germany (Xetra)", "suffix": ".DE", "currency": "EUR" },
