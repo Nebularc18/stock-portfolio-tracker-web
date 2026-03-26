@@ -10,6 +10,7 @@ import { getLocaleForLanguage, t, type Language, type TranslationKey } from '../
 import { formatDisplayName } from '../utils/displayName'
 import SortableHeader from '../components/SortableHeader'
 import { sortTableItems, useTableSort } from '../utils/tableSort'
+import { subscribeToPortfolioDataUpdates } from '../utils/portfolioSync'
 type HistoryRangeKey = '1D' | '1W' | '1M' | 'YTD' | '1Y' | 'SINCE_START'
 type FetchOptions = { background?: boolean; signal?: AbortSignal }
 
@@ -572,6 +573,8 @@ export default function Dashboard() {
   const lastHistoryRangeUserIdRef = useRef<number | null | undefined>(initialDashboardState.initialUserId)
   // Keep the latest range available to long-lived callbacks without restarting their effects.
   const historyRangeRef = useRef(historyRange)
+  const fetchDataRef = useRef<((options?: FetchOptions) => Promise<void>) | null>(null)
+  const fetchHistoryRef = useRef<((range: HistoryRangeKey, options?: FetchOptions) => Promise<void>) | null>(null)
   const currentUserId = user?.id
   const locale = getLocaleForLanguage(language)
   const { sortState: holdingsSortState, requestSort: requestHoldingsSort } = useTableSort<HoldingSortField>({ field: 'ticker', direction: 'asc' })
@@ -684,6 +687,9 @@ export default function Dashboard() {
       }
     }
   }, [])
+
+  fetchDataRef.current = fetchData
+  fetchHistoryRef.current = fetchHistory
 
   useEffect(() => {
     const cachedData = initialDataReadPendingRef.current && currentUserId === initialDashboardState.initialUserId
@@ -824,6 +830,13 @@ export default function Dashboard() {
       window.removeEventListener('focus', refreshAfterReturn)
     }
   }, [fetchData, fetchHistory])
+
+  useEffect(() => {
+    return subscribeToPortfolioDataUpdates(() => {
+      void fetchDataRef.current?.()
+      void fetchHistoryRef.current?.(historyRangeRef.current)
+    })
+  }, [])
 
   const currency = summary?.display_currency ?? displayCurrency
   const gainLoss = summary?.total_gain_loss ?? 0

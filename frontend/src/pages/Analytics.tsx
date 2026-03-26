@@ -5,6 +5,7 @@ import { useSettings } from '../SettingsContext'
 import { getLocaleForLanguage, t } from '../i18n'
 import { formatDisplayName } from '../utils/displayName'
 import { getQuantityHeldOnDate } from '../utils/positions'
+import { subscribeToPortfolioDataUpdates } from '../utils/portfolioSync'
 
 const STOCK_COLORS = ['#7c3aed', '#06b6d4', '#22c55e', '#f59e0b', '#f43f5e', '#8b5cf6', '#14b8a6', '#3b82f6']
 const SECTOR_COLORS = ['#f97316', '#eab308', '#84cc16', '#06b6d4', '#3b82f6', '#8b5cf6', '#ec4899', '#ef4444']
@@ -188,6 +189,7 @@ export default function Analytics() {
   const [dividendComparisonAttempted, setDividendComparisonAttempted] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const latestFetchId = useRef(0)
+  const fetchDataRef = useRef<(() => Promise<void>) | null>(null)
   const { displayCurrency, language } = useSettings()
   const locale = getLocaleForLanguage(language)
   const chartCurrency = distribution?.display_currency || displayCurrency
@@ -328,9 +330,17 @@ export default function Analytics() {
     }
   }, [displayCurrency, language, locale])
 
+  fetchDataRef.current = fetchData
+
   useEffect(() => {
     fetchData()
   }, [fetchData])
+
+  useEffect(() => {
+    return subscribeToPortfolioDataUpdates(() => {
+      void fetchDataRef.current?.()
+    })
+  }, [])
 
   const rawSectorData = distribution?.by_sector
     ? Object.entries(distribution.by_sector).map(([name, value]) => ({ name, value }))

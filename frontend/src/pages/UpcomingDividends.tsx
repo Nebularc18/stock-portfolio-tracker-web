@@ -1,10 +1,11 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import { Link } from 'react-router-dom'
 import { api, UpcomingDividend } from '../services/api'
 import { useSettings } from '../SettingsContext'
 import { getLocaleForLanguage, t } from '../i18n'
 import SortableHeader from '../components/SortableHeader'
 import { sortTableItems, useTableSort } from '../utils/tableSort'
+import { subscribeToPortfolioDataUpdates } from '../utils/portfolioSync'
 /**
  * Format a number as a localized currency string.
  *
@@ -82,6 +83,7 @@ export default function UpcomingDividends() {
   const [error, setError] = useState<string | null>(null)
   const [refreshError, setRefreshError] = useState<string | null>(null)
   const { sortState, requestSort } = useTableSort<SortField>({ field: 'name', direction: 'asc' })
+  const fetchDataRef = useRef<((showLoadingState?: boolean) => Promise<void>) | null>(null)
 
   const fetchData = useCallback(async (showLoadingState: boolean = true) => {
     try {
@@ -117,9 +119,17 @@ export default function UpcomingDividends() {
     }
   }, [language])
 
+  fetchDataRef.current = fetchData
+
   useEffect(() => {
     fetchData(true)
   }, [fetchData])
+
+  useEffect(() => {
+    return subscribeToPortfolioDataUpdates(() => {
+      void fetchDataRef.current?.(true)
+    })
+  }, [])
 
   const groupedByMonth = dividends.reduce((acc, div) => {
     const payoutDate = div.payment_date
