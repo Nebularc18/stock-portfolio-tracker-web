@@ -30,6 +30,7 @@ DIVIDENDS_CACHE_TTL = 86400
 HISTORICAL_CACHE_TTL = 86400 * 7
 STOCK_DATA_CACHE_TTL = 300
 MAX_STOCK_CACHE_SIZE = 256
+MAPPING_CACHE_TTL = 10
 
 MAPPING_FILE = "ticker_mapping.json"
 
@@ -172,6 +173,7 @@ class AvanzaService:
         self.mapping: Dict[str, TickerMapping] = {}
         self._lock = threading.RLock()
         self._stock_data_cache: Dict[str, tuple[float, Dict[str, Any]]] = {}
+        self._mapping_cache_loaded_at = 0.0
         self._load_mappings()
 
     def _get_db_components(self):
@@ -216,6 +218,7 @@ class AvanzaService:
                     mapping.avanza_name.lower(): mapping
                     for mapping in (self._mapping_from_db_record(record) for record in records)
                 }
+                self._mapping_cache_loaded_at = time.time()
             return True
         except Exception as exc:
             logger.warning("Failed to load shared mappings from DB: %s", exc)
@@ -230,15 +233,13 @@ class AvanzaService:
 
         db = SessionLocal()
         try:
-            existing = db.query(SharedTickerMapping).filter(
+            existing_by_name = db.query(SharedTickerMapping).filter(
                 func.lower(SharedTickerMapping.avanza_name) == mapping.avanza_name.lower()
             ).first()
-            duplicate_ticker = db.query(SharedTickerMapping).filter(
+            existing_by_ticker = db.query(SharedTickerMapping).filter(
                 func.upper(SharedTickerMapping.yahoo_ticker) == mapping.yahoo_ticker.upper()
             ).first()
-
-            if duplicate_ticker and (existing is None or duplicate_ticker.id != existing.id):
-                existing = duplicate_ticker
+            existing = existing_by_name or existing_by_ticker
 
             if existing is None:
                 existing = SharedTickerMapping(
@@ -269,6 +270,7 @@ class AvanzaService:
             persisted = self._mapping_from_db_record(existing)
             with self._lock:
                 self.mapping[persisted.avanza_name.lower()] = persisted
+                self._mapping_cache_loaded_at = time.time()
             return persisted
         except Exception as exc:
             db.rollback()
@@ -298,6 +300,7 @@ class AvanzaService:
 
         with self._lock:
             removed = self.mapping.pop(avanza_name.lower(), None)
+            self._mapping_cache_loaded_at = time.time()
         if removed is not None:
             deleted = True
 
@@ -373,12 +376,21 @@ class AvanzaService:
                 self._stock_data_cache[instrument_id] = (time.time(), data)
         return data
     
-    def _load_mappings(self):
+    def _load_mappings(self, force_refresh: bool = False):
         """
         Load ticker mappings from the mappings file and populate self.mapping.
         
         Reads the mappings file (MAPPING_FILE in MAPPING_DIR) if present, converts each mapping entry into a TickerMapping, and stores them in self.mapping keyed by the lowercase Avanza name. If the file is missing or invalid, self.mapping is left unchanged.
         """
+        now = time.time()
+        with self._lock:
+            if (
+                not force_refresh
+                and self.mapping
+                and (now - self._mapping_cache_loaded_at) < MAPPING_CACHE_TTL
+            ):
+                return
+
         if self._reload_mappings_from_db():
             return
 
@@ -392,6 +404,7 @@ class AvanzaService:
                     if not mapping:
                         continue
                     self.mapping[mapping.avanza_name.lower()] = mapping
+            self._mapping_cache_loaded_at = now
     
     def _save_mappings(self):
         """
@@ -489,7 +502,6 @@ class AvanzaService:
         if not normalized_tickers:
             return []
 
-        self.ensure_mappings_for_tickers(list(normalized_tickers))
         self._load_mappings()
         relevant = [
             mapping

@@ -3,9 +3,10 @@ from pydantic import BaseModel
 from typing import Optional, List
 import logging
 from sqlalchemy.orm import Session
+from sqlalchemy import func
 
 from app.services.avanza_service import avanza_service
-from app.main import Stock, User, get_current_user, get_db
+from app.main import SharedTickerMapping, Stock, User, get_current_user, get_db
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -71,12 +72,18 @@ def get_all_mappings(db: Session = Depends(get_db), current_user: User = Depends
     Returns:
         list: A list of mapping objects where each item contains `avanza_name`, `yahoo_ticker`, `instrument_id` (or `None`), and `manually_added` (bool).
     """
-    user_tickers = [
-        ticker
-        for (ticker,) in db.query(Stock.ticker).filter(Stock.user_id == current_user.id).all()
-        if ticker
-    ]
-    mappings = avanza_service.get_relevant_mappings(user_tickers)
+    user_tickers = db.query(Stock.ticker.label("ticker")).filter(
+        Stock.user_id == current_user.id,
+        Stock.ticker.isnot(None),
+    ).distinct().subquery()
+    records = db.query(SharedTickerMapping).join(
+        user_tickers,
+        func.upper(SharedTickerMapping.yahoo_ticker) == func.upper(user_tickers.c.ticker),
+    ).order_by(
+        func.upper(SharedTickerMapping.yahoo_ticker),
+        func.lower(SharedTickerMapping.avanza_name),
+    ).all()
+    mappings = [avanza_service._mapping_from_db_record(record) for record in records]
     return [{
         'avanza_name': m.avanza_name,
         'yahoo_ticker': m.yahoo_ticker,
