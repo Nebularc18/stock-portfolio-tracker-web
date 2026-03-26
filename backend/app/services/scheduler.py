@@ -18,7 +18,7 @@ def refresh_all_stocks():
     """
     Refresh portfolio stock data and record price and portfolio value history.
     
-    Checks market hours and, if refresh is allowed, updates each stock's current_price,
+    Checks market hours and, if refresh is allowed for each stock's market, updates each stock's current_price,
     previous_close, sector (preserving existing when unavailable), dividend_yield,
     dividend_per_share, and last_updated in the database. For stocks with a current
     price, records or updates today's StockPriceHistory. Computes the portfolio's
@@ -27,7 +27,7 @@ def refresh_all_stocks():
     15-minute rounded interval. Commits changes and closes the database session.
     
     Notes:
-    - If markets are closed according to MarketHoursService.should_refresh(), no work is performed.
+    - If no stock's market is within its refresh window, no work is performed.
     - Individual stocks lacking a conversion rate to SEK are skipped and logged; in that case portfolio history is not recorded.
     """
     from app.main import get_db, Stock, StockPriceHistory, PortfolioHistory
@@ -35,20 +35,36 @@ def refresh_all_stocks():
     from app.services.exchange_rate_service import ExchangeRateService
     from app.services.market_hours_service import MarketHoursService
     
-    if not MarketHoursService.should_refresh():
-        logger.info("Skipping refresh - no markets are open")
-        return
-    
     db = next(get_db())
     try:
         stocks = db.query(Stock).all()
         if not stocks:
             logger.info("No stocks to refresh")
             return
+
+        eligible_stocks = []
+        market_closed_count = 0
+        for stock in stocks:
+            inferred_market = MarketHoursService.infer_market_for_ticker(
+                stock.ticker,
+                assume_unsuffixed_us=True,
+            )
+            if inferred_market is None:
+                logger.info("Skipping refresh for %s - market could not be inferred", stock.ticker)
+                market_closed_count += 1
+                continue
+            if not MarketHoursService.should_refresh([inferred_market]):
+                market_closed_count += 1
+                continue
+            eligible_stocks.append(stock)
+
+        if not eligible_stocks:
+            logger.info("Skipping refresh - no tracked stock markets are within their refresh window")
+            return
         
         stock_service = StockService()
         
-        currencies = {s.currency for s in stocks if s.currency}
+        currencies = {s.currency for s in eligible_stocks if s.currency}
         rates = ExchangeRateService.get_rates_for_currencies(currencies, "SEK")
         
         updated = 0
@@ -58,9 +74,9 @@ def refresh_all_stocks():
         user_totals: dict[int, float] = {}
         user_skipped: dict[int, int] = {}
         user_updated: dict[int, int] = {}
-        user_ids = {s.user_id for s in stocks if s.user_id is not None}
+        user_ids = {s.user_id for s in eligible_stocks if s.user_id is not None}
         
-        for stock in stocks:
+        for stock in eligible_stocks:
             try:
                 info = stock_service.get_stock_info(stock.ticker)
                 if not info:
@@ -153,7 +169,11 @@ def refresh_all_stocks():
             db.execute(stmt)
         
         db.commit()
-        logger.info(f"Scheduled refresh: updated {updated} stocks")
+        logger.info(
+            "Scheduled refresh: updated %s stocks, skipped %s outside market window",
+            updated,
+            market_closed_count,
+        )
     except Exception as e:
         logger.error(f"Error in scheduled refresh: {e}")
     finally:

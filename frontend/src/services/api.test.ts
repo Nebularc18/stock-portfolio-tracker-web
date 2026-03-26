@@ -40,6 +40,7 @@ function createSummaryPayload() {
     display_currency: 'SEK',
     stocks: [],
     stock_count: 0,
+    auto_refresh_active: true,
   }
 }
 
@@ -135,16 +136,15 @@ describe('portfolio request caching', () => {
     await Promise.all([first, second, third])
   })
 
-  it('supports numeric history options and evicts the cache after resolution', async () => {
+  it('supports numeric history options and reuses the resolved value cache', async () => {
     const fetchMock = vi.spyOn(globalThis, 'fetch')
       .mockResolvedValueOnce(createJsonResponse([{ date: '2026-03-22', value: 100 }]))
-      .mockResolvedValueOnce(createJsonResponse([{ date: '2026-03-23', value: 110 }]))
 
     const first = await api.portfolio.history(30, 7)
     const second = await api.portfolio.history(30, 7)
 
     expect(first).toEqual([{ date: '2026-03-22', value: 100 }])
-    expect(second).toEqual([{ date: '2026-03-23', value: 110 }])
+    expect(second).toEqual([{ date: '2026-03-22', value: 100 }])
     expect(fetchMock).toHaveBeenNthCalledWith(
       1,
       '/api/portfolio/history?days=30',
@@ -153,7 +153,7 @@ describe('portfolio request caching', () => {
         signal: expect.any(AbortSignal),
       }),
     )
-    expect(fetchMock).toHaveBeenCalledTimes(2)
+    expect(fetchMock).toHaveBeenCalledTimes(1)
   })
 
   it('bypasses history deduplication when a signal is provided', async () => {
@@ -194,15 +194,14 @@ describe('portfolio request caching', () => {
     await Promise.all([first, second])
   })
 
-  it('evicts summary request cache after resolution', async () => {
+  it('reuses the resolved summary value cache after resolution', async () => {
     const fetchMock = vi.spyOn(globalThis, 'fetch')
       .mockResolvedValueOnce(createJsonResponse(createSummaryPayload()))
-      .mockResolvedValueOnce(createJsonResponse(createSummaryPayload()))
 
     await api.portfolio.summary(7)
     await api.portfolio.summary(7)
 
-    expect(fetchMock).toHaveBeenCalledTimes(2)
+    expect(fetchMock).toHaveBeenCalledTimes(1)
   })
 
   it('bypasses upcoming dividend deduplication when a signal is provided', async () => {

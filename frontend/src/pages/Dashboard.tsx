@@ -150,6 +150,7 @@ function isPortfolioSummaryCache(value: unknown): value is PortfolioSummary {
     && typeof value.dividend_yield_partial === 'boolean'
     && isNullableString(value.last_updated)
     && typeof value.display_currency === 'string'
+    && typeof value.auto_refresh_active === 'boolean'
     && Array.isArray(value.stocks)
     && value.stocks.every(isPortfolioSummaryStock)
     && isFiniteNumber(value.stock_count)
@@ -333,6 +334,12 @@ function getNextDashboardRefreshDelayMs(now: number = Date.now()): number {
     nextRefreshAt - now + DASHBOARD_AUTO_REFRESH_BUFFER_MS,
     DASHBOARD_AUTO_REFRESH_MIN_DELAY_MS,
   )
+}
+
+export function shouldAutoRefreshDashboard(
+  summary: Pick<PortfolioSummary, 'auto_refresh_active'> | null | undefined,
+): boolean {
+  return summary?.auto_refresh_active ?? true
 }
 
 /**
@@ -575,12 +582,14 @@ export default function Dashboard() {
   const historyRangeRef = useRef(historyRange)
   const fetchDataRef = useRef<((options?: FetchOptions) => Promise<void>) | null>(null)
   const fetchHistoryRef = useRef<((range: HistoryRangeKey, options?: FetchOptions) => Promise<void>) | null>(null)
+  const summaryRef = useRef<PortfolioSummary | null>(initialDashboardState.cachedData?.summary ?? null)
   const currentUserId = user?.id
   const locale = getLocaleForLanguage(language)
   const { sortState: holdingsSortState, requestSort: requestHoldingsSort } = useTableSort<HoldingSortField>({ field: 'ticker', direction: 'asc' })
   const { sortState: upcomingSortState, requestSort: requestUpcomingSort } = useTableSort<UpcomingSortField>({ field: 'name', direction: 'asc' })
   upcomingDividendsRef.current = upcomingDividends
   totalRemainingDividendsRef.current = totalRemainingDividends
+  summaryRef.current = summary
 
   useEffect(() => {
     userIdRef.current = currentUserId
@@ -783,6 +792,10 @@ export default function Dashboard() {
       if (lastAutoRefreshRunRef.current !== runId) return
       autoRefreshTimeoutRef.current = setTimeout(() => {
         if (lastAutoRefreshRunRef.current !== runId) return
+        if (!shouldAutoRefreshDashboard(summaryRef.current)) {
+          scheduleNextRefresh()
+          return
+        }
         refreshController?.abort()
         refreshController = new AbortController()
         void Promise.allSettled([
@@ -817,6 +830,7 @@ export default function Dashboard() {
       if (document.visibilityState !== 'visible') return
       const now = Date.now()
       if (now - lastResumeRefreshAt < DASHBOARD_AUTO_REFRESH_MIN_DELAY_MS) return
+      if (!shouldAutoRefreshDashboard(summaryRef.current)) return
       lastResumeRefreshAt = now
       void fetchData({ background: true })
       void fetchHistory(historyRangeRef.current, { background: true })
@@ -1111,7 +1125,7 @@ export default function Dashboard() {
         ))}
       </div>
 
-      {/* last updated */}
+        {/* last updated */}
       <div style={{ padding: '8px 28px', background: 'var(--bg1)', borderBottom: '1px solid var(--border)', display: 'flex', alignItems: 'center', gap: 16 }}>
         <span style={{ fontSize: 10, color: 'var(--muted)', letterSpacing: '0.04em' }}>
           {t(language, 'common.lastUpdated')}: <span style={{ fontFamily: "'Fira Code', monospace" }}>{formatTimeInTimezone(lastUpdate, timezone, locale)}</span>
@@ -1178,7 +1192,7 @@ export default function Dashboard() {
             ) : hasChartData ? (
               <div style={{ height: 280 }}>
                 <ResponsiveContainer width="100%" height="100%">
-                  <AreaChart data={displayedChartData} margin={{ top: 4, right: 0, left: 0, bottom: 0 }}>
+                  <AreaChart data={displayedChartData} margin={{ top: 4, right: 12, left: 0, bottom: 0 }}>
                     <defs>
                       <linearGradient id="chartGrad" x1="0" y1="0" x2="0" y2="1">
                         <stop offset="5%" stopColor="#818cf8" stopOpacity={0.25} />
@@ -1192,6 +1206,7 @@ export default function Dashboard() {
                       tick={{ fill: 'var(--muted)', fontSize: 10, fontFamily: "'Fira Code', monospace" }}
                       interval="preserveStartEnd"
                       minTickGap={32}
+                      padding={{ left: 6, right: 10 }}
                       tickLine={false}
                       axisLine={false}
                       tickFormatter={(v) => formatXAxisTick(String(v), historyRange, locale, timezone)}

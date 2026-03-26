@@ -10,6 +10,7 @@ import {
   isHistoryPointInCurrentDay,
   readDashboardDataCache,
   readDashboardHistoryCache,
+  shouldAutoRefreshDashboard,
 } from './Dashboard'
 
 function createValidDashboardDataCache() {
@@ -33,6 +34,7 @@ function createValidDashboardDataCache() {
       display_currency: 'SEK',
       stocks: [],
       stock_count: 0,
+      auto_refresh_active: true,
     },
     upcomingDividends: [],
   }
@@ -202,5 +204,17 @@ describe('dashboard storage helpers', () => {
 
     expect(isHistoryPointInCurrentDay('2026-03-25T23:30:00Z', 'Europe/Stockholm', now)).toBe(true)
     expect(isHistoryPointInCurrentDay('2026-03-25T22:30:00Z', 'Europe/Stockholm', now)).toBe(false)
+  })
+
+  it('uses the backend-provided auto-refresh flag when active', () => {
+    expect(shouldAutoRefreshDashboard({ auto_refresh_active: true })).toBe(true)
+  })
+
+  it('uses the backend-provided auto-refresh flag when inactive', () => {
+    expect(shouldAutoRefreshDashboard({ auto_refresh_active: false })).toBe(false)
+  })
+
+  it('defaults to active when summary data is unavailable', () => {
+    expect(shouldAutoRefreshDashboard(null)).toBe(true)
   })
 })

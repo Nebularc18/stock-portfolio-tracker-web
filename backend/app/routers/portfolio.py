@@ -33,6 +33,38 @@ _portfolio_upcoming_dividends_inflight_lock = threading.Lock()
 _portfolio_upcoming_dividends_inflight: dict[int, threading.Event] = {}
 
 
+def _should_auto_refresh_portfolio(stocks: list[Stock]) -> bool:
+    """
+    Return whether portfolio auto-refresh should remain active for the supplied holdings.
+
+    Auto-refresh is enabled only when every holding maps to a known tracked market and at
+    least one of those markets is currently within its refresh window. Empty portfolios and
+    unknown-market holdings fail closed to avoid unnecessary polling.
+    """
+    from app.services.market_hours_service import MarketHoursService
+
+    if not stocks:
+        return False
+
+    inferred_markets: list[str] = []
+    seen_markets: set[str] = set()
+    for stock in stocks:
+        market = MarketHoursService.infer_market_for_ticker(
+            stock.ticker,
+            assume_unsuffixed_us=True,
+        )
+        if market is None:
+            return False
+        if market in seen_markets:
+            continue
+        seen_markets.add(market)
+        inferred_markets.append(market)
+
+    if not inferred_markets:
+        return False
+    return MarketHoursService.should_refresh(inferred_markets)
+
+
 def _load_json_cache(filename: str, ttl: int) -> dict | None:
     try:
         os.makedirs(_CACHE_DIR, exist_ok=True)
@@ -667,6 +699,7 @@ def get_portfolio_summary(db: Session = Depends(get_db), current_user: User = De
                 daily_change (number or None): position daily change in display currency when convertible, otherwise native value,
                 daily_change_converted (bool): whether daily_change is converted to display currency.
             stock_count (int): Number of stocks retrieved for the user.
+            auto_refresh_active (bool): Whether dashboard auto-refresh should remain active for this portfolio.
             unconverted_stocks (list): Entries for stocks omitted or partially omitted from totals due to missing exchange rates;
                 each entry includes ticker, currency, and reason.
     """
@@ -860,6 +893,7 @@ def get_portfolio_summary(db: Session = Depends(get_db), current_user: User = De
         if dividend_yield_total_value > 0
         else 0
     )
+    auto_refresh_active = _should_auto_refresh_portfolio(stocks)
     
     return {
         "total_value": total_value,
@@ -877,6 +911,7 @@ def get_portfolio_summary(db: Session = Depends(get_db), current_user: User = De
         "display_currency": display_currency,
         "stocks": stock_data,
         "stock_count": len(stock_data),
+        "auto_refresh_active": auto_refresh_active,
         "unconverted_stocks": unconverted_stocks,
     }
 
