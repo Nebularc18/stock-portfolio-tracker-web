@@ -10,6 +10,7 @@ import { getLocaleForLanguage, t, type Language, type TranslationKey } from '../
 import { formatDisplayName } from '../utils/displayName'
 import SortableHeader from '../components/SortableHeader'
 import { sortTableItems, useTableSort } from '../utils/tableSort'
+import { subscribeToPortfolioDataUpdates } from '../utils/portfolioSync'
 type HistoryRangeKey = '1D' | '1W' | '1M' | 'YTD' | '1Y' | 'SINCE_START'
 type FetchOptions = { background?: boolean; signal?: AbortSignal }
 
@@ -808,6 +809,13 @@ export default function Dashboard() {
       document.removeEventListener('visibilitychange', refreshAfterReturn)
       window.removeEventListener('focus', refreshAfterReturn)
     }
+  }, [fetchData, fetchHistory])
+
+  useEffect(() => {
+    return subscribeToPortfolioDataUpdates(() => {
+      void fetchData()
+      void fetchHistory(historyRangeRef.current)
+    })
   }, [fetchData, fetchHistory])
 
   const currency = summary?.display_currency ?? displayCurrency

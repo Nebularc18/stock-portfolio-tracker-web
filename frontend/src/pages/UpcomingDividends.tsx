@@ -5,6 +5,7 @@ import { useSettings } from '../SettingsContext'
 import { getLocaleForLanguage, t } from '../i18n'
 import SortableHeader from '../components/SortableHeader'
 import { sortTableItems, useTableSort } from '../utils/tableSort'
+import { subscribeToPortfolioDataUpdates } from '../utils/portfolioSync'
 /**
  * Format a number as a localized currency string.
  *
@@ -119,6 +120,12 @@ export default function UpcomingDividends() {
 
   useEffect(() => {
     fetchData(true)
+  }, [fetchData])
+
+  useEffect(() => {
+    return subscribeToPortfolioDataUpdates(() => {
+      void fetchData(true)
+    })
   }, [fetchData])
 
   const groupedByMonth = dividends.reduce((acc, div) => {

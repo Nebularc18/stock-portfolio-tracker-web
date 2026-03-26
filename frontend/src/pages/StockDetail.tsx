@@ -15,6 +15,7 @@ import { formatDisplayName } from '../utils/displayName'
 import SortableHeader from '../components/SortableHeader'
 import { sortTableItems, useTableSort } from '../utils/tableSort'
 import { calculatePositionCostInCurrency } from '../utils/positions'
+import { notifyPortfolioDataUpdated } from '../utils/portfolioSync'
 import supportedExchanges from '../config/supportedExchanges.json'
 
 /**
@@ -737,6 +738,7 @@ export default function StockDetail() {
         exchange_rate_currency: nextExchangeRate !== null ? editExchangeRateCurrency : null,
         purchase_date: editPurchaseDate || null,
       })
+      notifyPortfolioDataUpdated()
       setShowEditModal(false)
       if (updatedStock.ticker !== ticker) {
         navigate(`/stocks/${encodeURIComponent(updatedStock.ticker)}`, { replace: true })
@@ -789,6 +791,7 @@ export default function StockDetail() {
     if (!ticker || !confirm(t(language, 'stockDetail.deleteStockConfirm', { ticker }))) return
     try {
       await api.stocks.delete(ticker)
+      notifyPortfolioDataUpdated()
       navigate('/stocks')
     } catch (err) {
       console.error('Failed to delete', err)
@@ -808,6 +811,7 @@ export default function StockDetail() {
       if (tickerRef.current !== ticker) return
 
       applyLoadedStockPageData(data)
+      notifyPortfolioDataUpdated()
       setVerificationResult(null)
 
       const followUpRequests: Promise<unknown>[] = []
@@ -879,6 +883,7 @@ export default function StockDetail() {
         })
         setStock(updated)
       }
+      notifyPortfolioDataUpdated()
       setShowDividendModal(false)
     } catch (err) {
       setDividendError(err instanceof Error ? err.message : String(err))
@@ -891,6 +896,7 @@ export default function StockDetail() {
     if (!ticker || !confirm(t(language, 'stockDetail.deleteDividendConfirm'))) return
     try {
       await api.stocks.deleteManualDividend(ticker, dividendId)
+      notifyPortfolioDataUpdated()
       if (stock) {
         setStock({
           ...stock,
@@ -908,6 +914,7 @@ export default function StockDetail() {
       await api.stocks.suppressDividend(ticker, { date, amount, currency: stock?.currency })
       const suppressed = await api.stocks.getSuppressedDividends(ticker)
       setSuppressedDividends(suppressed)
+      notifyPortfolioDataUpdated()
     } catch (err) {
       console.error('Failed to suppress dividend', err)
     }
@@ -918,6 +925,7 @@ export default function StockDetail() {
     try {
       await api.stocks.restoreDividend(ticker, date)
       setSuppressedDividends(suppressedDividends.filter(d => d.date !== date))
+      notifyPortfolioDataUpdated()
     } catch (err) {
       console.error('Failed to restore dividend', err)
     }

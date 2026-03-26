@@ -9,6 +9,7 @@ import supportedExchanges from '../config/supportedExchanges.json'
 import { useModalFocusTrap } from '../hooks/useModalFocusTrap'
 import SortableHeader from '../components/SortableHeader'
 import { sortTableItems, useTableSort } from '../utils/tableSort'
+import { notifyPortfolioDataUpdated } from '../utils/portfolioSync'
 
 /**
  * Formats a numeric value as a localized currency string or returns "-" when the value is null.
@@ -428,6 +429,7 @@ export default function Stocks() {
       setValidationStatus('idle')
       setValidatedTickerInfo(null)
       setShowAddForm(false)
+      notifyPortfolioDataUpdated()
       await fetchStocks()
     } catch (err: any) {
       setError(err.message || t(language, 'stocks.failedAdd'))
@@ -441,6 +443,7 @@ export default function Stocks() {
     
     try {
       await api.stocks.delete(ticker)
+      notifyPortfolioDataUpdated()
       await fetchStocks()
     } catch (err) {
       setError(t(language, 'stocks.failedDelete'))
@@ -452,6 +455,7 @@ export default function Stocks() {
       setRefreshingAll(true)
       setError(null)
       await api.portfolio.refreshAll()
+      notifyPortfolioDataUpdated()
       await fetchStocks()
     } catch (err) {
       setError(t(language, 'stocks.failedLoad'))
@@ -551,6 +555,7 @@ export default function Stocks() {
         position_entries: updatedEntries,
       })
       closeSellModal()
+      notifyPortfolioDataUpdated()
       await fetchStocks()
     } catch (err) {
       setSellError(err instanceof Error ? err.message : t(language, 'stocks.failedSave'))
@@ -653,6 +658,7 @@ export default function Stocks() {
         position_entries: normalizedEntries,
       })
       setEditStock(null)
+      notifyPortfolioDataUpdated()
       await fetchStocks()
     } catch (err) {
       setEditError(err instanceof Error ? err.message : t(language, 'stocks.failedSave'))

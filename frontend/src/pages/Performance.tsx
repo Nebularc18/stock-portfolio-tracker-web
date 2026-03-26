@@ -6,6 +6,7 @@ import { useSettings } from '../SettingsContext'
 import SortableHeader from '../components/SortableHeader'
 import { calculatePositionCostInCurrency } from '../utils/positions'
 import { sortTableItems, useTableSort } from '../utils/tableSort'
+import { subscribeToPortfolioDataUpdates } from '../utils/portfolioSync'
 
 /**
  * Format a numeric amount as a localized currency string.
@@ -199,6 +200,12 @@ export default function Performance() {
     return () => {
       latestFetchIdRef.current += 1
     }
+  }, [fetchData])
+
+  useEffect(() => {
+    return subscribeToPortfolioDataUpdates(() => {
+      void fetchData()
+    })
   }, [fetchData])
 
   const displayCurrency = summary?.display_currency ?? 'SEK'

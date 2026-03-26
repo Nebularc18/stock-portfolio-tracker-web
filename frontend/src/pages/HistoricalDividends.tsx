@@ -6,6 +6,7 @@ import { useSettings } from '../SettingsContext'
 import { getQuantityHeldOnDate } from '../utils/positions'
 import SortableHeader from '../components/SortableHeader'
 import { sortTableItems, useTableSort } from '../utils/tableSort'
+import { subscribeToPortfolioDataUpdates } from '../utils/portfolioSync'
 
 /**
  * Produces the locale-formatted short name for a given month.
@@ -99,6 +100,12 @@ export default function HistoricalDividends() {
 
   useEffect(() => {
     loadStocks()
+  }, [loadStocks])
+
+  useEffect(() => {
+    return subscribeToPortfolioDataUpdates(() => {
+      void loadStocks()
+    })
   }, [loadStocks])
 
   useEffect(() => {
