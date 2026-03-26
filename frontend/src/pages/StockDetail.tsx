@@ -1,7 +1,7 @@
 import { useState, useEffect, useId, useRef, useCallback } from 'react'
 import type { KeyboardEvent as ReactKeyboardEvent } from 'react'
 import { useParams, Link, useNavigate } from 'react-router-dom'
-import { api, Stock, Dividend, UpcomingDividend, AnalystData, ManualDividend, CompanyProfile, FinancialMetrics, VerificationResult, MarketstackUsage, PortfolioSummaryStock, UpcomingDividendsResponse, PositionEntry } from '../services/api'
+import { api, Stock, Dividend, UpcomingDividend, AnalystData, ManualDividend, CompanyProfile, FinancialMetrics, VerificationResult, MarketstackUsage, PortfolioSummaryStock, UpcomingDividendsResponse, PositionEntry, StockUpcomingDividend, HttpError } from '../services/api'
 import CompanyProfileComponent from '../components/CompanyProfile'
 import FinancialMetricsComponent from '../components/FinancialMetrics'
 import PeerCompanies from '../components/PeerCompanies'
@@ -176,6 +176,7 @@ type BaseLoadedStockPageData = {
   stockData: Stock
   allDividendsData: Dividend[]
   dividendsData: Dividend[]
+  lookupModeData: boolean
 }
 
 type SupplementalStockPageData = {
@@ -189,6 +190,38 @@ type SupplementalStockPageData = {
 }
 
 type LoadedStockPageData = BaseLoadedStockPageData & SupplementalStockPageData
+
+function mapLookupUpcomingDividends(
+  items: StockUpcomingDividend[],
+  stock: Stock,
+  displayCurrency: string,
+): UpcomingDividend[] {
+  const today = new Date()
+  today.setUTCHours(0, 0, 0, 0)
+
+  return items.map((dividend, index) => {
+    const comparisonDate = dividend.payment_date || dividend.ex_date
+    const comparison = comparisonDate ? new Date(comparisonDate) : null
+    if (comparison) comparison.setUTCHours(0, 0, 0, 0)
+
+    return {
+      id: `lookup-${stock.ticker}-${index}`,
+      ticker: stock.ticker,
+      name: stock.name,
+      quantity: 0,
+      ex_date: dividend.ex_date,
+      payment_date: dividend.payment_date,
+      status: comparison && comparison < today ? 'paid' : 'upcoming',
+      dividend_type: dividend.dividend_type ?? null,
+      amount_per_share: dividend.amount ?? 0,
+      total_amount: 0,
+      currency: dividend.currency || stock.currency,
+      total_converted: null,
+      display_currency: displayCurrency,
+      source: dividend.source || 'yahoo',
+    }
+  })
+}
 
 const EMPTY_UPCOMING_RESPONSE: UpcomingDividendsResponse = {
   dividends: [],
@@ -223,6 +256,7 @@ export default function StockDetail() {
   const { ticker } = useParams<{ ticker: string }>()
   const navigate = useNavigate()
   const [stock, setStock] = useState<Stock | null>(null)
+  const [isLookupMode, setIsLookupMode] = useState(false)
   const [, setAllDividends] = useState<Dividend[]>([])
   const [dividends, setDividends] = useState<Dividend[]>([])
   const [, setAllYearDividends] = useState<UpcomingDividend[]>([])
@@ -357,18 +391,50 @@ export default function StockDetail() {
   })
 
   const loadPrimaryStockPageData = useCallback(async (tickerValue: string): Promise<BaseLoadedStockPageData> => {
-    const [stockData, divData] = await Promise.all([
-      api.stocks.get(tickerValue),
-      api.stocks.dividends(tickerValue),
-    ])
-    return {
-      stockData,
-      allDividendsData: divData,
-      dividendsData: divData,
+    try {
+      const [stockData, divData] = await Promise.all([
+        api.stocks.get(tickerValue),
+        api.stocks.dividends(tickerValue),
+      ])
+      return {
+        stockData,
+        allDividendsData: divData,
+        dividendsData: divData,
+        lookupModeData: false,
+      }
+    } catch (error) {
+      if (!(error instanceof HttpError) || error.status !== 404) {
+        throw error
+      }
+
+      const [stockData, divData] = await Promise.all([
+        api.stocks.lookup(tickerValue),
+        api.stocks.lookupDividends(tickerValue),
+      ])
+      return {
+        stockData,
+        allDividendsData: divData,
+        dividendsData: divData,
+        lookupModeData: true,
+      }
     }
   }, [])
 
-  const loadSupplementalStockPageData = useCallback(async (stockData: Stock): Promise<SupplementalStockPageData> => {
+  const loadSupplementalStockPageData = useCallback(async (stockData: Stock, lookupMode: boolean): Promise<SupplementalStockPageData> => {
+    if (lookupMode) {
+      const upcomingData = await api.stocks.lookupUpcomingDividends(stockData.ticker).catch(() => [])
+      const mappedUpcoming = mapLookupUpcomingDividends(upcomingData, stockData, displayCurrency)
+      return {
+        stockSummaryData: null,
+        displayCurrencyData: displayCurrency,
+        allYearDividendsData: mappedUpcoming,
+        yearDividendsData: mappedUpcoming,
+        yearReceivedData: null,
+        yearRemainingData: null,
+        suppressedDividendsData: [],
+      }
+    }
+
     const [suppressedData, summaryData, portfolioUpcomingData] = await Promise.all([
       api.stocks.getSuppressedDividends(stockData.ticker).catch(() => []),
       api.portfolio.summary().catch(() => ({
@@ -412,7 +478,7 @@ export default function StockDetail() {
 
   const loadStockPageData = useCallback(async (tickerValue: string): Promise<LoadedStockPageData> => {
     const primaryData = await loadPrimaryStockPageData(tickerValue)
-    const supplementalData = await loadSupplementalStockPageData(primaryData.stockData)
+    const supplementalData = await loadSupplementalStockPageData(primaryData.stockData, primaryData.lookupModeData)
     return {
       ...primaryData,
       ...supplementalData,
@@ -421,6 +487,7 @@ export default function StockDetail() {
 
   const applyPrimaryStockPageData = useCallback((data: BaseLoadedStockPageData) => {
     setStock(data.stockData)
+    setIsLookupMode(data.lookupModeData)
     setAllDividends(data.allDividendsData)
     setDividends(data.dividendsData)
     setEditPurchaseDate(data.stockData.purchase_date || '')
@@ -459,7 +526,7 @@ export default function StockDetail() {
         applyPrimaryStockPageData(primaryData)
         setLoading(false)
 
-        loadSupplementalStockPageData(primaryData.stockData)
+        loadSupplementalStockPageData(primaryData.stockData, primaryData.lookupModeData)
           .then((supplementalData) => {
             if (!active) return
             applySupplementalStockPageData(supplementalData)
@@ -486,6 +553,7 @@ export default function StockDetail() {
 
   useEffect(() => {
     setStock(null)
+    setIsLookupMode(false)
     setError(null)
     setRefreshing(false)
     setCompanyProfile(null)
@@ -565,7 +633,11 @@ export default function StockDetail() {
     const activeTicker = ticker
     setAnalystDataLoading(true)
 
-    const request = api.stocks.analyst(activeTicker)
+    const analystRequest = isLookupMode
+      ? api.stocks.lookupAnalyst(activeTicker)
+      : api.stocks.analyst(activeTicker)
+
+    const request = analystRequest
       .then((analystInfo) => {
         if (tickerRef.current !== activeTicker) return
         setAnalystData(analystInfo)
@@ -587,7 +659,7 @@ export default function StockDetail() {
 
     analystRequestRef.current = request
     return request
-  }, [ticker, analystDataLoaded])
+  }, [ticker, analystDataLoaded, isLookupMode])
 
   const loadMarketstackStatus = useCallback((force: boolean = false) => {
     if (!ticker) return Promise.resolve()
@@ -655,7 +727,7 @@ export default function StockDetail() {
   }
 
   const openEditModal = () => {
-    if (stock) {
+    if (stock && !isLookupMode) {
       const { baseTicker, exchangeCode } = splitTickerAndExchange(stock.ticker)
       const editableEntry = stock.position_entries?.find((entry) => getRemainingEntryQuantity(entry) > 0) ?? stock.position_entries?.[0]
       setEditError(null)
@@ -788,6 +860,7 @@ export default function StockDetail() {
   }, [editExchange, editTicker, showEditModal, stock])
 
   const handleDelete = async () => {
+    if (isLookupMode) return
     if (!ticker || !confirm(t(language, 'stockDetail.deleteStockConfirm', { ticker }))) return
     try {
       await api.stocks.delete(ticker)
@@ -805,7 +878,9 @@ export default function StockDetail() {
       setRefreshing(true)
       setError(null)
 
-      await api.stocks.refresh(ticker)
+      if (!isLookupMode) {
+        await api.stocks.refresh(ticker)
+      }
       const data = await loadStockPageData(ticker)
 
       if (tickerRef.current !== ticker) return
@@ -1191,6 +1266,7 @@ export default function StockDetail() {
               <div style={{ display: 'flex', alignItems: 'baseline', gap: 12, marginBottom: 2 }}>
                 <h1 style={{ fontSize: 28, fontWeight: 700, letterSpacing: '-0.02em', margin: 0 }}>{stock.ticker}</h1>
                 <span style={{ color: 'var(--text2)', fontSize: 15 }}>{displayName}</span>
+                {isLookupMode && <span className="badge badge-muted">{t(language, 'stockDetail.lookupBadge')}</span>}
                 {stock.sector && <span className="badge badge-muted">{stock.sector}</span>}
               </div>
               <div style={{ display: 'flex', alignItems: 'baseline', gap: 12, marginTop: 10 }}>
@@ -1221,8 +1297,12 @@ export default function StockDetail() {
             <button className="btn btn-secondary" onClick={handleRefresh} disabled={refreshing}>
               {refreshing ? t(language, 'common.refreshing') : t(language, 'common.refresh')}
             </button>
-            <button className="btn btn-secondary" onClick={openEditModal}>{t(language, 'stockDetail.edit')}</button>
-            <button className="btn btn-danger" onClick={handleDelete}>{t(language, 'common.delete')}</button>
+            {!isLookupMode && (
+              <>
+                <button className="btn btn-secondary" onClick={openEditModal}>{t(language, 'stockDetail.edit')}</button>
+                <button className="btn btn-danger" onClick={handleDelete}>{t(language, 'common.delete')}</button>
+              </>
+            )}
           </div>
         </div>
       </div>
@@ -1263,32 +1343,60 @@ export default function StockDetail() {
         <div className="grid grid-2" role="tabpanel" id="panel-overview" aria-labelledby="tab-overview">
           <div style={panelStyle}>
             <div className="sec-row" style={{ padding: '12px 16px', borderBottom: '1px solid var(--border)' }}>
-              <span className="sec-title">{t(language, 'stockDetail.position')}</span>
+              <span className="sec-title">{isLookupMode ? t(language, 'stockDetail.lookupOverview') : t(language, 'stockDetail.position')}</span>
             </div>
-            <table style={{ margin: 0 }}>
-              <tbody>
-                <tr>
-                  <td style={{ color: 'var(--muted)', fontSize: 13 }}>{t(language, 'stockDetail.quantity')}</td>
-                  <td className="mono" style={{ textAlign: 'right' }}>{stock.quantity}</td>
-                </tr>
-                <tr>
-                  <td style={{ color: 'var(--muted)', fontSize: 13 }}>{t(language, 'stockDetail.costBasisPrice')}</td>
-                  <td>{renderValueWithDisplayCurrency(nativePurchasePrice, stock.currency, displayPurchasePrice)}</td>
-                </tr>
-                <tr>
-                  <td style={{ color: 'var(--muted)', fontSize: 13 }}>{t(language, 'stockDetail.costBasisDate')}</td>
-                  <td className="mono" style={{ textAlign: 'right' }}>{stock.purchase_date ? formatDate(stock.purchase_date, locale) : '-'}</td>
-                </tr>
-                <tr>
-                  <td style={{ color: 'var(--muted)', fontSize: 13 }}>{t(language, 'stockDetail.currentValue')}</td>
-                  <td>{renderValueWithDisplayCurrency(nativeCurrentValue, stock.currency, displayCurrentValue)}</td>
-                </tr>
-                <tr>
-                  <td style={{ color: 'var(--muted)', fontSize: 13 }}>{t(language, 'stockDetail.totalCost')}</td>
-                  <td>{renderValueWithDisplayCurrency(nativeTotalCost, stock.currency, displayTotalCost)}</td>
-                </tr>
-              </tbody>
-            </table>
+            {isLookupMode ? (
+              <div style={{ padding: 16, display: 'grid', gap: 12 }}>
+                <p style={{ margin: 0, color: 'var(--muted)', fontSize: 13 }}>
+                  {t(language, 'stockDetail.lookupDescription')}
+                </p>
+                <table style={{ margin: 0 }}>
+                  <tbody>
+                    <tr>
+                      <td style={{ color: 'var(--muted)', fontSize: 13 }}>{t(language, 'stocks.tickerSymbol')}</td>
+                      <td className="mono" style={{ textAlign: 'right' }}>{stock.ticker}</td>
+                    </tr>
+                    <tr>
+                      <td style={{ color: 'var(--muted)', fontSize: 13 }}>{t(language, 'stocks.exchange')}</td>
+                      <td className="mono" style={{ textAlign: 'right' }}>{splitTickerAndExchange(stock.ticker).exchangeCode}</td>
+                    </tr>
+                    <tr>
+                      <td style={{ color: 'var(--muted)', fontSize: 13 }}>{t(language, 'stocks.tableCurr')}</td>
+                      <td className="mono" style={{ textAlign: 'right' }}>{stock.currency}</td>
+                    </tr>
+                    <tr>
+                      <td style={{ color: 'var(--muted)', fontSize: 13 }}>{t(language, 'stockDetail.sector')}</td>
+                      <td className="mono" style={{ textAlign: 'right' }}>{stock.sector || '-'}</td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+            ) : (
+              <table style={{ margin: 0 }}>
+                <tbody>
+                  <tr>
+                    <td style={{ color: 'var(--muted)', fontSize: 13 }}>{t(language, 'stockDetail.quantity')}</td>
+                    <td className="mono" style={{ textAlign: 'right' }}>{stock.quantity}</td>
+                  </tr>
+                  <tr>
+                    <td style={{ color: 'var(--muted)', fontSize: 13 }}>{t(language, 'stockDetail.costBasisPrice')}</td>
+                    <td>{renderValueWithDisplayCurrency(nativePurchasePrice, stock.currency, displayPurchasePrice)}</td>
+                  </tr>
+                  <tr>
+                    <td style={{ color: 'var(--muted)', fontSize: 13 }}>{t(language, 'stockDetail.costBasisDate')}</td>
+                    <td className="mono" style={{ textAlign: 'right' }}>{stock.purchase_date ? formatDate(stock.purchase_date, locale) : '-'}</td>
+                  </tr>
+                  <tr>
+                    <td style={{ color: 'var(--muted)', fontSize: 13 }}>{t(language, 'stockDetail.currentValue')}</td>
+                    <td>{renderValueWithDisplayCurrency(nativeCurrentValue, stock.currency, displayCurrentValue)}</td>
+                  </tr>
+                  <tr>
+                    <td style={{ color: 'var(--muted)', fontSize: 13 }}>{t(language, 'stockDetail.totalCost')}</td>
+                    <td>{renderValueWithDisplayCurrency(nativeTotalCost, stock.currency, displayTotalCost)}</td>
+                  </tr>
+                </tbody>
+              </table>
+            )}
           </div>
 
           <div style={panelStyle}>
@@ -1312,7 +1420,9 @@ export default function StockDetail() {
                 <tr>
                   <td style={{ color: 'var(--muted)', fontSize: 13 }}>{t(language, 'stockDetail.annualIncome')}</td>
                   <td className="mono" style={{ textAlign: 'right' }}>
-                    {displayAnnualIncome !== null ? formatCurrency(displayAnnualIncome, locale, stock.currency) : '-'}
+                    {isLookupMode
+                      ? t(language, 'stockDetail.lookupAnnualIncome')
+                      : (displayAnnualIncome !== null ? formatCurrency(displayAnnualIncome, locale, stock.currency) : '-')}
                   </td>
                 </tr>
               </tbody>
@@ -1359,61 +1469,65 @@ export default function StockDetail() {
         <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }} role="tabpanel" id="panel-dividends" aria-labelledby="tab-dividends">
 
           {/* Manual dividends */}
-          <div style={panelStyle}>
-            <div className="sec-row" style={{ padding: '12px 16px', borderBottom: '1px solid var(--border)' }}>
-              <span className="sec-title">{t(language, 'stockDetail.manualDividends')}</span>
-              <button className="btn btn-primary" style={{ padding: '5px 14px', fontSize: 12 }} onClick={openAddDividendModal}>
-                {t(language, 'stockDetail.addDividend')}
-              </button>
-            </div>
-            {stock.manual_dividends && stock.manual_dividends.length > 0 ? (
-              <table style={{ margin: 0 }}>
-                <thead>
-                  <tr>
-                    <SortableHeader field="date" label={t(language, 'stockDetail.date')} sortState={manualSortState} onSort={requestManualSort} />
-                    <SortableHeader field="amount" label={t(language, 'stockDetail.amount')} sortState={manualSortState} onSort={requestManualSort} align="right" />
-                    <SortableHeader field="note" label={t(language, 'stockDetail.note')} sortState={manualSortState} onSort={requestManualSort} />
-                    <th>{t(language, 'common.actions')}</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {sortedManualDividends.map((div) => (
-                    <tr key={div.id}>
-                      <td className="mono">{formatDate(div.date, locale)}</td>
-                      <td className="mono" style={{ color: 'var(--green)' }}>{formatCurrency(div.amount, locale, div.currency)}</td>
-                      <td style={{ color: 'var(--text2)', fontSize: 12 }}>{div.note || '-'}</td>
-                      <td>
-                        <div style={{ display: 'flex', gap: 6 }}>
-                          <button className="btn btn-secondary" style={{ padding: '3px 10px', fontSize: 11 }} onClick={() => openEditDividendModal(div)}>
-                            {t(language, 'stockDetail.edit')}
-                          </button>
-                          <button className="btn btn-danger" style={{ padding: '3px 10px', fontSize: 11 }} onClick={() => handleDeleteDividend(div.id)}>
-                            {t(language, 'common.delete')}
-                          </button>
-                        </div>
-                      </td>
+          {!isLookupMode && (
+            <div style={panelStyle}>
+              <div className="sec-row" style={{ padding: '12px 16px', borderBottom: '1px solid var(--border)' }}>
+                <span className="sec-title">{t(language, 'stockDetail.manualDividends')}</span>
+                <button className="btn btn-primary" style={{ padding: '5px 14px', fontSize: 12 }} onClick={openAddDividendModal}>
+                  {t(language, 'stockDetail.addDividend')}
+                </button>
+              </div>
+              {stock.manual_dividends && stock.manual_dividends.length > 0 ? (
+                <table style={{ margin: 0 }}>
+                  <thead>
+                    <tr>
+                      <SortableHeader field="date" label={t(language, 'stockDetail.date')} sortState={manualSortState} onSort={requestManualSort} />
+                      <SortableHeader field="amount" label={t(language, 'stockDetail.amount')} sortState={manualSortState} onSort={requestManualSort} align="right" />
+                      <SortableHeader field="note" label={t(language, 'stockDetail.note')} sortState={manualSortState} onSort={requestManualSort} />
+                      <th>{t(language, 'common.actions')}</th>
                     </tr>
-                  ))}
-                </tbody>
-              </table>
-            ) : (
-              <div className="empty-state">{t(language, 'stockDetail.noManualDividends')}</div>
-            )}
-          </div>
+                  </thead>
+                  <tbody>
+                    {sortedManualDividends.map((div) => (
+                      <tr key={div.id}>
+                        <td className="mono">{formatDate(div.date, locale)}</td>
+                        <td className="mono" style={{ color: 'var(--green)' }}>{formatCurrency(div.amount, locale, div.currency)}</td>
+                        <td style={{ color: 'var(--text2)', fontSize: 12 }}>{div.note || '-'}</td>
+                        <td>
+                          <div style={{ display: 'flex', gap: 6 }}>
+                            <button className="btn btn-secondary" style={{ padding: '3px 10px', fontSize: 11 }} onClick={() => openEditDividendModal(div)}>
+                              {t(language, 'stockDetail.edit')}
+                            </button>
+                            <button className="btn btn-danger" style={{ padding: '3px 10px', fontSize: 11 }} onClick={() => handleDeleteDividend(div.id)}>
+                              {t(language, 'common.delete')}
+                            </button>
+                          </div>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              ) : (
+                <div className="empty-state">{t(language, 'stockDetail.noManualDividends')}</div>
+              )}
+            </div>
+          )}
 
           {/* Dividends this year */}
           {yearDividends.length > 0 && (
             <div style={panelStyle}>
               <div className="sec-row" style={{ padding: '12px 16px', borderBottom: '1px solid var(--border)' }}>
                 <span className="sec-title">{t(language, 'stockDetail.dividendsThisYear')}</span>
-                <div style={{ display: 'flex', gap: 20, fontSize: 12 }}>
-                  <span style={{ color: 'var(--muted)' }}>
-                    {t(language, 'stockDetail.received')}: <strong className="mono" style={{ color: 'var(--green)' }}>{formatYearTotal(yearReceived)}</strong>
-                  </span>
-                  <span style={{ color: 'var(--muted)' }}>
-                    {t(language, 'stockDetail.remaining')}: <strong className="mono" style={{ color: 'var(--v2)' }}>{formatYearTotal(yearRemaining)}</strong>
-                  </span>
-                </div>
+                {!isLookupMode && (
+                  <div style={{ display: 'flex', gap: 20, fontSize: 12 }}>
+                    <span style={{ color: 'var(--muted)' }}>
+                      {t(language, 'stockDetail.received')}: <strong className="mono" style={{ color: 'var(--green)' }}>{formatYearTotal(yearReceived)}</strong>
+                    </span>
+                    <span style={{ color: 'var(--muted)' }}>
+                      {t(language, 'stockDetail.remaining')}: <strong className="mono" style={{ color: 'var(--v2)' }}>{formatYearTotal(yearRemaining)}</strong>
+                    </span>
+                  </div>
+                )}
               </div>
               <table style={{ margin: 0 }}>
                 <thead>
@@ -1457,7 +1571,7 @@ export default function StockDetail() {
                   <tr>
                     <SortableHeader field="date" label={t(language, 'stockDetail.date')} sortState={historySortState} onSort={requestHistorySort} />
                     <SortableHeader field="amount" label={t(language, 'stockDetail.amount')} sortState={historySortState} onSort={requestHistorySort} align="right" />
-                    <th>{t(language, 'common.actions')}</th>
+                    {!isLookupMode && <th>{t(language, 'common.actions')}</th>}
                   </tr>
                 </thead>
                 <tbody>
@@ -1473,19 +1587,21 @@ export default function StockDetail() {
                         <td className="mono">{formatDate(div.date, locale)}</td>
                         <td className="mono" style={{ color: suppressed ? 'var(--muted)' : 'var(--green)' }}>
                           {formatCurrency(div.amount, locale, div.currency || stock.currency)}
-                          {suppressed && <span style={{ marginLeft: 8, fontSize: 11, color: 'var(--muted)' }}>{t(language, 'stockDetail.suppressedTag')}</span>}
+                          {!isLookupMode && suppressed && <span style={{ marginLeft: 8, fontSize: 11, color: 'var(--muted)' }}>{t(language, 'stockDetail.suppressedTag')}</span>}
                         </td>
-                        <td>
-                          {suppressed ? (
-                            <button className="btn btn-secondary" style={{ padding: '3px 10px', fontSize: 11 }} onClick={() => handleRestoreDividend(div.date)}>
-                              {t(language, 'stockDetail.restore')}
-                            </button>
-                          ) : (
-                            <button className="btn btn-secondary" style={{ padding: '3px 10px', fontSize: 11 }} onClick={() => handleSuppressDividend(div.date, div.amount)}>
-                              {t(language, 'stockDetail.hide')}
-                            </button>
-                          )}
-                        </td>
+                        {!isLookupMode && (
+                          <td>
+                            {suppressed ? (
+                              <button className="btn btn-secondary" style={{ padding: '3px 10px', fontSize: 11 }} onClick={() => handleRestoreDividend(div.date)}>
+                                {t(language, 'stockDetail.restore')}
+                              </button>
+                            ) : (
+                              <button className="btn btn-secondary" style={{ padding: '3px 10px', fontSize: 11 }} onClick={() => handleSuppressDividend(div.date, div.amount)}>
+                                {t(language, 'stockDetail.hide')}
+                              </button>
+                            )}
+                          </td>
+                        )}
                       </tr>
                     )
                   })}
@@ -1587,7 +1703,7 @@ export default function StockDetail() {
           </div>
 
           {/* Suppressed dividends */}
-          {suppressedDividends.length > 0 && (
+          {!isLookupMode && suppressedDividends.length > 0 && (
             <div style={panelStyle}>
               <div className="sec-row" style={{ padding: '12px 16px', borderBottom: '1px solid var(--border)' }}>
                 <span className="sec-title" style={{ color: 'var(--muted)' }}>{t(language, 'stockDetail.suppressedDividends')}</span>

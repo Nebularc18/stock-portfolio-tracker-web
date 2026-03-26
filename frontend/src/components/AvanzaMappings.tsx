@@ -4,6 +4,7 @@ import { useSettings } from '../SettingsContext'
 import { getLocaleForLanguage, t } from '../i18n'
 import SortableHeader from './SortableHeader'
 import { sortTableItems, useTableSort } from '../utils/tableSort'
+import { notifyPortfolioDataUpdated } from '../utils/portfolioSync'
 
 type SortField = 'avanzaName' | 'yahooTicker' | 'instrumentId'
 
@@ -103,6 +104,7 @@ export default function AvanzaMappings() {
       setNewMapping({ avanza_name: '', yahoo_ticker: '', instrument_id: '' })
       setSelectedTicker('')
       setShowAddForm(false)
+      notifyPortfolioDataUpdated()
       fetchData()
     } catch (err) {
       console.error('Failed to add mapping:', err)
@@ -117,6 +119,7 @@ export default function AvanzaMappings() {
     
     try {
       await api.avanza.deleteMapping(avanzaName)
+      notifyPortfolioDataUpdated()
       fetchData()
     } catch (err) {
       console.error('Failed to delete mapping:', err)
