@@ -558,6 +558,8 @@ export default function Dashboard() {
   const lastHistoryRangeUserIdRef = useRef<number | null | undefined>(initialDashboardState.initialUserId)
   // Keep the latest range available to long-lived callbacks without restarting their effects.
   const historyRangeRef = useRef(historyRange)
+  const fetchDataRef = useRef<((options?: FetchOptions) => Promise<void>) | null>(null)
+  const fetchHistoryRef = useRef<((range: HistoryRangeKey, options?: FetchOptions) => Promise<void>) | null>(null)
   const currentUserId = user?.id
   const locale = getLocaleForLanguage(language)
   const { sortState: holdingsSortState, requestSort: requestHoldingsSort } = useTableSort<HoldingSortField>({ field: 'ticker', direction: 'asc' })
@@ -670,6 +672,9 @@ export default function Dashboard() {
       }
     }
   }, [])
+
+  fetchDataRef.current = fetchData
+  fetchHistoryRef.current = fetchHistory
 
   useEffect(() => {
     const cachedData = initialDataReadPendingRef.current && currentUserId === initialDashboardState.initialUserId
@@ -813,10 +818,10 @@ export default function Dashboard() {
 
   useEffect(() => {
     return subscribeToPortfolioDataUpdates(() => {
-      void fetchData()
-      void fetchHistory(historyRangeRef.current)
+      void fetchDataRef.current?.()
+      void fetchHistoryRef.current?.(historyRangeRef.current)
     })
-  }, [fetchData, fetchHistory])
+  }, [])
 
   const currency = summary?.display_currency ?? displayCurrency
   const gainLoss = summary?.total_gain_loss ?? 0
