@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useRef, useId, useMemo } from 'react'
-import { Link } from 'react-router-dom'
+import { Link, useNavigate } from 'react-router-dom'
 import { api, PositionEntry, Stock, TickerValidationResult } from '../services/api'
 import { useSettings } from '../SettingsContext'
 import { formatTimeInTimezone, getLatestTimestamp } from '../utils/time'
@@ -171,6 +171,7 @@ type SortField =
  * @returns A React element containing the Stocks management user interface.
  */
 export default function Stocks() {
+  const navigate = useNavigate()
   const [stocks, setStocks] = useState<Stock[]>([])
   const [loading, setLoading] = useState(true)
   const [showAddForm, setShowAddForm] = useState(false)
@@ -182,6 +183,12 @@ export default function Stocks() {
   const [newPlatform, setNewPlatform] = useState('')
   const [newPurchaseDate, setNewPurchaseDate] = useState('')
   const [selectedExchange, setSelectedExchange] = useState('ST')
+  const [searchTicker, setSearchTicker] = useState('')
+  const [searchExchange, setSearchExchange] = useState('US')
+  const [searchValidationStatus, setSearchValidationStatus] = useState<'idle' | 'checking' | 'valid' | 'invalid'>('idle')
+  const [searchTickerInfo, setSearchTickerInfo] = useState<TickerValidationResult | null>(null)
+  const [searchError, setSearchError] = useState<string | null>(null)
+  const [searching, setSearching] = useState(false)
   const [platformFilter, setPlatformFilter] = useState('all')
   const [adding, setAdding] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -284,9 +291,25 @@ export default function Stocks() {
     setValidatedTickerInfo(null)
   }
 
+  const handleSearchTickerChange = (value: string) => {
+    setSearchTicker(value.toUpperCase())
+    setSearchValidationStatus('idle')
+    setSearchTickerInfo(null)
+    setSearchError(null)
+  }
+
+  const handleSearchExchangeChange = (exchange: string) => {
+    setSearchExchange(exchange)
+    setSearchValidationStatus('idle')
+    setSearchTickerInfo(null)
+    setSearchError(null)
+  }
+
   const selectedExchangeData = EXCHANGES.find(e => e.code === selectedExchange)
   const fullTicker = useMemo(() => getFullTicker(newTicker, selectedExchange), [newTicker, selectedExchange])
+  const searchFullTicker = useMemo(() => getFullTicker(searchTicker, searchExchange), [searchTicker, searchExchange])
   const existingStock = useMemo(() => stocks.find((stock) => stock.ticker === fullTicker), [fullTicker, stocks])
+  const existingSearchStock = useMemo(() => stocks.find((stock) => stock.ticker === searchFullTicker), [searchFullTicker, stocks])
   const effectiveTickerCurrency = validatedTickerInfo?.currency || selectedExchangeData?.currency || displayCurrency
   const needsExchangeFields = !!effectiveTickerCurrency && effectiveTickerCurrency !== displayCurrency
   const editExchangeData = EXCHANGES.find((exchange) => exchange.code === editExchange)
@@ -330,6 +353,35 @@ export default function Stocks() {
       window.clearTimeout(timeoutId)
     }
   }, [newTicker, selectedExchange])
+
+  useEffect(() => {
+    const normalizedTicker = searchTicker.trim()
+    if (!normalizedTicker) {
+      setSearchValidationStatus('idle')
+      setSearchTickerInfo(null)
+      return
+    }
+
+    const tickerToValidate = getFullTicker(normalizedTicker, searchExchange)
+    setSearchValidationStatus('checking')
+    setSearchTickerInfo(null)
+
+    const timeoutId = window.setTimeout(() => {
+      api.stocks.validate(tickerToValidate)
+        .then((result) => {
+          setSearchValidationStatus(result.valid ? 'valid' : 'invalid')
+          setSearchTickerInfo(result)
+        })
+        .catch(() => {
+          setSearchValidationStatus('invalid')
+          setSearchTickerInfo(null)
+        })
+    }, 300)
+
+    return () => {
+      window.clearTimeout(timeoutId)
+    }
+  }, [searchTicker, searchExchange])
 
   useEffect(() => {
     if (!editStock) {
@@ -435,6 +487,33 @@ export default function Stocks() {
       setError(err.message || t(language, 'stocks.failedAdd'))
     } finally {
       setAdding(false)
+    }
+  }
+
+  const handleSearchStock = async (e: React.FormEvent) => {
+    e.preventDefault()
+    const normalizedTicker = searchTicker.trim()
+    if (!normalizedTicker) {
+      setSearchError(t(language, 'stocks.invalidTicker'))
+      return
+    }
+
+    const lookupTicker = getFullTicker(normalizedTicker, searchExchange)
+    if (searchValidationStatus === 'invalid') {
+      setSearchError(t(language, 'stocks.invalidTicker'))
+      return
+    }
+    if (searchValidationStatus === 'checking') {
+      setSearchError(t(language, 'stocks.validatingTicker'))
+      return
+    }
+
+    try {
+      setSearching(true)
+      setSearchError(null)
+      navigate(`/stocks/${encodeURIComponent(lookupTicker)}`)
+    } finally {
+      setSearching(false)
     }
   }
 
@@ -752,6 +831,93 @@ export default function Stocks() {
         )}
 
         {/* ── ADD FORM ── */}
+        <div style={{
+          marginTop: 20,
+          background: 'linear-gradient(135deg, rgba(17,24,39,0.86) 0%, rgba(15,23,42,0.96) 100%)',
+          border: '1px solid rgba(148,163,184,0.18)',
+          borderRadius: 12,
+          padding: 18,
+          boxShadow: '0 18px 40px rgba(2,6,23,0.22)',
+        }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', gap: 20, flexWrap: 'wrap', marginBottom: 14 }}>
+            <div>
+              <div style={{ fontSize: 9, fontWeight: 700, letterSpacing: '0.18em', textTransform: 'uppercase', color: 'var(--v2)', marginBottom: 6 }}>
+                {t(language, 'stocks.searchTitle')}
+              </div>
+              <div style={{ color: 'var(--muted)', fontSize: 13, maxWidth: 560 }}>
+                {t(language, 'stocks.searchDescription')}
+              </div>
+            </div>
+            {existingSearchStock && (
+              <div style={{
+                alignSelf: 'flex-start',
+                padding: '8px 10px',
+                borderRadius: 999,
+                border: '1px solid rgba(52,211,153,0.25)',
+                background: 'rgba(52,211,153,0.12)',
+                color: '#a7f3d0',
+                fontSize: 12,
+              }}>
+                {t(language, 'stocks.searchInPortfolio', { ticker: existingSearchStock.ticker })}
+              </div>
+            )}
+          </div>
+
+          <form onSubmit={handleSearchStock}>
+            <div style={{
+              display: 'grid',
+              gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))',
+              gap: 12,
+              alignItems: 'end',
+            }}>
+              <div>
+                <label style={{ display: 'block', marginBottom: 6, color: 'var(--muted)', fontSize: 11, fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase' }}>
+                  {t(language, 'stocks.exchange')}
+                </label>
+                <select value={searchExchange} onChange={(e) => handleSearchExchangeChange(e.target.value)}>
+                  {EXCHANGES.map((exchange) => (
+                    <option key={`search-${exchange.code}`} value={exchange.code}>{exchange.name}</option>
+                  ))}
+                </select>
+              </div>
+              <div>
+                <label style={{ display: 'block', marginBottom: 6, color: 'var(--muted)', fontSize: 11, fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase' }}>
+                  {t(language, 'stocks.searchLabel')}
+                </label>
+                <input
+                  type="text"
+                  value={searchTicker}
+                  onChange={(e) => handleSearchTickerChange(e.target.value)}
+                  placeholder={t(language, 'stocks.searchPlaceholder')}
+                />
+                {searchTicker && (
+                  <p style={{ fontSize: 11, color: 'var(--muted)', marginTop: 6, fontFamily: "'Fira Code', monospace" }}>
+                    {t(language, 'stocks.full')}: {searchFullTicker}
+                  </p>
+                )}
+                {searchValidationStatus === 'checking' && (
+                  <p style={{ fontSize: 11, color: 'var(--muted)', marginTop: 6 }}>{t(language, 'stocks.validatingTicker')}</p>
+                )}
+                {searchValidationStatus === 'valid' && (
+                  <p style={{ fontSize: 11, color: 'var(--green)', marginTop: 6 }}>
+                    {searchTickerInfo?.name || searchFullTicker}
+                    {searchTickerInfo?.currency ? ` · ${searchTickerInfo.currency}` : ''}
+                  </p>
+                )}
+                {searchValidationStatus === 'invalid' && (
+                  <p style={{ fontSize: 11, color: 'var(--red)', marginTop: 6 }}>{t(language, 'stocks.invalidTicker')}</p>
+                )}
+              </div>
+              <button className="btn btn-primary" type="submit" disabled={searching}>
+                {searching ? t(language, 'common.loading') : t(language, 'stocks.searchAction')}
+              </button>
+            </div>
+            {searchError && (
+              <p style={{ color: 'var(--red)', margin: '12px 0 0', fontSize: 12 }}>{searchError}</p>
+            )}
+          </form>
+        </div>
+
         {showAddForm && (
           <div style={{ marginTop: 20, background: 'var(--bg2)', border: '1px solid var(--border)', borderRadius: 8 }}>
             <div style={{ padding: '12px 18px', borderBottom: '1px solid var(--border)' }}>

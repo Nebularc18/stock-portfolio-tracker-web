@@ -297,6 +297,80 @@ def _get_merged_stock_dividends(stock: Stock, ticker: str, years: int, stock_ser
     merged_dividends.sort(key=lambda item: item.get('date') or '', reverse=True)
     return merged_dividends
 
+
+def _build_lookup_stock_response(ticker: str, stock_service) -> dict:
+    normalized_ticker = ticker.strip().upper()
+    info = stock_service.get_stock_info(normalized_ticker)
+    if not info or info.get("current_price") is None:
+        raise HTTPException(status_code=404, detail="Stock not found")
+
+    logo_url = None
+    try:
+        logo_url = brandfetch_service.get_logo_url_for_ticker(
+            normalized_ticker,
+            info.get("name"),
+            force_refresh=False,
+            existing_logo=None,
+        )
+    except Exception as exc:
+        logger.warning("Failed to resolve lookup logo for %s: %s", normalized_ticker, exc)
+
+    return {
+        "id": 0,
+        "ticker": normalized_ticker,
+        "name": info.get("name"),
+        "quantity": 0,
+        "currency": info.get("currency") or "USD",
+        "sector": info.get("sector"),
+        "logo": logo_url,
+        "purchase_price": None,
+        "purchase_date": None,
+        "position_entries": [],
+        "current_price": info.get("current_price"),
+        "previous_close": info.get("previous_close"),
+        "dividend_yield": info.get("dividend_yield"),
+        "dividend_per_share": info.get("dividend_per_share"),
+        "last_updated": utc_now(),
+        "manual_dividends": [],
+        "suppressed_dividends": [],
+    }
+
+
+def _get_lookup_upcoming_dividends(ticker: str, stock_service, avanza_service) -> list[dict]:
+    normalized_ticker = ticker.strip().upper()
+    today = utc_now().date()
+    current_year = utc_now().year
+
+    avanza_mapping = avanza_service.get_mapping_by_ticker(normalized_ticker)
+    if avanza_mapping and avanza_mapping.instrument_id:
+        year_dividends = avanza_service.get_stock_dividends_for_year(normalized_ticker, current_year)
+        if year_dividends:
+            upcoming_or_remaining = []
+            for div in year_dividends:
+                cutoff_date = _parse_event_date(div.payment_date or div.ex_date)
+                if cutoff_date and cutoff_date <= today:
+                    continue
+                upcoming_or_remaining.append({
+                    'ex_date': div.ex_date,
+                    'amount': div.amount,
+                    'currency': div.currency,
+                    'payment_date': div.payment_date,
+                    'dividend_type': div.dividend_type,
+                    'source': 'avanza',
+                })
+
+            if upcoming_or_remaining:
+                return upcoming_or_remaining
+
+    upcoming = stock_service.get_upcoming_dividends(normalized_ticker) or []
+    return [
+        div for div in upcoming
+        if not (
+            (cutoff_date := _parse_event_date(div.get('payment_date') or div.get('ex_date')))
+            and cutoff_date <= today
+        )
+    ]
+
 class ManualDividendCreate(BaseModel):
     date: str
     amount: float
@@ -370,6 +444,73 @@ def validate_ticker(ticker: str):
         "valid": True,
         "name": info.get("name") if info else None,
         "currency": info.get("currency") if info else None,
+    }
+
+
+@router.get("/lookup/{ticker}", response_model=StockResponse)
+def lookup_stock(ticker: str):
+    """
+    Return market data for a ticker without requiring it to exist in the user's portfolio.
+
+    The response matches the portfolio stock shape closely so the frontend can reuse the
+    detail page for ad-hoc ticker lookups.
+    """
+    from app.services.stock_service import StockService
+
+    stock_service = StockService()
+    return _build_lookup_stock_response(ticker, stock_service)
+
+
+@router.get("/lookup/{ticker}/dividends")
+def lookup_stock_dividends(ticker: str, years: int = 5):
+    """
+    Return dividend history for a ticker without filtering by portfolio ownership.
+    """
+    from app.services.stock_service import StockService
+
+    stock_service = StockService()
+    normalized_ticker = ticker.strip().upper()
+
+    if years < 1 or years > MAX_YEARS:
+        raise HTTPException(
+            status_code=400,
+            detail=f"years must be between 1 and {MAX_YEARS}",
+        )
+
+    dividends = stock_service.get_dividends(normalized_ticker, years)
+    return dividends or []
+
+
+@router.get("/lookup/{ticker}/upcoming-dividends")
+def lookup_upcoming_dividends(ticker: str):
+    """
+    Return upcoming dividend events for a ticker without requiring a portfolio position.
+    """
+    from app.services.stock_service import StockService
+    from app.services.avanza_service import avanza_service
+
+    stock_service = StockService()
+    return _get_lookup_upcoming_dividends(ticker, stock_service, avanza_service)
+
+
+@router.get("/lookup/{ticker}/analyst")
+def lookup_analyst_data(ticker: str):
+    """
+    Return analyst recommendations and price targets for a ticker without requiring a portfolio position.
+    """
+    from app.services.stock_service import StockService
+
+    stock_service = StockService()
+    normalized_ticker = ticker.strip().upper()
+    all_recommendations = stock_service.get_all_analyst_recommendations(normalized_ticker)
+    price_targets = stock_service.get_price_targets(normalized_ticker)
+    latest_rating = stock_service.get_latest_rating(normalized_ticker)
+
+    return {
+        "recommendations": all_recommendations.get('yfinance'),
+        "finnhub_recommendations": all_recommendations.get('finnhub'),
+        "price_targets": price_targets,
+        "latest_rating": latest_rating,
     }
 
 

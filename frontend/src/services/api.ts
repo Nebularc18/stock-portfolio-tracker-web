@@ -653,6 +653,7 @@ export const api = {
       return request
     },
     get: (ticker: string) => fetchAPI<Stock>(`/stocks/${encodePathSegment(ticker)}`),
+    lookup: (ticker: string) => fetchAPI<Stock>(`/stocks/lookup/${encodePathSegment(ticker)}`),
     create: (data: { ticker: string; quantity: number; purchase_price?: number; courtage?: number; courtage_currency?: string; exchange_rate?: number; exchange_rate_currency?: string; platform?: string; purchase_date?: string; position_entries?: PositionEntry[] }) => 
       fetchAPI<Stock>('/stocks', { method: 'POST', body: JSON.stringify(data) }).then((value) => {
         clearPortfolioDataCaches()
@@ -672,6 +673,7 @@ export const api = {
       return value
     }),
     dividends: (ticker: string, years: number = 5) => fetchAPI<Dividend[]>(`/stocks/${encodePathSegment(ticker)}/dividends?years=${years}`),
+    lookupDividends: (ticker: string, years: number = 5) => fetchAPI<Dividend[]>(`/stocks/lookup/${encodePathSegment(ticker)}/dividends?years=${years}`),
     dividendsForTickers: (tickers: string[], years: number = 5, userId?: number | null, requestOptions?: RequestInit) => {
       const normalizedTickers = [...new Set(tickers.map((ticker) => ticker.trim().toUpperCase()).filter(Boolean))]
       const scope = getRequestUserCacheScope(userId)
@@ -704,7 +706,9 @@ export const api = {
       return request
     },
     upcomingDividends: (ticker: string) => fetchAPI<StockUpcomingDividend[]>(`/stocks/${encodePathSegment(ticker)}/upcoming-dividends`),
+    lookupUpcomingDividends: (ticker: string) => fetchAPI<StockUpcomingDividend[]>(`/stocks/lookup/${encodePathSegment(ticker)}/upcoming-dividends`),
     analyst: (ticker: string) => fetchAPI<AnalystData>(`/stocks/${encodePathSegment(ticker)}/analyst`),
+    lookupAnalyst: (ticker: string) => fetchAPI<AnalystData>(`/stocks/lookup/${encodePathSegment(ticker)}/analyst`),
     validate: (ticker: string) => fetchAPI<TickerValidationResult>(`/stocks/validate/${encodePathSegment(ticker)}`),
     addManualDividend: (ticker: string, data: { date: string; amount: number; currency?: string; note?: string }) =>
       fetchAPI<Stock>(`/stocks/${encodePathSegment(ticker)}/manual-dividends`, { method: 'POST', body: JSON.stringify(data) }).then((value) => {
@@ -809,9 +813,18 @@ export const api = {
       portfolioHistoryRequestCache.set(key, request)
       return request
     },
-    upcomingDividends: (userId?: number | null, requestOptions?: RequestInit) => {
+    upcomingDividends: (
+      userIdOrOptions?: number | null | { force?: boolean; userId?: number | null; requestOptions?: RequestInit },
+      maybeRequestOptions?: RequestInit,
+    ) => {
+      const options = typeof userIdOrOptions === 'object' && userIdOrOptions !== null && !Array.isArray(userIdOrOptions)
+        ? userIdOrOptions
+        : null
+      const userId: number | null | undefined = options ? options.userId : userIdOrOptions as number | null | undefined
+      const requestOptions = options ? options.requestOptions : maybeRequestOptions
+      const force = options?.force === true
       const key = getRequestUserCacheScope(userId)
-      if (requestOptions?.signal) {
+      if (requestOptions?.signal || force) {
         return fetchAPI<UpcomingDividendsResponse>('/portfolio/upcoming-dividends', requestOptions)
       }
       const cachedValue = getCachedValue(portfolioUpcomingDividendsValueCache, key)
@@ -920,9 +933,15 @@ export const api = {
     }>>('/avanza/dividends'),
     mappings: () => fetchAPI<TickerMapping[]>('/avanza/mappings'),
     addMapping: (data: { avanza_name: string; yahoo_ticker: string; instrument_id?: string | null }) =>
-      fetchAPI<TickerMapping>('/avanza/mappings', { method: 'POST', body: JSON.stringify(data) }),
+      fetchAPI<TickerMapping>('/avanza/mappings', { method: 'POST', body: JSON.stringify(data) }).then((value) => {
+        clearPortfolioDataCaches()
+        return value
+      }),
     deleteMapping: (avanzaName: string) =>
-      fetchAPI<{ message: string }>(`/avanza/mappings/${encodeURIComponent(avanzaName)}`, { method: 'DELETE' }),
+      fetchAPI<{ message: string }>(`/avanza/mappings/${encodeURIComponent(avanzaName)}`, { method: 'DELETE' }).then((value) => {
+        clearPortfolioDataCaches()
+        return value
+      }),
     historical: (ticker: string, years: number = 5) =>
       fetchAPI<Array<{
         date: string

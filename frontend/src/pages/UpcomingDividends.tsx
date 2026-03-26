@@ -96,7 +96,7 @@ export default function UpcomingDividends() {
       if (showLoadingState) {
         setError(null)
       }
-      const data = await api.portfolio.upcomingDividends()
+      const data = await api.portfolio.upcomingDividends({ force: !showLoadingState })
       setDividends(data.dividends)
       setTotalExpected(data.total_expected)
       setTotalReceived(data.total_received)
