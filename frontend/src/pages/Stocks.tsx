@@ -472,13 +472,14 @@ export default function Stocks() {
   const handleSellStock = async () => {
     if (!sellStock) return
     const parsedSellQuantity = Number(sellQuantity)
+    const latestAllowedSellDate = getLocalDateInputValue()
 
     if (!Number.isFinite(parsedSellQuantity) || parsedSellQuantity <= 0 || parsedSellQuantity > totalSellableQuantity) {
       setSellError(t(language, 'stocks.sellInvalidQuantity'))
       return
     }
     const earliestPurchaseDate = sellableEntries[0]?.purchase_date || null
-    if (!sellDate || sellDate > maxPurchaseDate || (earliestPurchaseDate && sellDate < earliestPurchaseDate)) {
+    if (!sellDate || sellDate > latestAllowedSellDate || (earliestPurchaseDate && sellDate < earliestPurchaseDate)) {
       setSellError(t(language, 'stocks.sellInvalidDate'))
       return
     }
