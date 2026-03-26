@@ -1,9 +1,10 @@
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 from typing import Optional, List
 import logging
 
 from app.services.avanza_service import avanza_service
+from app.main import User, get_current_user
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -12,7 +13,7 @@ logger = logging.getLogger(__name__)
 class TickerMappingCreate(BaseModel):
     avanza_name: str
     yahoo_ticker: str
-    instrument_id: str
+    instrument_id: Optional[str] = None
 
 
 class TickerMappingResponse(BaseModel):
@@ -62,23 +63,25 @@ def get_avanza_dividends():
 
 
 @router.get("/mappings")
-def get_all_mappings():
+def get_all_mappings(current_user: User = Depends(get_current_user)):
     """
-    Retrieve all configured ticker mappings.
-    
+    Retrieve ticker mappings relevant to the current user's stocks.
+
     Returns:
         list: A list of mapping objects where each item contains `avanza_name`, `yahoo_ticker`, `instrument_id` (or `None`), and `manually_added` (bool).
     """
+    mappings = avanza_service.get_relevant_mappings_for_user(current_user.id)
     return [{
         'avanza_name': m.avanza_name,
         'yahoo_ticker': m.yahoo_ticker,
         'instrument_id': m.instrument_id,
-        'manually_added': m.manually_added
-    } for m in avanza_service.mapping.values()]
+        'manually_added': m.manually_added,
+        'added_at': m.added_at,
+    } for m in mappings]
 
 
 @router.post("/mappings")
-def add_mapping(mapping: TickerMappingCreate):
+def add_mapping(mapping: TickerMappingCreate, current_user: User = Depends(get_current_user)):
     """
     Create and persist a manual ticker mapping for an Avanza instrument.
     
@@ -88,21 +91,25 @@ def add_mapping(mapping: TickerMappingCreate):
     Returns:
         dict: Created mapping with keys `avanza_name`, `yahoo_ticker`, `instrument_id`, and `manually_added` set to `True`.
     """
-    avanza_service.add_manual_mapping(
-        avanza_name=mapping.avanza_name,
-        yahoo_ticker=mapping.yahoo_ticker,
-        instrument_id=mapping.instrument_id
-    )
+    try:
+        created = avanza_service.add_manual_mapping(
+            avanza_name=mapping.avanza_name,
+            yahoo_ticker=mapping.yahoo_ticker,
+            instrument_id=mapping.instrument_id
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
     return {
-        'avanza_name': mapping.avanza_name,
-        'yahoo_ticker': mapping.yahoo_ticker,
-        'instrument_id': mapping.instrument_id,
-        'manually_added': True
+        'avanza_name': created.avanza_name,
+        'yahoo_ticker': created.yahoo_ticker,
+        'instrument_id': created.instrument_id,
+        'manually_added': created.manually_added,
+        'added_at': created.added_at,
     }
 
 
 @router.delete("/mappings/{avanza_name}")
-def delete_mapping(avanza_name: str):
+def delete_mapping(avanza_name: str, current_user: User = Depends(get_current_user)):
     """
     Remove a ticker mapping identified by an Avanza stock name.
     
@@ -115,12 +122,10 @@ def delete_mapping(avanza_name: str):
     Raises:
         HTTPException: 404 if the mapping for the provided name does not exist.
     """
-    key = avanza_name.lower()
-    if key not in avanza_service.mapping:
+    deleted = avanza_service.delete_mapping(avanza_name)
+    if not deleted:
         raise HTTPException(status_code=404, detail="Mapping not found")
-    
-    del avanza_service.mapping[key]
-    avanza_service._save_mappings()
+
     return {'message': 'Mapping deleted'}
 
 

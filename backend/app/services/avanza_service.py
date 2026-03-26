@@ -30,6 +30,7 @@ DIVIDENDS_CACHE_TTL = 86400
 HISTORICAL_CACHE_TTL = 86400 * 7
 STOCK_DATA_CACHE_TTL = 300
 MAX_STOCK_CACHE_SIZE = 256
+MAPPING_CACHE_TTL = 10
 
 MAPPING_FILE = "ticker_mapping.json"
 
@@ -172,7 +173,202 @@ class AvanzaService:
         self.mapping: Dict[str, TickerMapping] = {}
         self._lock = threading.RLock()
         self._stock_data_cache: Dict[str, tuple[float, Dict[str, Any]]] = {}
+        self._mapping_cache_loaded_at = 0.0
         self._load_mappings()
+
+    def _get_db_components(self):
+        try:
+            from app.main import SessionLocal, SharedTickerMapping
+            from sqlalchemy import func
+            return SessionLocal, SharedTickerMapping, func
+        except Exception as exc:
+            logger.debug("Shared mapping DB components unavailable: %s", exc)
+            return None, None, None
+
+    def _mapping_from_db_record(self, record: Any) -> TickerMapping:
+        added_at = None
+        if getattr(record, "added_at", None):
+            try:
+                added_at = record.added_at.isoformat()
+            except Exception:
+                added_at = str(record.added_at)
+
+        instrument_id = getattr(record, "instrument_id", None)
+        if instrument_id is not None:
+            instrument_id = str(instrument_id).strip() or None
+
+        return TickerMapping(
+            avanza_name=str(record.avanza_name).strip(),
+            yahoo_ticker=str(record.yahoo_ticker).strip().upper(),
+            instrument_id=instrument_id,
+            manually_added=bool(getattr(record, "manually_added", True)),
+            added_at=added_at,
+        )
+
+    def _reload_mappings_from_db(self) -> bool:
+        SessionLocal, SharedTickerMapping, _ = self._get_db_components()
+        if not SessionLocal or not SharedTickerMapping:
+            return False
+
+        db = SessionLocal()
+        try:
+            records = db.query(SharedTickerMapping).all()
+            with self._lock:
+                self.mapping = {
+                    mapping.avanza_name.lower(): mapping
+                    for mapping in (self._mapping_from_db_record(record) for record in records)
+                }
+                self._mapping_cache_loaded_at = time.time()
+            return True
+        except Exception as exc:
+            logger.warning("Failed to load shared mappings from DB: %s", exc)
+            return False
+        finally:
+            db.close()
+
+    def _upsert_mapping_to_db(self, mapping: TickerMapping) -> Optional[TickerMapping]:
+        SessionLocal, SharedTickerMapping, func = self._get_db_components()
+        if not SessionLocal or not SharedTickerMapping or not func:
+            return None
+
+        db = SessionLocal()
+        try:
+            existing_by_name = db.query(SharedTickerMapping).filter(
+                func.lower(SharedTickerMapping.avanza_name) == mapping.avanza_name.lower()
+            ).first()
+            existing_by_ticker = db.query(SharedTickerMapping).filter(
+                func.upper(SharedTickerMapping.yahoo_ticker) == mapping.yahoo_ticker.upper()
+            ).first()
+            if (
+                existing_by_name is not None
+                and existing_by_ticker is not None
+                and existing_by_name.id != existing_by_ticker.id
+            ):
+                raise ValueError(
+                    "Conflicting shared mapping exists: avanza_name and yahoo_ticker match different records."
+                )
+            existing = existing_by_name or existing_by_ticker
+
+            if existing is None:
+                existing = SharedTickerMapping(
+                    avanza_name=mapping.avanza_name,
+                    yahoo_ticker=mapping.yahoo_ticker.upper(),
+                    instrument_id=mapping.instrument_id,
+                    manually_added=mapping.manually_added,
+                )
+                if mapping.added_at:
+                    try:
+                        existing.added_at = datetime.fromisoformat(mapping.added_at.replace("Z", "+00:00"))
+                    except ValueError:
+                        pass
+                db.add(existing)
+            else:
+                existing.avanza_name = mapping.avanza_name
+                existing.yahoo_ticker = mapping.yahoo_ticker.upper()
+                existing.instrument_id = mapping.instrument_id
+                existing.manually_added = mapping.manually_added
+                if mapping.added_at:
+                    try:
+                        existing.added_at = datetime.fromisoformat(mapping.added_at.replace("Z", "+00:00"))
+                    except ValueError:
+                        pass
+
+            db.commit()
+            db.refresh(existing)
+            persisted = self._mapping_from_db_record(existing)
+            with self._lock:
+                self.mapping[persisted.avanza_name.lower()] = persisted
+                self._mapping_cache_loaded_at = time.time()
+            return persisted
+        except ValueError:
+            db.rollback()
+            raise
+        except Exception as exc:
+            db.rollback()
+            logger.warning("Failed to persist shared mapping to DB: %s", exc)
+            return None
+        finally:
+            db.close()
+
+    def get_relevant_mappings_for_user(self, user_id: int) -> List[TickerMapping]:
+        SessionLocal, SharedTickerMapping, func = self._get_db_components()
+        if not SessionLocal or not SharedTickerMapping or not func:
+            return []
+
+        from app.main import Stock
+
+        db = SessionLocal()
+        try:
+            user_tickers = db.query(Stock.ticker.label("ticker")).filter(
+                Stock.user_id == user_id,
+                Stock.ticker.isnot(None),
+            ).distinct().subquery()
+            records = db.query(SharedTickerMapping).join(
+                user_tickers,
+                func.upper(SharedTickerMapping.yahoo_ticker) == func.upper(user_tickers.c.ticker),
+            ).order_by(
+                func.upper(SharedTickerMapping.yahoo_ticker),
+                func.lower(SharedTickerMapping.avanza_name),
+            ).all()
+            return [self._mapping_from_db_record(record) for record in records]
+        finally:
+            db.close()
+
+    def delete_mapping(self, avanza_name: str) -> bool:
+        SessionLocal, SharedTickerMapping, func = self._get_db_components()
+        deleted = False
+        if SessionLocal and SharedTickerMapping and func:
+            db = SessionLocal()
+            try:
+                record = db.query(SharedTickerMapping).filter(
+                    func.lower(SharedTickerMapping.avanza_name) == avanza_name.lower()
+                ).first()
+                if record is not None:
+                    db.delete(record)
+                    db.commit()
+                    deleted = True
+            except Exception as exc:
+                db.rollback()
+                logger.warning("Failed to delete shared mapping from DB: %s", exc)
+            finally:
+                db.close()
+
+        with self._lock:
+            removed = self.mapping.pop(avanza_name.lower(), None)
+            self._mapping_cache_loaded_at = time.time()
+        if removed is not None:
+            deleted = True
+
+        if not deleted:
+            return False
+
+        filepath = os.path.join(MAPPING_DIR, MAPPING_FILE)
+        data = _load_json_file(filepath)
+        if data:
+            filtered = [
+                item for item in data.get("mappings", [])
+                if str(item.get("avanza_name", "")).strip().lower() != avanza_name.lower()
+            ]
+            _save_json_file(filepath, {"mappings": filtered})
+        return True
+
+    def _mapping_from_item(self, item: Dict[str, Any], manually_added_default: bool = False) -> Optional[TickerMapping]:
+        avanza_name = str(item.get("avanza_name", "")).strip()
+        yahoo_ticker = str(item.get("yahoo_ticker", "")).strip()
+        if not avanza_name or not yahoo_ticker:
+            return None
+
+        instrument_id = item.get("instrument_id")
+        if instrument_id is not None:
+            instrument_id = str(instrument_id).strip() or None
+
+        return TickerMapping(
+            avanza_name=avanza_name,
+            yahoo_ticker=yahoo_ticker.upper(),
+            instrument_id=instrument_id,
+            manually_added=bool(item.get("manually_added", manually_added_default)),
+            added_at=item.get("added_at"),
+        )
 
     def _fetch_stock_data_with_cache(self, instrument_id: str) -> Optional[Dict[str, Any]]:
         """
@@ -215,25 +411,35 @@ class AvanzaService:
                 self._stock_data_cache[instrument_id] = (time.time(), data)
         return data
     
-    def _load_mappings(self):
+    def _load_mappings(self, force_refresh: bool = False):
         """
         Load ticker mappings from the mappings file and populate self.mapping.
         
         Reads the mappings file (MAPPING_FILE in MAPPING_DIR) if present, converts each mapping entry into a TickerMapping, and stores them in self.mapping keyed by the lowercase Avanza name. If the file is missing or invalid, self.mapping is left unchanged.
         """
+        now = time.time()
         with self._lock:
+            if (
+                not force_refresh
+                and self.mapping
+                and (now - self._mapping_cache_loaded_at) < MAPPING_CACHE_TTL
+            ):
+                return
+
+        if self._reload_mappings_from_db():
+            return
+
+        with self._lock:
+            self.mapping = {}
             filepath = os.path.join(MAPPING_DIR, MAPPING_FILE)
             data = _load_json_file(filepath)
             if data:
                 for item in data.get('mappings', []):
-                    mapping = TickerMapping(
-                        avanza_name=item.get('avanza_name', ''),
-                        yahoo_ticker=item.get('yahoo_ticker', ''),
-                        instrument_id=item.get('instrument_id'),
-                        manually_added=item.get('manually_added', False),
-                        added_at=item.get('added_at')
-                    )
+                    mapping = self._mapping_from_item(item)
+                    if not mapping:
+                        continue
                     self.mapping[mapping.avanza_name.lower()] = mapping
+            self._mapping_cache_loaded_at = now
     
     def _save_mappings(self):
         """
@@ -244,6 +450,7 @@ class AvanzaService:
         Returns:
             bool: True on success, False on failure.
         """
+        self._reload_mappings_from_db()
         with self._lock:
             filepath = os.path.join(MAPPING_DIR, MAPPING_FILE)
             data = {
@@ -263,18 +470,23 @@ class AvanzaService:
         Raises:
             IOError: If the mapping could not be persisted to disk.
         """
-        with self._lock:
-            mapping = TickerMapping(
-                avanza_name=avanza_name,
-                yahoo_ticker=yahoo_ticker,
-                instrument_id=instrument_id,
-                manually_added=True,
-                added_at=datetime.now(timezone.utc).isoformat()
-            )
-            self.mapping[avanza_name.lower()] = mapping
-            if not self._save_mappings():
-                raise IOError(f"Failed to persist mapping for {avanza_name}")
-            logger.info(f"Added manual mapping: {avanza_name} -> {yahoo_ticker} (ID: {instrument_id})")
+        mapping = TickerMapping(
+            avanza_name=avanza_name,
+            yahoo_ticker=yahoo_ticker.upper(),
+            instrument_id=instrument_id,
+            manually_added=True,
+            added_at=datetime.now(timezone.utc).isoformat()
+        )
+        persisted = self._upsert_mapping_to_db(mapping)
+        if persisted:
+            mapping = persisted
+        else:
+            with self._lock:
+                self.mapping[avanza_name.lower()] = mapping
+                if not self._save_mappings():
+                    raise IOError(f"Failed to persist mapping for {avanza_name}")
+        logger.info(f"Added manual mapping: {avanza_name} -> {yahoo_ticker} (ID: {instrument_id})")
+        return mapping
     
     def get_mapping(self, avanza_name: str) -> Optional[TickerMapping]:
         """
@@ -286,6 +498,7 @@ class AvanzaService:
         Returns:
             Optional[TickerMapping]: The corresponding TickerMapping if found, `None` otherwise.
         """
+        self._load_mappings()
         return self.mapping.get(avanza_name.lower())
     
     def get_mapping_by_ticker(self, yahoo_ticker: str) -> Optional[TickerMapping]:
@@ -298,10 +511,40 @@ class AvanzaService:
         Returns:
             Optional[TickerMapping]: The corresponding TickerMapping if a match is found, `None` otherwise.
         """
+        self._load_mappings()
         for m in self.mapping.values():
             if m.yahoo_ticker and m.yahoo_ticker.upper() == yahoo_ticker.upper():
                 return m
         return None
+
+    def ensure_mapping_for_ticker(self, yahoo_ticker: str) -> Optional[TickerMapping]:
+        return self.get_mapping_by_ticker(yahoo_ticker)
+
+    def ensure_mappings_for_tickers(self, yahoo_tickers: List[str]) -> List[TickerMapping]:
+        resolved = []
+        for ticker in yahoo_tickers:
+            mapping = self.ensure_mapping_for_ticker(ticker)
+            if mapping:
+                resolved.append(mapping)
+        return resolved
+
+    def get_relevant_mappings(self, yahoo_tickers: List[str]) -> List[TickerMapping]:
+        normalized_tickers = {
+            ticker.strip().upper()
+            for ticker in yahoo_tickers
+            if ticker and ticker.strip()
+        }
+        if not normalized_tickers:
+            return []
+
+        self._load_mappings()
+        relevant = [
+            mapping
+            for mapping in self.mapping.values()
+            if mapping.yahoo_ticker and mapping.yahoo_ticker.upper() in normalized_tickers
+        ]
+        relevant.sort(key=lambda mapping: (mapping.yahoo_ticker.upper(), mapping.avanza_name.lower()))
+        return relevant
     
     def get_unmapped_stocks(self) -> List[str]:
         """
@@ -363,6 +606,7 @@ class AvanzaService:
             if cached is not None:
                 return [AvanzaDividend(**d) for d in cached]
         
+        self._load_mappings()
         dividends = []
         
         for mapping in self.mapping.values():

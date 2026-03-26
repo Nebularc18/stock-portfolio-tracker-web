@@ -147,6 +147,14 @@ Downloaded logo assets are stored in the `static_data` volume so they survive co
 3. Click **Add Dividend** to manually add a dividend entry
 4. Edit or delete existing manual dividends using the action buttons
 
+### Shared Avanza Mappings
+
+Avanza ticker mappings are now shared through the app database, so users on the same deployed app help each other automatically.
+
+- When one user adds a mapping, other users on the same deployment can use it
+- Adding a stock checks the shared mappings automatically
+- The Avanza mapping screen only shows mappings relevant to the current user's stocks
+
 ### Refreshing Prices
 
 - **Single stock**: Click **Refresh** on the stock's row or detail page
