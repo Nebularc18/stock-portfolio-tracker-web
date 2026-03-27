@@ -690,7 +690,7 @@ class BrandfetchService:
         """
         Builds an ordered list of search query candidates derived from a ticker and an optional company name.
         
-        Generates prioritized search strings from the provided company name (original and cleaned variants that remove common corporate suffixes and parenthetical content) and from the ticker (uppercased form, base before a dot, and root before a hyphen when appropriate). Preserves the original ordering of candidates and removes duplicates while keeping the first occurrence.
+        Generates prioritized search strings from the provided company name (original and cleaned variants that remove common corporate suffixes and parenthetical content) and from ticker variants (full ticker, base before a dot, and root before a hyphen). Preserves the original ordering of candidates and removes duplicates while keeping the first occurrence.
         
         Parameters:
             ticker (str): Stock ticker symbol used to derive ticker-based candidates.
