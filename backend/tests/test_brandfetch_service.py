@@ -26,6 +26,13 @@ def test_build_query_candidates_includes_curated_cibus_domain(brandfetch_service
     assert "cibusrealestate.com" in candidates
 
 
+def test_build_query_candidates_include_ticker_root_even_with_company_name(brandfetch_service: BrandfetchService):
+    candidates = brandfetch_service._build_query_candidates("SEB-A.ST", "Skandinaviska Enskilda Banken AB")
+
+    assert "SEB-A" in candidates
+    assert "SEB" in candidates
+
+
 def test_confident_match_accepts_curated_domain_for_single_token_name(brandfetch_service: BrandfetchService):
     candidate = {
         "name": "EQT Group",
@@ -67,3 +74,32 @@ def test_get_logo_url_for_ticker_prefers_curated_local_logo(brandfetch_service: 
     )
 
     assert logo_url == "/static/logos/cibus.svg"
+
+
+def test_get_finnhub_logo_tries_base_and_root_ticker_variants(
+    brandfetch_service: BrandfetchService,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    looked_up: list[str] = []
+
+    class FinnhubStub:
+        def clear_cache(self, ticker: str) -> None:
+            pass
+
+        def get_company_profile(self, ticker: str):
+            looked_up.append(ticker)
+            if ticker == "SEB":
+                return {"logo": None, "website": "https://seb.se"}
+            return None
+
+    monkeypatch.setattr("app.services.brandfetch_service.finnhub_service", FinnhubStub())
+    monkeypatch.setattr(
+        brandfetch_service,
+        "_persist_candidate_logo",
+        lambda candidate, ticker: "/static/logos/seb.png" if candidate.get("domain") == "seb.se" else None,
+    )
+
+    logo_url = brandfetch_service._get_finnhub_logo("SEB-A.ST")
+
+    assert logo_url == "/static/logos/seb.png"
+    assert looked_up == ["SEB-A.ST", "SEB-A", "SEB"]

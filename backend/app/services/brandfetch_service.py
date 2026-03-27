@@ -189,6 +189,33 @@ def _save_file_cache(filename: str, value: Optional[str], ttl: int = _LOGO_CACHE
 
 
 class BrandfetchService:
+    def _ticker_variants(self, ticker: str) -> list[str]:
+        """
+        Build ordered ticker variants for logo lookups.
+
+        The full symbol is tried first, followed by the exchange-free base symbol
+        and then the root before any share-class suffix.
+        """
+        ticker_upper = ticker.strip().upper()
+        variants: list[str] = []
+        seen: set[str] = set()
+
+        def add(value: str) -> None:
+            candidate = value.strip().upper()
+            if candidate and candidate not in seen:
+                seen.add(candidate)
+                variants.append(candidate)
+
+        add(ticker_upper)
+
+        ticker_base = ticker_upper.split('.', 1)[0]
+        add(ticker_base)
+
+        ticker_root = ticker_base.split('-', 1)[0]
+        add(ticker_root)
+
+        return variants
+
     def _curated_local_logo_path(self, ticker: str) -> Optional[str]:
         """
         Return a curated local logo path for a ticker when one is bundled with the app.
@@ -689,18 +716,8 @@ class BrandfetchService:
                     if normalized_piece and normalized_piece != normalized_clean:
                         candidates.append(normalized_piece)
 
-        ticker_upper = ticker.upper().strip()
-        if ticker_upper:
-            ticker_base = ticker_upper.split('.', 1)[0]
-            if ticker_base and ticker_base != ticker_upper:
-                candidates.append(ticker_base)
-
-            candidates.append(ticker_upper)
-
-            if (not company_name or not company_name.strip()) and '-' in ticker_base:
-                ticker_root = ticker_base.split('-', 1)[0]
-                if ticker_root:
-                    candidates.append(ticker_root)
+        for ticker_variant in self._ticker_variants(ticker):
+            candidates.append(ticker_variant)
 
         unique_candidates: list[str] = []
         seen: set[str] = set()
@@ -747,18 +764,24 @@ class BrandfetchService:
         return None
 
     def _get_finnhub_logo(self, ticker: str, force_refresh: bool = False) -> Optional[str]:
-        if force_refresh:
-            finnhub_service.clear_cache(ticker)
-        profile = finnhub_service.get_company_profile(ticker)
-        if not isinstance(profile, dict):
-            return None
+        for ticker_variant in self._ticker_variants(ticker):
+            if force_refresh:
+                finnhub_service.clear_cache(ticker_variant)
 
-        website_domain = self._extract_domain_from_url(str(profile.get('website') or ''))
-        candidate = {
-            'icon': profile.get('logo'),
-            'domain': website_domain or None,
-        }
-        return self._persist_candidate_logo(candidate, ticker)
+            profile = finnhub_service.get_company_profile(ticker_variant)
+            if not isinstance(profile, dict):
+                continue
+
+            website_domain = self._extract_domain_from_url(str(profile.get('website') or ''))
+            candidate = {
+                'icon': profile.get('logo'),
+                'domain': website_domain or None,
+            }
+            persisted = self._persist_candidate_logo(candidate, ticker)
+            if persisted:
+                return persisted
+
+        return None
 
     def get_logo_url_for_ticker(
         self,
