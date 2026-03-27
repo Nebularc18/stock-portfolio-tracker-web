@@ -218,6 +218,7 @@ export default function Stocks() {
   const editModalRef = useRef<HTMLDivElement | null>(null)
   const sellModalRef = useRef<HTMLDivElement | null>(null)
   const splitModalRef = useRef<HTMLDivElement | null>(null)
+  const addFormRef = useRef<HTMLDivElement | null>(null)
   const editQuantityInputRef = useRef<HTMLInputElement | null>(null)
   const sellQuantityInputRef = useRef<HTMLInputElement | null>(null)
   const splitRatioInputRef = useRef<HTMLInputElement | null>(null)
@@ -582,6 +583,32 @@ export default function Stocks() {
     setSplitRatio('')
     setSplitDate(getLocalDateInputValue())
     setSplitError(null)
+  }
+
+  const openAddFormForStock = (stock: Stock) => {
+    const { baseTicker, exchangeCode } = splitTickerAndExchange(stock.ticker)
+    const platforms = getOpenPlatforms(stock.position_entries)
+
+    setShowAddForm(true)
+    setNewTicker(baseTicker)
+    setSelectedExchange(exchangeCode)
+    setValidationStatus('valid')
+    setValidatedTickerInfo({
+      valid: true,
+      name: stock.name,
+      currency: stock.currency,
+    })
+    setNewQuantity('')
+    setNewPurchasePrice('')
+    setNewCourtage('')
+    setNewExchangeRate('')
+    setNewPlatform(platforms.length === 1 ? platforms[0] : '')
+    setNewPurchaseDate('')
+    setError(null)
+
+    window.requestAnimationFrame(() => {
+      addFormRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+    })
   }
 
   const handleSellStock = async () => {
@@ -982,7 +1009,7 @@ export default function Stocks() {
         </div>
 
         {showAddForm && (
-          <div style={{ marginTop: 20, background: 'var(--bg2)', border: '1px solid var(--border)', borderRadius: 8 }}>
+          <div ref={addFormRef} style={{ marginTop: 20, background: 'var(--bg2)', border: '1px solid var(--border)', borderRadius: 8 }}>
             <div style={{ padding: '12px 18px', borderBottom: '1px solid var(--border)' }}>
               <span style={{ fontSize: 9, fontWeight: 700, letterSpacing: '0.18em', textTransform: 'uppercase', color: 'var(--v2)' }}>
                 {t(language, 'stocks.addNewStock')}
@@ -1153,7 +1180,7 @@ export default function Stocks() {
                   <SortableHeader field="currentPrice" label={t(language, 'stocks.tablePrice')} sortState={sortState} onSort={requestSort} align="right" />
                   <SortableHeader field="dailyChangePercent" label={t(language, 'stocks.tableChange')} sortState={sortState} onSort={requestSort} align="right" />
                   <SortableHeader field="dividendYield" label={t(language, 'stocks.tableDivYield')} sortState={sortState} onSort={requestSort} align="right" />
-                  <th>{t(language, 'stocks.tableActions')}</th>
+                  <th style={{ textAlign: 'right', whiteSpace: 'nowrap' }}>{t(language, 'stocks.tableActions')}</th>
                 </tr>
               </thead>
               <tbody>
@@ -1217,8 +1244,15 @@ export default function Stocks() {
                       <td style={{ fontFamily: "'Fira Code', monospace", textAlign: 'right' }}>
                         {stock.dividend_yield !== null ? `${stock.dividend_yield.toFixed(2)}%` : '-'}
                       </td>
-                      <td>
-                        <div style={{ display: 'flex', gap: 6 }}>
+                      <td style={{ textAlign: 'right', whiteSpace: 'nowrap' }}>
+                        <div style={{ display: 'inline-flex', gap: 6, justifyContent: 'flex-end' }}>
+                          <button
+                            className="btn btn-secondary"
+                            style={{ padding: '4px 10px', fontSize: 11 }}
+                            onClick={() => openAddFormForStock(stock)}
+                          >
+                            {t(language, 'stocks.add')}
+                          </button>
                           <button
                             className="btn btn-secondary"
                             style={{ padding: '4px 10px', fontSize: 11 }}
