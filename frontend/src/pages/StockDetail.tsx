@@ -727,21 +727,21 @@ export default function StockDetail() {
   }
 
   const openEditModal = () => {
-    if (stock && !isLookupMode) {
-      const { baseTicker, exchangeCode } = splitTickerAndExchange(stock.ticker)
-      const editableEntry = stock.position_entries?.find((entry) => getRemainingEntryQuantity(entry) > 0) ?? stock.position_entries?.[0]
-      setEditError(null)
-      setEditTicker(baseTicker)
-      setEditExchange(exchangeCode)
-      setEditValidationStatus('valid')
-      setEditQuantity(stock.quantity.toString())
-      setEditPurchasePrice(editableEntry?.purchase_price?.toString() || stock.purchase_price?.toString() || '')
-      setEditCourtage(editableEntry?.courtage?.toString() || '')
-      setEditExchangeRate(editableEntry?.exchange_rate?.toString() || '')
-      setEditExchangeRateCurrency(editableEntry?.exchange_rate_currency || effectiveDisplayCurrency)
-      setEditPurchaseDate(stock.purchase_date || '')
-      setShowEditModal(true)
-    }
+    if (!stock) return
+
+    const { baseTicker, exchangeCode } = splitTickerAndExchange(stock.ticker)
+    const editableEntry = stock.position_entries?.find((entry) => getRemainingEntryQuantity(entry) > 0) ?? stock.position_entries?.[0]
+    setEditError(null)
+    setEditTicker(baseTicker)
+    setEditExchange(exchangeCode)
+    setEditValidationStatus('valid')
+    setEditQuantity(isLookupMode ? '' : stock.quantity.toString())
+    setEditPurchasePrice(editableEntry?.purchase_price?.toString() || stock.purchase_price?.toString() || '')
+    setEditCourtage(editableEntry?.courtage?.toString() || '')
+    setEditExchangeRate(editableEntry?.exchange_rate?.toString() || '')
+    setEditExchangeRateCurrency(editableEntry?.exchange_rate_currency || effectiveDisplayCurrency)
+    setEditPurchaseDate(stock.purchase_date || '')
+    setShowEditModal(true)
   }
 
   const handleSaveEdit = async () => {
@@ -771,7 +771,8 @@ export default function StockDetail() {
     }
 
     if (
-      (nextQuantity !== undefined && (!Number.isFinite(nextQuantity) || nextQuantity < 0))
+      ((isLookupMode && (nextQuantity === undefined || !Number.isFinite(nextQuantity) || nextQuantity <= 0))
+        || (nextQuantity !== undefined && (!Number.isFinite(nextQuantity) || nextQuantity < 0)))
       || (nextPurchasePrice !== undefined && (!Number.isFinite(nextPurchasePrice) || nextPurchasePrice < 0))
       || (nextCourtage !== null && (!Number.isFinite(nextCourtage) || nextCourtage < 0))
       || (nextExchangeRate !== null && (!Number.isFinite(nextExchangeRate) || nextExchangeRate <= 0))
@@ -800,16 +801,27 @@ export default function StockDetail() {
     try {
       setEditError(null)
       setSaving(true)
-      const updatedStock = await api.stocks.update(ticker, {
-        ticker: nextTicker,
-        quantity: nextQuantity,
-        purchase_price: nextPurchasePrice,
-        courtage: nextCourtage,
-        courtage_currency: nextCourtage !== null ? (editNeedsExchangeFields ? effectiveDisplayCurrency : editEffectiveTickerCurrency) : null,
-        exchange_rate: nextExchangeRate,
-        exchange_rate_currency: nextExchangeRate !== null ? editExchangeRateCurrency : null,
-        purchase_date: editPurchaseDate || null,
-      })
+      const updatedStock = isLookupMode
+        ? await api.stocks.create({
+            ticker: nextTicker,
+            quantity: nextQuantity ?? 0,
+            purchase_price: nextPurchasePrice,
+            courtage: nextCourtage ?? undefined,
+            courtage_currency: nextCourtage !== null ? (editNeedsExchangeFields ? effectiveDisplayCurrency : editEffectiveTickerCurrency) : undefined,
+            exchange_rate: nextExchangeRate ?? undefined,
+            exchange_rate_currency: nextExchangeRate !== null ? editExchangeRateCurrency : undefined,
+            purchase_date: editPurchaseDate || undefined,
+          })
+        : await api.stocks.update(ticker, {
+            ticker: nextTicker,
+            quantity: nextQuantity,
+            purchase_price: nextPurchasePrice,
+            courtage: nextCourtage,
+            courtage_currency: nextCourtage !== null ? (editNeedsExchangeFields ? effectiveDisplayCurrency : editEffectiveTickerCurrency) : null,
+            exchange_rate: nextExchangeRate,
+            exchange_rate_currency: nextExchangeRate !== null ? editExchangeRateCurrency : null,
+            purchase_date: editPurchaseDate || null,
+          })
       notifyPortfolioDataUpdated()
       setShowEditModal(false)
       if (updatedStock.ticker !== ticker) {
@@ -1297,7 +1309,9 @@ export default function StockDetail() {
             <button className="btn btn-secondary" onClick={handleRefresh} disabled={refreshing}>
               {refreshing ? t(language, 'common.refreshing') : t(language, 'common.refresh')}
             </button>
-            {!isLookupMode && (
+            {isLookupMode ? (
+              <button className="btn btn-primary" onClick={openEditModal}>{t(language, 'stockDetail.addToPortfolio')}</button>
+            ) : (
               <>
                 <button className="btn btn-secondary" onClick={openEditModal}>{t(language, 'stockDetail.edit')}</button>
                 <button className="btn btn-danger" onClick={handleDelete}>{t(language, 'common.delete')}</button>
@@ -1772,7 +1786,9 @@ export default function StockDetail() {
             ref={editModalRef}
             tabIndex={-1}
           >
-            <h3 id={editModalHeadingId} style={{ marginBottom: 20, fontSize: 16, fontWeight: 600 }}>{t(language, 'stockDetail.editPosition')}</h3>
+            <h3 id={editModalHeadingId} style={{ marginBottom: 20, fontSize: 16, fontWeight: 600 }}>
+              {isLookupMode ? t(language, 'stockDetail.addPosition') : t(language, 'stockDetail.editPosition')}
+            </h3>
             <div style={{ marginBottom: 14 }}>
               <label style={{ display: 'block', marginBottom: 6, color: 'var(--muted)', fontSize: 12 }}>{t(language, 'stocks.exchange')}</label>
               <select value={editExchange} onChange={(e) => setEditExchange(e.target.value)} style={{ width: '100%' }}>
@@ -1830,7 +1846,9 @@ export default function StockDetail() {
             <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
               <button className="btn btn-secondary" onClick={closeEditModal}>{t(language, 'stockDetail.cancel')}</button>
               <button className="btn btn-primary" onClick={handleSaveEdit} disabled={saving}>
-                {saving ? t(language, 'stockDetail.saving') : t(language, 'stockDetail.save')}
+                {saving
+                  ? (isLookupMode ? t(language, 'stockDetail.adding') : t(language, 'stockDetail.saving'))
+                  : (isLookupMode ? t(language, 'stockDetail.add') : t(language, 'stockDetail.save'))}
               </button>
             </div>
           </div>

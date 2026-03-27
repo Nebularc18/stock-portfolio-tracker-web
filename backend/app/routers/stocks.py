@@ -6,7 +6,7 @@ including CRUD operations, dividend tracking, and analyst data.
 
 from fastapi import APIRouter, Body, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
-from pydantic import BaseModel, ValidationError
+from pydantic import BaseModel, ValidationError, field_validator
 from typing import Optional
 import uuid
 import logging
@@ -20,7 +20,7 @@ from datetime import date, datetime
 from app.main import get_db, get_current_user, User, Stock, StockCreate, StockUpdate, StockResponse, StockPriceHistory
 from app.utils.time import utc_now
 from app.services.brandfetch_service import brandfetch_service
-from app.services.position_service import calculate_position_snapshot, get_quantity_held_on_date, get_remaining_quantity, has_position_history, normalize_position_entries, validate_position_entries
+from app.services.position_service import apply_stock_split, calculate_position_snapshot, get_quantity_held_on_date, get_remaining_quantity, has_position_history, normalize_position_entries, validate_position_entries
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -383,6 +383,20 @@ class ManualDividendUpdate(BaseModel):
     amount: Optional[float] = None
     currency: Optional[str] = None
     note: Optional[str] = None
+
+
+class StockSplitRequest(BaseModel):
+    ratio: float
+    split_date: date
+
+    @field_validator("ratio")
+    @classmethod
+    def validate_ratio(cls, value: float) -> float:
+        if not math.isfinite(value) or value <= 0:
+            raise ValueError("ratio must be greater than zero")
+        if math.isclose(value, 1.0, rel_tol=0.0, abs_tol=1e-12):
+            raise ValueError("ratio must not equal 1")
+        return value
 
 
 @router.get("", response_model=list[StockResponse])
@@ -1004,6 +1018,35 @@ def delete_stock(ticker: str, db: Session = Depends(get_db), current_user: User 
     db.delete(stock)
     db.commit()
     return {"message": "Stock deleted"}
+
+
+@router.post("/{ticker}/split", response_model=StockResponse)
+def split_stock(
+    ticker: str,
+    split_data: StockSplitRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    stock = db.query(Stock).filter(
+        Stock.user_id == current_user.id,
+        Stock.ticker == ticker.upper()
+    ).first()
+    if not stock:
+        raise HTTPException(status_code=404, detail="Stock not found")
+
+    try:
+        stock.position_entries = apply_stock_split(
+            _get_normalized_stock_position_entries(stock),
+            split_data.ratio,
+            split_data.split_date,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    _apply_stock_position_snapshot(stock)
+    db.commit()
+    db.refresh(stock)
+    return stock
 
 
 @router.post("/{ticker}/refresh")

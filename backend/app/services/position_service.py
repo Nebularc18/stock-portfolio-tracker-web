@@ -497,3 +497,61 @@ def get_quantity_held_on_date(
 def has_position_history(entries: Any, fallback_quantity: Optional[float] = None) -> bool:
     normalized = normalize_position_entries(entries, fallback_quantity=fallback_quantity)
     return bool(normalized)
+
+
+def apply_stock_split(
+    entries: Any,
+    split_ratio: float,
+    split_date: Any,
+) -> list[dict[str, Any]]:
+    try:
+        resolved_ratio = float(split_ratio)
+    except (TypeError, ValueError):
+        raise ValueError('split_ratio must be a number') from None
+
+    if not math.isfinite(resolved_ratio) or resolved_ratio <= 0:
+        raise ValueError('split_ratio must be greater than zero')
+    if math.isclose(resolved_ratio, 1.0, rel_tol=0.0, abs_tol=1e-12):
+        raise ValueError('split_ratio must not equal 1')
+
+    resolved_split_date = parse_position_date(split_date)
+    if resolved_split_date is None:
+        raise ValueError('split_date must be a valid date')
+
+    normalized = normalize_position_entries(entries)
+    updated_entries: list[dict[str, Any]] = []
+    split_applied = False
+
+    for entry in normalized:
+        remaining_quantity = get_remaining_quantity(entry)
+        purchase_date = parse_position_date(entry.get('purchase_date'))
+
+        if remaining_quantity <= 0 or (purchase_date is not None and purchase_date >= resolved_split_date):
+            updated_entries.append(dict(entry))
+            continue
+
+        split_applied = True
+        closed_entry = dict(entry)
+        closed_entry['sell_date'] = resolved_split_date.isoformat()
+        closed_entry['sold_quantity'] = float(entry['quantity'])
+        updated_entries.append(closed_entry)
+
+        purchase_price = entry.get('purchase_price')
+        updated_entries.append({
+            'id': str(uuid.uuid4()),
+            'quantity': remaining_quantity * resolved_ratio,
+            'purchase_price': (float(purchase_price) / resolved_ratio) if purchase_price is not None else None,
+            'courtage': entry.get('courtage') or 0.0,
+            'courtage_currency': entry.get('courtage_currency'),
+            'purchase_date': resolved_split_date.isoformat(),
+            'sell_date': None,
+            'sold_quantity': None,
+            'exchange_rate': entry.get('exchange_rate'),
+            'exchange_rate_currency': entry.get('exchange_rate_currency'),
+            'platform': entry.get('platform'),
+        })
+
+    if not split_applied:
+        raise ValueError('No open shares held before split_date')
+
+    return normalize_position_entries(updated_entries)

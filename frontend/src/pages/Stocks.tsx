@@ -207,20 +207,30 @@ export default function Stocks() {
   const [sellDate, setSellDate] = useState(getLocalDateInputValue())
   const [sellError, setSellError] = useState<string | null>(null)
   const [selling, setSelling] = useState(false)
+  const [splitStock, setSplitStock] = useState<Stock | null>(null)
+  const [splitRatio, setSplitRatio] = useState('')
+  const [splitDate, setSplitDate] = useState(getLocalDateInputValue())
+  const [splitError, setSplitError] = useState<string | null>(null)
+  const [splitting, setSplitting] = useState(false)
   const [refreshingAll, setRefreshingAll] = useState(false)
   const [lastUpdate, setLastUpdate] = useState<string | null>(null)
   const [failedLogos, setFailedLogos] = useState<Record<string, boolean>>({})
   const editModalRef = useRef<HTMLDivElement | null>(null)
   const sellModalRef = useRef<HTMLDivElement | null>(null)
+  const splitModalRef = useRef<HTMLDivElement | null>(null)
   const editQuantityInputRef = useRef<HTMLInputElement | null>(null)
   const sellQuantityInputRef = useRef<HTMLInputElement | null>(null)
+  const splitRatioInputRef = useRef<HTMLInputElement | null>(null)
   const editModalHeadingId = useId()
   const sellModalHeadingId = useId()
+  const splitModalHeadingId = useId()
   const editQuantityInputId = useId()
   const editPurchasePriceInputId = useId()
   const editPurchaseDateInputId = useId()
   const sellQuantityInputId = useId()
   const sellDateInputId = useId()
+  const splitRatioInputId = useId()
+  const splitDateInputId = useId()
   const { timezone, language, displayCurrency, platforms } = useSettings()
   const locale = getLocaleForLanguage(language)
   const unassignedPlatformLabel = t(language, 'stocks.platformUnassigned')
@@ -239,6 +249,12 @@ export default function Stocks() {
     setSellDate(getLocalDateInputValue())
     setSellError(null)
   }, [])
+  const closeSplitModal = useCallback(() => {
+    setSplitStock(null)
+    setSplitRatio('')
+    setSplitDate(getLocalDateInputValue())
+    setSplitError(null)
+  }, [])
 
   useModalFocusTrap({
     modalRef: editModalRef,
@@ -252,6 +268,13 @@ export default function Stocks() {
     open: sellStock !== null,
     onClose: closeSellModal,
     initialFocusRef: sellQuantityInputRef,
+  })
+
+  useModalFocusTrap({
+    modalRef: splitModalRef,
+    open: splitStock !== null,
+    onClose: closeSplitModal,
+    initialFocusRef: splitRatioInputRef,
   })
 
   const fetchStocks = useCallback(async () => {
@@ -552,6 +575,15 @@ export default function Stocks() {
     setSellError(null)
   }
 
+  const openSplitModal = (stock: Stock) => {
+    const openEntries = (stock.position_entries || []).filter((entry) => getRemainingEntryQuantity(entry) > 0)
+    if (openEntries.length === 0) return
+    setSplitStock(stock)
+    setSplitRatio('')
+    setSplitDate(getLocalDateInputValue())
+    setSplitError(null)
+  }
+
   const handleSellStock = async () => {
     if (!sellStock) return
     const parsedSellQuantity = Number(sellQuantity)
@@ -640,6 +672,37 @@ export default function Stocks() {
       setSellError(err instanceof Error ? err.message : t(language, 'stocks.failedSave'))
     } finally {
       setSelling(false)
+    }
+  }
+
+  const handleApplySplit = async () => {
+    if (!splitStock) return
+    const parsedSplitRatio = Number(splitRatio)
+    const latestAllowedSplitDate = getLocalDateInputValue()
+
+    if (!Number.isFinite(parsedSplitRatio) || parsedSplitRatio <= 0 || parsedSplitRatio === 1) {
+      setSplitError(t(language, 'stocks.splitInvalidRatio'))
+      return
+    }
+    if (!splitDate || splitDate > latestAllowedSplitDate) {
+      setSplitError(t(language, 'stocks.splitInvalidDate'))
+      return
+    }
+
+    try {
+      setSplitError(null)
+      setSplitting(true)
+      await api.stocks.split(splitStock.ticker, {
+        ratio: parsedSplitRatio,
+        split_date: splitDate,
+      })
+      closeSplitModal()
+      notifyPortfolioDataUpdated()
+      await fetchStocks()
+    } catch (err) {
+      setSplitError(err instanceof Error ? err.message : t(language, 'stocks.failedSplit'))
+    } finally {
+      setSplitting(false)
     }
   }
 
@@ -1166,6 +1229,14 @@ export default function Stocks() {
                           <button
                             className="btn btn-secondary"
                             style={{ padding: '4px 10px', fontSize: 11 }}
+                            onClick={() => openSplitModal(stock)}
+                            disabled={!hasSellableQuantity}
+                          >
+                            {t(language, 'stocks.split')}
+                          </button>
+                          <button
+                            className="btn btn-secondary"
+                            style={{ padding: '4px 10px', fontSize: 11 }}
                             onClick={() => openSellModal(stock)}
                             disabled={!hasSellableQuantity}
                           >
@@ -1443,6 +1514,91 @@ export default function Stocks() {
                 </button>
                 <button type="button" className="btn btn-primary" onClick={handleSaveEdit} disabled={saving}>
                   {saving ? t(language, 'stocks.saving') : t(language, 'stocks.save')}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {splitStock && (
+        <div
+          style={{
+            position: 'fixed', top: 0, left: 0, right: 0, bottom: 0,
+            background: 'rgba(5, 8, 15, 0.82)',
+            display: 'flex', alignItems: 'flex-start', justifyContent: 'center', zIndex: 1000,
+            padding: '16px',
+            overflowY: 'auto',
+          }}
+          onClick={closeSplitModal}
+        >
+          <div
+            ref={splitModalRef}
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby={splitModalHeadingId}
+            tabIndex={-1}
+            style={{
+              width: 420,
+              maxWidth: '100%',
+              background: 'var(--bg2)',
+              border: '1px solid var(--border2)',
+              borderRadius: 10,
+              overflow: 'hidden',
+              display: 'flex',
+              flexDirection: 'column',
+              marginTop: 24,
+            }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div style={{ padding: '16px 20px', borderBottom: '1px solid var(--border)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <span id={splitModalHeadingId} style={{ fontSize: 9, fontWeight: 700, letterSpacing: '0.18em', textTransform: 'uppercase', color: 'var(--v2)' }}>
+                {t(language, 'stocks.splitTitle', { ticker: splitStock.ticker })}
+              </span>
+              <button type="button" aria-label="Close" style={{ background: 'none', border: 'none', color: 'var(--muted)', cursor: 'pointer', fontSize: 18, lineHeight: 1 }} onClick={closeSplitModal}>x</button>
+            </div>
+            <div style={{ padding: '20px', display: 'grid', gap: 14 }}>
+              <p style={{ margin: 0, color: 'var(--muted)', fontSize: 12 }}>
+                {t(language, 'stocks.splitHint')}
+              </p>
+              <div>
+                <label htmlFor={splitRatioInputId} style={{ display: 'block', marginBottom: 6, color: 'var(--muted)', fontSize: 11, fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase' }}>
+                  {t(language, 'stocks.splitRatio')}
+                </label>
+                <input
+                  id={splitRatioInputId}
+                  ref={splitRatioInputRef}
+                  type="number"
+                  step="0.0001"
+                  min="0"
+                  value={splitRatio}
+                  onChange={(e) => setSplitRatio(e.target.value)}
+                  placeholder="5"
+                  style={{ width: '100%' }}
+                />
+              </div>
+              <div>
+                <label htmlFor={splitDateInputId} style={{ display: 'block', marginBottom: 6, color: 'var(--muted)', fontSize: 11, fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase' }}>
+                  {t(language, 'stocks.splitDate')}
+                </label>
+                <input
+                  id={splitDateInputId}
+                  type="date"
+                  value={splitDate}
+                  onChange={(e) => setSplitDate(e.target.value)}
+                  max={maxPurchaseDate}
+                  style={{ width: '100%' }}
+                />
+              </div>
+              {splitError && (
+                <p style={{ color: 'var(--red)', fontSize: 12 }}>{splitError}</p>
+              )}
+              <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
+                <button type="button" className="btn btn-secondary" onClick={closeSplitModal}>
+                  {t(language, 'stocks.cancel')}
+                </button>
+                <button type="button" className="btn btn-primary" onClick={handleApplySplit} disabled={splitting}>
+                  {splitting ? t(language, 'stocks.saving') : t(language, 'stocks.split')}
                 </button>
               </div>
             </div>

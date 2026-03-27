@@ -668,6 +668,11 @@ export const api = {
       clearPortfolioDataCaches()
       return value
     }),
+    split: (ticker: string, data: { ratio: number; split_date: string }) =>
+      fetchAPI<Stock>(`/stocks/${encodePathSegment(ticker)}/split`, { method: 'POST', body: JSON.stringify(data) }).then((value) => {
+        clearPortfolioDataCaches()
+        return value
+      }),
     refresh: (ticker: string) => fetchAPI<Stock>(`/stocks/${encodePathSegment(ticker)}/refresh`, { method: 'POST' }).then((value) => {
       clearPortfolioDataCaches()
       return value

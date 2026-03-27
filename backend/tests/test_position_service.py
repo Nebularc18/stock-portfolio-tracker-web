@@ -2,6 +2,7 @@ import pytest
 import logging
 
 from app.services.position_service import (
+    apply_stock_split,
     calculate_position_cost_basis,
     calculate_position_snapshot,
     get_quantity_held_on_date,
@@ -350,3 +351,62 @@ def test_calculate_position_cost_basis_handles_brokerage_in_target_currency_with
     )
 
     assert total_cost == pytest.approx(7127.78572)
+
+
+def test_apply_stock_split_creates_post_split_lot_and_preserves_history():
+    updated_entries = apply_stock_split(
+        [{
+            "quantity": 30,
+            "purchase_price": 100,
+            "courtage": 10,
+            "purchase_date": "2024-01-01",
+            "sell_date": None,
+        }],
+        5,
+        "2024-06-01",
+    )
+
+    snapshot = calculate_position_snapshot(updated_entries)
+
+    assert snapshot["quantity"] == pytest.approx(150)
+    assert snapshot["purchase_price"] == pytest.approx((30 * 100 + 10) / 150)
+    assert get_quantity_held_on_date(updated_entries, "2024-05-31") == pytest.approx(30)
+    assert get_quantity_held_on_date(updated_entries, "2024-06-02") == pytest.approx(150)
+
+
+def test_apply_stock_split_only_affects_lots_held_before_split_date():
+    updated_entries = apply_stock_split(
+        [{
+            "quantity": 30,
+            "purchase_price": 100,
+            "purchase_date": "2024-01-01",
+            "sell_date": None,
+        }, {
+            "quantity": 10,
+            "purchase_price": 20,
+            "purchase_date": "2024-06-01",
+            "sell_date": None,
+        }],
+        5,
+        "2024-06-01",
+    )
+
+    snapshot = calculate_position_snapshot(updated_entries)
+
+    assert snapshot["quantity"] == pytest.approx(160)
+    assert get_quantity_held_on_date(updated_entries, "2024-05-31") == pytest.approx(30)
+    assert get_quantity_held_on_date(updated_entries, "2024-06-02") == pytest.approx(160)
+
+
+def test_apply_stock_split_rejects_when_no_open_shares_exist_before_split_date():
+    with pytest.raises(ValueError, match="No open shares held before split_date"):
+        apply_stock_split(
+            [{
+                "quantity": 10,
+                "purchase_price": 50,
+                "purchase_date": "2024-06-01",
+                "sell_date": None,
+            }],
+            5,
+            "2024-06-01",
+        )
