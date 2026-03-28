@@ -56,8 +56,6 @@ A modern web-based stock portfolio tracker built with React, FastAPI, and Postgr
 Create a `docker-compose.yml` on your server with this content:
 
 ```yaml
-version: "3.8"
-
 services:
   postgres:
     image: postgres:15-alpine
