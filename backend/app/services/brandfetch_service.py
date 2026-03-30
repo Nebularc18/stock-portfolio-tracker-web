@@ -280,8 +280,8 @@ class BrandfetchService:
 
         Valid local assets and remote URLs are returned unchanged. When the stored logo
         points at a missing local file, the service attempts to re-persist a replacement
-        without clearing the existing value on failure so later reads can retry. When no
-        logo is stored, the normal lookup flow is used to backfill one.
+        and clears the stale reference if recovery fails. When no logo is stored, the
+        normal lookup flow is used to backfill one.
         """
         normalized_logo = self.normalize_stored_logo_url(existing_logo)
         if existing_logo and normalized_logo == existing_logo:
@@ -295,13 +295,11 @@ class BrandfetchService:
             )
         except Exception as exc:
             logger.warning("Failed to recover stored logo for %s: %s", ticker, exc)
-            return existing_logo
+            return normalized_logo
 
         if recovered_logo:
             return recovered_logo
-        if existing_logo and normalized_logo != existing_logo:
-            return existing_logo
-        return None
+        return normalized_logo
 
     def _is_local_logo_url(self, value: Optional[str]) -> bool:
         """
