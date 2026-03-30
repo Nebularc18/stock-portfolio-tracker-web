@@ -523,6 +523,20 @@ export function downsampleChartData(data: ChartPoint[], targetPoints: number): C
   return sampled
 }
 
+export function extendFrozenDayChartDataToNow(
+  data: ChartPoint[],
+  shouldFreeze: boolean,
+  now: Date = new Date(),
+): ChartPoint[] {
+  if (!shouldFreeze || data.length === 0) return data
+  const lastPoint = data[data.length - 1]
+  const lastPointDate = parseHistoryDate(lastPoint.date)
+  if (Number.isNaN(lastPointDate.getTime()) || lastPointDate.getTime() >= now.getTime()) {
+    return data
+  }
+  return [...data, { date: now.toISOString(), value: lastPoint.value }]
+}
+
 /**
  * Determine the target number of points to downsample chart data for a given history range.
  *
@@ -873,7 +887,14 @@ export default function Dashboard() {
     rawChartData.filter((point) => isHistoryPointInCurrentDay(point.date, timezone))
   ), [rawChartData, timezone])
 
-  const rangeChartData = historyRange === '1D' ? currentDayChartData : rawChartData
+  const frozenCurrentDayChartData = useMemo(() => (
+    extendFrozenDayChartDataToNow(
+      currentDayChartData,
+      historyRange === '1D' && !shouldAutoRefreshDashboard(summary),
+    )
+  ), [currentDayChartData, historyRange, summary])
+
+  const rangeChartData = historyRange === '1D' ? frozenCurrentDayChartData : rawChartData
 
   const {
     displayedChartData,

@@ -8,11 +8,80 @@ import logging
 from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.triggers.cron import CronTrigger
 from sqlalchemy.dialects.postgresql import insert
+from app.services.position_service import calculate_position_snapshot, normalize_position_entries
 from app.utils.time import utc_now
 
 logger = logging.getLogger(__name__)
 
 scheduler = BackgroundScheduler()
+
+
+def _get_effective_stock_quantity(stock) -> float:
+    snapshot = calculate_position_snapshot(
+        normalize_position_entries(
+            getattr(stock, "position_entries", None),
+            getattr(stock, "quantity", None),
+            getattr(stock, "purchase_price", None),
+            getattr(stock, "purchase_date", None),
+        ),
+        position_currency=getattr(stock, "currency", None),
+    )
+    quantity = snapshot.get("quantity")
+    try:
+        normalized_quantity = float(quantity)
+    except (TypeError, ValueError):
+        return 0.0
+    return normalized_quantity if normalized_quantity > 0 else 0.0
+
+
+def _convert_value_to_sek(value: float, currency: str | None, rates: dict[str, float | None] | None) -> float | None:
+    if currency == "SEK":
+        return value
+    if not currency or not rates:
+        return None
+
+    key = f"{currency}_SEK"
+    if key in rates and rates[key] is not None:
+        return value * rates[key]
+
+    inverse_key = f"SEK_{currency}"
+    inverse_rate = rates.get(inverse_key)
+    if inverse_rate not in (None, 0):
+        return value / inverse_rate
+
+    return None
+
+
+def _calculate_user_portfolio_totals_sek(stocks, rates: dict[str, float | None] | None) -> tuple[dict[int, float], dict[int, int]]:
+    user_totals: dict[int, float] = {}
+    user_skipped: dict[int, int] = {}
+
+    for stock in stocks:
+        user_id = getattr(stock, "user_id", None)
+        if user_id is None:
+            continue
+
+        current_price = getattr(stock, "current_price", None)
+        if current_price is None:
+            user_skipped[user_id] = user_skipped.get(user_id, 0) + 1
+            continue
+
+        quantity = _get_effective_stock_quantity(stock)
+        if quantity <= 0:
+            continue
+
+        converted_value = _convert_value_to_sek(
+            current_price * quantity,
+            getattr(stock, "currency", None),
+            rates,
+        )
+        if converted_value is None:
+            user_skipped[user_id] = user_skipped.get(user_id, 0) + 1
+            continue
+
+        user_totals[user_id] = user_totals.get(user_id, 0.0) + converted_value
+
+    return user_totals, user_skipped
 
 def refresh_all_stocks():
     """
@@ -64,17 +133,14 @@ def refresh_all_stocks():
         
         stock_service = StockService()
         
-        currencies = {s.currency for s in eligible_stocks if s.currency}
+        currencies = {s.currency for s in stocks if s.currency}
         rates = ExchangeRateService.get_rates_for_currencies(currencies, "SEK")
         
         updated = 0
         skipped = 0
         request_ts = utc_now()
         today = request_ts.replace(hour=0, minute=0, second=0, microsecond=0)
-        user_totals: dict[int, float] = {}
-        user_skipped: dict[int, int] = {}
-        user_updated: dict[int, int] = {}
-        user_ids = {s.user_id for s in eligible_stocks if s.user_id is not None}
+        user_ids = {s.user_id for s in stocks if s.user_id is not None}
         
         for stock in eligible_stocks:
             try:
@@ -98,9 +164,6 @@ def refresh_all_stocks():
                 stock.last_updated = request_ts
                 updated += 1
 
-                if stock.user_id is not None:
-                    user_updated[stock.user_id] = user_updated.get(stock.user_id, 0) + 1
-
                 price_stmt = insert(StockPriceHistory).values(
                     user_id=stock.user_id,
                     ticker=stock.ticker,
@@ -116,46 +179,18 @@ def refresh_all_stocks():
                     },
                 )
                 db.execute(price_stmt)
-
-                # Calculate total portfolio value in SEK for history tracking
-                if stock.quantity is not None:
-                    value = stock.current_price * stock.quantity
-                    converted_value = None
-                    if stock.currency == 'SEK':
-                        converted_value = value
-                    elif rates:
-                        key = f"{stock.currency}_SEK"
-                        if key in rates and rates[key] is not None:
-                            converted_value = value * rates[key]
-                        else:
-                            inverse_key = f"SEK_{stock.currency}"
-                            if inverse_key in rates and rates[inverse_key] is not None and rates[inverse_key] != 0:
-                                converted_value = value / rates[inverse_key]
-
-                    if converted_value is not None:
-                        if stock.user_id is not None:
-                            user_totals[stock.user_id] = user_totals.get(stock.user_id, 0) + converted_value
-                    else:
-                        logger.warning(
-                            f"Skipping {stock.ticker}: no conversion rate for "
-                            f"{stock.currency} to SEK"
-                        )
-                        if stock.user_id is not None:
-                            user_skipped[stock.user_id] = user_skipped.get(stock.user_id, 0) + 1
-                        skipped += 1
             except Exception:
                 logger.exception(f"Error refreshing {stock.ticker}")
-                if stock.user_id is not None:
-                    user_skipped[stock.user_id] = user_skipped.get(stock.user_id, 0) + 1
                 skipped += 1
+
+        user_totals, user_skipped = _calculate_user_portfolio_totals_sek(stocks, rates)
         
         # Record per-user portfolio history for the dashboard chart.
         interval = request_ts.replace(minute=(request_ts.minute // 15) * 15, second=0, microsecond=0)
         for user_id in user_ids:
             total_value_sek = user_totals.get(user_id, 0)
             skipped_for_user = user_skipped.get(user_id, 0)
-            updated_for_user = user_updated.get(user_id, 0)
-            if updated_for_user <= 0 or total_value_sek <= 0 or skipped_for_user > 0:
+            if total_value_sek <= 0 or skipped_for_user > 0:
                 continue
 
             stmt = insert(PortfolioHistory).values(
