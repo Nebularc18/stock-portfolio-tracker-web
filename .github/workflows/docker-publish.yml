@@ -27,17 +27,20 @@ jobs:
         id: publish
         run: |
           if [[ "${GITHUB_REF_TYPE}" == "tag" ]]; then
-            TRACKING_TAG="${GITHUB_REF_NAME}"
+            TRACKING_TAG=""
+            TRACKING_TAG_ENABLED="false"
             RELEASE_CHANNEL="release"
           else
             BUILD_STAMP="$(date -u +%Y%m%d-%H%M%S)"
             SHORT_SHA="${GITHUB_SHA::7}"
             TRACKING_TAG="build-${BUILD_STAMP}-${SHORT_SHA}"
+            TRACKING_TAG_ENABLED="true"
             RELEASE_CHANNEL="edge"
           fi
 
           {
             echo "tracking_tag=${TRACKING_TAG}"
+            echo "tracking_tag_enabled=${TRACKING_TAG_ENABLED}"
             echo "release_channel=${RELEASE_CHANNEL}"
           } >> "$GITHUB_OUTPUT"
 
@@ -62,7 +65,8 @@ jobs:
           tags: |
             type=ref,event=branch
             type=sha
-            type=raw,value=${{ steps.publish.outputs.tracking_tag }}
+            type=raw,value=${{ steps.publish.outputs.tracking_tag }},enable=${{ steps.publish.outputs.tracking_tag_enabled }}
+            type=semver,pattern=v{{version}}
             type=semver,pattern={{version}}
             type=semver,pattern={{major}}.{{minor}}
             type=raw,value=latest,enable={{is_default_branch}}
@@ -70,8 +74,8 @@ jobs:
             org.opencontainers.image.title=Stock Portfolio Tracker Web
             org.opencontainers.image.description=React and FastAPI stock portfolio tracker packaged as a multi-architecture container image.
             org.opencontainers.image.vendor=${{ github.repository_owner }}
-            io.stock-portfolio-tracker.release-channel=${{ steps.publish.outputs.release_channel }}
-            io.stock-portfolio-tracker.tracking-tag=${{ steps.publish.outputs.tracking_tag }}
+            com.github.nebularc18.stock-portfolio-tracker.release-channel=${{ steps.publish.outputs.release_channel }}
+            com.github.nebularc18.stock-portfolio-tracker.tracking-tag=${{ steps.publish.outputs.tracking_tag }}
 
       - name: Build and optionally push multi-arch image
         id: build
@@ -99,15 +103,23 @@ jobs:
           import os
           from pathlib import Path
 
-          metadata = json.loads(os.environ["METADATA_JSON"])
+          metadata_raw = os.environ.get("METADATA_JSON", "").strip()
+          try:
+              metadata = json.loads(metadata_raw) if metadata_raw else {}
+          except json.JSONDecodeError:
+              metadata = {}
+
           tags = metadata.get("tags", [])
+          if not isinstance(tags, list):
+              tags = []
+
           payload = {
-              "image": os.environ["IMAGE_NAME"],
-              "tracking_tag": os.environ["TRACKING_TAG"],
-              "release_channel": os.environ["RELEASE_CHANNEL"],
-              "digest": os.environ["DIGEST"],
-              "git_ref": os.environ["GITHUB_REF"],
-              "git_sha": os.environ["GITHUB_SHA"],
+              "image": os.environ.get("IMAGE_NAME", "unknown"),
+              "tracking_tag": os.environ.get("TRACKING_TAG") or "n/a",
+              "release_channel": os.environ.get("RELEASE_CHANNEL", "unknown"),
+              "digest": os.environ.get("DIGEST") or "n/a",
+              "git_ref": os.environ.get("GITHUB_REF", "unknown"),
+              "git_sha": os.environ.get("GITHUB_SHA", "unknown"),
               "tags": tags,
           }
 
