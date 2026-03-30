@@ -4,6 +4,7 @@ import {
   DASHBOARD_DATA_CACHE_STORAGE_KEY,
   DASHBOARD_HISTORY_RANGE_STORAGE_KEY,
   downsampleChartData,
+  extendFrozenDayChartDataToNow,
   getDashboardDataCacheKey,
   getDashboardHistoryCacheKey,
   getStoredHistoryRange,
@@ -204,6 +205,26 @@ describe('dashboard storage helpers', () => {
 
     expect(isHistoryPointInCurrentDay('2026-03-25T23:30:00Z', 'Europe/Stockholm', now)).toBe(true)
     expect(isHistoryPointInCurrentDay('2026-03-25T22:30:00Z', 'Europe/Stockholm', now)).toBe(false)
+  })
+
+  it('extends frozen 1D chart data with a flat point at the current time', () => {
+    expect(extendFrozenDayChartDataToNow([
+      { date: '2026-03-26T15:30:00Z', value: 100 },
+      { date: '2026-03-26T16:30:00Z', value: 125 },
+    ], true, new Date('2026-03-26T18:00:00Z'))).toEqual([
+      { date: '2026-03-26T15:30:00Z', value: 100 },
+      { date: '2026-03-26T16:30:00Z', value: 125 },
+      { date: '2026-03-26T18:00:00.000Z', value: 125 },
+    ])
+  })
+
+  it('does not extend chart data when live refresh should remain active', () => {
+    const data = [
+      { date: '2026-03-26T15:30:00Z', value: 100 },
+      { date: '2026-03-26T16:30:00Z', value: 125 },
+    ]
+
+    expect(extendFrozenDayChartDataToNow(data, false, new Date('2026-03-26T18:00:00Z'))).toBe(data)
   })
 
   it('uses the backend-provided auto-refresh flag when active', () => {
