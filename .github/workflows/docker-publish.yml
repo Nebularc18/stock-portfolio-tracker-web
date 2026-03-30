@@ -4,6 +4,8 @@ on:
   push:
     branches:
       - main
+    tags:
+      - v*
   workflow_dispatch:
 
 permissions:
@@ -20,6 +22,27 @@ jobs:
 
       - name: Normalize image name
         run: echo "IMAGE_NAME=ghcr.io/${GITHUB_REPOSITORY,,}" >> "$GITHUB_ENV"
+
+      - name: Compute publish metadata
+        id: publish
+        run: |
+          if [[ "${GITHUB_REF_TYPE}" == "tag" ]]; then
+            TRACKING_TAG=""
+            TRACKING_TAG_ENABLED="false"
+            RELEASE_CHANNEL="release"
+          else
+            BUILD_STAMP="$(date -u +%Y%m%d-%H%M%S)"
+            SHORT_SHA="${GITHUB_SHA::7}"
+            TRACKING_TAG="build-${BUILD_STAMP}-${SHORT_SHA}"
+            TRACKING_TAG_ENABLED="true"
+            RELEASE_CHANNEL="edge"
+          fi
+
+          {
+            echo "tracking_tag=${TRACKING_TAG}"
+            echo "tracking_tag_enabled=${TRACKING_TAG_ENABLED}"
+            echo "release_channel=${RELEASE_CHANNEL}"
+          } >> "$GITHUB_OUTPUT"
 
       - name: Set up QEMU
         uses: docker/setup-qemu-action@c7c53464625b32c7a7e944ae62b3e17d2b600130
@@ -42,9 +65,20 @@ jobs:
           tags: |
             type=ref,event=branch
             type=sha
+            type=raw,value=${{ steps.publish.outputs.tracking_tag }},enable=${{ steps.publish.outputs.tracking_tag_enabled }}
+            type=semver,pattern=v{{version}}
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
             type=raw,value=latest,enable={{is_default_branch}}
+          labels: |
+            org.opencontainers.image.title=Stock Portfolio Tracker Web
+            org.opencontainers.image.description=React and FastAPI stock portfolio tracker packaged as a multi-architecture container image.
+            org.opencontainers.image.vendor=${{ github.repository_owner }}
+            com.github.nebularc18.stock-portfolio-tracker.release-channel=${{ steps.publish.outputs.release_channel }}
+            com.github.nebularc18.stock-portfolio-tracker.tracking-tag=${{ steps.publish.outputs.tracking_tag }}
 
       - name: Build and optionally push multi-arch image
+        id: build
         uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8
         with:
           context: .
@@ -55,3 +89,54 @@ jobs:
           labels: ${{ steps.meta.outputs.labels }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
+
+      - name: Publish image summary
+        env:
+          DIGEST: ${{ steps.build.outputs.digest }}
+          IMAGE_NAME: ${{ env.IMAGE_NAME }}
+          METADATA_JSON: ${{ steps.meta.outputs.json }}
+          RELEASE_CHANNEL: ${{ steps.publish.outputs.release_channel }}
+          TRACKING_TAG: ${{ steps.publish.outputs.tracking_tag }}
+        run: |
+          python - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+
+          metadata_raw = os.environ.get("METADATA_JSON", "").strip()
+          try:
+              metadata = json.loads(metadata_raw) if metadata_raw else {}
+          except json.JSONDecodeError:
+              metadata = {}
+
+          tags = metadata.get("tags", [])
+          if not isinstance(tags, list):
+              tags = []
+
+          payload = {
+              "image": os.environ.get("IMAGE_NAME", "unknown"),
+              "tracking_tag": os.environ.get("TRACKING_TAG") or "n/a",
+              "release_channel": os.environ.get("RELEASE_CHANNEL", "unknown"),
+              "digest": os.environ.get("DIGEST") or "n/a",
+              "git_ref": os.environ.get("GITHUB_REF", "unknown"),
+              "git_sha": os.environ.get("GITHUB_SHA", "unknown"),
+              "tags": tags,
+          }
+
+          summary_lines = [
+              "## Published image",
+              "",
+              f"- Image: `{payload['image']}`",
+              f"- Tracking tag: `{payload['tracking_tag']}`",
+              f"- Channel: `{payload['release_channel']}`",
+              f"- Digest: `{payload['digest']}`",
+              f"- Git ref: `{payload['git_ref']}`",
+              f"- Git SHA: `{payload['git_sha']}`",
+              "",
+              "### Tags",
+              "",
+          ]
+          summary_lines.extend(f"- `{tag}`" for tag in tags)
+          summary_path = Path(os.environ.get("GITHUB_STEP_SUMMARY", "github-step-summary.md"))
+          summary_path.write_text("\n".join(summary_lines) + "\n", encoding="utf-8")
+          PY
