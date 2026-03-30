@@ -404,25 +404,29 @@ def get_stocks(db: Session = Depends(get_db), current_user: User = Depends(get_c
     """
     Return all stocks for the current user.
 
-    This route intentionally avoids logo refresh work so read-heavy pages can load
-    without waiting on external logo providers.
+    This route avoids forced logo refresh work on every request, but it does
+    opportunistically backfill missing logos and re-persist lost local assets.
     
     Returns:
         list[Stock]: Stocks belonging to the current user.
     """
     stocks = db.query(Stock).filter(Stock.user_id == current_user.id).all()
-    stale_logos_cleared = False
+    logos_updated = False
 
     for stock in stocks:
-        normalized_logo = brandfetch_service.normalize_stored_logo_url(stock.logo)
-        if normalized_logo != stock.logo:
-            stock.logo = normalized_logo
-            stale_logos_cleared = True
+        recovered_logo = brandfetch_service.recover_stored_logo_url(
+            stock.ticker,
+            stock.name,
+            stock.logo,
+        )
+        if recovered_logo != stock.logo:
+            stock.logo = recovered_logo
+            logos_updated = True
 
     for stock in stocks:
         _apply_stock_position_snapshot(stock)
 
-    if stale_logos_cleared:
+    if logos_updated:
         db.commit()
 
     return stocks

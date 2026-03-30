@@ -193,3 +193,90 @@ def test_get_logo_url_for_ticker_uses_shorter_negative_cache_ttl(
     assert logo_url is None
     assert saved_entries
     assert saved_entries[-1][2] == brandfetch_module._NEGATIVE_LOGO_CACHE_TTL
+
+
+def test_recover_stored_logo_url_keeps_usable_stored_logo_without_lookup(
+    brandfetch_service: BrandfetchService,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    monkeypatch.setattr(brandfetch_service, "normalize_stored_logo_url", lambda value: value)
+    monkeypatch.setattr(
+        brandfetch_service,
+        "get_logo_url_for_ticker",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(AssertionError("lookup should not run")),
+    )
+
+    logo_url = brandfetch_service.recover_stored_logo_url(
+        "SEB-A.ST",
+        "Skandinaviska Enskilda Banken AB",
+        existing_logo="/static/logos/seb.png",
+    )
+
+    assert logo_url == "/static/logos/seb.png"
+
+
+def test_recover_stored_logo_url_backfills_missing_logo(
+    brandfetch_service: BrandfetchService,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    monkeypatch.setattr(brandfetch_service, "get_logo_url_for_ticker", lambda *_args, **_kwargs: "/static/logos/seb.png")
+
+    logo_url = brandfetch_service.recover_stored_logo_url(
+        "SEB-A.ST",
+        "Skandinaviska Enskilda Banken AB",
+        existing_logo=None,
+    )
+
+    assert logo_url == "/static/logos/seb.png"
+
+
+def test_recover_stored_logo_url_replaces_missing_local_asset_when_lookup_succeeds(
+    brandfetch_service: BrandfetchService,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    monkeypatch.setattr(brandfetch_service, "normalize_stored_logo_url", lambda _value: None)
+    monkeypatch.setattr(brandfetch_service, "get_logo_url_for_ticker", lambda *_args, **_kwargs: "/static/logos/seb.png")
+
+    logo_url = brandfetch_service.recover_stored_logo_url(
+        "SEB-A.ST",
+        "Skandinaviska Enskilda Banken AB",
+        existing_logo="/static/logos/missing.png",
+    )
+
+    assert logo_url == "/static/logos/seb.png"
+
+
+def test_recover_stored_logo_url_clears_missing_local_asset_when_lookup_fails(
+    brandfetch_service: BrandfetchService,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    monkeypatch.setattr(brandfetch_service, "normalize_stored_logo_url", lambda _value: None)
+    monkeypatch.setattr(brandfetch_service, "get_logo_url_for_ticker", lambda *_args, **_kwargs: None)
+
+    logo_url = brandfetch_service.recover_stored_logo_url(
+        "SEB-A.ST",
+        "Skandinaviska Enskilda Banken AB",
+        existing_logo="/static/logos/missing.png",
+    )
+
+    assert logo_url is None
+
+
+def test_recover_stored_logo_url_clears_missing_local_asset_when_lookup_raises(
+    brandfetch_service: BrandfetchService,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    monkeypatch.setattr(brandfetch_service, "normalize_stored_logo_url", lambda _value: None)
+    monkeypatch.setattr(
+        brandfetch_service,
+        "get_logo_url_for_ticker",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(RuntimeError("boom")),
+    )
+
+    logo_url = brandfetch_service.recover_stored_logo_url(
+        "SEB-A.ST",
+        "Skandinaviska Enskilda Banken AB",
+        existing_logo="/static/logos/missing.png",
+    )
+
+    assert logo_url is None

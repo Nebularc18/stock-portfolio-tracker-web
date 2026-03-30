@@ -269,6 +269,38 @@ class BrandfetchService:
             return None
         return value
 
+    def recover_stored_logo_url(
+        self,
+        ticker: str,
+        company_name: Optional[str] = None,
+        existing_logo: Optional[str] = None,
+    ) -> Optional[str]:
+        """
+        Reuse a stored logo when possible and opportunistically repair missing assets.
+
+        Valid local assets and remote URLs are returned unchanged. When the stored logo
+        points at a missing local file, the service attempts to re-persist a replacement
+        and clears the stale reference if recovery fails. When no logo is stored, the
+        normal lookup flow is used to backfill one.
+        """
+        normalized_logo = self.normalize_stored_logo_url(existing_logo)
+        if existing_logo and normalized_logo == existing_logo:
+            return existing_logo
+
+        try:
+            recovered_logo = self.get_logo_url_for_ticker(
+                ticker,
+                company_name,
+                existing_logo=existing_logo,
+            )
+        except Exception as exc:
+            logger.warning("Failed to recover stored logo for %s: %s", ticker, exc)
+            return normalized_logo
+
+        if recovered_logo:
+            return recovered_logo
+        return normalized_logo
+
     def _is_local_logo_url(self, value: Optional[str]) -> bool:
         """
         Determine whether a string is a public local logo path under /static/logos/.
