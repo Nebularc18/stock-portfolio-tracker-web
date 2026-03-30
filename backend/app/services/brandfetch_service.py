@@ -13,7 +13,7 @@ import mimetypes
 import tempfile
 from datetime import datetime
 from typing import Optional
-from urllib.parse import quote, urlparse
+from urllib.parse import quote, urljoin, urlparse
 
 import requests
 
@@ -31,6 +31,7 @@ os.makedirs(CACHE_DIR, exist_ok=True)
 os.makedirs(LOGO_DIR, exist_ok=True)
 
 _LOGO_CACHE_TTL = 86400
+_NEGATIVE_LOGO_CACHE_TTL = 3600
 MAX_LOGO_BYTES = 5 * 1024 * 1024
 _LOGO_CACHE: dict[str, tuple[Optional[str], float]] = {}
 _CURATED_LOGO_QUERIES: dict[str, list[str]] = {
@@ -41,6 +42,24 @@ _CURATED_LOGO_QUERIES: dict[str, list[str]] = {
     "VOLV-B.ST": ["volvogroup.com", "Volvo Group"],
     "RIO.AX": ["riotinto.com", "Rio Tinto"],
     "OR.PA": ["loreal.com", "L'Oreal"],
+}
+_CURATED_WEBSITE_DOMAINS: dict[str, str] = {
+    "8TRA.ST": "traton.com",
+    "ABB.ST": "global.abb",
+    "CAST.ST": "castellum.se",
+    "CIBUS.ST": "cibusrealestate.com",
+    "EQT.ST": "eqtgroup.com",
+    "ERIC-B.ST": "ericsson.com",
+    "HM-B.ST": "hmgroup.com",
+    "INDU-C.ST": "industrivarden.se",
+    "INVE-B.ST": "investorab.com",
+    "LUND-B.ST": "lundbergforetagen.se",
+    "MILDEF.ST": "mildef.com",
+    "SAMPO-SEK.ST": "sampo.com",
+    "SEB-A.ST": "sebgroup.com",
+    "SPLTN.ST": "svolder.se",
+    "SWED-A.ST": "swedbank.com",
+    "VOLV-B.ST": "volvogroup.com",
 }
 _CURATED_LOCAL_LOGOS: dict[str, str] = {
     "CIBUS": "cibus.svg",
@@ -398,6 +417,100 @@ class BrandfetchService:
             if response is not None:
                 response.close()
 
+    def _is_allowed_domain_logo_url(self, value: str, allowed_hosts: set[str]) -> bool:
+        parsed = urlparse(value)
+        if parsed.scheme not in {'http', 'https'}:
+            return False
+
+        host = (parsed.netloc or '').lower()
+        if not host:
+            return False
+
+        for allowed_host in allowed_hosts:
+            allowed_parts = [part for part in allowed_host.split('.') if part]
+            host_parts = [part for part in host.split('.') if part]
+            if host == allowed_host:
+                return True
+            if host.endswith(f".{allowed_host}") and len(host_parts) == len(allowed_parts) + 1:
+                return True
+
+        return False
+
+    def _download_logo_to_local_for_domain(self, logo_url: str, ticker: str, allowed_hosts: set[str]) -> Optional[str]:
+        if not self._is_allowed_domain_logo_url(logo_url, allowed_hosts):
+            return None
+
+        session = _get_session()
+        filepath: Optional[str] = None
+        temp_path: Optional[str] = None
+        response: Optional[requests.Response] = None
+        try:
+            response = session.get(logo_url, timeout=10, stream=True)
+
+            redirect_chain = [redirect.url for redirect in response.history] + [response.url]
+            if any(not self._is_allowed_domain_logo_url(url, allowed_hosts) for url in redirect_chain if url):
+                return None
+
+            if response.status_code in (204, 404, 410):
+                return None
+            if response.status_code == 429 or response.status_code >= 500:
+                raise LogoDownloadTransientError(f"upstream status {response.status_code}")
+            if response.status_code != 200:
+                return None
+
+            content_length = response.headers.get('Content-Length')
+            if content_length:
+                try:
+                    if int(content_length) > MAX_LOGO_BYTES:
+                        return None
+                except ValueError:
+                    pass
+
+            content_type = (response.headers.get('Content-Type') or '').split(';', 1)[0].strip().lower()
+            if not content_type.startswith('image/'):
+                return None
+
+            extension = mimetypes.guess_extension(content_type) or os.path.splitext(urlparse(logo_url).path)[1] or '.png'
+            if extension == '.jpe':
+                extension = '.jpg'
+
+            filename = _safe_logo_asset_filename(ticker, logo_url, extension)
+            filepath = os.path.join(LOGO_DIR, filename)
+            fd, temp_path = tempfile.mkstemp(dir=LOGO_DIR, prefix='logo_tmp_', suffix=extension)
+            bytes_written = 0
+            with os.fdopen(fd, 'wb') as f:
+                for chunk in response.iter_content(chunk_size=8192):
+                    if not chunk:
+                        continue
+                    bytes_written += len(chunk)
+                    if bytes_written > MAX_LOGO_BYTES:
+                        raise OSError(f"Logo exceeds maximum size of {MAX_LOGO_BYTES} bytes")
+                    f.write(chunk)
+
+            os.replace(temp_path, filepath)
+            temp_path = None
+
+            return self._logo_public_path(filename)
+        except requests.RequestException as exc:
+            if temp_path and os.path.exists(temp_path):
+                try:
+                    os.remove(temp_path)
+                except OSError:
+                    pass
+            logger.warning("Failed to persist domain logo for %s from %s: %s", ticker, logo_url, exc)
+            raise LogoDownloadTransientError(str(exc)) from exc
+        except OSError as exc:
+            if temp_path and os.path.exists(temp_path):
+                try:
+                    os.remove(temp_path)
+                except OSError:
+                    pass
+            logger.warning("Failed to persist domain logo for %s from %s: %s", ticker, logo_url, exc)
+            raise LogoDownloadTransientError(str(exc)) from exc
+        finally:
+            if response is not None:
+                response.close()
+
     def _domain_favicon_candidates(self, domain: str) -> list[str]:
         """
         Builds two favicon service URLs for a domain to use as favicon/logo fallbacks.
@@ -415,6 +528,86 @@ class BrandfetchService:
             f"https://www.google.com/s2/favicons?sz=128&domain={quote(normalized_domain, safe='')}",
             f"https://icons.duckduckgo.com/ip3/{quote(normalized_domain, safe='')}.ico",
         ]
+
+    def _website_domain_candidates(self, ticker: str, company_name: Optional[str], force_refresh: bool = False) -> list[str]:
+        ticker_upper = ticker.strip().upper()
+        candidates: list[str] = []
+        seen: set[str] = set()
+
+        def add(value: Optional[str]) -> None:
+            host = self._extract_domain_from_url(value or "")
+            if host and host not in seen:
+                seen.add(host)
+                candidates.append(host)
+
+        add(_CURATED_WEBSITE_DOMAINS.get(ticker_upper))
+
+        for query in _CURATED_LOGO_QUERIES.get(ticker_upper, []):
+            if self._looks_like_domain(query):
+                add(query)
+
+        for ticker_variant in self._ticker_variants(ticker_upper):
+            if force_refresh:
+                finnhub_service.clear_cache(ticker_variant)
+            profile = finnhub_service.get_company_profile(ticker_variant)
+            if isinstance(profile, dict):
+                add(str(profile.get('website') or ''))
+
+        return candidates
+
+    def _extract_icon_candidates_from_html(self, html: str, base_url: str) -> list[str]:
+        candidates: list[str] = []
+        seen: set[str] = set()
+        patterns = [
+            r'<link[^>]+rel=["\'][^"\']*apple-touch-icon[^"\']*["\'][^>]+href=["\']([^"\']+)["\']',
+            r'<link[^>]+href=["\']([^"\']+)["\'][^>]+rel=["\'][^"\']*apple-touch-icon[^"\']*["\']',
+            r'<link[^>]+rel=["\'][^"\']*(?:shortcut\s+icon|icon)[^"\']*["\'][^>]+href=["\']([^"\']+)["\']',
+            r'<link[^>]+href=["\']([^"\']+)["\'][^>]+rel=["\'][^"\']*(?:shortcut\s+icon|icon)[^"\']*["\']',
+            r'<meta[^>]+property=["\']og:image["\'][^>]+content=["\']([^"\']+)["\']',
+            r'<meta[^>]+content=["\']([^"\']+)["\'][^>]+property=["\']og:image["\']',
+        ]
+        for pattern in patterns:
+            for match in re.findall(pattern, html, flags=re.IGNORECASE):
+                resolved = urljoin(base_url, match.strip())
+                if resolved and resolved not in seen:
+                    seen.add(resolved)
+                    candidates.append(resolved)
+        return candidates
+
+    def _persist_website_logo(self, domain: str, ticker: str) -> Optional[str]:
+        host = self._extract_domain_from_url(domain)
+        if not host:
+            return None
+
+        allowed_hosts = {host}
+        session = _get_session()
+        for base_url in (f"https://{host}/", f"https://www.{host}/"):
+            try:
+                response = session.get(base_url, timeout=10)
+            except requests.RequestException as exc:
+                logger.debug("Website logo lookup failed for %s via %s: %s", ticker, base_url, exc)
+                continue
+
+            try:
+                if response.status_code != 200:
+                    continue
+                response_host = self._extract_domain_from_url(response.url)
+                if response_host:
+                    allowed_hosts.add(response_host)
+                html = response.text or ""
+                for icon_url in self._extract_icon_candidates_from_html(html, response.url):
+                    persisted = self._download_logo_to_local_for_domain(icon_url, ticker, allowed_hosts)
+                    if persisted:
+                        return persisted
+            finally:
+                response.close()
+
+        for fallback_url in self._domain_favicon_candidates(host):
+            persisted = self._download_logo_to_local(fallback_url, ticker)
+            if persisted:
+                return persisted
+
+        return None
 
     def _persist_candidate_logo(self, candidate: dict, ticker: str) -> Optional[str]:
         """
@@ -861,6 +1054,18 @@ class BrandfetchService:
             except OSError as exc:
                 logger.warning("Failed to clear stale logo cache for %s: %s", ticker_upper, exc)
 
+        domain_candidates = self._website_domain_candidates(ticker_upper, company_name, force_refresh=force_refresh)
+
+        for domain in domain_candidates:
+            try:
+                logo_url = self._persist_website_logo(domain, ticker_upper)
+            except LogoDownloadTransientError:
+                logo_url = None
+            if logo_url:
+                _LOGO_CACHE[ticker_upper] = (logo_url, datetime.now().timestamp())
+                _save_file_cache(cache_file, logo_url)
+                return logo_url
+
         try:
             logo_url = self._get_finnhub_logo(ticker_upper, force_refresh=force_refresh)
         except LogoDownloadTransientError:
@@ -892,8 +1097,9 @@ class BrandfetchService:
             if logo_url:
                 break
 
+        ttl = _LOGO_CACHE_TTL if logo_url else _NEGATIVE_LOGO_CACHE_TTL
         _LOGO_CACHE[ticker_upper] = (logo_url, datetime.now().timestamp())
-        _save_file_cache(cache_file, logo_url)
+        _save_file_cache(cache_file, logo_url, ttl=ttl)
         return logo_url
 
 
