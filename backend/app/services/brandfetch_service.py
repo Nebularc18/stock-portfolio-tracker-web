@@ -427,7 +427,11 @@ class BrandfetchService:
             return False
 
         for allowed_host in allowed_hosts:
-            if host == allowed_host or host.endswith(f".{allowed_host}"):
+            allowed_parts = [part for part in allowed_host.split('.') if part]
+            host_parts = [part for part in host.split('.') if part]
+            if host == allowed_host:
+                return True
+            if host.endswith(f".{allowed_host}") and len(host_parts) == len(allowed_parts) + 1:
                 return True
 
         return False
@@ -538,10 +542,9 @@ class BrandfetchService:
 
         add(_CURATED_WEBSITE_DOMAINS.get(ticker_upper))
 
-        if company_name:
-            for query in _CURATED_LOGO_QUERIES.get(ticker_upper, []):
-                if self._looks_like_domain(query):
-                    add(query)
+        for query in _CURATED_LOGO_QUERIES.get(ticker_upper, []):
+            if self._looks_like_domain(query):
+                add(query)
 
         for ticker_variant in self._ticker_variants(ticker_upper):
             if force_refresh:

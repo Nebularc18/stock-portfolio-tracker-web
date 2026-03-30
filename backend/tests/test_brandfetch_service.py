@@ -49,6 +49,21 @@ def test_website_domain_candidates_include_curated_swedish_domain(
     assert candidates[0] == "hmgroup.com"
 
 
+def test_website_domain_candidates_include_curated_query_domain_without_company_name(
+    brandfetch_service: BrandfetchService,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    class FinnhubStub:
+        def get_company_profile(self, _ticker: str):
+            return None
+
+    monkeypatch.setattr("app.services.brandfetch_service.finnhub_service", FinnhubStub())
+
+    candidates = brandfetch_service._website_domain_candidates("EQT.ST", None)
+
+    assert "eqtpartners.com" in candidates
+
+
 def test_confident_match_accepts_curated_domain_for_single_token_name(brandfetch_service: BrandfetchService):
     candidate = {
         "name": "EQT Group",
@@ -139,6 +154,11 @@ def test_extract_icon_candidates_from_html_prefers_site_icons(brandfetch_service
         "https://cdn.example.com/favicon-32x32.png",
         "https://example.com/social-card.png",
     ]
+
+
+def test_is_allowed_domain_logo_url_rejects_nested_subdomains(brandfetch_service: BrandfetchService):
+    assert brandfetch_service._is_allowed_domain_logo_url("https://cdn.example.com/logo.png", {"example.com"}) is True
+    assert brandfetch_service._is_allowed_domain_logo_url("https://a.b.example.com/logo.png", {"example.com"}) is False
 
 
 def test_get_logo_url_for_ticker_prefers_website_logo_before_search(
