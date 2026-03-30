@@ -137,6 +137,6 @@ jobs:
               "",
           ]
           summary_lines.extend(f"- `{tag}`" for tag in tags)
-          summary_path = Path(os.environ["GITHUB_STEP_SUMMARY"])
+          summary_path = Path(os.environ.get("GITHUB_STEP_SUMMARY", "github-step-summary.md"))
           summary_path.write_text("\n".join(summary_lines) + "\n", encoding="utf-8")
           PY
