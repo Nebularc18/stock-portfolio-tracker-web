@@ -704,14 +704,18 @@ def get_portfolio_summary(db: Session = Depends(get_db), current_user: User = De
                 each entry includes ticker, currency, and reason.
     """
     stocks = db.query(Stock).filter(Stock.user_id == current_user.id).all()
-    stale_logos_cleared = False
+    logos_updated = False
     for stock in stocks:
-        normalized_logo = brandfetch_service.normalize_stored_logo_url(stock.logo)
-        if normalized_logo != stock.logo:
-            stock.logo = normalized_logo
-            stale_logos_cleared = True
+        recovered_logo = brandfetch_service.recover_stored_logo_url(
+            stock.ticker,
+            stock.name,
+            stock.logo,
+        )
+        if recovered_logo != stock.logo:
+            stock.logo = recovered_logo
+            logos_updated = True
 
-    if stale_logos_cleared:
+    if logos_updated:
         db.commit()
 
     display_currency = get_display_currency(db, current_user.id)
