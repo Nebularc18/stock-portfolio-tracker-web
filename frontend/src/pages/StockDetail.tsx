@@ -1,7 +1,7 @@
 import { useState, useEffect, useId, useRef, useCallback } from 'react'
 import type { KeyboardEvent as ReactKeyboardEvent } from 'react'
 import { useParams, Link, useNavigate } from 'react-router-dom'
-import { api, Stock, Dividend, UpcomingDividend, AnalystData, ManualDividend, CompanyProfile, FinancialMetrics, VerificationResult, MarketstackUsage, PortfolioSummaryStock, UpcomingDividendsResponse, PositionEntry, StockUpcomingDividend, HttpError } from '../services/api'
+import { api, Stock, Dividend, UpcomingDividend, AnalystData, ManualDividend, CompanyProfile, FinancialMetrics, VerificationResult, MarketstackUsage, PortfolioSummaryStock, UpcomingDividendsResponse, PositionEntry, StockUpcomingDividend, HttpError, TickerValidationResult } from '../services/api'
 import CompanyProfileComponent from '../components/CompanyProfile'
 import FinancialMetricsComponent from '../components/FinancialMetrics'
 import PeerCompanies from '../components/PeerCompanies'
@@ -279,8 +279,10 @@ export default function StockDetail() {
   const [editExchangeRateCurrency, setEditExchangeRateCurrency] = useState('')
   const [editPurchaseDate, setEditPurchaseDate] = useState('')
   const [editTicker, setEditTicker] = useState('')
+  const [editName, setEditName] = useState('')
   const [editExchange, setEditExchange] = useState('US')
   const [editValidationStatus, setEditValidationStatus] = useState<'idle' | 'checking' | 'valid' | 'invalid'>('idle')
+  const [editValidatedTickerInfo, setEditValidatedTickerInfo] = useState<TickerValidationResult | null>(null)
   const [saving, setSaving] = useState(false)
   const [showDividendModal, setShowDividendModal] = useState(false)
   const [dividendError, setDividendError] = useState<string | null>(null)
@@ -446,6 +448,7 @@ export default function StockDetail() {
         total_gain_loss_partial: false,
         total_gain_loss_percent: 0,
         daily_change: 0,
+        daily_change_percent: 0,
         daily_change_partial: false,
         dividend_yield: 0,
         dividend_yield_partial: false,
@@ -453,6 +456,7 @@ export default function StockDetail() {
         display_currency: displayCurrency,
         stocks: [],
         stock_count: 0,
+        auto_refresh_active: false,
       })),
       api.portfolio.upcomingDividends().catch(() => EMPTY_UPCOMING_RESPONSE),
     ])
@@ -733,8 +737,14 @@ export default function StockDetail() {
     const editableEntry = stock.position_entries?.find((entry) => getRemainingEntryQuantity(entry) > 0) ?? stock.position_entries?.[0]
     setEditError(null)
     setEditTicker(baseTicker)
+    setEditName(stock.name || '')
     setEditExchange(exchangeCode)
     setEditValidationStatus('valid')
+    setEditValidatedTickerInfo({
+      valid: true,
+      name: stock.name,
+      currency: stock.currency,
+    })
     setEditQuantity(isLookupMode ? '' : stock.quantity.toString())
     setEditPurchasePrice(editableEntry?.purchase_price?.toString() || stock.purchase_price?.toString() || '')
     setEditCourtage(editableEntry?.courtage?.toString() || '')
@@ -751,6 +761,8 @@ export default function StockDetail() {
     const purchasePriceValue = editPurchasePrice.trim()
     const courtageValue = editCourtage.trim()
     const exchangeRateValue = editExchangeRate.trim()
+    const normalizedName = editName.trim()
+    const currentName = (stock.name || '').trim()
     const parsedQuantity = Number(quantityValue)
     const parsedPurchasePrice = Number(purchasePriceValue)
     const parsedCourtage = Number(courtageValue)
@@ -760,6 +772,11 @@ export default function StockDetail() {
     const nextCourtage = courtageValue === '' ? null : parsedCourtage
     const nextExchangeRate = exchangeRateValue === '' ? null : parsedExchangeRate
     const nextTicker = getFullTicker(normalizedTicker, editExchange)
+    const nextName = normalizedName
+      ? (nextTicker !== stock.ticker && normalizedName === currentName
+        ? (editValidatedTickerInfo?.name || normalizedName)
+        : normalizedName)
+      : (nextTicker !== stock.ticker ? (editValidatedTickerInfo?.name || stock.name) : stock.name)
 
     if (!normalizedTicker || editValidationStatus === 'invalid') {
       setEditError(t(language, 'stocks.invalidTicker'))
@@ -814,6 +831,7 @@ export default function StockDetail() {
           })
         : await api.stocks.update(ticker, {
             ticker: nextTicker,
+            name: nextName,
             quantity: nextQuantity,
             purchase_price: nextPurchasePrice,
             courtage: nextCourtage,
@@ -840,29 +858,39 @@ export default function StockDetail() {
 
   useEffect(() => {
     if (!showEditModal || !stock) {
+      setEditValidatedTickerInfo(null)
       return
     }
 
     const normalizedTicker = editTicker.trim()
     if (!normalizedTicker) {
       setEditValidationStatus('idle')
+      setEditValidatedTickerInfo(null)
       return
     }
 
     const candidateTicker = getFullTicker(normalizedTicker, editExchange)
     if (candidateTicker === stock.ticker) {
       setEditValidationStatus('valid')
+      setEditValidatedTickerInfo({
+        valid: true,
+        name: stock.name,
+        currency: stock.currency,
+      })
       return
     }
 
     setEditValidationStatus('checking')
+    setEditValidatedTickerInfo(null)
     const timeoutId = window.setTimeout(() => {
       api.stocks.validate(candidateTicker)
-        .then(() => {
-          setEditValidationStatus('valid')
+        .then((result) => {
+          setEditValidationStatus(result.valid ? 'valid' : 'invalid')
+          setEditValidatedTickerInfo(result)
         })
         .catch(() => {
           setEditValidationStatus('invalid')
+          setEditValidatedTickerInfo(null)
         })
     }, 350)
 
@@ -1789,6 +1817,19 @@ export default function StockDetail() {
             <h3 id={editModalHeadingId} style={{ marginBottom: 20, fontSize: 16, fontWeight: 600 }}>
               {isLookupMode ? t(language, 'stockDetail.addPosition') : t(language, 'stockDetail.editPosition')}
             </h3>
+            <div style={{ marginBottom: 14 }}>
+              <label style={{ display: 'block', marginBottom: 6, color: 'var(--muted)', fontSize: 12 }}>{t(language, 'stocks.tableName')}</label>
+              <input
+                type="text"
+                value={editName}
+                onChange={(e) => {
+                  setEditName(e.target.value)
+                  setEditError(null)
+                }}
+                style={{ width: '100%' }}
+                placeholder={stock?.name || editFullTicker}
+              />
+            </div>
             <div style={{ marginBottom: 14 }}>
               <label style={{ display: 'block', marginBottom: 6, color: 'var(--muted)', fontSize: 12 }}>{t(language, 'stocks.exchange')}</label>
               <select value={editExchange} onChange={(e) => setEditExchange(e.target.value)} style={{ width: '100%' }}>

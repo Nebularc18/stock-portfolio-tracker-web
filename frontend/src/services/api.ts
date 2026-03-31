@@ -362,6 +362,7 @@ export interface PortfolioSummary {
   total_gain_loss_partial: boolean
   total_gain_loss_percent: number
   daily_change: number
+  daily_change_percent: number
   daily_change_partial: boolean
   dividend_yield: number
   dividend_yield_partial: boolean
@@ -370,6 +371,20 @@ export interface PortfolioSummary {
   stocks: PortfolioSummaryStock[]
   stock_count: number
   auto_refresh_active: boolean
+}
+
+export interface PortfolioPerformanceWindow {
+  amount: number | null
+  percent: number | null
+}
+
+export interface PortfolioSummaryStockPerformance {
+  today: PortfolioPerformanceWindow
+  week: PortfolioPerformanceWindow
+  month: PortfolioPerformanceWindow
+  ytd: PortfolioPerformanceWindow
+  year: PortfolioPerformanceWindow
+  since_start: PortfolioPerformanceWindow
 }
 
 export interface PortfolioSummaryStock {
@@ -390,6 +405,7 @@ export interface PortfolioSummaryStock {
   gain_loss_percent: number | null
   daily_change: number | null
   daily_change_converted?: boolean
+  performance: PortfolioSummaryStockPerformance
 }
 
 export interface Dividend {
@@ -659,7 +675,7 @@ export const api = {
         clearPortfolioDataCaches()
         return value
       }),
-    update: (ticker: string, data: { ticker?: string; quantity?: number; purchase_price?: number; courtage?: number | null; courtage_currency?: string | null; exchange_rate?: number | null; exchange_rate_currency?: string | null; platform?: string | null; purchase_date?: string | null; position_entries?: PositionEntry[] }) =>
+    update: (ticker: string, data: { ticker?: string; name?: string | null; quantity?: number; purchase_price?: number; courtage?: number | null; courtage_currency?: string | null; exchange_rate?: number | null; exchange_rate_currency?: string | null; platform?: string | null; purchase_date?: string | null; position_entries?: PositionEntry[] }) =>
       fetchAPI<Stock>(`/stocks/${encodePathSegment(ticker)}`, { method: 'PATCH', body: JSON.stringify(data) }).then((value) => {
         clearPortfolioDataCaches()
         return value

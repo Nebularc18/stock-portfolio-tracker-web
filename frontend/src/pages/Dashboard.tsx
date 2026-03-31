@@ -30,6 +30,13 @@ const HISTORY_RANGE_QUERY_BY_KEY: Record<HistoryRangeKey, string> = {
   '1Y': '1y',
   SINCE_START: 'since_start',
 }
+const HOLDINGS_RETURN_RANGE_OPTIONS: Array<{ key: ReturnRangeKey; labelKey: TranslationKey }> = [
+  { key: '1W', labelKey: 'dashboard.range1W' },
+  { key: '1M', labelKey: 'dashboard.range1M' },
+  { key: 'YTD', labelKey: 'dashboard.rangeYTD' },
+  { key: '1Y', labelKey: 'dashboard.range1Y' },
+  { key: 'SINCE_START', labelKey: 'dashboard.rangeSinceStart' },
+]
 
 type ChartPoint = { date: string; value: number }
 type DashboardHistoryEntry = { date: string; value: number }
@@ -49,13 +56,15 @@ const DEFAULT_HISTORY_RANGE: HistoryRangeKey = '1M'
 export const DASHBOARD_HISTORY_RANGE_STORAGE_KEY = 'dashboard.historyRange'
 export const DASHBOARD_DATA_CACHE_STORAGE_KEY = 'dashboard.data'
 export const DASHBOARD_HISTORY_CACHE_STORAGE_KEY = 'dashboard.history'
-export const DASHBOARD_CACHE_VERSION = 1
+export const DASHBOARD_CACHE_VERSION = 3
 const DASHBOARD_CACHE_TTL_MS = 30 * 60 * 1000
 const DASHBOARD_AUTO_REFRESH_INTERVAL_MS = 10 * 60 * 1000
 const DASHBOARD_AUTO_REFRESH_BUFFER_MS = 5_000
 const DASHBOARD_AUTO_REFRESH_MIN_DELAY_MS = 5_000
 
-type HoldingSortField = 'ticker' | 'name' | 'quantity' | 'price' | 'value' | 'gainLoss' | 'gainLossPercent'
+type ReturnRangeKey = Exclude<HistoryRangeKey, '1D'>
+type HoldingsMetricMode = 'currency' | 'percent'
+type HoldingSortField = 'ticker' | 'name' | 'quantity' | 'price' | 'value' | 'today' | 'return'
 type UpcomingSortField = 'name' | 'exDate' | 'paymentDate' | 'perShare' | 'total' | 'source'
 const currencyFormatterCache = new Map<string, Intl.NumberFormat>()
 const percentFormatterCache = new Map<string, Intl.NumberFormat>()
@@ -115,6 +124,22 @@ function isNullableString(value: unknown): value is string | null {
   return value === null || typeof value === 'string'
 }
 
+function isPortfolioPerformanceWindow(value: unknown): boolean {
+  return isRecord(value)
+    && (value.amount === null || isFiniteNumber(value.amount))
+    && (value.percent === null || isFiniteNumber(value.percent))
+}
+
+function isPortfolioSummaryStockPerformance(value: unknown): boolean {
+  return isRecord(value)
+    && isPortfolioPerformanceWindow(value.today)
+    && isPortfolioPerformanceWindow(value.week)
+    && isPortfolioPerformanceWindow(value.month)
+    && isPortfolioPerformanceWindow(value.ytd)
+    && isPortfolioPerformanceWindow(value.year)
+    && isPortfolioPerformanceWindow(value.since_start)
+}
+
 function isPortfolioSummaryStock(value: unknown): value is PortfolioSummary['stocks'][number] {
   if (!isRecord(value)) return false
   return (
@@ -131,6 +156,7 @@ function isPortfolioSummaryStock(value: unknown): value is PortfolioSummary['sto
     && (value.gain_loss === null || isFiniteNumber(value.gain_loss))
     && (value.gain_loss_percent === null || isFiniteNumber(value.gain_loss_percent))
     && (value.daily_change === null || isFiniteNumber(value.daily_change))
+    && isPortfolioSummaryStockPerformance(value.performance)
   )
 }
 
@@ -145,6 +171,7 @@ function isPortfolioSummaryCache(value: unknown): value is PortfolioSummary {
     && typeof value.total_gain_loss_partial === 'boolean'
     && isFiniteNumber(value.total_gain_loss_percent)
     && isFiniteNumber(value.daily_change)
+    && isFiniteNumber(value.daily_change_percent)
     && typeof value.daily_change_partial === 'boolean'
     && isFiniteNumber(value.dividend_yield)
     && typeof value.dividend_yield_partial === 'boolean'
@@ -363,6 +390,17 @@ function formatCurrency(value: number, locale: string, currency: string = 'USD')
  */
 function formatPercent(value: number, locale: string): string {
   return getPercentFormatter(locale).format(value / 100)
+}
+
+function getPerformanceWindowByRange(
+  stock: PortfolioSummary['stocks'][number],
+  range: ReturnRangeKey,
+) {
+  if (range === '1W') return stock.performance.week
+  if (range === '1M') return stock.performance.month
+  if (range === 'YTD') return stock.performance.ytd
+  if (range === '1Y') return stock.performance.year
+  return stock.performance.since_start
 }
 
 /**
@@ -601,6 +639,8 @@ export default function Dashboard() {
   const locale = getLocaleForLanguage(language)
   const { sortState: holdingsSortState, requestSort: requestHoldingsSort } = useTableSort<HoldingSortField>({ field: 'ticker', direction: 'asc' })
   const { sortState: upcomingSortState, requestSort: requestUpcomingSort } = useTableSort<UpcomingSortField>({ field: 'name', direction: 'asc' })
+  const [holdingsMetricMode, setHoldingsMetricMode] = useState<HoldingsMetricMode>('currency')
+  const [holdingsReturnRange, setHoldingsReturnRange] = useState<ReturnRangeKey>('SINCE_START')
   upcomingDividendsRef.current = upcomingDividends
   totalRemainingDividendsRef.current = totalRemainingDividends
   summaryRef.current = summary
@@ -871,6 +911,7 @@ export default function Dashboard() {
   const gainLossIsPos = gainLoss >= 0
   const dailyChange = summary?.daily_change ?? 0
   const dailyIsPos = dailyChange >= 0
+  const dailyChangePercent = summary?.daily_change_percent ?? 0
   const dividendYieldPercent = summary?.dividend_yield ?? 0
   const lastUpdate = summary?.last_updated ?? null
 
@@ -1044,13 +1085,20 @@ export default function Dashboard() {
         quantity: (stock) => stock.quantity,
         price: (stock) => (stock.display_price_converted ? stock.display_price : null),
         value: (stock) => (stock.current_value_converted ? stock.current_value : null),
-        gainLoss: (stock) => stock.gain_loss,
-        gainLossPercent: (stock) => stock.gain_loss_percent,
+        today: (stock) => (
+          holdingsMetricMode === 'currency'
+            ? stock.performance.today.amount
+            : stock.performance.today.percent
+        ),
+        return: (stock) => {
+          const window = getPerformanceWindowByRange(stock, holdingsReturnRange)
+          return holdingsMetricMode === 'currency' ? window.amount : window.percent
+        },
       },
       locale,
       (stock) => stock.ticker,
     )
-  ), [holdingsSortState, locale, summary?.stocks])
+  ), [holdingsMetricMode, holdingsReturnRange, holdingsSortState, locale, summary?.stocks])
 
   if (loading) {
     return <div className="loading-state">{t(language, 'common.loading')}</div>
@@ -1071,31 +1119,29 @@ export default function Dashboard() {
   const heroStats = [
     {
       label: t(language, 'dashboard.totalValue'),
-      value: formatCurrency(summary?.total_value ?? 0, locale, currency),
+      primaryValue: formatCurrency(summary?.total_value ?? 0, locale, currency),
       partial: summary?.total_value_partial ?? false,
       color: 'var(--text)',
     },
     {
       label: t(language, 'dashboard.dailyChange'),
-      value: formatCurrency(dailyChange, locale, currency),
+      primaryValue: formatCurrency(dailyChange, locale, currency),
+      secondaryValue: formatPercent(dailyChangePercent, locale),
+      secondaryPlacement: 'inline',
       partial: summary?.daily_change_partial ?? false,
       color: dailyIsPos ? 'var(--green)' : 'var(--red)',
     },
     {
-      label: t(language, 'dashboard.gainLoss'),
-      value: formatCurrency(gainLoss, locale, currency),
-      partial: summary?.total_gain_loss_partial ?? false,
-      color: gainLossIsPos ? 'var(--green)' : 'var(--red)',
-    },
-    {
-      label: t(language, 'dashboard.returnPercent'),
-      value: formatPercent(summary?.total_gain_loss_percent ?? 0, locale),
+      label: t(language, 'dashboard.sinceStart'),
+      primaryValue: formatCurrency(gainLoss, locale, currency),
+      secondaryValue: formatPercent(summary?.total_gain_loss_percent ?? 0, locale),
+      secondaryPlacement: 'stacked',
       partial: summary?.total_gain_loss_partial ?? false,
       color: gainLossIsPos ? 'var(--green)' : 'var(--red)',
     },
     {
       label: t(language, 'dashboard.dividendYield'),
-      value: formatPercent(dividendYieldPercent, locale),
+      primaryValue: formatPercent(dividendYieldPercent, locale),
       partial: summary?.dividend_yield_partial ?? false,
       color: 'var(--teal)',
     },
@@ -1138,9 +1184,33 @@ export default function Dashboard() {
             <div style={{ fontSize: 9, fontWeight: 700, letterSpacing: '0.2em', textTransform: 'uppercase', color: 'var(--muted)', marginBottom: 10 }}>
               {stat.label}
             </div>
-            <div style={{ fontSize: 26, fontWeight: 800, letterSpacing: '-0.02em', lineHeight: 1, color: stat.color, animation: `fade-up 0.45s ${i * 0.1}s ease both` }}>
-              {stat.value}
-              {stat.partial && <span style={{ fontSize: 11, fontWeight: 500, color: 'var(--muted)', marginLeft: 6 }}>({t(language, 'dashboard.partial')})</span>}
+            <div
+              style={{
+                display: 'flex',
+                flexDirection: stat.secondaryPlacement === 'stacked' ? 'column' : 'row',
+                alignItems: stat.secondaryPlacement === 'stacked' ? 'flex-start' : 'baseline',
+                gap: stat.secondaryPlacement === 'stacked' ? 6 : 10,
+                flexWrap: stat.secondaryPlacement === 'stacked' ? 'nowrap' : 'wrap',
+                color: stat.color,
+                animation: `fade-up 0.45s ${i * 0.1}s ease both`,
+              }}
+            >
+              <div style={{ fontSize: 26, fontWeight: 800, letterSpacing: '-0.02em', lineHeight: 1 }}>
+                {stat.primaryValue}
+              </div>
+              {stat.secondaryValue && (
+                <div
+                  style={{
+                    fontSize: stat.secondaryPlacement === 'stacked' ? 15 : 14,
+                    fontWeight: 700,
+                    lineHeight: 1.1,
+                    opacity: 0.86,
+                  }}
+                >
+                  {stat.secondaryValue}
+                </div>
+              )}
+              {stat.partial && <span style={{ fontSize: 11, fontWeight: 500, color: 'var(--muted)' }}>({t(language, 'dashboard.partial')})</span>}
             </div>
           </div>
         ))}
@@ -1152,7 +1222,9 @@ export default function Dashboard() {
           {t(language, 'common.lastUpdated')}: <span style={{ fontFamily: "'Fira Code', monospace" }}>{formatTimeInTimezone(lastUpdate, timezone, locale)}</span>
         </span>
         <span style={{ fontSize: 10, color: 'var(--muted)' }}>·</span>
-        <span style={{ fontSize: 10, color: 'var(--muted)' }}>{t(language, 'common.autoRefresh10m')}</span>
+        <span style={{ fontSize: 10, color: 'var(--muted)' }}>
+          {t(language, shouldAutoRefreshDashboard(summary) ? 'common.autoRefresh10m' : 'common.autoRefreshPaused')}
+        </span>
       </div>
 
       <div style={{ padding: '0 28px 28px' }}>
@@ -1287,6 +1359,59 @@ export default function Dashboard() {
             <span style={{ fontSize: 9, fontWeight: 700, letterSpacing: '0.2em', textTransform: 'uppercase', color: 'var(--muted)' }}>
               {t(language, 'dashboard.holdings')} <span style={{ color: 'var(--v2)', marginLeft: 4 }}>{summary?.stock_count ?? 0}</span>
             </span>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', justifyContent: 'flex-end' }}>
+              <div style={{ display: 'inline-flex', padding: 3, borderRadius: 999, border: '1px solid var(--border2)', background: 'rgba(255,255,255,0.02)' }}>
+                {(['currency', 'percent'] as HoldingsMetricMode[]).map((mode) => {
+                  const selected = holdingsMetricMode === mode
+                  return (
+                    <button
+                      key={mode}
+                      type="button"
+                      onClick={() => setHoldingsMetricMode(mode)}
+                      style={{
+                        border: 0,
+                        borderRadius: 999,
+                        padding: '6px 12px',
+                        background: selected ? 'rgba(110,231,183,0.14)' : 'transparent',
+                        color: selected ? 'var(--green)' : 'var(--muted)',
+                        fontSize: 11,
+                        fontWeight: 700,
+                        letterSpacing: '0.08em',
+                        textTransform: 'uppercase',
+                        cursor: 'pointer',
+                      }}
+                    >
+                      {mode === 'currency' ? t(language, 'dashboard.currencyMode') : t(language, 'dashboard.percentMode')}
+                    </button>
+                  )
+                })}
+              </div>
+              <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 11, color: 'var(--muted)' }}>
+                <span style={{ letterSpacing: '0.08em', textTransform: 'uppercase', fontWeight: 700 }}>
+                  {t(language, 'dashboard.returnRange')}
+                </span>
+                <select
+                  value={holdingsReturnRange}
+                  onChange={(event) => setHoldingsReturnRange(event.target.value as ReturnRangeKey)}
+                  style={{
+                    border: '1px solid var(--border2)',
+                    background: 'var(--bg3)',
+                    color: 'var(--text)',
+                    borderRadius: 999,
+                    padding: '6px 12px',
+                    fontSize: 12,
+                    fontWeight: 600,
+                    outline: 'none',
+                  }}
+                >
+                  {HOLDINGS_RETURN_RANGE_OPTIONS.map((option) => (
+                    <option key={option.key} value={option.key}>
+                      {t(language, option.labelKey)}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            </div>
           </div>
           {!summary?.stocks?.length ? (
             <div className="empty-state">{t(language, 'dashboard.noStocks')}</div>
@@ -1299,14 +1424,18 @@ export default function Dashboard() {
                   <SortableHeader field="quantity" label={t(language, 'dashboard.qty')} sortState={holdingsSortState} onSort={requestHoldingsSort} align="right" />
                   <SortableHeader field="price" label={`${t(language, 'dashboard.price')} (${currency})`} sortState={holdingsSortState} onSort={requestHoldingsSort} align="right" />
                   <SortableHeader field="value" label={`${t(language, 'dashboard.value')} (${currency})`} sortState={holdingsSortState} onSort={requestHoldingsSort} align="right" />
-                  <SortableHeader field="gainLoss" label={t(language, 'dashboard.gainLoss')} sortState={holdingsSortState} onSort={requestHoldingsSort} align="right" />
-                  <SortableHeader field="gainLossPercent" label={t(language, 'dashboard.returnPercent')} sortState={holdingsSortState} onSort={requestHoldingsSort} align="right" />
+                  <SortableHeader field="today" label={t(language, 'dashboard.today')} sortState={holdingsSortState} onSort={requestHoldingsSort} align="right" />
+                  <SortableHeader field="return" label={t(language, 'dashboard.return')} sortState={holdingsSortState} onSort={requestHoldingsSort} align="right" />
                 </tr>
               </thead>
               <tbody>
                 {sortedSummaryStocks.map((stock) => {
                   const logoUrl = resolveBackendAssetUrl(stock.logo)
                   const displayName = formatDisplayName(stock.name, stock.ticker)
+                  const todayWindow = stock.performance.today
+                  const returnWindow = getPerformanceWindowByRange(stock, holdingsReturnRange)
+                  const todayValue = holdingsMetricMode === 'currency' ? todayWindow.amount : todayWindow.percent
+                  const returnValue = holdingsMetricMode === 'currency' ? returnWindow.amount : returnWindow.percent
                   return <tr
                     key={stock.ticker}
                     role="link"
@@ -1351,11 +1480,19 @@ export default function Dashboard() {
                     <td style={MONO_RIGHT_MUTED_CELL_STYLE}>
                       {renderHoldingAmount(stock.current_value, stock.currency, stock.current_value_converted ?? false)}
                     </td>
-                    <td style={MONO_RIGHT_CELL_STYLE} className={stock.gain_loss === null ? '' : (stock.gain_loss >= 0 ? 'positive' : 'negative')}>
-                      {stock.gain_loss !== null ? formatCurrency(stock.gain_loss, locale, currency) : '-'}
+                    <td style={MONO_RIGHT_CELL_STYLE} className={todayValue === null ? '' : (todayValue >= 0 ? 'positive' : 'negative')}>
+                      {todayValue === null
+                        ? '-'
+                        : (holdingsMetricMode === 'currency'
+                          ? formatCurrency(todayValue, locale, currency)
+                          : formatPercent(todayValue, locale))}
                     </td>
-                    <td style={MONO_RIGHT_CELL_STYLE} className={stock.gain_loss_percent === null ? '' : (stock.gain_loss_percent >= 0 ? 'positive' : 'negative')}>
-                      {stock.gain_loss_percent !== null ? formatPercent(stock.gain_loss_percent, locale) : '-'}
+                    <td style={MONO_RIGHT_CELL_STYLE} className={returnValue === null ? '' : (returnValue >= 0 ? 'positive' : 'negative')}>
+                      {returnValue === null
+                        ? '-'
+                        : (holdingsMetricMode === 'currency'
+                          ? formatCurrency(returnValue, locale, currency)
+                          : formatPercent(returnValue, locale))}
                     </td>
                   </tr>
                 })}

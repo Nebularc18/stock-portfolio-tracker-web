@@ -824,6 +824,11 @@ def update_stock(ticker: str, stock_data: StockUpdate, db: Session = Depends(get
             stock.logo = refreshed_logo
             target_ticker = normalized_ticker
 
+    if "name" in provided_fields:
+        stock.name = stock_data.name
+    elif target_ticker != ticker.upper():
+        stock.name = info.get("name") or stock.name
+
     if "position_entries" in provided_fields:
         if {"quantity", "purchase_price", "purchase_date", "courtage", "courtage_currency", "exchange_rate", "exchange_rate_currency", "platform"} & set(provided_fields):
             raise HTTPException(
@@ -1081,7 +1086,6 @@ def refresh_stock(ticker: str, db: Session = Depends(get_db), current_user: User
     normalized_ticker = stock.ticker or ticker.upper()
     info = stock_service.get_stock_info(normalized_ticker)
     if info:
-        stock.name = info.get("name") or stock.name
         stock.current_price = info.get("current_price")
         stock.previous_close = info.get("previous_close")
         stock.dividend_yield = info.get("dividend_yield")
