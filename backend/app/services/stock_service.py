@@ -242,10 +242,10 @@ def _normalize_yahoo_quote_currency_and_price(
     ticker_upper = ticker.upper()
     currency_upper = normalized_currency.upper()
 
-    if ticker_upper.endswith(".L") and currency_upper in {"GBP", "GBX"}:
+    if currency_upper == "GBX":
         return "GBP", (normalized_value / 100.0 if normalized_value is not None else None)
 
-    if currency_upper == "GBX":
+    if ticker_upper.endswith(".L") and currency_upper == "GBP":
         return "GBP", (normalized_value / 100.0 if normalized_value is not None else None)
 
     if currency_upper == "GBP":

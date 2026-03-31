@@ -1,4 +1,4 @@
-from app.services.stock_service import fetch_yahoo_quote
+from app.services.stock_service import _normalize_yahoo_quote_currency_and_price, fetch_yahoo_quote
 
 
 class _FakeResponse:
@@ -50,3 +50,10 @@ def test_fetch_yahoo_quote_normalizes_london_prices_from_pence(monkeypatch):
     assert quote["previous_close"] == 35.535
     assert quote["fifty_two_week_high"] == 36.5
     assert quote["fifty_two_week_low"] == 25.0
+
+
+def test_normalize_yahoo_quote_currency_and_price_preserves_generic_gbx_handling():
+    currency, value = _normalize_yahoo_quote_currency_and_price("TEST", "GBX", 1234.0)
+
+    assert currency == "GBP"
+    assert value == 12.34
