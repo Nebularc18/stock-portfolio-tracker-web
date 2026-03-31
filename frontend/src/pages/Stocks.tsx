@@ -197,6 +197,7 @@ export default function Stocks() {
   const [editStock, setEditStock] = useState<Stock | null>(null)
   const [editEntries, setEditEntries] = useState<PositionEntry[]>([])
   const [editTicker, setEditTicker] = useState('')
+  const [editName, setEditName] = useState('')
   const [editExchange, setEditExchange] = useState('US')
   const [editValidationStatus, setEditValidationStatus] = useState<'idle' | 'checking' | 'valid' | 'invalid'>('idle')
   const [editValidatedTickerInfo, setEditValidatedTickerInfo] = useState<TickerValidationResult | null>(null)
@@ -738,6 +739,7 @@ export default function Stocks() {
     setEditError(null)
     setEditStock(stock)
     setEditTicker(baseTicker)
+    setEditName(stock.name || '')
     setEditExchange(exchangeCode)
     setEditValidationStatus('valid')
     setEditValidatedTickerInfo({
@@ -767,7 +769,14 @@ export default function Stocks() {
   const handleSaveEdit = async () => {
     if (!editStock) return
     const normalizedTicker = editTicker.trim().toUpperCase()
+    const normalizedName = editName.trim()
+    const currentName = (editStock.name || '').trim()
     const nextTicker = getFullTicker(normalizedTicker, editExchange)
+    const nextName = normalizedName
+      ? (nextTicker !== editStock.ticker && normalizedName === currentName
+        ? (editValidatedTickerInfo?.name || normalizedName)
+        : normalizedName)
+      : (nextTicker !== editStock.ticker ? (editValidatedTickerInfo?.name || editStock.name) : editStock.name)
     const validDateFormat = /^\d{4}-\d{2}-\d{2}$/
 
     if (!normalizedTicker || editValidationStatus === 'invalid') {
@@ -824,6 +833,7 @@ export default function Stocks() {
       setSaving(true)
       await api.stocks.update(editStock.ticker, {
         ticker: nextTicker,
+        name: nextName,
         position_entries: normalizedEntries,
       })
       setEditStock(null)
@@ -1334,6 +1344,20 @@ export default function Stocks() {
             </div>
             <div style={{ padding: '20px', overflowY: 'auto' }}>
               <div style={{ marginBottom: 24, display: 'grid', gap: 12 }}>
+                <div>
+                  <label style={{ display: 'block', marginBottom: 6, color: 'var(--muted)', fontSize: 11, fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase' }}>
+                    {t(language, 'stocks.tableName')}
+                  </label>
+                  <input
+                    type="text"
+                    value={editName}
+                    onChange={(e) => {
+                      setEditName(e.target.value)
+                      setEditError(null)
+                    }}
+                    placeholder={editValidatedTickerInfo?.name || editStock.name || editFullTicker}
+                  />
+                </div>
                 <div>
                   <label style={{ display: 'block', marginBottom: 6, color: 'var(--muted)', fontSize: 11, fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase' }}>
                     {t(language, 'stocks.exchange')}

@@ -1078,6 +1078,7 @@ class StockCreate(BaseModel):
 
 class StockUpdate(BaseModel):
     ticker: Optional[str] = None
+    name: Optional[str] = None
     quantity: Optional[float] = None
     purchase_price: Optional[float] = None
     courtage: Optional[float] = None
@@ -1095,6 +1096,12 @@ class StockUpdate(BaseModel):
             if not normalized_ticker:
                 raise ValueError("ticker cannot be empty.")
             self.ticker = normalized_ticker
+
+        if self.name is not None:
+            normalized_name = self.name.strip()
+            if len(normalized_name) > 255:
+                raise ValueError("name must be 255 characters or fewer.")
+            self.name = normalized_name or None
 
         if self.courtage_currency is not None:
             normalized_currency = self.courtage_currency.strip().upper()

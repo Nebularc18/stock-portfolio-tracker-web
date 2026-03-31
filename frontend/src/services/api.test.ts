@@ -33,6 +33,7 @@ function createSummaryPayload() {
     total_gain_loss_partial: false,
     total_gain_loss_percent: 11.11,
     daily_change: 1,
+    daily_change_percent: 1.01,
     daily_change_partial: false,
     dividend_yield: 2,
     dividend_yield_partial: false,

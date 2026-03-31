@@ -225,6 +225,35 @@ def detect_currency(ticker: str) -> str:
     return "USD"
 
 
+def _normalize_yahoo_quote_currency_and_price(
+    ticker: str,
+    currency: Optional[str],
+    value: Optional[float],
+) -> tuple[str, Optional[float]]:
+    """
+    Normalize Yahoo quote units for exchanges that report in minor units.
+
+    Yahoo commonly reports London Stock Exchange prices in pence while the quote
+    metadata uses a pound-based currency code. Store those values in GBP so the
+    rest of the app can format and convert them consistently.
+    """
+    normalized_currency = (currency or detect_currency(ticker) or "USD").strip()
+    normalized_value = float(value) if value is not None else None
+    ticker_upper = ticker.upper()
+    currency_upper = normalized_currency.upper()
+
+    if currency_upper == "GBX":
+        return "GBP", (normalized_value / 100.0 if normalized_value is not None else None)
+
+    if ticker_upper.endswith(".L") and currency_upper == "GBP":
+        return "GBP", (normalized_value / 100.0 if normalized_value is not None else None)
+
+    if currency_upper == "GBP":
+        return "GBP", normalized_value
+
+    return normalized_currency, normalized_value
+
+
 def fetch_yahoo_quote(ticker: str) -> Optional[Dict]:
     """Fetch current quote data from Yahoo Finance.
     
@@ -280,9 +309,21 @@ def fetch_yahoo_quote(ticker: str) -> Optional[Dict]:
         
         current_price = prices[-1]
         previous_close = prices[-2] if len(prices) > 1 else current_price
-        
-        currency = meta.get('currency', detect_currency(ticker))
-        
+
+        raw_currency = meta.get('currency', detect_currency(ticker))
+        currency, current_price = _normalize_yahoo_quote_currency_and_price(ticker, raw_currency, current_price)
+        _, previous_close = _normalize_yahoo_quote_currency_and_price(ticker, raw_currency, previous_close)
+        _, fifty_two_week_high = _normalize_yahoo_quote_currency_and_price(
+            ticker,
+            raw_currency,
+            meta.get('fiftyTwoWeekHigh'),
+        )
+        _, fifty_two_week_low = _normalize_yahoo_quote_currency_and_price(
+            ticker,
+            raw_currency,
+            meta.get('fiftyTwoWeekLow'),
+        )
+
         result_data = {
             'ticker': ticker,
             'current_price': current_price,
@@ -292,8 +333,8 @@ def fetch_yahoo_quote(ticker: str) -> Optional[Dict]:
             'sector': None,
             'dividend_yield': None,
             'dividend_per_share': None,
-            'fifty_two_week_high': meta.get('fiftyTwoWeekHigh'),
-            'fifty_two_week_low': meta.get('fiftyTwoWeekLow'),
+            'fifty_two_week_high': fifty_two_week_high,
+            'fifty_two_week_low': fifty_two_week_low,
             'market_cap': meta.get('marketCap'),
         }
         

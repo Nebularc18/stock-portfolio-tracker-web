@@ -8,7 +8,7 @@ from fastapi import APIRouter, Depends, Query
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.orm import Session
 from dataclasses import asdict, dataclass
-from datetime import date, datetime, timezone
+from datetime import date, datetime, timezone, timedelta
 from typing import List, Optional
 import hashlib
 import json
@@ -37,9 +37,10 @@ def _should_auto_refresh_portfolio(stocks: list[Stock]) -> bool:
     """
     Return whether portfolio auto-refresh should remain active for the supplied holdings.
 
-    Auto-refresh is enabled only when every holding maps to a known tracked market and at
-    least one of those markets is currently within its refresh window. Empty portfolios and
-    unknown-market holdings fail closed to avoid unnecessary polling.
+    Auto-refresh is enabled when at least one holding maps to a known tracked market and
+    one of those markets is currently within its refresh window. Holdings whose market
+    cannot be inferred are ignored so they do not disable refresh for the rest of a mixed
+    portfolio.
     """
     from app.services.market_hours_service import MarketHoursService
 
@@ -54,7 +55,7 @@ def _should_auto_refresh_portfolio(stocks: list[Stock]) -> bool:
             assume_unsuffixed_us=True,
         )
         if market is None:
-            return False
+            continue
         if market in seen_markets:
             continue
         seen_markets.add(market)
@@ -675,6 +676,108 @@ def infer_country_from_ticker(ticker: str) -> Optional[str]:
     return None
 
 
+def _resolve_stock_dividend_yield_percent(stock: Stock, current_year: int) -> tuple[Optional[float], bool]:
+    """
+    Resolve a stock's annual dividend yield percentage.
+
+    Avanza yearly events are preferred when the ticker is mapped there. That keeps
+    portfolio summary yield aligned with the dividend source already used elsewhere
+    in the app. When no mapping exists, stored stock dividend fields remain the
+    fallback.
+    """
+    if stock.current_price is None or stock.current_price <= 0:
+        return None, False
+
+    from app.services.avanza_service import avanza_service
+
+    mapping = avanza_service.get_mapping_by_ticker(stock.ticker) if stock.ticker else None
+    if mapping and getattr(mapping, "instrument_id", None):
+        yearly_dividends = avanza_service.get_stock_dividends_for_year(stock.ticker, current_year) or []
+        annual_dividend_per_share = sum(
+            float(div.amount)
+            for div in yearly_dividends
+            if getattr(div, "amount", None) is not None
+        )
+        return (annual_dividend_per_share / stock.current_price * 100), True
+
+    if stock.dividend_yield is not None:
+        return float(stock.dividend_yield), True
+
+    if stock.dividend_per_share is not None:
+        return (float(stock.dividend_per_share) / stock.current_price * 100), True
+
+    return None, False
+
+
+def _select_price_baseline_for_range(
+    history_rows: list[StockPriceHistory],
+    range_start: datetime,
+) -> Optional[float]:
+    latest_before: Optional[StockPriceHistory] = None
+    for row in history_rows:
+        recorded_at = row.recorded_at
+        if recorded_at <= range_start:
+            latest_before = row
+            continue
+        return latest_before.price if latest_before is not None else row.price
+    return latest_before.price if latest_before is not None else None
+
+
+def _build_stock_performance_windows(
+    stock: Stock,
+    snapshot: PositionSnapshot,
+    history_rows: list[StockPriceHistory],
+    display_currency: str,
+    rates: dict[str, float | None],
+    gain_loss: Optional[float],
+    gain_loss_percent: Optional[float],
+    now: datetime,
+) -> dict[str, dict[str, Optional[float]]]:
+    def convert_position_delta(price_delta: Optional[float]) -> Optional[float]:
+        if price_delta is None or snapshot.quantity is None or snapshot.quantity <= 0:
+            return None
+        return convert_value(price_delta * snapshot.quantity, stock.currency, display_currency, rates)
+
+    today_percent = None
+    if stock.current_price is not None and stock.previous_close not in (None, 0):
+        today_percent = ((stock.current_price - stock.previous_close) / stock.previous_close) * 100
+
+    range_starts = {
+        "week": now - timedelta(days=7),
+        "month": now - timedelta(days=30),
+        "ytd": datetime(now.year, 1, 1, tzinfo=timezone.utc),
+        "year": now - timedelta(days=365),
+    }
+
+    performance = {
+        "today": {
+            "amount": convert_position_delta(
+                (stock.current_price - stock.previous_close)
+                if stock.current_price is not None and stock.previous_close is not None
+                else None
+            ),
+            "percent": today_percent,
+        },
+        "since_start": {
+            "amount": gain_loss,
+            "percent": gain_loss_percent,
+        },
+    }
+
+    for key, range_start in range_starts.items():
+        baseline_price = _select_price_baseline_for_range(history_rows, range_start)
+        if baseline_price is None or stock.current_price is None or baseline_price <= 0:
+            performance[key] = {"amount": None, "percent": None}
+            continue
+        price_delta = stock.current_price - baseline_price
+        performance[key] = {
+            "amount": convert_position_delta(price_delta),
+            "percent": (price_delta / baseline_price) * 100,
+        }
+
+    return performance
+
+
 @router.get("/summary")
 def get_portfolio_summary(db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
     """
@@ -686,6 +789,7 @@ def get_portfolio_summary(db: Session = Depends(get_db), current_user: User = De
             total_cost (float): Sum of all convertible cost bases in display currency.
             total_gain_loss (float): Aggregate gain or loss (total_value - total_cost) in display currency.
             total_gain_loss_percent (float): Percentage gain/loss relative to total_cost (0 if total_cost <= 0).
+            daily_change_percent (float): Percentage daily change relative to the included prior-close total (0 if unavailable).
             display_currency (str): Currency code used for all converted display values.
             stocks (list): Per-stock dictionaries containing:
                 ticker (str), name (str), quantity (number), current_price (number),
@@ -719,10 +823,20 @@ def get_portfolio_summary(db: Session = Depends(get_db), current_user: User = De
         db.commit()
 
     display_currency = get_display_currency(db, current_user.id)
+    now = utc_now()
 
     currencies = {s.currency for s in stocks if s.currency}
     currencies.add('SEK')
     rates = ExchangeRateService.get_rates_for_currencies(currencies, display_currency)
+    tickers = [stock.ticker for stock in stocks if stock.ticker]
+    history_by_ticker: dict[str, list[StockPriceHistory]] = {}
+    if tickers:
+        history_rows = db.query(StockPriceHistory).filter(
+            StockPriceHistory.user_id == current_user.id,
+            StockPriceHistory.ticker.in_(tickers),
+        ).order_by(StockPriceHistory.ticker.asc(), StockPriceHistory.recorded_at.asc()).all()
+        for row in history_rows:
+            history_by_ticker.setdefault(row.ticker, []).append(row)
     
     total_value = 0
     total_value_partial = False
@@ -732,10 +846,12 @@ def get_portfolio_summary(db: Session = Depends(get_db), current_user: User = De
     total_gain_loss_partial = False
     daily_change = 0
     daily_change_partial = False
+    previous_total_value = 0
     dividend_yield_weighted = 0
     dividend_yield_total_value = 0
     dividend_yield_partial = False
     last_updated: datetime | None = None
+    current_year = utc_now().year
     
     stock_data = []
     unconverted_stocks = []
@@ -784,6 +900,16 @@ def get_portfolio_summary(db: Session = Depends(get_db), current_user: User = De
                     "currency": stock.currency,
                     "reason": "missing_exchange_rate"
                 })
+                performance = _build_stock_performance_windows(
+                    stock,
+                    snapshot,
+                    history_by_ticker.get(stock.ticker, []),
+                    display_currency,
+                    rates,
+                    None,
+                    None,
+                    now,
+                )
                 stock_data.append({
                     "ticker": stock.ticker,
                     "name": stock.name,
@@ -802,6 +928,7 @@ def get_portfolio_summary(db: Session = Depends(get_db), current_user: User = De
                     "current_value_converted": False,
                     "daily_change": daily_change_native,
                     "daily_change_converted": False,
+                    "performance": performance,
                 })
                 continue
             
@@ -812,12 +939,17 @@ def get_portfolio_summary(db: Session = Depends(get_db), current_user: User = De
                     daily_change_partial = True
                 else:
                     daily_change += daily_change_converted
+                    previous_total_value += current_value - daily_change_converted
             else:
                 daily_change_partial = True
 
-            if stock.dividend_yield is not None:
+            stock_dividend_yield, stock_dividend_yield_resolved = _resolve_stock_dividend_yield_percent(
+                stock,
+                current_year,
+            )
+            if stock_dividend_yield_resolved and stock_dividend_yield is not None:
                 if current_value > 0:
-                    dividend_yield_weighted += current_value * stock.dividend_yield
+                    dividend_yield_weighted += current_value * stock_dividend_yield
                     dividend_yield_total_value += current_value
                 else:
                     dividend_yield_partial = True
@@ -864,6 +996,17 @@ def get_portfolio_summary(db: Session = Depends(get_db), current_user: User = De
             gain_loss_percent = None
             if gain_loss is not None and cost_converted and isinstance(cost, (int, float)) and cost > 0:
                 gain_loss_percent = gain_loss / cost * 100
+
+            performance = _build_stock_performance_windows(
+                stock,
+                snapshot,
+                history_by_ticker.get(stock.ticker, []),
+                display_currency,
+                rates,
+                gain_loss,
+                gain_loss_percent,
+                now,
+            )
             
             stock_data.append({
                 "ticker": stock.ticker,
@@ -883,6 +1026,7 @@ def get_portfolio_summary(db: Session = Depends(get_db), current_user: User = De
                 "current_value_converted": True,
                 "daily_change": daily_change_converted if daily_change_converted is not None else daily_change_native,
                 "daily_change_converted": daily_change_converted is not None,
+                "performance": performance,
             })
         elif snapshot.quantity is not None and snapshot.quantity > 0:
             total_value_partial = True
@@ -892,6 +1036,7 @@ def get_portfolio_summary(db: Session = Depends(get_db), current_user: User = De
             dividend_yield_partial = True
     
     total_gain_loss_percent = (total_gain_loss / total_cost * 100) if total_cost > 0 else 0
+    daily_change_percent = (daily_change / previous_total_value * 100) if previous_total_value > 0 else 0
     portfolio_dividend_yield = (
         dividend_yield_weighted / dividend_yield_total_value
         if dividend_yield_total_value > 0
@@ -908,6 +1053,7 @@ def get_portfolio_summary(db: Session = Depends(get_db), current_user: User = De
         "total_gain_loss_partial": total_gain_loss_partial,
         "total_gain_loss_percent": total_gain_loss_percent,
         "daily_change": daily_change,
+        "daily_change_percent": daily_change_percent,
         "daily_change_partial": daily_change_partial,
         "dividend_yield": portfolio_dividend_yield,
         "dividend_yield_partial": dividend_yield_partial,
