@@ -575,6 +575,31 @@ export function extendFrozenDayChartDataToNow(
   return [...data, { date: now.toISOString(), value: lastPoint.value }]
 }
 
+export function getPreviousCloseBaselineValue(
+  summary: Pick<PortfolioSummary, 'total_value' | 'daily_change' | 'daily_change_partial'> | null | undefined,
+): number | null {
+  if (!summary || summary.daily_change_partial) return null
+  const value = summary.total_value - summary.daily_change
+  return Number.isFinite(value) && value > 0 ? value : null
+}
+
+export function prependDailyBaselinePoint(
+  data: ChartPoint[],
+  baselineValue: number | null,
+  range: HistoryRangeKey,
+): ChartPoint[] {
+  if (range !== '1D' || baselineValue === null || data.length === 0) return data
+  if (!Number.isFinite(baselineValue) || Math.abs(data[0].value - baselineValue) < 0.005) return data
+
+  const firstPointDate = parseHistoryDate(data[0].date)
+  if (Number.isNaN(firstPointDate.getTime())) return data
+
+  return [
+    { date: new Date(firstPointDate.getTime() - 1000).toISOString(), value: baselineValue },
+    ...data,
+  ]
+}
+
 /**
  * Determine the target number of points to downsample chart data for a given history range.
  *
@@ -928,6 +953,10 @@ export default function Dashboard() {
     rawChartData.filter((point) => isHistoryPointInCurrentDay(point.date, timezone))
   ), [rawChartData, timezone])
 
+  const previousCloseBaselineValue = useMemo(() => (
+    getPreviousCloseBaselineValue(summary)
+  ), [summary])
+
   const frozenCurrentDayChartData = useMemo(() => (
     extendFrozenDayChartDataToNow(
       currentDayChartData,
@@ -935,7 +964,11 @@ export default function Dashboard() {
     )
   ), [currentDayChartData, historyRange, summary])
 
-  const rangeChartData = historyRange === '1D' ? frozenCurrentDayChartData : rawChartData
+  const rangeChartData = useMemo(() => (
+    historyRange === '1D'
+      ? prependDailyBaselinePoint(frozenCurrentDayChartData, previousCloseBaselineValue, historyRange)
+      : rawChartData
+  ), [frozenCurrentDayChartData, historyRange, previousCloseBaselineValue, rawChartData])
 
   const {
     displayedChartData,
