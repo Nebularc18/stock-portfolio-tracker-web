@@ -1,7 +1,8 @@
 """Background scheduler for periodic stock data refresh.
 
 This module provides a background scheduler that periodically refreshes
-stock prices for all stocks in the portfolio when markets are open.
+stock prices for all stocks in the portfolio when markets are near or within
+their refresh windows.
 """
 
 import logging
@@ -9,7 +10,8 @@ from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.triggers.cron import CronTrigger
 from sqlalchemy.dialects.postgresql import insert
 from app.services.position_service import calculate_position_snapshot, normalize_position_entries
-from app.utils.time import utc_now
+from app.services.market_hours_service import DEFAULT_REFRESH_INTERVAL_MINUTES
+from app.utils.time import floor_datetime_to_interval, utc_now
 
 logger = logging.getLogger(__name__)
 
@@ -93,7 +95,7 @@ def refresh_all_stocks():
     price, records or updates today's StockPriceHistory. Computes the portfolio's
     total value converted to SEK using available exchange rates and, when all
     positions could be converted, upserts the total into PortfolioHistory using a
-    15-minute rounded interval. Commits changes and closes the database session.
+    scheduler-interval rounded timestamp. Commits changes and closes the database session.
     
     Notes:
     - If no stock's market is within its refresh window, no work is performed.
@@ -186,7 +188,7 @@ def refresh_all_stocks():
         user_totals, user_skipped = _calculate_user_portfolio_totals_sek(stocks, rates)
         
         # Record per-user portfolio history for the dashboard chart.
-        interval = request_ts.replace(minute=(request_ts.minute // 15) * 15, second=0, microsecond=0)
+        interval = floor_datetime_to_interval(request_ts, DEFAULT_REFRESH_INTERVAL_MINUTES)
         for user_id in user_ids:
             total_value_sek = user_totals.get(user_id, 0)
             skipped_for_user = user_skipped.get(user_id, 0)

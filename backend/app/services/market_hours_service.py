@@ -56,6 +56,24 @@ MARKET_BY_TICKER_SUFFIX = {
     ".DE": "DE",
 }
 DEFAULT_REFRESH_INTERVAL_MINUTES = 10
+DEFAULT_PRE_OPEN_REFRESH_MINUTES = 10
+
+
+def _get_timezone(timezone_name: str):
+    try:
+        from zoneinfo import ZoneInfo
+
+        return ZoneInfo(timezone_name)
+    except Exception:
+        import pytz
+
+        return pytz.timezone(timezone_name)
+
+
+def _localize_datetime(value: datetime, tz):
+    if hasattr(tz, "localize"):
+        return tz.localize(value)
+    return value.replace(tzinfo=tz)
 
 
 def convert_time_to_timezone(time_str: str, from_tz: str, to_tz: str, base_date: date | None = None) -> str:
@@ -71,15 +89,16 @@ def convert_time_to_timezone(time_str: str, from_tz: str, to_tz: str, base_date:
         str: Converted time in 'HH:MM' format.
     """
     try:
-        from zoneinfo import ZoneInfo
+        source_tz = _get_timezone(from_tz)
+        target_tz = _get_timezone(to_tz)
         
         if base_date is None:
-            base_date = datetime.now(ZoneInfo(from_tz)).date()
+            base_date = datetime.now(source_tz).date()
         
         hour, minute = map(int, time_str.split(':'))
         
-        dt = datetime.combine(base_date, time(hour, minute), tzinfo=ZoneInfo(from_tz))
-        converted = dt.astimezone(ZoneInfo(to_tz))
+        dt = _localize_datetime(datetime.combine(base_date, time(hour, minute)), source_tz)
+        converted = dt.astimezone(target_tz)
         
         return converted.strftime("%H:%M")
     except Exception as e:
@@ -127,8 +146,7 @@ class MarketHoursService:
         config = MARKET_CONFIG[market]
         
         try:
-            from zoneinfo import ZoneInfo
-            tz = ZoneInfo(config["timezone"])
+            tz = _get_timezone(config["timezone"])
             now = now.astimezone(tz) if now is not None else datetime.now(tz)
             
             if now.weekday() not in config["days"]:
@@ -166,9 +184,7 @@ class MarketHoursService:
         is_open = MarketHoursService.is_market_open(market)
         
         try:
-            from zoneinfo import ZoneInfo
-            
-            market_tz = ZoneInfo(config["timezone"])
+            market_tz = _get_timezone(config["timezone"])
             now_market = datetime.now(market_tz)
             local_time = now_market.strftime("%H:%M")
             
@@ -183,7 +199,7 @@ class MarketHoursService:
                     config["timezone"], 
                     user_timezone
                 )
-                now_user = datetime.now(ZoneInfo(user_timezone))
+                now_user = datetime.now(_get_timezone(user_timezone))
                 user_time = now_user.strftime("%H:%M")
                 tz_display = user_timezone.split('/')[-1].replace('_', ' ')
             else:
@@ -260,8 +276,7 @@ class MarketHoursService:
         config = MARKET_CONFIG[market]
         
         try:
-            from zoneinfo import ZoneInfo
-            tz = ZoneInfo(config["timezone"])
+            tz = _get_timezone(config["timezone"])
             now = now.astimezone(tz) if now is not None else datetime.now(tz)
             
             if now.weekday() not in config["days"]:
@@ -270,7 +285,7 @@ class MarketHoursService:
             close_parts = config["close_time"].split(":")
             close_time = time(int(close_parts[0]), int(close_parts[1]))
             
-            close_dt = datetime.combine(now.date(), close_time, tzinfo=tz)
+            close_dt = _localize_datetime(datetime.combine(now.date(), close_time), tz)
             window_end = close_dt + timedelta(minutes=minutes_after_close)
             
             return close_dt <= now <= window_end
@@ -279,22 +294,60 @@ class MarketHoursService:
             return False
 
     @staticmethod
+    def is_within_pre_open_window(
+        market: str,
+        minutes_before_open: int = DEFAULT_PRE_OPEN_REFRESH_MINUTES,
+        now: datetime | None = None,
+    ) -> bool:
+        """Check if current time is within the pre-open refresh window."""
+        if market not in MARKET_CONFIG:
+            return False
+
+        config = MARKET_CONFIG[market]
+
+        try:
+            tz = _get_timezone(config["timezone"])
+            now = now.astimezone(tz) if now is not None else datetime.now(tz)
+
+            if now.weekday() not in config["days"]:
+                return False
+
+            open_parts = config["open_time"].split(":")
+            open_time = time(int(open_parts[0]), int(open_parts[1]))
+
+            open_dt = _localize_datetime(datetime.combine(now.date(), open_time), tz)
+            window_start = open_dt - timedelta(minutes=minutes_before_open)
+
+            return window_start <= now < open_dt
+        except Exception as e:
+            logger.error(f"Error checking pre-open window for {market}: {e}")
+            return False
+
+    @staticmethod
     def should_refresh(
         markets: list[str] | None = None,
         minutes_after_close: int = DEFAULT_REFRESH_INTERVAL_MINUTES,
+        minutes_before_open: int = DEFAULT_PRE_OPEN_REFRESH_MINUTES,
         now: datetime | None = None,
     ) -> bool:
         """Check if market data should be refreshed.
         
-        Returns True if any supplied market is open or within the configured
-        post-close refresh window. When no markets are supplied, defaults to
-        the legacy SE/US behavior used by shared market widgets.
+        Returns True if any supplied market is within the configured pre-open
+        window, is open, or is within the configured post-close refresh window.
+        When no markets are supplied, defaults to the legacy SE/US behavior
+        used by shared market widgets.
         
         Returns:
             bool: True if refresh should occur, False otherwise.
         """
         target_markets = list(dict.fromkeys(markets or ["SE", "US"]))
         for market in target_markets:
+            if MarketHoursService.is_within_pre_open_window(
+                market,
+                minutes_before_open=minutes_before_open,
+                now=now,
+            ):
+                return True
             if MarketHoursService.is_market_open(market, now=now):
                 return True
             if MarketHoursService.is_within_post_close_window(
