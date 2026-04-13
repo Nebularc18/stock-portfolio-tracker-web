@@ -9,8 +9,10 @@ import {
   getDashboardDataCacheKey,
   getDashboardHistoryCacheKey,
   getNextDashboardRefreshDelayMs,
+  getPreviousCloseBaselineValue,
   getStoredHistoryRange,
   isHistoryPointInCurrentDay,
+  prependDailyBaselinePoint,
   readDashboardDataCache,
   readDashboardHistoryCache,
   shouldAutoRefreshDashboard,
@@ -228,6 +230,42 @@ describe('dashboard storage helpers', () => {
     ]
 
     expect(extendFrozenDayChartDataToNow(data, false, new Date('2026-03-26T18:00:00Z'))).toBe(data)
+  })
+
+  it('derives the previous-close baseline from total value and daily change', () => {
+    expect(getPreviousCloseBaselineValue({
+      total_value: 200_630.98,
+      daily_change: -3.03,
+      daily_change_partial: false,
+    })).toBeCloseTo(200_634.01)
+  })
+
+  it('does not derive a previous-close baseline from partial daily change data', () => {
+    expect(getPreviousCloseBaselineValue({
+      total_value: 200_630.98,
+      daily_change: -3.03,
+      daily_change_partial: true,
+    })).toBeNull()
+  })
+
+  it('prepends the previous-close baseline to 1D chart data', () => {
+    expect(prependDailyBaselinePoint([
+      { date: '2026-04-13T07:00:00Z', value: 198_511.41 },
+      { date: '2026-04-13T18:30:00Z', value: 200_630.98 },
+    ], 200_634.01, '1D')).toEqual([
+      { date: '2026-04-13T06:59:59.000Z', value: 200_634.01 },
+      { date: '2026-04-13T07:00:00Z', value: 198_511.41 },
+      { date: '2026-04-13T18:30:00Z', value: 200_630.98 },
+    ])
+  })
+
+  it('leaves non-1D chart data unchanged when applying the daily baseline', () => {
+    const data = [
+      { date: '2026-04-12T18:30:00Z', value: 199_000 },
+      { date: '2026-04-13T18:30:00Z', value: 200_630.98 },
+    ]
+
+    expect(prependDailyBaselinePoint(data, 200_634.01, '1W')).toBe(data)
   })
 
   it('uses the backend-provided auto-refresh flag when active', () => {
