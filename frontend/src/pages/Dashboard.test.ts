@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it } from 'vitest'
 import {
+  DASHBOARD_AUTO_REFRESH_INTERVAL_MS,
   DASHBOARD_CACHE_VERSION,
   DASHBOARD_DATA_CACHE_STORAGE_KEY,
   DASHBOARD_HISTORY_RANGE_STORAGE_KEY,
@@ -7,6 +8,7 @@ import {
   extendFrozenDayChartDataToNow,
   getDashboardDataCacheKey,
   getDashboardHistoryCacheKey,
+  getNextDashboardRefreshDelayMs,
   getStoredHistoryRange,
   isHistoryPointInCurrentDay,
   readDashboardDataCache,
@@ -238,5 +240,11 @@ describe('dashboard storage helpers', () => {
 
   it('defaults to active when summary data is unavailable', () => {
     expect(shouldAutoRefreshDashboard(null)).toBe(true)
+  })
+
+  it('keeps dashboard graph refresh aligned to the 10-minute stock refresh cadence', () => {
+    expect(DASHBOARD_AUTO_REFRESH_INTERVAL_MS).toBe(10 * 60 * 1000)
+    expect(getNextDashboardRefreshDelayMs(Date.parse('2026-03-26T08:01:00Z'))).toBe(9 * 60 * 1000 + 5_000)
+    expect(getNextDashboardRefreshDelayMs(Date.parse('2026-03-26T08:10:00Z'))).toBe(5_000)
   })
 })

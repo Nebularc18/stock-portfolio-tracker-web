@@ -20,8 +20,9 @@ import threading
 from app.main import get_db, get_current_user, User, Stock, PortfolioHistory, UserSettings, StockPriceHistory
 from app.services.brandfetch_service import brandfetch_service
 from app.services.exchange_rate_service import ExchangeRateService
+from app.services.market_hours_service import DEFAULT_REFRESH_INTERVAL_MINUTES
 from app.services.position_service import calculate_position_cost_basis, calculate_position_snapshot, get_quantity_held_on_date, get_remaining_quantity, has_position_history, normalize_position_entries
-from app.utils.time import utc_now
+from app.utils.time import floor_datetime_to_interval, utc_now
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -1071,7 +1072,7 @@ def refresh_all_prices(db: Session = Depends(get_db), current_user: User = Depen
     """
     Refresh current prices and logos for all portfolio stocks, record daily price history, and update the portfolio's total value.
     
-    Fetches price and metadata from external services, upserts per-stock today's price history, converts per-stock values to SEK to compute the portfolio total for the current 15-minute interval, and upserts that total into PortfolioHistory.
+    Fetches price and metadata from external services, upserts per-stock today's price history, converts per-stock values to SEK to compute the portfolio total for the current scheduler interval, and upserts that total into PortfolioHistory.
     
     Returns:
         dict: Response containing:
@@ -1166,7 +1167,7 @@ def refresh_all_prices(db: Session = Depends(get_db), current_user: User = Depen
         )
 
     if updated > 0 and total_value_sek > 0:
-        interval = request_ts.replace(minute=(request_ts.minute // 15) * 15, second=0, microsecond=0)
+        interval = floor_datetime_to_interval(request_ts, DEFAULT_REFRESH_INTERVAL_MINUTES)
         stmt = insert(PortfolioHistory).values(
             user_id=current_user.id,
             date=interval,

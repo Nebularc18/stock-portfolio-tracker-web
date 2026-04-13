@@ -24,6 +24,37 @@ def test_should_refresh_for_swedish_market_only_during_open_and_one_interval_aft
     ) is False
 
 
+def test_should_refresh_for_swedish_market_ten_minutes_before_open():
+    assert MarketHoursService.should_refresh(
+        ["SE"],
+        minutes_before_open=10,
+        now=datetime(2026, 3, 26, 7, 49, tzinfo=timezone.utc),
+    ) is False
+    assert MarketHoursService.should_refresh(
+        ["SE"],
+        minutes_before_open=10,
+        now=datetime(2026, 3, 26, 7, 50, tzinfo=timezone.utc),
+    ) is True
+    assert MarketHoursService.should_refresh(
+        ["SE"],
+        minutes_before_open=10,
+        now=datetime(2026, 3, 26, 7, 59, tzinfo=timezone.utc),
+    ) is True
+
+
+def test_should_refresh_for_us_market_ten_minutes_before_open():
+    assert MarketHoursService.should_refresh(
+        ["US"],
+        minutes_before_open=10,
+        now=datetime(2026, 3, 26, 13, 19, tzinfo=timezone.utc),
+    ) is False
+    assert MarketHoursService.should_refresh(
+        ["US"],
+        minutes_before_open=10,
+        now=datetime(2026, 3, 26, 13, 20, tzinfo=timezone.utc),
+    ) is True
+
+
 def test_should_refresh_when_any_held_market_is_still_open():
     assert MarketHoursService.should_refresh(
         ["SE", "US"],

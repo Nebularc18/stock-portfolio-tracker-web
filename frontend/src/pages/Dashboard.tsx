@@ -58,7 +58,7 @@ export const DASHBOARD_DATA_CACHE_STORAGE_KEY = 'dashboard.data'
 export const DASHBOARD_HISTORY_CACHE_STORAGE_KEY = 'dashboard.history'
 export const DASHBOARD_CACHE_VERSION = 3
 const DASHBOARD_CACHE_TTL_MS = 30 * 60 * 1000
-const DASHBOARD_AUTO_REFRESH_INTERVAL_MS = 10 * 60 * 1000
+export const DASHBOARD_AUTO_REFRESH_INTERVAL_MS = 10 * 60 * 1000
 const DASHBOARD_AUTO_REFRESH_BUFFER_MS = 5_000
 const DASHBOARD_AUTO_REFRESH_MIN_DELAY_MS = 5_000
 
@@ -355,7 +355,7 @@ function logDashboardIssue(message: string, error: unknown): void {
   }
 }
 
-function getNextDashboardRefreshDelayMs(now: number = Date.now()): number {
+export function getNextDashboardRefreshDelayMs(now: number = Date.now()): number {
   const nextRefreshAt = Math.ceil(now / DASHBOARD_AUTO_REFRESH_INTERVAL_MS) * DASHBOARD_AUTO_REFRESH_INTERVAL_MS
   return Math.max(
     nextRefreshAt - now + DASHBOARD_AUTO_REFRESH_BUFFER_MS,
