@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react'
 import { Link } from 'react-router-dom'
 import { api, PortfolioSummary, Stock } from '../services/api'
-import { getLocaleForLanguage, t } from '../i18n'
+import { getLocaleForLanguage, t, type TranslationKey } from '../i18n'
 import { useSettings } from '../SettingsContext'
 import SortableHeader from '../components/SortableHeader'
 import { calculatePositionCostInCurrency } from '../utils/positions'
@@ -76,6 +76,17 @@ type SortField =
   | 'dailyChange'
   | 'dailyChangePercent'
 
+type PerformancePeriodKey = 'today' | 'week' | 'month' | 'ytd' | 'year' | 'since_start'
+
+const PERFORMANCE_PERIOD_OPTIONS: Array<{ key: PerformancePeriodKey; labelKey: TranslationKey }> = [
+  { key: 'today', labelKey: 'dashboard.range1D' },
+  { key: 'week', labelKey: 'dashboard.range1W' },
+  { key: 'month', labelKey: 'dashboard.range1M' },
+  { key: 'ytd', labelKey: 'dashboard.rangeYTD' },
+  { key: 'year', labelKey: 'dashboard.range1Y' },
+  { key: 'since_start', labelKey: 'dashboard.rangeSinceStart' },
+]
+
 interface PerformanceData {
   ticker: string
   name: string | null
@@ -94,6 +105,15 @@ interface PerformanceData {
   costDisplay: number | null
   gainDisplay: number | null
   dailyChangeDisplay: number | null
+  periodGainDisplay: number | null
+  periodReturnPercent: number | null
+}
+
+function getPerformanceWindowByPeriod(
+  stock: PortfolioSummary['stocks'][number],
+  period: PerformancePeriodKey,
+) {
+  return stock.performance[period]
 }
 
 /**
@@ -156,6 +176,7 @@ export default function Performance() {
   const [stocksLoading, setStocksLoading] = useState(true)
   const [summaryLoading, setSummaryLoading] = useState(true)
   const [loadError, setLoadError] = useState<Error | null>(null)
+  const [performancePeriod, setPerformancePeriod] = useState<PerformancePeriodKey>('since_start')
   const { sortState, requestSort } = useTableSort<SortField>({ field: 'ticker', direction: 'asc' })
   const { language } = useSettings()
   const locale = getLocaleForLanguage(language)
@@ -219,6 +240,7 @@ export default function Performance() {
   const performanceData: PerformanceData[] = useMemo(() => (
     stocks.map(stock => {
       const summaryStock = summaryStocksByTicker.get(stock.ticker)
+      const periodWindow = summaryStock ? getPerformanceWindowByPeriod(summaryStock, performancePeriod) : null
       const value = stock.current_price != null ? stock.current_price * stock.quantity : null
       const cost = calculatePositionCostInCurrency(
         stock.position_entries,
@@ -254,9 +276,11 @@ export default function Performance() {
         costDisplay: summaryStock?.total_cost_converted ? (summaryStock.total_cost ?? null) : null,
         gainDisplay: summaryStock?.gain_loss ?? null,
         dailyChangeDisplay: summaryStock?.daily_change_converted ? summaryStock.daily_change : null,
+        periodGainDisplay: periodWindow?.amount ?? null,
+        periodReturnPercent: periodWindow?.percent ?? null,
       }
     })
-  ), [stocks, summaryStocksByTicker])
+  ), [performancePeriod, stocks, summaryStocksByTicker])
 
   const sortedData = useMemo(() => (
     sortTableItems(
@@ -269,8 +293,8 @@ export default function Performance() {
         currency: (item) => item.currency,
         value: (item) => item.valueDisplay,
         cost: (item) => item.costDisplay,
-        gain: (item) => item.gainDisplay,
-        gainPercent: (item) => item.gainPercent,
+        gain: (item) => item.periodGainDisplay,
+        gainPercent: (item) => item.periodReturnPercent,
         dailyChange: (item) => item.dailyChangeDisplay,
         dailyChangePercent: (item) => item.dailyChangePercent,
       },
@@ -280,14 +304,14 @@ export default function Performance() {
   ), [locale, performanceData, sortState])
 
   const { bestPerformers, worstPerformers } = useMemo(() => {
-    const comparable = performanceData.filter((stock) => stock.gainPercent !== null)
+    const comparable = performanceData.filter((stock) => stock.periodReturnPercent !== null)
     const best = [...comparable]
-      .sort((a, b) => (b.gainPercent ?? -Infinity) - (a.gainPercent ?? -Infinity))
+      .sort((a, b) => (b.periodReturnPercent ?? -Infinity) - (a.periodReturnPercent ?? -Infinity))
       .slice(0, 3)
     const bestTickers = new Set(best.map((stock) => stock.ticker))
     const worst = comparable
       .filter((stock) => !bestTickers.has(stock.ticker))
-      .sort((a, b) => (a.gainPercent ?? Infinity) - (b.gainPercent ?? Infinity))
+      .sort((a, b) => (a.periodReturnPercent ?? Infinity) - (b.periodReturnPercent ?? Infinity))
       .slice(0, 3)
     return { bestPerformers: best, worstPerformers: worst }
   }, [performanceData])
@@ -296,26 +320,26 @@ export default function Performance() {
     missingRateStocks,
     hasMissingValue,
     hasMissingCost,
-    hasMissingGain,
     hasMissingDailyChange,
+    hasMissingPeriodPerformance,
     totalValue,
     totalCost,
-    totalGain,
-    totalGainPercent,
     totalDailyChange,
+    selectedPeriodGain,
+    selectedPeriodGainPercent,
   } = useMemo(() => {
     if (summary === null) {
       return {
         missingRateStocks: [],
         hasMissingValue: false,
         hasMissingCost: false,
-        hasMissingGain: false,
         hasMissingDailyChange: false,
+        hasMissingPeriodPerformance: false,
         totalValue: 0,
         totalCost: 0,
-        totalGain: 0,
-        totalGainPercent: 0,
         totalDailyChange: 0,
+        selectedPeriodGain: null,
+        selectedPeriodGainPercent: null,
       }
     }
 
@@ -326,24 +350,66 @@ export default function Performance() {
       const gainRateMissing = stock.gain !== null && stock.gainDisplay === null
       return valueRateMissing || costRateMissing || gainRateMissing
     })
+
+    let selectedGain: number | null = null
+    let selectedGainPercent: number | null = null
+    let periodPartial = false
+
+    if (performancePeriod === 'since_start') {
+      selectedGain = summary.total_gain_loss
+      selectedGainPercent = summary.total_gain_loss_percent
+      periodPartial = summary.total_gain_loss_partial
+    } else if (performancePeriod === 'today') {
+      selectedGain = summary.daily_change_partial && summary.daily_change === 0 ? null : summary.daily_change
+      selectedGainPercent = summary.daily_change_partial && summary.daily_change === 0 ? null : summary.daily_change_percent
+      periodPartial = summary.daily_change_partial
+    } else {
+      let gainTotal = 0
+      let baselineTotal = 0
+      let hasPeriodValue = false
+
+      performanceData.forEach((stock) => {
+        if (stock.periodGainDisplay === null || stock.valueDisplay === null) {
+          periodPartial = true
+          return
+        }
+
+        hasPeriodValue = true
+        gainTotal += stock.periodGainDisplay
+        const baselineValue = stock.valueDisplay - stock.periodGainDisplay
+        if (baselineValue > 0) {
+          baselineTotal += baselineValue
+        } else {
+          periodPartial = true
+        }
+      })
+
+      selectedGain = hasPeriodValue ? gainTotal : null
+      selectedGainPercent = baselineTotal > 0 ? (gainTotal / baselineTotal) * 100 : null
+    }
+
     return {
       missingRateStocks: missing,
       hasMissingValue: summary?.total_value_partial ?? false,
       hasMissingCost: summary?.total_cost_partial ?? false,
-      hasMissingGain: summary?.total_gain_loss_partial ?? false,
       hasMissingDailyChange: summary?.daily_change_partial ?? false,
+      hasMissingPeriodPerformance: periodPartial,
       totalValue: summary?.total_value ?? 0,
       totalCost: summary?.total_cost ?? 0,
-      totalGain: summary?.total_gain_loss ?? 0,
-      totalGainPercent: summary?.total_gain_loss_percent ?? 0,
       totalDailyChange: summary?.daily_change ?? 0,
+      selectedPeriodGain: selectedGain,
+      selectedPeriodGainPercent: selectedGainPercent,
     }
-  }, [displayCurrency, performanceData, summary])
+  }, [displayCurrency, performanceData, performancePeriod, summary])
 
   const missingRatesWarning = t(language, 'performance.missingRatesWarning', { currency: displayCurrency }).replace('SEK', displayCurrency)
+  const selectedPeriodLabel = t(
+    language,
+    PERFORMANCE_PERIOD_OPTIONS.find((option) => option.key === performancePeriod)?.labelKey ?? 'dashboard.rangeSinceStart',
+  )
 
   const exportToCSV = () => {
-    const headers = ['Ticker', 'Name', 'Quantity', 'Currency', 'Purchase Price', 'Current Price', 'Value', 'Cost', 'Gain', 'Gain %', 'Daily Change', 'Daily Change %']
+    const headers = ['Ticker', 'Name', 'Quantity', 'Currency', 'Purchase Price', 'Current Price', 'Value', 'Cost', `${selectedPeriodLabel} Gain`, `${selectedPeriodLabel} Gain %`, 'Daily Change', 'Daily Change %']
     const rows = sortedData.map(s => [
       sanitizeCsvCell(s.ticker),
       sanitizeCsvCell(s.name),
@@ -353,8 +419,8 @@ export default function Performance() {
       sanitizeCsvCell(s.currentPrice?.toFixed(2)),
       sanitizeCsvCell(s.value !== null ? s.value.toFixed(2) : ''),
       sanitizeCsvCell(s.cost !== null ? s.cost.toFixed(2) : ''),
-      sanitizeCsvCell(s.gain !== null ? s.gain.toFixed(2) : ''),
-      sanitizeCsvCell(s.gainPercent !== null ? s.gainPercent.toFixed(2) + '%' : ''),
+      sanitizeCsvCell(s.periodGainDisplay !== null ? s.periodGainDisplay.toFixed(2) : ''),
+      sanitizeCsvCell(s.periodReturnPercent !== null ? s.periodReturnPercent.toFixed(2) + '%' : ''),
       sanitizeCsvCell(s.dailyChange !== null ? s.dailyChange.toFixed(2) : ''),
       sanitizeCsvCell(s.dailyChangePercent != null ? s.dailyChangePercent.toFixed(2) + '%' : ''),
     ])
@@ -414,7 +480,7 @@ export default function Performance() {
         {[ 
           { label: t(language, 'performance.totalValue'), value: summaryPending ? t(language, 'common.loading') : formatCurrency(summaryAvailable ? totalValue : null, locale, displayCurrency), color: 'var(--text)', incomplete: hasMissingValue },
           { label: t(language, 'performance.totalCost'), value: summaryPending ? t(language, 'common.loading') : formatCurrency(summaryAvailable ? totalCost : null, locale, displayCurrency), color: 'var(--text2)', incomplete: hasMissingCost },
-          { label: t(language, 'performance.totalGainLoss'), value: summaryPending ? t(language, 'common.loading') : formatCurrency(summaryAvailable ? totalGain : null, locale, displayCurrency), sub: summaryPending ? undefined : formatPercent(summaryAvailable ? totalGainPercent : null, locale), color: totalGain >= 0 ? 'var(--green)' : 'var(--red)', incomplete: hasMissingGain },
+          { label: t(language, 'performance.periodGainLoss', { period: selectedPeriodLabel }), value: summaryPending ? t(language, 'common.loading') : formatCurrency(summaryAvailable ? selectedPeriodGain : null, locale, displayCurrency), sub: summaryPending ? undefined : formatPercent(summaryAvailable ? selectedPeriodGainPercent : null, locale), color: (selectedPeriodGain ?? 0) >= 0 ? 'var(--green)' : 'var(--red)', incomplete: hasMissingPeriodPerformance },
           { label: t(language, 'performance.dailyChange'), value: summaryPending ? t(language, 'common.loading') : formatCurrency(summaryAvailable ? totalDailyChange : null, locale, displayCurrency), color: totalDailyChange >= 0 ? 'var(--green)' : 'var(--red)', incomplete: hasMissingDailyChange },
         ].map((stat, i, arr) => (
           <div key={stat.label} style={{
@@ -449,13 +515,51 @@ export default function Performance() {
             </p>
           </div>
         )}
+        {hasMissingPeriodPerformance && performancePeriod !== 'today' && performancePeriod !== 'since_start' && (
+          <div style={{ marginTop: 12, padding: '10px 16px', background: 'rgba(251,191,36,0.08)', border: '1px solid rgba(251,191,36,0.25)', borderRadius: 6 }}>
+            <p style={{ color: 'var(--amber)', margin: 0, fontSize: 13 }}>
+              {t(language, 'performance.missingPeriodWarning', { period: selectedPeriodLabel })}
+            </p>
+          </div>
+        )}
 
         {/* ── PAGE HEADER ── */}
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '20px 0 14px' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 16, flexWrap: 'wrap', padding: '20px 0 14px' }}>
           <h2 style={{ fontSize: 16, fontWeight: 800, letterSpacing: '-0.01em' }}>{t(language, 'performance.title')}</h2>
-          <button className="btn btn-secondary" onClick={exportToCSV}>
-            {t(language, 'performance.exportCsv')}
-          </button>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap', justifyContent: 'flex-end' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+              <span style={{ fontSize: 10, fontWeight: 700, letterSpacing: '0.12em', textTransform: 'uppercase', color: 'var(--muted)' }}>
+                {t(language, 'performance.period')}
+              </span>
+              <div aria-label={t(language, 'performance.period')} style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
+                {PERFORMANCE_PERIOD_OPTIONS.map((option) => {
+                  const selected = option.key === performancePeriod
+                  return (
+                    <button
+                      key={option.key}
+                      type="button"
+                      onClick={() => setPerformancePeriod(option.key)}
+                      style={{
+                        border: `1px solid ${selected ? 'var(--v)' : 'var(--border2)'}`,
+                        borderRadius: 5,
+                        padding: '4px 10px',
+                        fontSize: 11,
+                        fontWeight: 700,
+                        color: selected ? 'var(--v2)' : 'var(--muted)',
+                        background: selected ? 'rgba(129,140,248,0.12)' : 'transparent',
+                        cursor: 'pointer',
+                      }}
+                    >
+                      {t(language, option.labelKey)}
+                    </button>
+                  )
+                })}
+              </div>
+            </div>
+            <button className="btn btn-secondary" onClick={exportToCSV}>
+              {t(language, 'performance.exportCsv')}
+            </button>
+          </div>
         </div>
 
         {/* ── BEST / WORST ── */}
@@ -474,8 +578,8 @@ export default function Performance() {
                       <Link to={`/stocks/${encodeURIComponent(stock.ticker)}`} style={{ color: 'var(--v2)', textDecoration: 'none', fontWeight: 700, fontSize: 13 }}>
                         {stock.name || stock.ticker}
                       </Link>
-                      <span className={stock.gainPercent != null && stock.gainPercent >= 0 ? 'positive' : 'negative'} style={{ fontFamily: "'Fira Code', monospace", fontSize: 12, fontWeight: 600 }}>
-                        {formatPercent(stock.gainPercent, locale)}
+                      <span className={stock.periodReturnPercent != null && stock.periodReturnPercent >= 0 ? 'positive' : 'negative'} style={{ fontFamily: "'Fira Code', monospace", fontSize: 12, fontWeight: 600 }}>
+                        {formatPercent(stock.periodReturnPercent, locale)}
                       </span>
                     </div>
                   ))}
@@ -495,8 +599,8 @@ export default function Performance() {
                       <Link to={`/stocks/${encodeURIComponent(stock.ticker)}`} style={{ color: 'var(--v2)', textDecoration: 'none', fontWeight: 700, fontSize: 13 }}>
                         {stock.name || stock.ticker}
                       </Link>
-                      <span className={stock.gainPercent != null && stock.gainPercent >= 0 ? 'positive' : 'negative'} style={{ fontFamily: "'Fira Code', monospace", fontSize: 12, fontWeight: 600 }}>
-                        {formatPercent(stock.gainPercent, locale)}
+                      <span className={stock.periodReturnPercent != null && stock.periodReturnPercent >= 0 ? 'positive' : 'negative'} style={{ fontFamily: "'Fira Code', monospace", fontSize: 12, fontWeight: 600 }}>
+                        {formatPercent(stock.periodReturnPercent, locale)}
                       </span>
                     </div>
                   ))}
@@ -522,8 +626,8 @@ export default function Performance() {
                 <SortableHeader field="currency" label={t(language, 'performance.currency')} sortState={sortState} onSort={requestSort} />
                 <SortableHeader field="cost" label={t(language, 'performance.costDisplay', { currency: displayCurrency })} sortState={sortState} onSort={requestSort} align="right" />
                 <SortableHeader field="value" label={t(language, 'performance.valueDisplay', { currency: displayCurrency })} sortState={sortState} onSort={requestSort} align="right" />
-                <SortableHeader field="gain" label={t(language, 'performance.gainLoss')} sortState={sortState} onSort={requestSort} align="right" />
-                <SortableHeader field="gainPercent" label={t(language, 'performance.returnPercent')} sortState={sortState} onSort={requestSort} align="right" />
+                <SortableHeader field="gain" label={t(language, 'performance.periodGain', { period: selectedPeriodLabel })} sortState={sortState} onSort={requestSort} align="right" />
+                <SortableHeader field="gainPercent" label={t(language, 'performance.periodReturn', { period: selectedPeriodLabel })} sortState={sortState} onSort={requestSort} align="right" />
                 <SortableHeader field="dailyChange" label={t(language, 'performance.dailyDisplay', { currency: displayCurrency })} sortState={sortState} onSort={requestSort} align="right" />
                 <SortableHeader field="dailyChangePercent" label={t(language, 'performance.dailyPercent')} sortState={sortState} onSort={requestSort} align="right" />
               </tr>
@@ -549,13 +653,11 @@ export default function Performance() {
                       ? t(language, 'common.loading')
                       : (!summaryAvailable ? '-' : (stock.value === null ? '-' : (stock.valueDisplay !== null ? formatCurrency(stock.valueDisplay, locale, displayCurrency) : t(language, 'performance.rateMissing'))))}
                   </td>
-                   <td className={stock.gainDisplay !== null ? (stock.gainDisplay >= 0 ? 'positive' : 'negative') : ''} style={{ fontFamily: "'Fira Code', monospace", textAlign: 'right' }}>
-                    {summaryPending
-                      ? t(language, 'common.loading')
-                      : (!summaryAvailable ? '-' : (stock.gain === null ? '-' : (stock.gainDisplay !== null ? formatCurrency(stock.gainDisplay, locale, displayCurrency) : t(language, 'performance.rateMissing'))))}
+                   <td className={stock.periodGainDisplay !== null ? (stock.periodGainDisplay >= 0 ? 'positive' : 'negative') : ''} style={{ fontFamily: "'Fira Code', monospace", textAlign: 'right' }}>
+                    {summaryPending ? t(language, 'common.loading') : formatCurrency(summaryAvailable ? stock.periodGainDisplay : null, locale, displayCurrency)}
                   </td>
-                  <td className={stock.gainPercent !== null ? (stock.gainPercent >= 0 ? 'positive' : 'negative') : ''} style={{ fontFamily: "'Fira Code', monospace", fontWeight: 700, textAlign: 'right' }}>
-                    {formatPercent(stock.gainPercent, locale)}
+                  <td className={stock.periodReturnPercent !== null ? (stock.periodReturnPercent >= 0 ? 'positive' : 'negative') : ''} style={{ fontFamily: "'Fira Code', monospace", fontWeight: 700, textAlign: 'right' }}>
+                    {formatPercent(summaryAvailable ? stock.periodReturnPercent : null, locale)}
                   </td>
                    <td className={stock.dailyChangeDisplay !== null ? (stock.dailyChangeDisplay >= 0 ? 'positive' : 'negative') : ''} style={{ fontFamily: "'Fira Code', monospace", textAlign: 'right' }}>
                     {summaryPending
