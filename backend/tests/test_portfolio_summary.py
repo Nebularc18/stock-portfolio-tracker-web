@@ -5,8 +5,9 @@ from app.routers import portfolio
 
 
 class FakeQuery:
-    def __init__(self, value):
+    def __init__(self, value, delete_callback=None):
         self.value = value
+        self.delete_callback = delete_callback
 
     def filter(self, *_args, **_kwargs):
         return self
@@ -23,6 +24,15 @@ class FakeQuery:
     def join(self, *_args, **_kwargs):
         return self
 
+    def delete(self, *_args, **_kwargs):
+        if self.delete_callback:
+            return self.delete_callback()
+        if isinstance(self.value, list):
+            deleted = len(self.value)
+            self.value.clear()
+            return deleted
+        return 0
+
 
 class FakeDB:
     def __init__(
@@ -38,6 +48,7 @@ class FakeDB:
         self.settings = settings
         self.portfolio_history = portfolio_history or []
         self.dividends = dividends or []
+        self.deleted = []
 
     def query(self, model):
         if model is portfolio.Stock:
@@ -51,6 +62,30 @@ class FakeDB:
         if model is portfolio.Dividend:
             return FakeQuery(self.dividends)
         return FakeQuery(None)
+
+    def add(self, value):
+        if isinstance(value, portfolio.Stock):
+            self.stocks.append(value)
+        elif isinstance(value, portfolio.StockPriceHistory):
+            self.history_rows.append(value)
+        elif isinstance(value, portfolio.PortfolioHistory):
+            self.portfolio_history.append(value)
+        elif isinstance(value, portfolio.Dividend):
+            self.dividends.append(value)
+        elif isinstance(value, portfolio.UserSettings):
+            self.settings = value
+
+    def delete(self, value):
+        self.deleted.append(value)
+        if isinstance(value, portfolio.Stock) and value in self.stocks:
+            self.stocks.remove(value)
+
+    def flush(self):
+        next_stock_id = 100
+        for stock in self.stocks:
+            if getattr(stock, "id", None) is None:
+                stock.id = next_stock_id
+                next_stock_id += 1
 
     def commit(self):
         return None
@@ -222,3 +257,86 @@ def test_export_portfolio_data_includes_user_owned_records(monkeypatch):
     assert exported["portfolio_history"][0]["total_value"] == 400.0
     assert exported["stock_price_history"][0]["price"] == 200.0
     assert exported["ticker_mappings"][0]["avanza_name"] == "Volvo B"
+
+
+def test_import_portfolio_data_replaces_user_records(monkeypatch):
+    imported_mappings = []
+
+    monkeypatch.setattr(
+        "app.services.avanza_service.avanza_service.add_manual_mapping",
+        lambda **kwargs: imported_mappings.append(kwargs) or SimpleNamespace(**kwargs),
+    )
+
+    db = FakeDB([])
+    payload = {
+        "export_version": 1,
+        "settings": {
+            "display_currency": "eur",
+            "header_indices": ["^OMXS30"],
+            "platforms": ["Avanza"],
+        },
+        "stocks": [{
+            "id": 11,
+            "ticker": "volv-b.st",
+            "name": "Volvo",
+            "quantity": 2,
+            "currency": "sek",
+            "sector": "Industrials",
+            "purchase_price": 150,
+            "purchase_date": "2026-01-05",
+            "position_entries": [{"id": "lot-1", "quantity": 2, "purchase_price": 150}],
+            "current_price": 200,
+            "previous_close": 190,
+            "manual_dividends": [{"id": "manual-1", "date": "2026-04-01", "amount": 2}],
+            "suppressed_dividends": [{"id": "suppressed-1", "date": "2026-05-01"}],
+        }],
+        "dividends": [{
+            "stock_id": 11,
+            "ticker": "VOLV-B.ST",
+            "amount": 8,
+            "currency": "SEK",
+            "ex_date": "2026-03-28T00:00:00+00:00",
+            "pay_date": "2026-04-04T00:00:00+00:00",
+        }],
+        "portfolio_history": [{
+            "date": "2026-04-01T00:00:00+00:00",
+            "total_value": 400,
+        }],
+        "stock_price_history": [{
+            "ticker": "VOLV-B.ST",
+            "price": 200,
+            "currency": "SEK",
+            "recorded_at": "2026-04-01T00:00:00+00:00",
+        }],
+        "ticker_mappings": [{
+            "avanza_name": "Volvo B",
+            "yahoo_ticker": "VOLV-B.ST",
+            "instrument_id": "145016",
+        }],
+    }
+
+    result = portfolio.import_portfolio_data(
+        payload=payload,
+        db=db,
+        current_user=SimpleNamespace(id=7),
+    )
+
+    assert result["mode"] == "replace"
+    assert result["stocks_imported"] == 1
+    assert result["dividends_imported"] == 1
+    assert result["portfolio_history_imported"] == 1
+    assert result["stock_price_history_imported"] == 1
+    assert db.settings.display_currency == "EUR"
+    assert db.stocks[0].user_id == 7
+    assert db.stocks[0].ticker == "VOLV-B.ST"
+    assert db.stocks[0].purchase_date == date(2026, 1, 5)
+    assert db.stocks[0].manual_dividends == payload["stocks"][0]["manual_dividends"]
+    assert db.stocks[0].suppressed_dividends == payload["stocks"][0]["suppressed_dividends"]
+    assert db.dividends[0].stock_id == db.stocks[0].id
+    assert db.portfolio_history[0].user_id == 7
+    assert db.history_rows[0].user_id == 7
+    assert imported_mappings == [{
+        "avanza_name": "Volvo B",
+        "yahoo_ticker": "VOLV-B.ST",
+        "instrument_id": "145016",
+    }]

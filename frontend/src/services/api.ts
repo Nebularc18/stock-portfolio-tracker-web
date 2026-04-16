@@ -527,6 +527,18 @@ export interface PortfolioExportData {
   ticker_mappings: TickerMapping[]
 }
 
+export interface PortfolioImportResult {
+  message: string
+  mode: 'replace'
+  stocks_imported: number
+  dividends_imported: number
+  dividends_skipped: number
+  portfolio_history_imported: number
+  stock_price_history_imported: number
+  ticker_mappings_imported: number
+  ticker_mappings_skipped: number
+}
+
 export interface AnalystData {
   recommendations: AnalystRecommendation[] | null
   finnhub_recommendations: AnalystRecommendation[] | null
@@ -822,6 +834,11 @@ export const api = {
       return value
     }),
     exportData: () => fetchAPI<PortfolioExportData>('/portfolio/export'),
+    importData: (data: unknown) =>
+      fetchAPI<PortfolioImportResult>('/portfolio/import', { method: 'POST', body: JSON.stringify(data) }).then((value) => {
+        clearPortfolioDataCaches()
+        return value
+      }),
     distribution: (userId?: number | null, requestOptions?: RequestInit) => {
       const key = getRequestUserCacheScope(userId)
       if (requestOptions?.signal) {
