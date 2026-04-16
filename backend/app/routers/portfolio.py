@@ -17,7 +17,7 @@ import os
 import tempfile
 import threading
 
-from app.main import get_db, get_current_user, User, Stock, PortfolioHistory, UserSettings, StockPriceHistory
+from app.main import get_db, get_current_user, User, Stock, Dividend, PortfolioHistory, UserSettings, StockPriceHistory
 from app.services.brandfetch_service import brandfetch_service
 from app.services.exchange_rate_service import ExchangeRateService
 from app.services.market_hours_service import DEFAULT_REFRESH_INTERVAL_MINUTES
@@ -677,6 +677,77 @@ def infer_country_from_ticker(ticker: str) -> Optional[str]:
     return None
 
 
+def _serialize_export_date(value: date | datetime | None) -> str | None:
+    if value is None:
+        return None
+    return value.isoformat()
+
+
+def _parse_export_json_list(value: str | None) -> list[str]:
+    if not value:
+        return []
+    try:
+        parsed = json.loads(value)
+    except (json.JSONDecodeError, TypeError):
+        return []
+    if not isinstance(parsed, list):
+        return []
+    return [item for item in parsed if isinstance(item, str)]
+
+
+def _serialize_export_stock(stock: Stock) -> dict:
+    return {
+        "id": stock.id,
+        "ticker": stock.ticker,
+        "name": stock.name,
+        "quantity": stock.quantity,
+        "currency": stock.currency,
+        "sector": stock.sector,
+        "logo": stock.logo,
+        "purchase_price": stock.purchase_price,
+        "purchase_date": _serialize_export_date(stock.purchase_date),
+        "position_entries": stock.position_entries or [],
+        "current_price": stock.current_price,
+        "previous_close": stock.previous_close,
+        "dividend_yield": stock.dividend_yield,
+        "dividend_per_share": stock.dividend_per_share,
+        "last_updated": _serialize_export_date(stock.last_updated),
+        "manual_dividends": stock.manual_dividends or [],
+        "suppressed_dividends": stock.suppressed_dividends or [],
+    }
+
+
+def _serialize_export_dividend(dividend: Dividend, ticker_by_stock_id: dict[int, str]) -> dict:
+    return {
+        "id": dividend.id,
+        "stock_id": dividend.stock_id,
+        "ticker": ticker_by_stock_id.get(dividend.stock_id),
+        "amount": dividend.amount,
+        "currency": dividend.currency,
+        "ex_date": _serialize_export_date(dividend.ex_date),
+        "pay_date": _serialize_export_date(dividend.pay_date),
+        "created_at": _serialize_export_date(dividend.created_at),
+    }
+
+
+def _serialize_export_portfolio_history(row: PortfolioHistory) -> dict:
+    return {
+        "id": row.id,
+        "date": _serialize_export_date(row.date),
+        "total_value": row.total_value,
+    }
+
+
+def _serialize_export_stock_price_history(row: StockPriceHistory) -> dict:
+    return {
+        "id": row.id,
+        "ticker": row.ticker,
+        "price": row.price,
+        "currency": row.currency,
+        "recorded_at": _serialize_export_date(row.recorded_at),
+    }
+
+
 def _resolve_stock_dividend_yield_percent(stock: Stock, current_year: int) -> tuple[Optional[float], bool]:
     """
     Resolve a stock's annual dividend yield percentage.
@@ -1064,6 +1135,74 @@ def get_portfolio_summary(db: Session = Depends(get_db), current_user: User = De
         "stock_count": len(stock_data),
         "auto_refresh_active": auto_refresh_active,
         "unconverted_stocks": unconverted_stocks,
+    }
+
+
+@router.get("/export")
+def export_portfolio_data(db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
+    """
+    Export the current user's portfolio data as a portable JSON structure.
+
+    The export includes user-owned holdings, lots, manual dividend adjustments,
+    suppressed dividends, settings, portfolio value history, stock price history,
+    and persisted dividend rows linked to the user's stocks. Avanza ticker mappings
+    are included only when they are relevant to the user's holdings.
+    """
+    from app.services.avanza_service import avanza_service
+
+    exported_at = utc_now()
+    stocks = db.query(Stock).filter(Stock.user_id == current_user.id).order_by(Stock.ticker.asc()).all()
+    settings = db.query(UserSettings).filter(UserSettings.user_id == current_user.id).first()
+    portfolio_history = (
+        db.query(PortfolioHistory)
+        .filter(PortfolioHistory.user_id == current_user.id)
+        .order_by(PortfolioHistory.date.asc())
+        .all()
+    )
+    stock_price_history = (
+        db.query(StockPriceHistory)
+        .filter(StockPriceHistory.user_id == current_user.id)
+        .order_by(StockPriceHistory.ticker.asc(), StockPriceHistory.recorded_at.asc())
+        .all()
+    )
+    dividends = (
+        db.query(Dividend)
+        .join(Stock, Dividend.stock_id == Stock.id)
+        .filter(Stock.user_id == current_user.id)
+        .order_by(Dividend.id.asc())
+        .all()
+    )
+    ticker_by_stock_id = {stock.id: stock.ticker for stock in stocks}
+    mappings = avanza_service.get_relevant_mappings_for_user(current_user.id)
+
+    return {
+        "export_version": 1,
+        "exported_at": exported_at.isoformat(),
+        "user": {
+            "id": current_user.id,
+            "username": current_user.username,
+            "is_guest": current_user.is_guest,
+            "created_at": _serialize_export_date(current_user.created_at),
+        },
+        "settings": {
+            "display_currency": settings.display_currency if settings else "SEK",
+            "header_indices": _parse_export_json_list(settings.header_indices if settings else None),
+            "platforms": _parse_export_json_list(settings.platforms if settings else None),
+        },
+        "stocks": [_serialize_export_stock(stock) for stock in stocks],
+        "dividends": [_serialize_export_dividend(dividend, ticker_by_stock_id) for dividend in dividends],
+        "portfolio_history": [_serialize_export_portfolio_history(row) for row in portfolio_history],
+        "stock_price_history": [_serialize_export_stock_price_history(row) for row in stock_price_history],
+        "ticker_mappings": [
+            {
+                "avanza_name": mapping.avanza_name,
+                "yahoo_ticker": mapping.yahoo_ticker,
+                "instrument_id": mapping.instrument_id,
+                "manually_added": mapping.manually_added,
+                "added_at": mapping.added_at,
+            }
+            for mapping in mappings
+        ],
     }
 
 

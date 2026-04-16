@@ -10,6 +10,17 @@ function getPlatformDuplicateKey(value: string): string {
   return value.trim().toLowerCase()
 }
 
+function downloadJsonFile(filename: string, data: unknown): void {
+  const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json;charset=utf-8;' })
+  const url = URL.createObjectURL(blob)
+  const link = document.createElement('a')
+  link.href = url
+  link.download = filename
+  link.click()
+  URL.revokeObjectURL(url)
+  link.remove()
+}
+
 /**
  * Render the Settings page and provide controls for appearance, header indices, language, display currency, and timezone.
  *
@@ -26,6 +37,8 @@ export default function Settings() {
   const [indicesLoadFailed, setIndicesLoadFailed] = useState(false)
   const [newPlatform, setNewPlatform] = useState('')
   const [platformError, setPlatformError] = useState<string | null>(null)
+  const [exportingData, setExportingData] = useState(false)
+  const [exportError, setExportError] = useState<string | null>(null)
 
   useEffect(() => {
     let cancelled = false
@@ -94,6 +107,21 @@ export default function Settings() {
   const handleRemovePlatform = (platformToRemove: string) => {
     setPlatforms(platforms.filter((platform) => platform !== platformToRemove))
     setPlatformError(null)
+  }
+
+  const handleExportData = async () => {
+    setExportingData(true)
+    setExportError(null)
+    try {
+      const data = await api.portfolio.exportData()
+      const date = new Date().toISOString().slice(0, 10)
+      downloadJsonFile(`stock_portfolio_export_${date}.json`, data)
+    } catch (err) {
+      console.error('Failed to export portfolio data:', err)
+      setExportError(t(language, 'settings.exportFailed'))
+    } finally {
+      setExportingData(false)
+    }
   }
 
   const secLabel: React.CSSProperties = { fontSize: 9, fontWeight: 700, letterSpacing: '0.18em', textTransform: 'uppercase', color: 'var(--muted)' }
@@ -347,6 +375,23 @@ export default function Settings() {
               {t(language, 'settings.timezoneDescription')}
             </p>
           </div>
+        </div>
+      </div>
+
+      <div style={panelStyle}>
+        <div className="sec-row" style={{ padding: '12px 16px', borderBottom: '1px solid var(--border)' }}>
+          <span className="sec-title">{t(language, 'settings.dataExport')}</span>
+        </div>
+        <div style={{ padding: '16px' }}>
+          <p style={{ color: 'var(--muted)', fontSize: 12, marginBottom: 14 }}>
+            {t(language, 'settings.dataExportDescription')}
+          </p>
+          <button type="button" className="btn btn-secondary" onClick={handleExportData} disabled={exportingData}>
+            {exportingData ? t(language, 'settings.exporting') : t(language, 'settings.exportAllData')}
+          </button>
+          {exportError && (
+            <p role="alert" style={{ color: 'var(--red)', fontSize: 12, marginTop: 12 }}>{exportError}</p>
+          )}
         </div>
       </div>
 

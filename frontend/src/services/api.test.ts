@@ -229,4 +229,43 @@ describe('portfolio request caching', () => {
     await Promise.all([first, second])
     expect(fetchMock).toHaveBeenCalledTimes(2)
   })
+
+  it('fetches the full portfolio export without using request cache', async () => {
+    const payload = {
+      export_version: 1,
+      exported_at: '2026-04-16T10:30:00Z',
+      user: {
+        id: 7,
+        username: 'demo',
+        is_guest: false,
+        created_at: '2026-01-01T00:00:00Z',
+      },
+      settings: {
+        display_currency: 'SEK',
+        header_indices: [],
+        platforms: [],
+      },
+      stocks: [],
+      dividends: [],
+      portfolio_history: [],
+      stock_price_history: [],
+      ticker_mappings: [],
+    }
+    const fetchMock = vi.spyOn(globalThis, 'fetch')
+      .mockResolvedValueOnce(createJsonResponse(payload))
+      .mockResolvedValueOnce(createJsonResponse(payload))
+
+    await api.portfolio.exportData()
+    await api.portfolio.exportData()
+
+    expect(fetchMock).toHaveBeenCalledTimes(2)
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      1,
+      '/api/portfolio/export',
+      expect.objectContaining({
+        headers: { 'Content-Type': 'application/json' },
+        signal: expect.any(AbortSignal),
+      }),
+    )
+  })
 })
