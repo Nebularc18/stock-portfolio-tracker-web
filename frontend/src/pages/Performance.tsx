@@ -405,7 +405,7 @@ export default function Performance() {
   const missingRatesWarning = t(language, 'performance.missingRatesWarning', { currency: displayCurrency }).replace('SEK', displayCurrency)
   const selectedPeriodLabel = t(
     language,
-    PERFORMANCE_PERIOD_OPTIONS.find((option) => option.key === performancePeriod)?.labelKey ?? 'dashboard.rangeSinceStart',
+    PERFORMANCE_PERIOD_OPTIONS.find((option) => option.key === performancePeriod)?.labelKey ?? 'performance.period',
   )
 
   const exportToCSV = () => {
@@ -540,7 +540,7 @@ export default function Performance() {
                       type="button"
                       onClick={() => setPerformancePeriod(option.key)}
                       style={{
-                        border: `1px solid ${selected ? 'var(--v)' : 'var(--border2)'}`,
+                        border: `1px solid ${selected ? 'var(--v2)' : 'var(--border2)'}`,
                         borderRadius: 5,
                         padding: '4px 10px',
                         fontSize: 11,
