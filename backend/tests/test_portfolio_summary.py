@@ -87,6 +87,9 @@ class FakeDB:
                 stock.id = next_stock_id
                 next_stock_id += 1
 
+    def rollback(self):
+        return None
+
     def commit(self):
         return None
 
@@ -244,6 +247,7 @@ def test_export_portfolio_data_includes_user_owned_records(monkeypatch):
 
     assert exported["export_version"] == 1
     assert exported["exported_at"] == "2026-04-16T10:30:00+00:00"
+    assert "user" not in exported
     assert exported["settings"] == {
         "display_currency": "EUR",
         "header_indices": ["^OMXS30"],
@@ -251,6 +255,8 @@ def test_export_portfolio_data_includes_user_owned_records(monkeypatch):
     }
     assert exported["stocks"][0]["ticker"] == "VOLV-B.ST"
     assert exported["stocks"][0]["purchase_date"] == "2026-01-05"
+    assert "current_price" not in exported["stocks"][0]
+    assert "previous_close" not in exported["stocks"][0]
     assert exported["stocks"][0]["manual_dividends"] == stock.manual_dividends
     assert exported["stocks"][0]["suppressed_dividends"] == stock.suppressed_dividends
     assert exported["dividends"][0]["ticker"] == "VOLV-B.ST"
@@ -330,8 +336,10 @@ def test_import_portfolio_data_replaces_user_records(monkeypatch):
     assert db.stocks[0].user_id == 7
     assert db.stocks[0].ticker == "VOLV-B.ST"
     assert db.stocks[0].purchase_date == date(2026, 1, 5)
+    assert db.stocks[0].current_price is None
+    assert db.stocks[0].previous_close is None
     assert db.stocks[0].manual_dividends == payload["stocks"][0]["manual_dividends"]
-    assert db.stocks[0].suppressed_dividends == payload["stocks"][0]["suppressed_dividends"]
+    assert db.stocks[0].suppressed_dividends == [{"date": "2026-05-01", "id": "suppressed-1"}]
     assert db.dividends[0].stock_id == db.stocks[0].id
     assert db.portfolio_history[0].user_id == 7
     assert db.history_rows[0].user_id == 7

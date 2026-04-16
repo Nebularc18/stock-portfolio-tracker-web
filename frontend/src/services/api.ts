@@ -491,17 +491,13 @@ export interface SettingsData {
   platforms: string[]
 }
 
+export type PortfolioExportStock = Omit<Stock, 'current_price' | 'previous_close' | 'last_updated'>
+
 export interface PortfolioExportData {
   export_version: number
   exported_at: string
-  user: {
-    id: number
-    username: string
-    is_guest: boolean
-    created_at: string | null
-  }
   settings: SettingsData
-  stocks: Stock[]
+  stocks: PortfolioExportStock[]
   dividends: Array<{
     id: number
     stock_id: number
