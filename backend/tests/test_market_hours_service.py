@@ -24,6 +24,17 @@ def test_should_refresh_for_swedish_market_only_during_open_and_one_interval_aft
     ) is False
 
 
+def test_should_refresh_for_swedish_market_defaults_to_thirty_minutes_after_close():
+    assert MarketHoursService.should_refresh(
+        ["SE"],
+        now=datetime(2026, 3, 26, 16, 50, tzinfo=timezone.utc),
+    ) is True
+    assert MarketHoursService.should_refresh(
+        ["SE"],
+        now=datetime(2026, 3, 26, 16, 56, tzinfo=timezone.utc),
+    ) is False
+
+
 def test_should_refresh_for_swedish_market_ten_minutes_before_open():
     assert MarketHoursService.should_refresh(
         ["SE"],
@@ -38,6 +49,21 @@ def test_should_refresh_for_swedish_market_ten_minutes_before_open():
     assert MarketHoursService.should_refresh(
         ["SE"],
         minutes_before_open=10,
+        now=datetime(2026, 3, 26, 7, 59, tzinfo=timezone.utc),
+    ) is True
+
+
+def test_should_refresh_for_swedish_market_defaults_to_thirty_minutes_before_open():
+    assert MarketHoursService.should_refresh(
+        ["SE"],
+        now=datetime(2026, 3, 26, 7, 29, tzinfo=timezone.utc),
+    ) is False
+    assert MarketHoursService.should_refresh(
+        ["SE"],
+        now=datetime(2026, 3, 26, 7, 30, tzinfo=timezone.utc),
+    ) is True
+    assert MarketHoursService.should_refresh(
+        ["SE"],
         now=datetime(2026, 3, 26, 7, 59, tzinfo=timezone.utc),
     ) is True
 

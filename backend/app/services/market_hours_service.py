@@ -56,7 +56,8 @@ MARKET_BY_TICKER_SUFFIX = {
     ".DE": "DE",
 }
 DEFAULT_REFRESH_INTERVAL_MINUTES = 10
-DEFAULT_PRE_OPEN_REFRESH_MINUTES = 10
+DEFAULT_PRE_OPEN_REFRESH_MINUTES = 30
+DEFAULT_POST_CLOSE_REFRESH_MINUTES = 30
 
 
 def _get_timezone(timezone_name: str):
@@ -326,7 +327,7 @@ class MarketHoursService:
     @staticmethod
     def should_refresh(
         markets: list[str] | None = None,
-        minutes_after_close: int = DEFAULT_REFRESH_INTERVAL_MINUTES,
+        minutes_after_close: int = DEFAULT_POST_CLOSE_REFRESH_MINUTES,
         minutes_before_open: int = DEFAULT_PRE_OPEN_REFRESH_MINUTES,
         now: datetime | None = None,
     ) -> bool:
