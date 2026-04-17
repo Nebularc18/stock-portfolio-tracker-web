@@ -313,6 +313,7 @@ export interface Stock {
   dividend_per_share: number | null
   last_updated: string | null
   manual_dividends?: ManualDividend[]
+  suppressed_dividends?: ManualDividend[]
 }
 
 export interface PositionEntry {
@@ -488,6 +489,50 @@ export interface SettingsData {
   display_currency: string
   header_indices: string[]
   platforms: string[]
+}
+
+export type PortfolioExportStock = Omit<Stock, 'current_price' | 'previous_close' | 'last_updated'>
+
+export interface PortfolioExportData {
+  export_version: number
+  exported_at: string
+  settings: SettingsData
+  stocks: PortfolioExportStock[]
+  dividends: Array<{
+    id: number
+    stock_id: number
+    ticker: string | null
+    amount: number
+    currency: string
+    ex_date: string | null
+    pay_date: string | null
+    created_at: string | null
+  }>
+  portfolio_history: Array<{
+    id: number
+    date: string | null
+    total_value: number | null
+  }>
+  stock_price_history: Array<{
+    id: number
+    ticker: string
+    price: number
+    currency: string
+    recorded_at: string | null
+  }>
+  ticker_mappings: TickerMapping[]
+}
+
+export interface PortfolioImportResult {
+  message: string
+  mode: 'replace'
+  stocks_imported: number
+  dividends_imported: number
+  dividends_skipped: number
+  portfolio_history_imported: number
+  stock_price_history_imported: number
+  ticker_mappings_imported: number
+  ticker_mappings_skipped: number
 }
 
 export interface AnalystData {
@@ -784,6 +829,12 @@ export const api = {
       clearPortfolioDataCaches()
       return value
     }),
+    exportData: () => fetchAPI<PortfolioExportData>('/portfolio/export'),
+    importData: (data: unknown) =>
+      fetchAPI<PortfolioImportResult>('/portfolio/import', { method: 'POST', body: JSON.stringify(data) }).then((value) => {
+        clearPortfolioDataCaches()
+        return value
+      }),
     distribution: (userId?: number | null, requestOptions?: RequestInit) => {
       const key = getRequestUserCacheScope(userId)
       if (requestOptions?.signal) {

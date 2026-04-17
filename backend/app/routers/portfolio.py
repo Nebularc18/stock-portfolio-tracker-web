@@ -4,20 +4,21 @@ This module provides API endpoints for portfolio summaries, historical
 performance, distribution analysis, and bulk refresh operations.
 """
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Body, Depends, HTTPException, Query
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.orm import Session
 from dataclasses import asdict, dataclass
 from datetime import date, datetime, timezone, timedelta
-from typing import List, Optional
+from typing import Any, List, Optional
 import hashlib
 import json
 import logging
+import math
 import os
 import tempfile
 import threading
 
-from app.main import get_db, get_current_user, User, Stock, PortfolioHistory, UserSettings, StockPriceHistory
+from app.main import get_db, get_current_user, User, Stock, Dividend, PortfolioHistory, UserSettings, StockPriceHistory
 from app.services.brandfetch_service import brandfetch_service
 from app.services.exchange_rate_service import ExchangeRateService
 from app.services.market_hours_service import DEFAULT_REFRESH_INTERVAL_MINUTES
@@ -677,6 +678,206 @@ def infer_country_from_ticker(ticker: str) -> Optional[str]:
     return None
 
 
+def _serialize_export_date(value: date | datetime | None) -> str | None:
+    if value is None:
+        return None
+    return value.isoformat()
+
+
+def _parse_export_json_list(value: str | None) -> list[str]:
+    if not value:
+        return []
+    try:
+        parsed = json.loads(value)
+    except (json.JSONDecodeError, TypeError):
+        return []
+    if not isinstance(parsed, list):
+        return []
+    return [item for item in parsed if isinstance(item, str)]
+
+
+def _serialize_export_stock(stock: Stock) -> dict:
+    return {
+        "id": stock.id,
+        "ticker": stock.ticker,
+        "name": stock.name,
+        "quantity": stock.quantity,
+        "currency": stock.currency,
+        "sector": stock.sector,
+        "logo": stock.logo,
+        "purchase_price": stock.purchase_price,
+        "purchase_date": _serialize_export_date(stock.purchase_date),
+        "position_entries": stock.position_entries or [],
+        "dividend_yield": stock.dividend_yield,
+        "dividend_per_share": stock.dividend_per_share,
+        "manual_dividends": stock.manual_dividends or [],
+        "suppressed_dividends": stock.suppressed_dividends or [],
+    }
+
+
+def _serialize_export_dividend(dividend: Dividend, ticker_by_stock_id: dict[int, str]) -> dict:
+    return {
+        "id": dividend.id,
+        "stock_id": dividend.stock_id,
+        "ticker": ticker_by_stock_id.get(dividend.stock_id),
+        "amount": dividend.amount,
+        "currency": dividend.currency,
+        "ex_date": _serialize_export_date(dividend.ex_date),
+        "pay_date": _serialize_export_date(dividend.pay_date),
+        "created_at": _serialize_export_date(dividend.created_at),
+    }
+
+
+def _serialize_export_portfolio_history(row: PortfolioHistory) -> dict:
+    return {
+        "id": row.id,
+        "date": _serialize_export_date(row.date),
+        "total_value": row.total_value,
+    }
+
+
+def _serialize_export_stock_price_history(row: StockPriceHistory) -> dict:
+    return {
+        "id": row.id,
+        "ticker": row.ticker,
+        "price": row.price,
+        "currency": row.currency,
+        "recorded_at": _serialize_export_date(row.recorded_at),
+    }
+
+
+def _require_import_payload(payload: Any) -> dict:
+    if not isinstance(payload, dict):
+        raise HTTPException(status_code=400, detail="Import file must contain a JSON object.")
+    if payload.get("export_version") != 1:
+        raise HTTPException(status_code=400, detail="Unsupported or missing export_version.")
+    stocks = payload.get("stocks")
+    if not isinstance(stocks, list):
+        raise HTTPException(status_code=400, detail="Import file is missing a stocks array.")
+    return payload
+
+
+def _import_list(value: Any, field_name: str) -> list:
+    if value is None:
+        return []
+    if not isinstance(value, list):
+        raise HTTPException(status_code=400, detail=f"{field_name} must be an array.")
+    return value
+
+
+def _import_string(value: Any, field_name: str, *, required: bool = False, upper: bool = False) -> str | None:
+    if value is None:
+        if required:
+            raise HTTPException(status_code=400, detail=f"{field_name} is required.")
+        return None
+    normalized = str(value).strip()
+    if not normalized:
+        if required:
+            raise HTTPException(status_code=400, detail=f"{field_name} is required.")
+        return None
+    return normalized.upper() if upper else normalized
+
+
+def _import_number(value: Any, field_name: str, *, required: bool = False) -> float | None:
+    if value is None:
+        if required:
+            raise HTTPException(status_code=400, detail=f"{field_name} is required.")
+        return None
+    if isinstance(value, bool):
+        raise HTTPException(status_code=400, detail=f"{field_name} must be a number.")
+    try:
+        number = float(value)
+    except (TypeError, ValueError) as exc:
+        raise HTTPException(status_code=400, detail=f"{field_name} must be a number.") from exc
+    if not math.isfinite(number):
+        raise HTTPException(status_code=400, detail=f"{field_name} must be a finite number.")
+    return number
+
+
+def _import_date(value: Any, field_name: str) -> date | None:
+    if value is None or value == "":
+        return None
+    if isinstance(value, datetime):
+        return value.date()
+    if isinstance(value, date):
+        return value
+    if not isinstance(value, str):
+        raise HTTPException(status_code=400, detail=f"{field_name} must be an ISO date.")
+    normalized = value.strip().replace("Z", "+00:00")
+    try:
+        return datetime.fromisoformat(normalized).date()
+    except ValueError:
+        try:
+            return date.fromisoformat(normalized.split("T", 1)[0])
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=f"{field_name} must be an ISO date.") from exc
+
+
+def _import_datetime(value: Any, field_name: str) -> datetime | None:
+    if value is None or value == "":
+        return None
+    if isinstance(value, datetime):
+        return value
+    if isinstance(value, date):
+        return datetime(value.year, value.month, value.day, tzinfo=timezone.utc)
+    if not isinstance(value, str):
+        raise HTTPException(status_code=400, detail=f"{field_name} must be an ISO datetime.")
+    normalized = value.strip().replace("Z", "+00:00")
+    try:
+        return datetime.fromisoformat(normalized)
+    except ValueError:
+        try:
+            parsed_date = date.fromisoformat(normalized.split("T", 1)[0])
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=f"{field_name} must be an ISO datetime.") from exc
+        return datetime(parsed_date.year, parsed_date.month, parsed_date.day, tzinfo=timezone.utc)
+
+
+def _import_json_array(value: Any, field_name: str) -> list:
+    if value is None:
+        return []
+    if not isinstance(value, list):
+        raise HTTPException(status_code=400, detail=f"{field_name} must be an array.")
+    return value
+
+
+def _import_settings_list(value: Any, field_name: str) -> list[str]:
+    if value is None:
+        return []
+    if not isinstance(value, list):
+        raise HTTPException(status_code=400, detail=f"{field_name} must be an array.")
+    return [str(item).strip() for item in value if isinstance(item, str) and str(item).strip()]
+
+
+def _import_suppressed_dividends(value: Any, field_name: str) -> list[dict]:
+    items = _import_json_array(value, field_name)
+    normalized_items = []
+    for index, item in enumerate(items):
+        if not isinstance(item, dict):
+            raise HTTPException(status_code=400, detail=f"{field_name}[{index}] must be an object.")
+        suppressed_date = _import_date(item.get("date"), f"{field_name}[{index}].date")
+        if suppressed_date is None:
+            raise HTTPException(status_code=400, detail=f"{field_name}[{index}].date is required.")
+
+        normalized = {
+            "date": suppressed_date.isoformat(),
+        }
+        suppression_id = _import_string(item.get("id"), f"{field_name}[{index}].id")
+        if suppression_id is not None:
+            normalized["id"] = suppression_id
+        amount = _import_number(item.get("amount"), f"{field_name}[{index}].amount")
+        if amount is not None:
+            normalized["amount"] = amount
+        currency = _import_string(item.get("currency"), f"{field_name}[{index}].currency", upper=True)
+        if currency is not None:
+            normalized["currency"] = currency
+        suppressed_at = _import_datetime(item.get("suppressed_at"), f"{field_name}[{index}].suppressed_at")
+        if suppressed_at is not None:
+            normalized["suppressed_at"] = suppressed_at.isoformat()
+        normalized_items.append(normalized)
+    return normalized_items
+
+
 def _resolve_stock_dividend_yield_percent(stock: Stock, current_year: int) -> tuple[Optional[float], bool]:
     """
     Resolve a stock's annual dividend yield percentage.
@@ -1064,6 +1265,256 @@ def get_portfolio_summary(db: Session = Depends(get_db), current_user: User = De
         "stock_count": len(stock_data),
         "auto_refresh_active": auto_refresh_active,
         "unconverted_stocks": unconverted_stocks,
+    }
+
+
+@router.get("/export")
+def export_portfolio_data(db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
+    """
+    Export the current user's portfolio data as a portable JSON structure.
+
+    The export includes user-owned holdings, lots, manual dividend adjustments,
+    suppressed dividends, settings, portfolio value history, stock price history,
+    and persisted dividend rows linked to the user's stocks. Avanza ticker mappings
+    are included only when they are relevant to the user's holdings.
+    """
+    from app.services.avanza_service import avanza_service
+
+    exported_at = utc_now()
+    stocks = db.query(Stock).filter(Stock.user_id == current_user.id).order_by(Stock.ticker.asc()).all()
+    settings = db.query(UserSettings).filter(UserSettings.user_id == current_user.id).first()
+    portfolio_history = (
+        db.query(PortfolioHistory)
+        .filter(PortfolioHistory.user_id == current_user.id)
+        .order_by(PortfolioHistory.date.asc())
+        .all()
+    )
+    stock_price_history = (
+        db.query(StockPriceHistory)
+        .filter(StockPriceHistory.user_id == current_user.id)
+        .order_by(StockPriceHistory.ticker.asc(), StockPriceHistory.recorded_at.asc())
+        .all()
+    )
+    dividends = (
+        db.query(Dividend)
+        .join(Stock, Dividend.stock_id == Stock.id)
+        .filter(Stock.user_id == current_user.id)
+        .order_by(Dividend.id.asc())
+        .all()
+    )
+    ticker_by_stock_id = {stock.id: stock.ticker for stock in stocks}
+    mappings = avanza_service.get_relevant_mappings_for_user(current_user.id)
+
+    return {
+        "export_version": 1,
+        "exported_at": exported_at.isoformat(),
+        "settings": {
+            "display_currency": settings.display_currency if settings else "SEK",
+            "header_indices": _parse_export_json_list(settings.header_indices if settings else None),
+            "platforms": _parse_export_json_list(settings.platforms if settings else None),
+        },
+        "stocks": [_serialize_export_stock(stock) for stock in stocks],
+        "dividends": [_serialize_export_dividend(dividend, ticker_by_stock_id) for dividend in dividends],
+        "portfolio_history": [_serialize_export_portfolio_history(row) for row in portfolio_history],
+        "stock_price_history": [_serialize_export_stock_price_history(row) for row in stock_price_history],
+        "ticker_mappings": [
+            {
+                "avanza_name": mapping.avanza_name,
+                "yahoo_ticker": mapping.yahoo_ticker,
+                "instrument_id": mapping.instrument_id,
+                "manually_added": mapping.manually_added,
+                "added_at": mapping.added_at,
+            }
+            for mapping in mappings
+        ],
+    }
+
+
+@router.post("/import")
+def import_portfolio_data(
+    payload: dict = Body(...),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """
+    Replace the current user's portfolio data with a JSON export produced by this app.
+
+    Imported rows are attached to the authenticated account, regardless of the user
+    identity stored in the file. Existing user-owned holdings, dividend rows,
+    portfolio history, and stock price history are removed before the import is
+    applied.
+    """
+    from app.services.avanza_service import avanza_service
+
+    data = _require_import_payload(payload)
+    stocks_payload = _import_list(data.get("stocks"), "stocks")
+    dividends_payload = _import_list(data.get("dividends"), "dividends")
+    portfolio_history_payload = _import_list(data.get("portfolio_history"), "portfolio_history")
+    stock_price_history_payload = _import_list(data.get("stock_price_history"), "stock_price_history")
+    ticker_mappings_payload = _import_list(data.get("ticker_mappings"), "ticker_mappings")
+    settings_payload = data.get("settings") if isinstance(data.get("settings"), dict) else {}
+
+    try:
+        existing_stocks = db.query(Stock).filter(Stock.user_id == current_user.id).all()
+        existing_stock_ids = [stock.id for stock in existing_stocks if stock.id is not None]
+        if existing_stock_ids:
+            db.query(Dividend).filter(Dividend.stock_id.in_(existing_stock_ids)).delete(synchronize_session=False)
+        db.query(PortfolioHistory).filter(PortfolioHistory.user_id == current_user.id).delete(synchronize_session=False)
+        db.query(StockPriceHistory).filter(StockPriceHistory.user_id == current_user.id).delete(synchronize_session=False)
+        for stock in existing_stocks:
+            db.delete(stock)
+
+        settings = db.query(UserSettings).filter(UserSettings.user_id == current_user.id).first()
+        if settings is None:
+            settings = UserSettings(user_id=current_user.id)
+            db.add(settings)
+        settings.display_currency = _import_string(
+            settings_payload.get("display_currency"),
+            "settings.display_currency",
+            upper=True,
+        ) or "SEK"
+        settings.header_indices = json.dumps(_import_settings_list(settings_payload.get("header_indices"), "settings.header_indices"))
+        settings.platforms = json.dumps(_import_settings_list(settings_payload.get("platforms"), "settings.platforms"))
+
+        imported_stocks: list[Stock] = []
+        ticker_to_stock: dict[str, Stock] = {}
+        original_stock_id_to_ticker: dict[Any, str] = {}
+        seen_tickers: set[str] = set()
+        for index, stock_payload in enumerate(stocks_payload):
+            if not isinstance(stock_payload, dict):
+                raise HTTPException(status_code=400, detail=f"stocks[{index}] must be an object.")
+            ticker = _import_string(stock_payload.get("ticker"), f"stocks[{index}].ticker", required=True, upper=True)
+            if ticker in seen_tickers:
+                raise HTTPException(status_code=400, detail=f"Duplicate ticker in import file: {ticker}")
+            seen_tickers.add(ticker)
+
+            stock = Stock(
+                user_id=current_user.id,
+                ticker=ticker,
+                name=_import_string(stock_payload.get("name"), f"stocks[{index}].name"),
+                quantity=_import_number(stock_payload.get("quantity"), f"stocks[{index}].quantity") or 0,
+                currency=_import_string(stock_payload.get("currency"), f"stocks[{index}].currency", upper=True) or "USD",
+                sector=_import_string(stock_payload.get("sector"), f"stocks[{index}].sector"),
+                logo=_import_string(stock_payload.get("logo"), f"stocks[{index}].logo"),
+                purchase_price=_import_number(stock_payload.get("purchase_price"), f"stocks[{index}].purchase_price"),
+                purchase_date=_import_date(stock_payload.get("purchase_date"), f"stocks[{index}].purchase_date"),
+                position_entries=_import_json_array(stock_payload.get("position_entries"), f"stocks[{index}].position_entries"),
+                dividend_yield=_import_number(stock_payload.get("dividend_yield"), f"stocks[{index}].dividend_yield"),
+                dividend_per_share=_import_number(stock_payload.get("dividend_per_share"), f"stocks[{index}].dividend_per_share"),
+                manual_dividends=_import_json_array(stock_payload.get("manual_dividends"), f"stocks[{index}].manual_dividends"),
+                suppressed_dividends=_import_suppressed_dividends(stock_payload.get("suppressed_dividends"), f"stocks[{index}].suppressed_dividends"),
+            )
+            db.add(stock)
+            imported_stocks.append(stock)
+            ticker_to_stock[ticker] = stock
+            original_id = stock_payload.get("id")
+            if original_id is not None:
+                original_stock_id_to_ticker[original_id] = ticker
+
+        db.flush()
+
+        seen_portfolio_history_dates: set[datetime] = set()
+        for index, row_payload in enumerate(portfolio_history_payload):
+            if not isinstance(row_payload, dict):
+                raise HTTPException(status_code=400, detail=f"portfolio_history[{index}] must be an object.")
+            recorded_at = _import_datetime(row_payload.get("date"), f"portfolio_history[{index}].date")
+            total_value = _import_number(row_payload.get("total_value"), f"portfolio_history[{index}].total_value", required=True)
+            if recorded_at is None:
+                raise HTTPException(status_code=400, detail=f"portfolio_history[{index}].date is required.")
+            if recorded_at in seen_portfolio_history_dates:
+                continue
+            seen_portfolio_history_dates.add(recorded_at)
+            db.add(PortfolioHistory(
+                user_id=current_user.id,
+                date=recorded_at,
+                total_value=total_value,
+            ))
+
+        seen_price_history_keys: set[tuple[str, datetime]] = set()
+        for index, row_payload in enumerate(stock_price_history_payload):
+            if not isinstance(row_payload, dict):
+                raise HTTPException(status_code=400, detail=f"stock_price_history[{index}] must be an object.")
+            ticker = _import_string(row_payload.get("ticker"), f"stock_price_history[{index}].ticker", required=True, upper=True)
+            recorded_at = _import_datetime(row_payload.get("recorded_at"), f"stock_price_history[{index}].recorded_at")
+            price = _import_number(row_payload.get("price"), f"stock_price_history[{index}].price", required=True)
+            currency = _import_string(row_payload.get("currency"), f"stock_price_history[{index}].currency", upper=True) or "USD"
+            if recorded_at is None:
+                raise HTTPException(status_code=400, detail=f"stock_price_history[{index}].recorded_at is required.")
+            key = (ticker, recorded_at)
+            if key in seen_price_history_keys:
+                continue
+            seen_price_history_keys.add(key)
+            db.add(StockPriceHistory(
+                user_id=current_user.id,
+                ticker=ticker,
+                price=price,
+                currency=currency,
+                recorded_at=recorded_at,
+            ))
+
+        imported_dividend_count = 0
+        skipped_dividend_count = 0
+        for index, dividend_payload in enumerate(dividends_payload):
+            if not isinstance(dividend_payload, dict):
+                raise HTTPException(status_code=400, detail=f"dividends[{index}] must be an object.")
+            ticker = _import_string(dividend_payload.get("ticker"), f"dividends[{index}].ticker", upper=True)
+            original_stock_id = dividend_payload.get("stock_id")
+            if ticker is None and original_stock_id in original_stock_id_to_ticker:
+                ticker = original_stock_id_to_ticker[original_stock_id]
+            target_stock = ticker_to_stock.get(ticker or "")
+            if target_stock is None:
+                skipped_dividend_count += 1
+                continue
+            dividend = Dividend(
+                stock_id=target_stock.id,
+                amount=_import_number(dividend_payload.get("amount"), f"dividends[{index}].amount", required=True),
+                currency=_import_string(dividend_payload.get("currency"), f"dividends[{index}].currency", upper=True) or target_stock.currency,
+                ex_date=_import_datetime(dividend_payload.get("ex_date"), f"dividends[{index}].ex_date"),
+                pay_date=_import_datetime(dividend_payload.get("pay_date"), f"dividends[{index}].pay_date"),
+            )
+            created_at = _import_datetime(dividend_payload.get("created_at"), f"dividends[{index}].created_at")
+            if created_at is not None:
+                dividend.created_at = created_at
+            db.add(dividend)
+            imported_dividend_count += 1
+
+        db.commit()
+    except Exception:
+        db.rollback()
+        raise
+
+    imported_mapping_count = 0
+    skipped_mapping_count = 0
+    for index, mapping_payload in enumerate(ticker_mappings_payload):
+        if not isinstance(mapping_payload, dict):
+            skipped_mapping_count += 1
+            continue
+        avanza_name = _import_string(mapping_payload.get("avanza_name"), f"ticker_mappings[{index}].avanza_name")
+        yahoo_ticker = _import_string(mapping_payload.get("yahoo_ticker"), f"ticker_mappings[{index}].yahoo_ticker", upper=True)
+        if not avanza_name or not yahoo_ticker:
+            skipped_mapping_count += 1
+            continue
+        try:
+            avanza_service.add_manual_mapping(
+                avanza_name=avanza_name,
+                yahoo_ticker=yahoo_ticker,
+                instrument_id=_import_string(mapping_payload.get("instrument_id"), f"ticker_mappings[{index}].instrument_id"),
+            )
+            imported_mapping_count += 1
+        except Exception as exc:
+            skipped_mapping_count += 1
+            logger.warning("Failed to import ticker mapping %s -> %s: %s", avanza_name, yahoo_ticker, exc)
+
+    return {
+        "message": "Portfolio data imported",
+        "mode": "replace",
+        "stocks_imported": len(imported_stocks),
+        "dividends_imported": imported_dividend_count,
+        "dividends_skipped": skipped_dividend_count,
+        "portfolio_history_imported": len(seen_portfolio_history_dates),
+        "stock_price_history_imported": len(seen_price_history_keys),
+        "ticker_mappings_imported": imported_mapping_count,
+        "ticker_mappings_skipped": skipped_mapping_count,
     }
 
 

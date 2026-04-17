@@ -229,4 +229,73 @@ describe('portfolio request caching', () => {
     await Promise.all([first, second])
     expect(fetchMock).toHaveBeenCalledTimes(2)
   })
+
+  it('fetches the full portfolio export without using request cache', async () => {
+    const payload = {
+      export_version: 1,
+      exported_at: '2026-04-16T10:30:00Z',
+      settings: {
+        display_currency: 'SEK',
+        header_indices: [],
+        platforms: [],
+      },
+      stocks: [],
+      dividends: [],
+      portfolio_history: [],
+      stock_price_history: [],
+      ticker_mappings: [],
+    }
+    const fetchMock = vi.spyOn(globalThis, 'fetch')
+      .mockResolvedValueOnce(createJsonResponse(payload))
+      .mockResolvedValueOnce(createJsonResponse(payload))
+
+    await api.portfolio.exportData()
+    await api.portfolio.exportData()
+
+    expect(fetchMock).toHaveBeenCalledTimes(2)
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      1,
+      '/api/portfolio/export',
+      expect.objectContaining({
+        headers: { 'Content-Type': 'application/json' },
+        signal: expect.any(AbortSignal),
+      }),
+    )
+  })
+
+  it('posts imported portfolio data and does not cache the restore request', async () => {
+    const importPayload = {
+      export_version: 1,
+      stocks: [{ ticker: 'VOLV-B.ST' }],
+    }
+    const importResult = {
+      message: 'Portfolio data imported',
+      mode: 'replace',
+      stocks_imported: 1,
+      dividends_imported: 0,
+      dividends_skipped: 0,
+      portfolio_history_imported: 0,
+      stock_price_history_imported: 0,
+      ticker_mappings_imported: 0,
+      ticker_mappings_skipped: 0,
+    }
+    const fetchMock = vi.spyOn(globalThis, 'fetch')
+      .mockResolvedValueOnce(createJsonResponse(importResult))
+      .mockResolvedValueOnce(createJsonResponse(importResult))
+
+    await api.portfolio.importData(importPayload)
+    await api.portfolio.importData(importPayload)
+
+    expect(fetchMock).toHaveBeenCalledTimes(2)
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      1,
+      '/api/portfolio/import',
+      expect.objectContaining({
+        method: 'POST',
+        body: JSON.stringify(importPayload),
+        headers: { 'Content-Type': 'application/json' },
+        signal: expect.any(AbortSignal),
+      }),
+    )
+  })
 })
