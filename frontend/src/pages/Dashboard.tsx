@@ -38,7 +38,7 @@ const HOLDINGS_RETURN_RANGE_OPTIONS: Array<{ key: ReturnRangeKey; labelKey: Tran
   { key: 'SINCE_START', labelKey: 'dashboard.rangeSinceStart' },
 ]
 
-type ChartPoint = { date: string; value: number }
+type ChartPoint = { date: string; value: number; isBaseline?: boolean; displayDate?: string }
 type DashboardHistoryEntry = { date: string; value: number }
 type DashboardDataCache = {
   summary: PortfolioSummary
@@ -595,7 +595,12 @@ export function prependDailyBaselinePoint(
   if (Number.isNaN(firstPointDate.getTime())) return data
 
   return [
-    { date: new Date(firstPointDate.getTime() - 1000).toISOString(), value: baselineValue },
+    {
+      date: new Date(firstPointDate.getTime() - 1000).toISOString(),
+      value: baselineValue,
+      isBaseline: true,
+      displayDate: data[0].date,
+    },
     ...data,
   ]
 }
@@ -972,6 +977,7 @@ export default function Dashboard() {
 
   const {
     displayedChartData,
+    xAxisTicks,
     hasChartData,
     minValue,
     maxValue,
@@ -983,6 +989,9 @@ export default function Dashboard() {
     const nextDisplayedChartData = rangeTargetPoints
       ? downsampleChartData(rangeChartData, rangeTargetPoints)
       : rangeChartData
+    const nextXAxisTicks = historyRange === '1D'
+      ? nextDisplayedChartData.filter((point) => !point.isBaseline).map((point) => point.date)
+      : undefined
     const nextHasChartData = rangeChartData.length > 0
     let nextMinValue = 0
     let nextMaxValue = 0
@@ -999,6 +1008,7 @@ export default function Dashboard() {
     const valueRange = nextMaxValue - nextMinValue || 1
     return {
       displayedChartData: nextDisplayedChartData,
+      xAxisTicks: nextXAxisTicks,
       hasChartData: nextHasChartData,
       minValue: nextMinValue,
       maxValue: nextMaxValue,
@@ -1332,6 +1342,7 @@ export default function Dashboard() {
                       tick={{ fill: 'var(--muted)', fontSize: 10, fontFamily: "'Fira Code', monospace" }}
                       interval="preserveStartEnd"
                       minTickGap={32}
+                      ticks={xAxisTicks}
                       padding={{ left: 6, right: 10 }}
                       tickLine={false}
                       axisLine={false}
@@ -1350,13 +1361,14 @@ export default function Dashboard() {
                       content={({ active, payload, label }) => {
                         if (!active || !payload || !payload.length) return null
                         const currentValue = Number(payload[0].value ?? 0)
+                        const currentPoint = payload[0].payload as ChartPoint | undefined
                         const absoluteChange = currentValue - baselineValue
                         const percentChange = baselineValue !== 0 ? (absoluteChange / baselineValue) * 100 : 0
                         const changeColor = absoluteChange >= 0 ? 'var(--green)' : 'var(--red)'
                         const sign = percentChange >= 0 ? '+' : ''
                         return (
                           <div style={{ background: 'var(--bg3)', border: '1px solid var(--border2)', borderRadius: 8, padding: '10px 14px', fontSize: 12, boxShadow: '0 4px 16px rgba(0,0,0,0.4)' }}>
-                            <div style={{ color: 'var(--muted)', marginBottom: 6, fontSize: 11 }}>{formatTooltipDate(String(label), historyRange, locale, timezone)}</div>
+                            <div style={{ color: 'var(--muted)', marginBottom: 6, fontSize: 11 }}>{formatTooltipDate(String(currentPoint?.displayDate ?? label), historyRange, locale, timezone)}</div>
                             <div style={{ color: 'var(--text)', fontWeight: 700, marginBottom: 4, fontFamily: "'Fira Code', monospace" }}>{formatCurrency(currentValue, locale, currency)}</div>
                             <div style={{ color: changeColor, fontWeight: 600, fontFamily: "'Fira Code', monospace" }}>
                               {sign}{formatCurrency(absoluteChange, locale, currency)} ({sign}{percentChange.toFixed(2)}%)

@@ -253,7 +253,12 @@ describe('dashboard storage helpers', () => {
       { date: '2026-04-13T07:00:00Z', value: 198_511.41 },
       { date: '2026-04-13T18:30:00Z', value: 200_630.98 },
     ], 200_634.01, '1D')).toEqual([
-      { date: '2026-04-13T06:59:59.000Z', value: 200_634.01 },
+      {
+        date: '2026-04-13T06:59:59.000Z',
+        value: 200_634.01,
+        isBaseline: true,
+        displayDate: '2026-04-13T07:00:00Z',
+      },
       { date: '2026-04-13T07:00:00Z', value: 198_511.41 },
       { date: '2026-04-13T18:30:00Z', value: 200_630.98 },
     ])
