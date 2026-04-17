@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
-import { ResponsiveContainer, Tooltip, AreaChart, Area, XAxis, YAxis, CartesianGrid } from 'recharts'
-import { api, PortfolioSummary, UpcomingDividend } from '../services/api'
+import { ResponsiveContainer, Tooltip, AreaChart, Area, Line, XAxis, YAxis, CartesianGrid } from 'recharts'
+import { api, AvailableIndex, MarketIndexHistory, PortfolioSummary, UpcomingDividend } from '../services/api'
 import { useAuth } from '../AuthContext'
 import { useSettings } from '../SettingsContext'
 import { formatTimeInTimezone, parseDatePreservingUtc } from '../utils/time'
@@ -39,6 +39,7 @@ const HOLDINGS_RETURN_RANGE_OPTIONS: Array<{ key: ReturnRangeKey; labelKey: Tran
 ]
 
 type ChartPoint = { date: string; value: number; isBaseline?: boolean; displayDate?: string }
+type BenchmarkChartPoint = ChartPoint & { portfolioReturn: number; benchmarkReturn: number | null }
 type DashboardHistoryEntry = { date: string; value: number }
 type DashboardDataCache = {
   summary: PortfolioSummary
@@ -586,6 +587,98 @@ export function downsampleChartData(data: ChartPoint[], targetPoints: number): C
   return sampled
 }
 
+function getPointTimeMs(point: Pick<ChartPoint, 'date'>): number {
+  const parsed = parseHistoryDate(point.date).getTime()
+  return Number.isFinite(parsed) ? parsed : Number.NaN
+}
+
+function formatSignedPercentValue(value: number | null | undefined): string {
+  if (value === null || value === undefined || !Number.isFinite(value)) return '-'
+  return `${value >= 0 ? '+' : ''}${value.toFixed(2)}%`
+}
+
+function getReturnPercent(value: number, baseline: number): number {
+  return baseline !== 0 ? ((value - baseline) / baseline) * 100 : 0
+}
+
+function buildBenchmarkComparisonData(
+  portfolioPoints: ChartPoint[],
+  benchmarkHistory: MarketIndexHistory | null,
+) {
+  if (portfolioPoints.length === 0 || !benchmarkHistory?.points?.length) {
+    return {
+      data: [] as BenchmarkChartPoint[],
+      portfolioFinalReturn: null as number | null,
+      benchmarkFinalReturn: null as number | null,
+      yMin: -1,
+      yMax: 1,
+    }
+  }
+
+  const benchmarkPoints = benchmarkHistory.points
+    .filter((point) => Number.isFinite(point.value))
+    .map((point) => ({ ...point, timeMs: parseHistoryDate(point.date).getTime() }))
+    .filter((point) => Number.isFinite(point.timeMs))
+    .sort((a, b) => a.timeMs - b.timeMs)
+
+  if (benchmarkPoints.length === 0) {
+    return {
+      data: [] as BenchmarkChartPoint[],
+      portfolioFinalReturn: null as number | null,
+      benchmarkFinalReturn: null as number | null,
+      yMin: -1,
+      yMax: 1,
+    }
+  }
+
+  const portfolioBaseline = portfolioPoints[0].value
+  const firstPortfolioTime = getPointTimeMs(portfolioPoints[0])
+  let benchmarkCursor = 0
+  let latestBenchmarkValue: number | null = null
+
+  while (benchmarkCursor < benchmarkPoints.length && benchmarkPoints[benchmarkCursor].timeMs <= firstPortfolioTime) {
+    latestBenchmarkValue = benchmarkPoints[benchmarkCursor].value
+    benchmarkCursor += 1
+  }
+
+  const benchmarkBaseline = latestBenchmarkValue ?? benchmarkPoints[0].value
+  benchmarkCursor = 0
+  latestBenchmarkValue = null
+
+  const comparisonData = portfolioPoints.map((point) => {
+    const pointTime = getPointTimeMs(point)
+    while (benchmarkCursor < benchmarkPoints.length && benchmarkPoints[benchmarkCursor].timeMs <= pointTime) {
+      latestBenchmarkValue = benchmarkPoints[benchmarkCursor].value
+      benchmarkCursor += 1
+    }
+
+    return {
+      ...point,
+      portfolioReturn: getReturnPercent(point.value, portfolioBaseline),
+      benchmarkReturn: latestBenchmarkValue !== null
+        ? getReturnPercent(latestBenchmarkValue, benchmarkBaseline)
+        : null,
+    }
+  })
+
+  const values = comparisonData.flatMap((point) => [
+    point.portfolioReturn,
+    ...(point.benchmarkReturn === null ? [] : [point.benchmarkReturn]),
+  ])
+  const min = Math.min(...values)
+  const max = Math.max(...values)
+  const range = max - min
+  const padding = Math.max(1, range * 0.12)
+
+  return {
+    data: comparisonData,
+    portfolioFinalReturn: comparisonData.length > 0 ? comparisonData[comparisonData.length - 1].portfolioReturn : null,
+    benchmarkFinalReturn: [...comparisonData].reverse().find((point) => point.benchmarkReturn !== null)?.benchmarkReturn ?? null,
+    yMin: min - padding,
+    yMax: max + padding,
+  }
+}
+
 export function extendFrozenDayChartDataToNow(
   data: ChartPoint[],
   shouldFreeze: boolean,
@@ -668,6 +761,11 @@ export default function Dashboard() {
   const [totalRemainingDividends, setTotalRemainingDividends] = useState(() => initialDashboardState.cachedData?.totalRemainingDividends ?? 0)
   const [portfolioHistory, setPortfolioHistory] = useState<DashboardHistoryEntry[]>(() => initialDashboardState.cachedHistory?.history ?? [])
   const [historyRange, setHistoryRange] = useState<HistoryRangeKey>(() => initialDashboardState.initialHistoryRange)
+  const [availableBenchmarkIndices, setAvailableBenchmarkIndices] = useState<AvailableIndex[]>([])
+  const [benchmarkSymbol, setBenchmarkSymbol] = useState('')
+  const [benchmarkHistory, setBenchmarkHistory] = useState<MarketIndexHistory | null>(null)
+  const [benchmarkLoading, setBenchmarkLoading] = useState(false)
+  const [benchmarkError, setBenchmarkError] = useState<Error | null>(null)
   const [failedLogos, setFailedLogos] = useState<Record<string, boolean>>({})
   const [loading, setLoading] = useState(() => initialDashboardState.cachedData === null)
   const [historyLoading, setHistoryLoading] = useState(() => initialDashboardState.cachedHistory === null)
@@ -907,6 +1005,21 @@ export default function Dashboard() {
   }, [currentUserId, historyRange])
 
   useEffect(() => {
+    let cancelled = false
+    api.settings.availableIndices()
+      .then((indices) => {
+        if (!cancelled) setAvailableBenchmarkIndices(indices)
+      })
+      .catch((error) => {
+        logDashboardIssue('Failed to load benchmark indices:', error)
+      })
+
+    return () => {
+      cancelled = true
+    }
+  }, [])
+
+  useEffect(() => {
     const runId = Symbol('dashboard-auto-refresh')
     let refreshController: AbortController | null = null
     lastAutoRefreshRunRef.current = runId
@@ -1035,6 +1148,54 @@ export default function Dashboard() {
       : rawChartData
   ), [frozenCurrentDayChartData, historyRange, previousCloseBaselineValue, rawChartData])
 
+  const benchmarkStartDate = historyRange === 'SINCE_START' ? rangeChartData[0]?.date : undefined
+
+  useEffect(() => {
+    if (!benchmarkSymbol) {
+      setBenchmarkHistory(null)
+      setBenchmarkLoading(false)
+      setBenchmarkError(null)
+      return
+    }
+
+    if (historyRange === 'SINCE_START' && !benchmarkStartDate) {
+      setBenchmarkHistory(null)
+      setBenchmarkLoading(false)
+      setBenchmarkError(null)
+      return
+    }
+
+    const controller = new AbortController()
+    setBenchmarkLoading(true)
+    setBenchmarkError(null)
+    setBenchmarkHistory(null)
+
+    api.market.indexHistory(
+      benchmarkSymbol,
+      {
+        range: HISTORY_RANGE_QUERY_BY_KEY[historyRange],
+        startDate: benchmarkStartDate,
+      },
+      { signal: controller.signal },
+    )
+      .then((history) => {
+        setBenchmarkHistory(history)
+      })
+      .catch((error) => {
+        if (isAbortError(error, controller.signal)) return
+        logDashboardIssue('Failed to load benchmark history:', error)
+        setBenchmarkHistory(null)
+        setBenchmarkError(error instanceof Error ? error : new Error(String(error)))
+      })
+      .finally(() => {
+        if (!controller.signal.aborted) setBenchmarkLoading(false)
+      })
+
+    return () => {
+      controller.abort()
+    }
+  }, [benchmarkStartDate, benchmarkSymbol, historyRange])
+
   const {
     displayedChartData,
     xAxisTicks,
@@ -1077,6 +1238,17 @@ export default function Dashboard() {
       baselineValue: nextDisplayedChartData.length > 0 ? nextDisplayedChartData[0].value : 0,
     }
   }, [historyRange, rangeChartData])
+
+  const selectedBenchmark = useMemo(() => (
+    availableBenchmarkIndices.find((index) => index.symbol === benchmarkSymbol) ?? null
+  ), [availableBenchmarkIndices, benchmarkSymbol])
+
+  const benchmarkComparison = useMemo(() => (
+    buildBenchmarkComparisonData(displayedChartData, benchmarkHistory)
+  ), [benchmarkHistory, displayedChartData])
+
+  const comparisonMode = Boolean(benchmarkSymbol && benchmarkComparison.data.length > 0)
+  const chartData = comparisonMode ? benchmarkComparison.data : displayedChartData
 
   const groupedDividends = useMemo(() => (
     upcomingDividends
@@ -1334,12 +1506,12 @@ export default function Dashboard() {
 
         {/* ── CHART ── */}
         <div style={{ marginTop: 20, background: 'var(--bg2)', border: '1px solid var(--border)', borderRadius: 8 }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '14px 20px', borderBottom: '1px solid var(--border)' }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 16, flexWrap: 'wrap', padding: '14px 20px', borderBottom: '1px solid var(--border)' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
               <span style={{ fontSize: 9, fontWeight: 700, letterSpacing: '0.2em', textTransform: 'uppercase', color: 'var(--muted)' }}>
                 {t(language, 'dashboard.performanceTitle')}
               </span>
-              <div style={{ display: 'flex', gap: 4 }}>
+              <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
                 {HISTORY_RANGE_OPTIONS.map((option) => {
                   const sel = option.key === historyRange
                   return (
@@ -1365,11 +1537,55 @@ export default function Dashboard() {
                   )
                 })}
               </div>
+              <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 11, color: 'var(--muted)' }}>
+                <span style={{ letterSpacing: '0.08em', textTransform: 'uppercase', fontWeight: 700 }}>
+                  {t(language, 'dashboard.compareTo')}
+                </span>
+                <select
+                  value={benchmarkSymbol}
+                  onChange={(event) => setBenchmarkSymbol(event.target.value)}
+                  style={{
+                    minWidth: 180,
+                    border: '1px solid var(--border2)',
+                    background: 'var(--bg3)',
+                    color: 'var(--text)',
+                    borderRadius: 5,
+                    padding: '5px 10px',
+                    fontSize: 12,
+                    fontWeight: 600,
+                    outline: 'none',
+                  }}
+                >
+                  <option value="">{t(language, 'dashboard.noBenchmark')}</option>
+                  {availableBenchmarkIndices.map((index) => (
+                    <option key={index.symbol} value={index.symbol}>
+                      {index.name}
+                    </option>
+                  ))}
+                </select>
+              </label>
             </div>
             {!historyLoading && hasChartData && (
-              <div style={{ display: 'flex', gap: 16, fontSize: 11, color: 'var(--muted)', fontFamily: "'Fira Code', monospace" }}>
-                <span>{t(language, 'dashboard.low')}: {formatCurrency(minValue, locale, currency)}</span>
-                <span>{t(language, 'dashboard.high')}: {formatCurrency(maxValue, locale, currency)}</span>
+              <div style={{ display: 'flex', gap: 16, fontSize: 11, color: 'var(--muted)', fontFamily: "'Fira Code', monospace", flexWrap: 'wrap', justifyContent: 'flex-end' }}>
+                {comparisonMode ? (
+                  <>
+                    <span style={{ color: (benchmarkComparison.portfolioFinalReturn ?? 0) >= 0 ? 'var(--green)' : 'var(--red)' }}>
+                      {t(language, 'dashboard.portfolio')}: {formatSignedPercentValue(benchmarkComparison.portfolioFinalReturn)}
+                    </span>
+                    <span style={{ color: (benchmarkComparison.benchmarkFinalReturn ?? 0) >= 0 ? '#fbbf24' : 'var(--red)' }}>
+                      {selectedBenchmark?.name ?? benchmarkSymbol}: {formatSignedPercentValue(benchmarkComparison.benchmarkFinalReturn)}
+                    </span>
+                  </>
+                ) : benchmarkSymbol ? (
+                  <span style={{ color: benchmarkError ? 'var(--red)' : 'var(--muted)' }}>
+                    {benchmarkLoading ? t(language, 'dashboard.benchmarkLoading') : t(language, 'dashboard.benchmarkUnavailable')}
+                  </span>
+                ) : (
+                  <>
+                    <span>{t(language, 'dashboard.low')}: {formatCurrency(minValue, locale, currency)}</span>
+                    <span>{t(language, 'dashboard.high')}: {formatCurrency(maxValue, locale, currency)}</span>
+                  </>
+                )}
               </div>
             )}
           </div>
@@ -1388,7 +1604,7 @@ export default function Dashboard() {
             ) : hasChartData ? (
               <div style={{ height: 280 }}>
                 <ResponsiveContainer width="100%" height="100%">
-                  <AreaChart data={displayedChartData} margin={{ top: 4, right: 12, left: 0, bottom: 0 }}>
+                  <AreaChart data={chartData} margin={{ top: 4, right: 12, left: 0, bottom: 0 }}>
                     <defs>
                       <linearGradient id="chartGrad" x1="0" y1="0" x2="0" y2="1">
                         <stop offset="5%" stopColor="#818cf8" stopOpacity={0.25} />
@@ -1411,24 +1627,44 @@ export default function Dashboard() {
                     <YAxis
                       stroke="var(--border2)"
                       tick={{ fill: 'var(--muted)', fontSize: 10, fontFamily: "'Fira Code', monospace" }}
-                      domain={[yMin, yMax]}
+                      domain={comparisonMode ? [benchmarkComparison.yMin, benchmarkComparison.yMax] : [yMin, yMax]}
                       tickLine={false}
                       axisLine={false}
                       width={60}
-                      tickFormatter={(v) => Math.abs(v) >= 1000 ? `${(v / 1000).toFixed(0)}k` : v.toFixed(0)}
+                      tickFormatter={(v) => comparisonMode
+                        ? `${Number(v).toFixed(1)}%`
+                        : (Math.abs(v) >= 1000 ? `${(v / 1000).toFixed(0)}k` : v.toFixed(0))}
                     />
                     <Tooltip
                       content={({ active, payload, label }) => {
                         if (!active || !payload || !payload.length) return null
+                        const currentPoint = payload[0].payload as (ChartPoint | BenchmarkChartPoint | undefined)
+                        if (comparisonMode) {
+                          const comparisonPoint = currentPoint as BenchmarkChartPoint | undefined
+                          const portfolioReturn = comparisonPoint?.portfolioReturn ?? null
+                          const benchmarkReturn = comparisonPoint?.benchmarkReturn ?? null
+                          return (
+                            <div style={{ background: 'var(--bg3)', border: '1px solid var(--border2)', borderRadius: 8, padding: '10px 14px', fontSize: 12, boxShadow: '0 4px 16px rgba(0,0,0,0.4)' }}>
+                              <div style={{ color: 'var(--muted)', marginBottom: 8, fontSize: 11 }}>{formatTooltipDate(String(comparisonPoint?.displayDate ?? label), historyRange, locale, timezone)}</div>
+                              <div style={{ color: (portfolioReturn ?? 0) >= 0 ? 'var(--green)' : 'var(--red)', fontWeight: 700, marginBottom: 5, fontFamily: "'Fira Code', monospace" }}>
+                                {t(language, 'dashboard.portfolio')}: {formatSignedPercentValue(portfolioReturn)}
+                              </div>
+                              <div style={{ color: (benchmarkReturn ?? 0) >= 0 ? '#fbbf24' : 'var(--red)', fontWeight: 700, fontFamily: "'Fira Code', monospace" }}>
+                                {selectedBenchmark?.name ?? benchmarkSymbol}: {formatSignedPercentValue(benchmarkReturn)}
+                              </div>
+                            </div>
+                          )
+                        }
+
                         const currentValue = Number(payload[0].value ?? 0)
-                        const currentPoint = payload[0].payload as ChartPoint | undefined
+                        const chartPoint = currentPoint as ChartPoint | undefined
                         const absoluteChange = currentValue - baselineValue
                         const percentChange = baselineValue !== 0 ? (absoluteChange / baselineValue) * 100 : 0
                         const changeColor = absoluteChange >= 0 ? 'var(--green)' : 'var(--red)'
                         const sign = percentChange >= 0 ? '+' : ''
                         return (
                           <div style={{ background: 'var(--bg3)', border: '1px solid var(--border2)', borderRadius: 8, padding: '10px 14px', fontSize: 12, boxShadow: '0 4px 16px rgba(0,0,0,0.4)' }}>
-                            <div style={{ color: 'var(--muted)', marginBottom: 6, fontSize: 11 }}>{formatTooltipDate(String(currentPoint?.displayDate ?? label), historyRange, locale, timezone)}</div>
+                            <div style={{ color: 'var(--muted)', marginBottom: 6, fontSize: 11 }}>{formatTooltipDate(String(chartPoint?.displayDate ?? label), historyRange, locale, timezone)}</div>
                             <div style={{ color: 'var(--text)', fontWeight: 700, marginBottom: 4, fontFamily: "'Fira Code', monospace" }}>{formatCurrency(currentValue, locale, currency)}</div>
                             <div style={{ color: changeColor, fontWeight: 600, fontFamily: "'Fira Code', monospace" }}>
                               {sign}{formatCurrency(absoluteChange, locale, currency)} ({sign}{percentChange.toFixed(2)}%)
@@ -1439,7 +1675,7 @@ export default function Dashboard() {
                     />
                     <Area
                       type="monotone"
-                      dataKey="value"
+                      dataKey={comparisonMode ? 'portfolioReturn' : 'value'}
                       stroke="var(--v)"
                       strokeWidth={1.5}
                       fillOpacity={1}
@@ -1447,6 +1683,17 @@ export default function Dashboard() {
                       dot={false}
                       activeDot={{ r: 4, fill: 'var(--v)', stroke: 'var(--bg)', strokeWidth: 2 }}
                     />
+                    {comparisonMode && (
+                      <Line
+                        type="monotone"
+                        dataKey="benchmarkReturn"
+                        stroke="#fbbf24"
+                        strokeWidth={1.6}
+                        dot={false}
+                        connectNulls
+                        activeDot={{ r: 4, fill: '#fbbf24', stroke: 'var(--bg)', strokeWidth: 2 }}
+                      />
+                    )}
                   </AreaChart>
                 </ResponsiveContainer>
               </div>

@@ -9,6 +9,7 @@ const STOCKS_CACHE_TTL_MS = 30_000
 const PORTFOLIO_SUMMARY_CACHE_TTL_MS = 30_000
 const PORTFOLIO_DISTRIBUTION_CACHE_TTL_MS = 30_000
 const PORTFOLIO_HISTORY_CACHE_TTL_MS = 30_000
+const MARKET_INDEX_HISTORY_CACHE_TTL_MS = 300_000
 const PORTFOLIO_UPCOMING_DIVIDENDS_CACHE_TTL_MS = 60_000
 const DIVIDENDS_BATCH_CACHE_TTL_MS = 300_000
 const EXCHANGE_RATES_BATCH_CACHE_TTL_MS = 300_000
@@ -28,6 +29,8 @@ const portfolioSummaryRequestCache = new Map<string, Promise<PortfolioSummary>>(
 const portfolioSummaryValueCache = new Map<string, TimedCacheEntry<PortfolioSummary>>()
 const portfolioHistoryRequestCache = new Map<string, Promise<Array<{ date: string; value: number }>>>()
 const portfolioHistoryValueCache = new Map<string, TimedCacheEntry<Array<{ date: string; value: number }>>>()
+const marketIndexHistoryRequestCache = new Map<string, Promise<MarketIndexHistory>>()
+const marketIndexHistoryValueCache = new Map<string, TimedCacheEntry<MarketIndexHistory>>()
 const portfolioDistributionRequestCache = new Map<string, Promise<DistributionResponse>>()
 const portfolioDistributionValueCache = new Map<string, TimedCacheEntry<DistributionResponse>>()
 const stocksListRequestCache = new Map<string, Promise<Stock[]>>()
@@ -64,6 +67,8 @@ function clearPortfolioDataCaches(): void {
   portfolioDistributionValueCache.clear()
   portfolioHistoryRequestCache.clear()
   portfolioHistoryValueCache.clear()
+  marketIndexHistoryRequestCache.clear()
+  marketIndexHistoryValueCache.clear()
   portfolioUpcomingDividendsRequestCache.clear()
   portfolioUpcomingDividendsValueCache.clear()
 }
@@ -587,6 +592,20 @@ export interface SparklineData {
   change_percent: number
 }
 
+export interface MarketIndexHistoryPoint {
+  date: string
+  value: number
+}
+
+export interface MarketIndexHistory {
+  symbol: string
+  name: string
+  range: string
+  interval: string
+  points: MarketIndexHistoryPoint[]
+  updated_at: string
+}
+
 export interface HeaderMarketData {
   indices: MarketIndex[]
   exchange_rates: Record<string, number | null>
@@ -964,6 +983,33 @@ export const api = {
     openMarkets: () => fetchAPI<{ open_markets: string[] }>('/market/open-markets'),
     shouldRefresh: () => fetchAPI<{ should_refresh: boolean }>('/market/should-refresh'),
     sparklines: () => fetchAPI<{ sparklines: Record<string, SparklineData>; updated_at: string }>('/market/indices/sparklines'),
+    indexHistory: (symbol: string, options: { range?: string; startDate?: string } = {}, requestOptions?: RequestInit) => {
+      const params = new URLSearchParams()
+      if (options.range) params.set('range', options.range)
+      if (options.startDate) params.set('start_date', options.startDate)
+      const query = params.toString()
+      const key = `${symbol}:${query || '__default__'}`
+      const endpoint = `/market/indices/${encodePathSegment(symbol)}/history${query ? `?${query}` : ''}`
+      const cachedValue = getCachedValue(marketIndexHistoryValueCache, key)
+      if (cachedValue) return Promise.resolve(cachedValue)
+
+      if (requestOptions?.signal) {
+        return fetchAPI<MarketIndexHistory>(endpoint, requestOptions)
+          .then((value) => setCachedValue(marketIndexHistoryValueCache, key, value, MARKET_INDEX_HISTORY_CACHE_TTL_MS))
+      }
+
+      const cached = marketIndexHistoryRequestCache.get(key)
+      if (cached) return cached
+
+      const request = fetchAPI<MarketIndexHistory>(endpoint)
+        .then((value) => setCachedValue(marketIndexHistoryValueCache, key, value, MARKET_INDEX_HISTORY_CACHE_TTL_MS))
+        .finally(() => {
+          marketIndexHistoryRequestCache.delete(key)
+        })
+
+      marketIndexHistoryRequestCache.set(key, request)
+      return request
+    },
   },
   
   finnhub: {

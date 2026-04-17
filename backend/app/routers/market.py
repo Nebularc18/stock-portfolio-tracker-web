@@ -15,6 +15,8 @@ import json
 import os
 import tempfile
 from functools import lru_cache
+from urllib.parse import quote
+import math
 
 from app.services.market_hours_service import MarketHoursService
 from app.services.market_data_service import get_header_market_data, HEADER_INDICES
@@ -50,6 +52,132 @@ EXCHANGE_RATE_FETCH_WORKERS = _get_int_env('EXCHANGE_RATE_FETCH_WORKERS', 6)
 SPARKLINE_SYMBOL_OVERRIDES = {
     "^OMXS30": "^OMX",
 }
+MARKET_INDEX_HISTORY_RANGES = {"1d", "1w", "1m", "ytd", "1y", "since_start", "all"}
+
+
+def _safe_cache_token(value: str) -> str:
+    return "".join(char if char.isalnum() else "_" for char in value)
+
+
+def _parse_optional_start_date(value: str | None) -> datetime | None:
+    if not value:
+        return None
+
+    raw_value = value.strip()
+    if not raw_value:
+        return None
+
+    try:
+        if raw_value.endswith("Z"):
+            raw_value = f"{raw_value[:-1]}+00:00"
+        parsed = datetime.fromisoformat(raw_value)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail="start_date must be an ISO date or datetime") from exc
+
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=timezone.utc)
+
+    return parsed.astimezone(timezone.utc)
+
+
+def _resolve_index_history_window(
+    range_key: str,
+    start_date: str | None = None,
+) -> tuple[str, datetime, datetime, str]:
+    normalized_range = range_key.strip().lower()
+    if normalized_range not in MARKET_INDEX_HISTORY_RANGES:
+        raise HTTPException(
+            status_code=400,
+            detail="range must be one of: 1d, 1w, 1m, ytd, 1y, since_start, all",
+        )
+
+    now = datetime.now(timezone.utc)
+    if normalized_range == "1d":
+        return normalized_range, now - timedelta(days=1), now, "5m"
+    if normalized_range == "1w":
+        return normalized_range, now - timedelta(days=7), now, "30m"
+    if normalized_range == "1m":
+        return normalized_range, now - timedelta(days=30), now, "1d"
+    if normalized_range == "ytd":
+        return normalized_range, datetime(now.year, 1, 1, tzinfo=timezone.utc), now, "1d"
+    if normalized_range == "1y":
+        return normalized_range, now - timedelta(days=365), now, "1d"
+
+    parsed_start_date = _parse_optional_start_date(start_date)
+    if parsed_start_date is None:
+        parsed_start_date = now - timedelta(days=3650)
+
+    if parsed_start_date >= now:
+        raise HTTPException(status_code=400, detail="start_date must be before now")
+
+    return normalized_range, parsed_start_date, now, "1d"
+
+
+def _index_history_cache_bucket(range_key: str, period_start: datetime) -> str:
+    normalized_range = range_key.strip().lower()
+    if normalized_range in {"since_start", "all"}:
+        return f"{period_start.year}"
+    return period_start.date().isoformat().replace("-", "")
+
+
+def _index_history_cache_key(
+    symbol: str,
+    range_key: str,
+    interval: str,
+    period_start: datetime,
+) -> str:
+    start_key = _index_history_cache_bucket(range_key, period_start)
+    return f"market_index_history_{_safe_cache_token(symbol)}_{range_key}_{interval}_{start_key}.json"
+
+
+def _fetch_index_history_series(
+    symbol: str,
+    interval: str,
+    period_start: datetime,
+    period_end: datetime,
+    session: requests.Session,
+) -> list[dict]:
+    chart_symbol = SPARKLINE_SYMBOL_OVERRIDES.get(symbol, symbol)
+    encoded_symbol = quote(chart_symbol, safe="")
+    url = (
+        f"https://query1.finance.yahoo.com/v8/finance/chart/{encoded_symbol}"
+        f"?period1={int(period_start.timestamp())}"
+        f"&period2={int(period_end.timestamp())}"
+        f"&interval={interval}"
+        "&includePrePost=false"
+    )
+    response = session.get(url, timeout=10)
+
+    if response.status_code != 200:
+        _log_non_200_yahoo_response(url, response, f"index history {symbol}")
+        return []
+
+    data = response.json()
+    result = data.get("chart", {}).get("result", [])
+    if not result:
+        return []
+
+    chart = result[0]
+    timestamps = chart.get("timestamp", [])
+    quote_data = chart.get("indicators", {}).get("quote", [{}])[0]
+    closes = quote_data.get("close", [])
+
+    points = []
+    for timestamp, close in zip(timestamps, closes, strict=False):
+        if close is None:
+            continue
+        try:
+            value = float(close)
+        except (TypeError, ValueError):
+            continue
+        if not value or not math.isfinite(value):
+            continue
+        points.append({
+            "date": datetime.fromtimestamp(timestamp, tz=timezone.utc).isoformat(),
+            "value": value,
+        })
+
+    return points
 
 
 @lru_cache(maxsize=1)
@@ -762,6 +890,56 @@ def get_market_indices():
     else:
         logger.warning("Skipping indices cache write because fetched result set was empty")
     
+    return result
+
+
+@router.get("/indices/{symbol}/history")
+def get_market_index_history(
+    symbol: str,
+    range_key: str = Query("1m", alias="range"),
+    start_date: str | None = Query(None),
+):
+    """
+    Return historical price points for one of the tracked market indices.
+
+    The allowed symbols are the same indices shown in the Market tab. Returned
+    points are raw index prices ordered ascending; clients can normalize them
+    against portfolio history for return comparisons.
+    """
+    normalized_symbol = symbol.strip().upper()
+    canonical_symbol = next(
+        (candidate for candidate in HEADER_INDICES.keys() if candidate.upper() == normalized_symbol),
+        None,
+    )
+    if canonical_symbol is None:
+        raise HTTPException(status_code=404, detail="Unknown market index symbol")
+
+    normalized_range, period_start, period_end, interval = _resolve_index_history_window(
+        range_key,
+        start_date,
+    )
+    cache_key = _index_history_cache_key(canonical_symbol, normalized_range, interval, period_start)
+    cached = _load_json_cache(cache_key, INDICES_CACHE_TTL)
+    if cached is not None:
+        return cached
+
+    session = get_session()
+    try:
+        points = _fetch_index_history_series(canonical_symbol, interval, period_start, period_end, session)
+    finally:
+        session.close()
+
+    result = {
+        "symbol": canonical_symbol,
+        "name": HEADER_INDICES[canonical_symbol],
+        "range": normalized_range,
+        "interval": interval,
+        "points": points,
+        "updated_at": datetime.now(timezone.utc).isoformat(),
+    }
+
+    _save_json_cache(cache_key, result)
+
     return result
 
 
