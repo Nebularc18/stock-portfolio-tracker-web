@@ -83,8 +83,6 @@ export function __resetPortfolioRequestCachesForTests(): void {
   clearPortfolioDataCaches()
   exchangeRatesBatchRequestCache.clear()
   exchangeRatesBatchValueCache.clear()
-  marketIndexHistoryRequestCache.clear()
-  marketIndexHistoryValueCache.clear()
 }
 
 function getAuthStorage(): Storage | null {

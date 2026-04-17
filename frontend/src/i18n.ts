@@ -923,9 +923,9 @@ const sv: LocaleTranslations = {
     'dashboard.rangeYTD': 'YTD',
     'dashboard.range1Y': '1 år',
     'dashboard.rangeSinceStart': 'Sedan start',
-    'dashboard.compareTo': 'Jamfor',
+    'dashboard.compareTo': 'Jämför',
     'dashboard.noBenchmark': 'Ingen marknad',
-    'dashboard.portfolio': 'Portfolj',
+    'dashboard.portfolio': 'Portfölj',
     'dashboard.benchmarkLoading': 'Laddar benchmark',
     'dashboard.benchmarkUnavailable': 'Benchmark ej tillgänglig',
 

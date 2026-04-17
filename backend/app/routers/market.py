@@ -113,13 +113,20 @@ def _resolve_index_history_window(
     return normalized_range, parsed_start_date, now, "1d"
 
 
+def _index_history_cache_bucket(range_key: str, period_start: datetime) -> str:
+    normalized_range = range_key.strip().lower()
+    if normalized_range in {"since_start", "all"}:
+        return f"{period_start.year}"
+    return period_start.date().isoformat().replace("-", "")
+
+
 def _index_history_cache_key(
     symbol: str,
     range_key: str,
     interval: str,
     period_start: datetime,
 ) -> str:
-    start_key = period_start.date().isoformat().replace("-", "")
+    start_key = _index_history_cache_bucket(range_key, period_start)
     return f"market_index_history_{_safe_cache_token(symbol)}_{range_key}_{interval}_{start_key}.json"
 
 
