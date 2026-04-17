@@ -413,6 +413,11 @@ const en = {
     'dashboard.rangeYTD': 'YTD',
     'dashboard.range1Y': '1 Year',
     'dashboard.rangeSinceStart': 'Since Start',
+    'dashboard.compareTo': 'Compare',
+    'dashboard.noBenchmark': 'No market',
+    'dashboard.portfolio': 'Portfolio',
+    'dashboard.benchmarkLoading': 'Loading benchmark',
+    'dashboard.benchmarkUnavailable': 'Benchmark unavailable',
 
     'performance.totalValue': 'TOTAL VALUE',
     'performance.totalCost': 'TOTAL COST',
@@ -918,6 +923,11 @@ const sv: LocaleTranslations = {
     'dashboard.rangeYTD': 'YTD',
     'dashboard.range1Y': '1 år',
     'dashboard.rangeSinceStart': 'Sedan start',
+    'dashboard.compareTo': 'Jamfor',
+    'dashboard.noBenchmark': 'Ingen marknad',
+    'dashboard.portfolio': 'Portfolj',
+    'dashboard.benchmarkLoading': 'Laddar benchmark',
+    'dashboard.benchmarkUnavailable': 'Benchmark ej tillganglig',
 
     'performance.totalValue': 'TOTALT VÄRDE',
     'performance.totalCost': 'TOTAL KOSTNAD',
