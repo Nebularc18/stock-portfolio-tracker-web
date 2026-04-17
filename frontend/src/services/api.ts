@@ -991,15 +991,19 @@ export const api = {
       if (options.startDate) params.set('start_date', options.startDate)
       const query = params.toString()
       const key = `${symbol}:${query || '__default__'}`
-      if (requestOptions?.signal) {
-        return fetchAPI<MarketIndexHistory>(`/market/indices/${encodePathSegment(symbol)}/history${query ? `?${query}` : ''}`, requestOptions)
-      }
+      const endpoint = `/market/indices/${encodePathSegment(symbol)}/history${query ? `?${query}` : ''}`
       const cachedValue = getCachedValue(marketIndexHistoryValueCache, key)
       if (cachedValue) return Promise.resolve(cachedValue)
+
+      if (requestOptions?.signal) {
+        return fetchAPI<MarketIndexHistory>(endpoint, requestOptions)
+          .then((value) => setCachedValue(marketIndexHistoryValueCache, key, value, MARKET_INDEX_HISTORY_CACHE_TTL_MS))
+      }
+
       const cached = marketIndexHistoryRequestCache.get(key)
       if (cached) return cached
 
-      const request = fetchAPI<MarketIndexHistory>(`/market/indices/${encodePathSegment(symbol)}/history${query ? `?${query}` : ''}`)
+      const request = fetchAPI<MarketIndexHistory>(endpoint)
         .then((value) => setCachedValue(marketIndexHistoryValueCache, key, value, MARKET_INDEX_HISTORY_CACHE_TTL_MS))
         .finally(() => {
           marketIndexHistoryRequestCache.delete(key)

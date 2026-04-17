@@ -931,8 +931,7 @@ def get_market_index_history(
         "updated_at": datetime.now(timezone.utc).isoformat(),
     }
 
-    if points:
-        _save_json_cache(cache_key, result)
+    _save_json_cache(cache_key, result)
 
     return result
 
