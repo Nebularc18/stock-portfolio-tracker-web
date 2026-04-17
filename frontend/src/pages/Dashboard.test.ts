@@ -8,6 +8,8 @@ import {
   extendFrozenDayChartDataToNow,
   getDashboardDataCacheKey,
   getDashboardHistoryCacheKey,
+  getDashboardRefreshBucketMs,
+  getLatestDashboardHistoryTimeMs,
   getNextDashboardRefreshDelayMs,
   getPreviousCloseBaselineValue,
   getStoredHistoryRange,
@@ -16,6 +18,7 @@ import {
   readDashboardDataCache,
   readDashboardHistoryCache,
   shouldAutoRefreshDashboard,
+  shouldRetryDashboardRefresh,
 } from './Dashboard'
 
 function createValidDashboardDataCache() {
@@ -289,5 +292,31 @@ describe('dashboard storage helpers', () => {
     expect(DASHBOARD_AUTO_REFRESH_INTERVAL_MS).toBe(10 * 60 * 1000)
     expect(getNextDashboardRefreshDelayMs(Date.parse('2026-03-26T08:01:00Z'))).toBe(9 * 60 * 1000 + 5_000)
     expect(getNextDashboardRefreshDelayMs(Date.parse('2026-03-26T08:10:00Z'))).toBe(5_000)
+  })
+
+  it('maps dashboard auto-refresh checks to the current 10-minute bucket', () => {
+    expect(getDashboardRefreshBucketMs(Date.parse('2026-03-26T08:19:30Z'))).toBe(Date.parse('2026-03-26T08:10:00Z'))
+    expect(getDashboardRefreshBucketMs(Date.parse('2026-03-26T08:20:00Z'))).toBe(Date.parse('2026-03-26T08:20:00Z'))
+  })
+
+  it('retries dashboard auto-refresh until the current scheduler bucket is present', () => {
+    const now = Date.parse('2026-03-26T08:20:05Z')
+
+    expect(shouldRetryDashboardRefresh([
+      { date: '2026-03-26T08:10:00Z', value: 100 },
+    ], now)).toBe(true)
+
+    expect(shouldRetryDashboardRefresh([
+      { date: '2026-03-26T08:10:00Z', value: 100 },
+      { date: '2026-03-26T08:20:00Z', value: 101 },
+    ], now)).toBe(false)
+  })
+
+  it('finds the latest dashboard history timestamp', () => {
+    expect(getLatestDashboardHistoryTimeMs([
+      { date: '2026-03-26T08:20:00Z', value: 101 },
+      { date: 'not-a-date', value: 0 },
+      { date: '2026-03-26T08:10:00Z', value: 100 },
+    ])).toBe(Date.parse('2026-03-26T08:20:00Z'))
   })
 })

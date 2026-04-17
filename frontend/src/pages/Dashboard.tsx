@@ -61,6 +61,8 @@ const DASHBOARD_CACHE_TTL_MS = 30 * 60 * 1000
 export const DASHBOARD_AUTO_REFRESH_INTERVAL_MS = 10 * 60 * 1000
 const DASHBOARD_AUTO_REFRESH_BUFFER_MS = 5_000
 const DASHBOARD_AUTO_REFRESH_MIN_DELAY_MS = 5_000
+const DASHBOARD_AUTO_REFRESH_RETRY_INTERVAL_MS = 15_000
+const DASHBOARD_AUTO_REFRESH_RETRY_WINDOW_MS = 2 * 60 * 1000
 
 type ReturnRangeKey = Exclude<HistoryRangeKey, '1D'>
 type HoldingsMetricMode = 'currency' | 'percent'
@@ -363,6 +365,28 @@ export function getNextDashboardRefreshDelayMs(now: number = Date.now()): number
   )
 }
 
+export function getDashboardRefreshBucketMs(now: number = Date.now()): number {
+  return Math.floor(now / DASHBOARD_AUTO_REFRESH_INTERVAL_MS) * DASHBOARD_AUTO_REFRESH_INTERVAL_MS
+}
+
+export function getLatestDashboardHistoryTimeMs(history: DashboardHistoryEntry[]): number | null {
+  let latest: number | null = null
+  for (const point of history) {
+    const parsed = parseHistoryDate(point.date).getTime()
+    if (!Number.isFinite(parsed)) continue
+    if (latest === null || parsed > latest) latest = parsed
+  }
+  return latest
+}
+
+export function shouldRetryDashboardRefresh(
+  history: DashboardHistoryEntry[],
+  now: number = Date.now(),
+): boolean {
+  const latestHistoryTime = getLatestDashboardHistoryTimeMs(history)
+  return latestHistoryTime === null || latestHistoryTime < getDashboardRefreshBucketMs(now)
+}
+
 export function shouldAutoRefreshDashboard(
   summary: Pick<PortfolioSummary, 'auto_refresh_active'> | null | undefined,
 ): boolean {
@@ -654,6 +678,7 @@ export default function Dashboard() {
   const dataAbortControllerRef = useRef<AbortController | null>(null)
   const upcomingDividendsRef = useRef<UpcomingDividend[]>(initialDashboardState.cachedData?.upcomingDividends ?? [])
   const totalRemainingDividendsRef = useRef(initialDashboardState.cachedData?.totalRemainingDividends ?? 0)
+  const portfolioHistoryRef = useRef<DashboardHistoryEntry[]>(initialDashboardState.cachedHistory?.history ?? [])
   const initialDataReadPendingRef = useRef(true)
   const initialHistoryReadPendingRef = useRef(true)
   const autoRefreshTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
@@ -673,6 +698,7 @@ export default function Dashboard() {
   const [holdingsReturnRange, setHoldingsReturnRange] = useState<ReturnRangeKey>('SINCE_START')
   upcomingDividendsRef.current = upcomingDividends
   totalRemainingDividendsRef.current = totalRemainingDividends
+  portfolioHistoryRef.current = portfolioHistory
   summaryRef.current = summary
 
   useEffect(() => {
@@ -694,6 +720,7 @@ export default function Dashboard() {
     try {
       const historyData = await api.portfolio.history({ range: rangeQuery }, requestUserId, signal ? { signal } : undefined)
       if (requestId !== historyRequestIdRef.current) return
+      portfolioHistoryRef.current = historyData
       setPortfolioHistory(historyData)
       setHistoryError(null)
       writeDashboardHistoryCache(range, requestUserId, historyData)
@@ -747,6 +774,9 @@ export default function Dashboard() {
       }
       const nextUpcomingDividends = upcomingDivsData?.dividends ?? upcomingDividendsRef.current
       const nextTotalRemainingDividends = upcomingDivsData?.total_remaining ?? totalRemainingDividendsRef.current
+      summaryRef.current = summaryData
+      upcomingDividendsRef.current = nextUpcomingDividends
+      totalRemainingDividendsRef.current = nextTotalRemainingDividends
       setSummary(summaryData)
       setUpcomingDividends(nextUpcomingDividends)
       setTotalRemainingDividends(nextTotalRemainingDividends)
@@ -791,6 +821,9 @@ export default function Dashboard() {
     initialDataReadPendingRef.current = false
     setErrorKey(null)
     if (cachedData) {
+      summaryRef.current = cachedData.summary
+      upcomingDividendsRef.current = cachedData.upcomingDividends
+      totalRemainingDividendsRef.current = cachedData.totalRemainingDividends
       setSummary(cachedData.summary)
       setUpcomingDividends(cachedData.upcomingDividends)
       setTotalRemainingDividends(cachedData.totalRemainingDividends)
@@ -798,6 +831,9 @@ export default function Dashboard() {
       setLoading(false)
       void fetchData({ background: true })
     } else {
+      summaryRef.current = null
+      upcomingDividendsRef.current = []
+      totalRemainingDividendsRef.current = 0
       setSummary(null)
       setUpcomingDividends([])
       setTotalRemainingDividends(0)
@@ -831,11 +867,13 @@ export default function Dashboard() {
       : readDashboardHistoryCache(historyRange, currentUserId)
     initialHistoryReadPendingRef.current = false
     if (cachedHistory) {
+      portfolioHistoryRef.current = cachedHistory.history
       setPortfolioHistory(cachedHistory.history)
       setHistoryError(null)
       setHistoryLoading(false)
       void fetchHistory(historyRange, { background: true, signal: controller.signal })
     } else {
+      portfolioHistoryRef.current = []
       setPortfolioHistory([])
       setHistoryError(null)
       setHistoryLoading(true)
@@ -872,25 +910,42 @@ export default function Dashboard() {
       autoRefreshTimeoutRef.current = null
     }
 
-    const scheduleNextRefresh = () => {
+    const scheduleNextRefresh = (delayMs = getNextDashboardRefreshDelayMs(), retryUntilMs: number | null = null) => {
       if (lastAutoRefreshRunRef.current !== runId) return
       autoRefreshTimeoutRef.current = setTimeout(() => {
         if (lastAutoRefreshRunRef.current !== runId) return
-        if (!shouldAutoRefreshDashboard(summaryRef.current)) {
-          scheduleNextRefresh()
-          return
-        }
+        const nextRetryUntilMs = retryUntilMs ?? Date.now() + DASHBOARD_AUTO_REFRESH_RETRY_WINDOW_MS
         refreshController?.abort()
         refreshController = new AbortController()
-        void Promise.allSettled([
-          fetchData({ background: true }),
-          fetchHistory(historyRangeRef.current, { background: true, signal: refreshController.signal }),
-        ]).finally(() => {
-          if (lastAutoRefreshRunRef.current === runId) {
+        const wasActive = shouldAutoRefreshDashboard(summaryRef.current)
+        const refreshWork: Promise<unknown>[] = [fetchData({ background: true })]
+        if (wasActive) {
+          refreshWork.push(fetchHistory(historyRangeRef.current, { background: true, signal: refreshController.signal }))
+        }
+
+        void Promise.allSettled(refreshWork)
+          .then(async () => {
+            if (lastAutoRefreshRunRef.current !== runId) return
+            if (!wasActive && shouldAutoRefreshDashboard(summaryRef.current)) {
+              refreshController?.abort()
+              refreshController = new AbortController()
+              await fetchHistory(historyRangeRef.current, { background: true, signal: refreshController.signal })
+            }
+          })
+          .finally(() => {
+            if (lastAutoRefreshRunRef.current !== runId) return
+            const now = Date.now()
+            if (
+              shouldAutoRefreshDashboard(summaryRef.current)
+              && shouldRetryDashboardRefresh(portfolioHistoryRef.current, now)
+              && now < nextRetryUntilMs
+            ) {
+              scheduleNextRefresh(Math.min(DASHBOARD_AUTO_REFRESH_RETRY_INTERVAL_MS, nextRetryUntilMs - now), nextRetryUntilMs)
+              return
+            }
             scheduleNextRefresh()
-          }
-        })
-      }, getNextDashboardRefreshDelayMs())
+          })
+      }, delayMs)
     }
 
     scheduleNextRefresh()
