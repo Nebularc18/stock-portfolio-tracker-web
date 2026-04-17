@@ -369,9 +369,10 @@ export function getDashboardRefreshBucketMs(now: number = Date.now()): number {
   return Math.floor(now / DASHBOARD_AUTO_REFRESH_INTERVAL_MS) * DASHBOARD_AUTO_REFRESH_INTERVAL_MS
 }
 
-export function getLatestDashboardHistoryTimeMs(history: DashboardHistoryEntry[]): number | null {
+export function getLatestDashboardHistoryTimeMs(history: readonly unknown[]): number | null {
   let latest: number | null = null
   for (const point of history) {
+    if (!isDashboardHistoryEntry(point)) continue
     const parsed = parseHistoryDate(point.date).getTime()
     if (!Number.isFinite(parsed)) continue
     if (latest === null || parsed > latest) latest = parsed
@@ -380,7 +381,7 @@ export function getLatestDashboardHistoryTimeMs(history: DashboardHistoryEntry[]
 }
 
 export function shouldRetryDashboardRefresh(
-  history: DashboardHistoryEntry[],
+  history: readonly unknown[],
   now: number = Date.now(),
 ): boolean {
   const latestHistoryTime = getLatestDashboardHistoryTimeMs(history)
@@ -718,8 +719,12 @@ export default function Dashboard() {
     }
     const rangeQuery = HISTORY_RANGE_QUERY_BY_KEY[range]
     try {
-      const historyData = await api.portfolio.history({ range: rangeQuery }, requestUserId, signal ? { signal } : undefined)
+      const historyResponse: unknown = await api.portfolio.history({ range: rangeQuery }, requestUserId, signal ? { signal } : undefined)
       if (requestId !== historyRequestIdRef.current) return
+      if (!Array.isArray(historyResponse) || !historyResponse.every(isDashboardHistoryEntry)) {
+        throw new Error('Invalid portfolio history response')
+      }
+      const historyData = historyResponse
       portfolioHistoryRef.current = historyData
       setPortfolioHistory(historyData)
       setHistoryError(null)

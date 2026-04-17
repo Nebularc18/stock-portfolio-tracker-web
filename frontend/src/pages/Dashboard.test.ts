@@ -312,11 +312,24 @@ describe('dashboard storage helpers', () => {
     ], now)).toBe(false)
   })
 
+  it('retries dashboard auto-refresh when history is empty', () => {
+    expect(shouldRetryDashboardRefresh([], Date.parse('2026-03-26T08:20:05Z'))).toBe(true)
+  })
+
   it('finds the latest dashboard history timestamp', () => {
     expect(getLatestDashboardHistoryTimeMs([
       { date: '2026-03-26T08:20:00Z', value: 101 },
       { date: 'not-a-date', value: 0 },
       { date: '2026-03-26T08:10:00Z', value: 100 },
+    ])).toBe(Date.parse('2026-03-26T08:20:00Z'))
+  })
+
+  it('ignores dashboard history entries with non-string dates', () => {
+    expect(getLatestDashboardHistoryTimeMs([
+      { date: 123, value: 999 },
+      { value: 200 },
+      null,
+      { date: '2026-03-26T08:20:00Z', value: 101 },
     ])).toBe(Date.parse('2026-03-26T08:20:00Z'))
   })
 })
