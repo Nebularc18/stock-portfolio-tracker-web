@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
 import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip, BarChart, Bar, XAxis, YAxis, CartesianGrid, Legend } from 'recharts'
-import { api, Dividend, DistributionResponse, DividendsByTicker } from '../services/api'
+import { api, Dividend, DistributionResponse, DividendsByTicker, Stock, UpcomingDividend } from '../services/api'
 import { useSettings } from '../SettingsContext'
 import { getLocaleForLanguage, t } from '../i18n'
 import { formatDisplayName } from '../utils/displayName'
@@ -16,6 +16,12 @@ const COMPARISON_COLORS = ['#818cf8', '#4ade80', '#fbbf24']
 type DividendComparisonRow = {
   month: string
 } & Record<string, number | string>
+
+export type DividendComparisonEvent = {
+  year: number
+  monthIndex: number
+  value: number
+}
 
 type DistributionDatum = {
   id?: string
@@ -171,6 +177,62 @@ function convertDividendValue(
   return null
 }
 
+export function buildDividendComparisonEvents(
+  stocksData: Stock[],
+  dividendsByTicker: DividendsByTicker,
+  currentYearDividends: UpcomingDividend[] | null,
+  targetCurrency: string,
+  fxRatesByDate: Record<string, Record<string, number | null>>,
+  currentYear: number,
+): DividendComparisonEvent[] {
+  const dividendEvents: DividendComparisonEvent[] = []
+  const usePortfolioCurrentYear = currentYearDividends !== null
+
+  for (const stock of stocksData) {
+    const dividends = (dividendsByTicker[stock.ticker] || []) as Dividend[]
+    for (const div of dividends) {
+      const payoutDate = div.payment_date || div.date
+      if (!payoutDate) continue
+      const year = Number(payoutDate.slice(0, 4))
+      if (usePortfolioCurrentYear && year === currentYear) continue
+
+      const quantityAtPayout = getQuantityHeldOnDate(stock.position_entries || [], div.date, stock.quantity)
+      if (quantityAtPayout <= 0) continue
+
+      const monthIndex = Number(payoutDate.slice(5, 7)) - 1
+      if (!Number.isFinite(year) || monthIndex < 0 || monthIndex > 11) continue
+      const sourceCurrency = div.currency || stock.currency
+      const fxRates = fxRatesByDate[payoutDate]
+      if (!fxRates && sourceCurrency !== targetCurrency) continue
+      const convertedAmount = convertDividendValue(div.amount || 0, sourceCurrency, targetCurrency, fxRates)
+      if (convertedAmount === null) continue
+      dividendEvents.push({
+        year,
+        monthIndex,
+        value: convertedAmount * quantityAtPayout,
+      })
+    }
+  }
+
+  if (currentYearDividends) {
+    for (const div of currentYearDividends) {
+      const payoutDate = div.payment_date || div.ex_date
+      if (!payoutDate || div.total_converted === null) continue
+      const year = Number(payoutDate.slice(0, 4))
+      if (year !== currentYear) continue
+      const monthIndex = Number(payoutDate.slice(5, 7)) - 1
+      if (!Number.isFinite(year) || monthIndex < 0 || monthIndex > 11) continue
+      dividendEvents.push({
+        year,
+        monthIndex,
+        value: div.total_converted,
+      })
+    }
+  }
+
+  return dividendEvents
+}
+
 /**
  * Render the Analytics page showing portfolio, sector, and country distributions and an optional dividend comparison chart.
  *
@@ -231,11 +293,16 @@ export default function Analytics() {
         const now = new Date()
         const currentYear = now.getUTCFullYear()
         const fallbackYears = [currentYear - 2, currentYear - 1, currentYear]
-        const dividendEvents: Array<{ year: number; monthIndex: number; value: number }> = []
 
-        const dividendsByTicker: DividendsByTicker = stocksData.length > 0
-          ? await api.stocks.dividendsForTickers(stocksData.map((stock) => stock.ticker), 5)
-          : {}
+        const [dividendsByTicker, currentYearDividendData] = await Promise.all([
+          stocksData.length > 0
+            ? api.stocks.dividendsForTickers(stocksData.map((stock) => stock.ticker), 5)
+            : Promise.resolve({} as DividendsByTicker),
+          api.portfolio.upcomingDividends().catch((error) => {
+            console.error('Failed to load current-year dividend comparison data:', error)
+            return null
+          }),
+        ])
 
         const dividendResults = stocksData.map((stock) => ({
           stock,
@@ -256,27 +323,14 @@ export default function Analytics() {
             })
           : {}
 
-        for (const { stock, dividends } of dividendResults) {
-          for (const div of dividends) {
-            const quantityAtPayout = getQuantityHeldOnDate(stock.position_entries || [], div.date, stock.quantity)
-            if (quantityAtPayout <= 0) continue
-            const payoutDate = div.payment_date || div.date
-            if (!payoutDate) continue
-            const year = Number(payoutDate.slice(0, 4))
-            const monthIndex = Number(payoutDate.slice(5, 7)) - 1
-            if (!Number.isFinite(year) || monthIndex < 0 || monthIndex > 11) continue
-            const sourceCurrency = div.currency || stock.currency
-            const fxRates = fxRatesByDate[payoutDate]
-            if (!fxRates && sourceCurrency !== targetCurrency) continue
-            const convertedAmount = convertDividendValue(div.amount || 0, div.currency || stock.currency, targetCurrency, fxRates)
-            if (convertedAmount === null) continue
-            dividendEvents.push({
-              year,
-              monthIndex,
-              value: convertedAmount * quantityAtPayout,
-            })
-          }
-        }
+        const dividendEvents = buildDividendComparisonEvents(
+          stocksData,
+          dividendsByTicker,
+          currentYearDividendData?.dividends ?? null,
+          targetCurrency,
+          fxRatesByDate,
+          currentYear,
+        )
 
         const actualYears = Array.from(new Set(dividendEvents.map((event) => event.year))).sort((a, b) => a - b)
         const sortedYears = actualYears.length > 0 ? actualYears : fallbackYears
