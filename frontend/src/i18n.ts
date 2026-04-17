@@ -927,7 +927,7 @@ const sv: LocaleTranslations = {
     'dashboard.noBenchmark': 'Ingen marknad',
     'dashboard.portfolio': 'Portfolj',
     'dashboard.benchmarkLoading': 'Laddar benchmark',
-    'dashboard.benchmarkUnavailable': 'Benchmark ej tillganglig',
+    'dashboard.benchmarkUnavailable': 'Benchmark ej tillgänglig',
 
     'performance.totalValue': 'TOTALT VÄRDE',
     'performance.totalCost': 'TOTAL KOSTNAD',
