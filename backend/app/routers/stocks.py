@@ -5,6 +5,7 @@ including CRUD operations, dividend tracking, and analyst data.
 """
 
 from fastapi import APIRouter, Body, Depends, HTTPException, Query
+from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.orm import Session
 from pydantic import BaseModel, ValidationError, field_validator
 from typing import Optional
@@ -15,7 +16,7 @@ import time
 import json
 import hashlib
 import threading
-from datetime import date, datetime
+from datetime import date, datetime, timedelta, timezone
 
 from app.main import get_db, get_current_user, User, Stock, StockCreate, StockUpdate, StockResponse, StockPriceHistory
 from app.utils.time import utc_now
@@ -140,6 +141,97 @@ def _append_position_entries(stock: Stock, additional_entries: list[dict]) -> St
     existing_entries = _get_normalized_stock_position_entries(stock)
     stock.position_entries = [*existing_entries, *additional_entries]
     return _apply_stock_position_snapshot(stock)
+
+
+def _normalize_history_timestamp(value: datetime | date) -> datetime:
+    if isinstance(value, datetime):
+        normalized = value.astimezone(timezone.utc) if value.tzinfo else value.replace(tzinfo=timezone.utc)
+        return normalized.replace(hour=0, minute=0, second=0, microsecond=0)
+    return datetime(value.year, value.month, value.day, tzinfo=timezone.utc)
+
+
+def _upsert_stock_price_history_rows(
+    db: Session,
+    user_id: int,
+    ticker: str,
+    rows: list[dict],
+) -> int:
+    normalized_rows: dict[datetime, dict] = {}
+    for row in rows:
+        recorded_at = row.get("recorded_at")
+        price = row.get("price")
+        currency = _normalize_optional_currency_code(row.get("currency"))
+        if recorded_at is None or price is None or currency is None:
+            continue
+
+        normalized_rows[_normalize_history_timestamp(recorded_at)] = {
+            "user_id": user_id,
+            "ticker": ticker.upper(),
+            "price": float(price),
+            "currency": currency,
+            "recorded_at": _normalize_history_timestamp(recorded_at),
+        }
+
+    if not normalized_rows:
+        return 0
+
+    stmt = insert(StockPriceHistory).values(list(normalized_rows.values()))
+    stmt = stmt.on_conflict_do_update(
+        index_elements=[
+            StockPriceHistory.user_id,
+            StockPriceHistory.ticker,
+            StockPriceHistory.recorded_at,
+        ],
+        set_={
+            "price": stmt.excluded.price,
+            "currency": stmt.excluded.currency,
+        },
+    )
+    db.execute(stmt)
+    return len(normalized_rows)
+
+
+def _backfill_stock_price_history(
+    db: Session,
+    user_id: int,
+    ticker: str,
+    purchase_date: Optional[date],
+    stock_service,
+    current_price: Optional[float] = None,
+    current_currency: Optional[str] = None,
+) -> int:
+    if purchase_date is None:
+        return 0
+
+    today = utc_now().date()
+    if purchase_date > today:
+        return 0
+
+    ticker_upper = ticker.upper()
+    existing_rows = db.query(StockPriceHistory).filter(
+        StockPriceHistory.user_id == user_id,
+        StockPriceHistory.ticker == ticker_upper,
+    ).order_by(StockPriceHistory.recorded_at.asc()).all()
+
+    rows_to_upsert: list[dict] = []
+    if existing_rows:
+        earliest_existing_date = _normalize_history_timestamp(existing_rows[0].recorded_at).date()
+        fetch_end_date = min(today - timedelta(days=1), earliest_existing_date - timedelta(days=1))
+    else:
+        fetch_end_date = today - timedelta(days=1)
+
+    if purchase_date <= fetch_end_date:
+        rows_to_upsert.extend(stock_service.get_daily_price_history(ticker_upper, purchase_date, fetch_end_date))
+
+    normalized_currency = _normalize_optional_currency_code(current_currency)
+    if current_price is not None and normalized_currency is not None:
+        rows_to_upsert.append({
+            "recorded_at": datetime(today.year, today.month, today.day, tzinfo=timezone.utc),
+            "price": current_price,
+            "currency": normalized_currency,
+        })
+
+    return _upsert_stock_price_history_rows(db, user_id, ticker_upper, rows_to_upsert)
 
 
 def _build_dividends_batch_cache_key(user_id: int, years: int, normalized_tickers: list[str], stocks_by_ticker: dict[str, Stock]) -> str:
@@ -709,9 +801,18 @@ def create_stock(payload: dict = Body(...), db: Session = Depends(get_db), curre
     ).first()
     if existing:
         _append_position_entries(existing, snapshot['position_entries'])
+        backfilled_rows = _backfill_stock_price_history(
+            db,
+            current_user.id,
+            ticker,
+            existing.purchase_date,
+            stock_service,
+            current_price=existing.current_price,
+            current_currency=existing.currency,
+        )
         db.commit()
         db.refresh(existing)
-        logger.info("Added new lot to existing stock: %s", ticker)
+        logger.info("Added new lot to existing stock: %s (backfilled %s history rows)", ticker, backfilled_rows)
         return existing
 
     is_valid = stock_service.validate_ticker(ticker)
@@ -746,11 +847,20 @@ def create_stock(payload: dict = Body(...), db: Session = Depends(get_db), curre
         dividend_per_share=info.get("dividend_per_share"),
         last_updated=utc_now(),
     )
-    
+
     db.add(stock)
+    backfilled_rows = _backfill_stock_price_history(
+        db,
+        current_user.id,
+        ticker,
+        purchase_date,
+        stock_service,
+        current_price=stock.current_price,
+        current_currency=stock.currency,
+    )
     db.commit()
     db.refresh(stock)
-    logger.info(f"Successfully added stock: {ticker}")
+    logger.info("Successfully added stock: %s (backfilled %s history rows)", ticker, backfilled_rows)
     return stock
 
 
