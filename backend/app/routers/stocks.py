@@ -208,14 +208,14 @@ def _backfill_stock_price_history(
         return 0
 
     ticker_upper = ticker.upper()
-    existing_rows = db.query(StockPriceHistory).filter(
+    earliest_existing_row = db.query(StockPriceHistory).filter(
         StockPriceHistory.user_id == user_id,
         StockPriceHistory.ticker == ticker_upper,
-    ).order_by(StockPriceHistory.recorded_at.asc()).all()
+    ).order_by(StockPriceHistory.recorded_at.asc()).first()
 
     rows_to_upsert: list[dict] = []
-    if existing_rows:
-        earliest_existing_date = _normalize_history_timestamp(existing_rows[0].recorded_at).date()
+    if earliest_existing_row is not None:
+        earliest_existing_date = _normalize_history_timestamp(earliest_existing_row.recorded_at).date()
         fetch_end_date = min(today - timedelta(days=1), earliest_existing_date - timedelta(days=1))
     else:
         fetch_end_date = today - timedelta(days=1)

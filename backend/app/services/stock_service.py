@@ -62,6 +62,7 @@ CURRENCY_MAP = {
 
 _TICKER_CACHE: Dict[str, tuple] = {}
 _CACHE_TTL = 300
+_YAHOO_REQUEST_TIMEOUT_SECONDS = float(os.getenv("YAHOO_REQUEST_TIMEOUT_SECONDS", "10"))
 
 _DIVIDEND_CACHE: Dict[str, tuple] = {}
 _DIVIDEND_CACHE_TTL = 86400 * 30
@@ -438,7 +439,8 @@ class StockService:
         alongside the scheduler-generated daily snapshots.
         """
         ticker_upper = ticker.upper()
-        resolved_end_date = end_date or datetime.now(timezone.utc).date()
+        today = datetime.now(timezone.utc).date()
+        resolved_end_date = min(end_date or today, today)
 
         if start_date > resolved_end_date:
             return []
@@ -460,7 +462,7 @@ class StockService:
                 f"&period2={int(period_end.timestamp())}"
                 f"&interval=1d"
             )
-            response = session.get(url, timeout=10)
+            response = session.get(url, timeout=_YAHOO_REQUEST_TIMEOUT_SECONDS)
 
             if response.status_code == 429:
                 logger.warning("Rate limited by Yahoo Finance while fetching history for %s", ticker_upper)
