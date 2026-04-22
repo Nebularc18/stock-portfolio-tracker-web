@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from collections import defaultdict
 from datetime import date, datetime, timedelta, timezone
+import logging
 from typing import Any, Optional, Sequence
 
 from sqlalchemy.dialects.postgresql import insert
@@ -9,6 +10,8 @@ from sqlalchemy.orm import Session
 
 from app.services.exchange_rate_service import ExchangeRateService
 from app.services.position_service import get_quantity_held_on_date, has_position_history, normalize_position_entries
+
+logger = logging.getLogger(__name__)
 
 
 def _normalize_history_timestamp(value: datetime | date) -> datetime:
@@ -110,6 +113,7 @@ def collect_missing_portfolio_history_rows(
             continue
 
         total_value_sek = 0.0
+        eligible_positions = 0
         included_positions = 0
 
         for stock_index, stock_data in enumerate(tracked_stocks):
@@ -134,6 +138,7 @@ def collect_missing_portfolio_history_rows(
             )
             if quantity <= 0:
                 continue
+            eligible_positions += 1
 
             price = getattr(latest_row, "price", None)
             if price is None:
@@ -152,6 +157,14 @@ def collect_missing_portfolio_history_rows(
 
         if included_positions == 0:
             continue
+
+        if included_positions < eligible_positions:
+            logger.debug(
+                "Backfilled partial portfolio history snapshot for %s: included %s of %s held positions",
+                snapshot_day.date().isoformat(),
+                included_positions,
+                eligible_positions,
+            )
 
         missing_rows.append({
             "date": snapshot_day,
