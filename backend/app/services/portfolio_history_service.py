@@ -126,10 +126,6 @@ def collect_missing_portfolio_history_rows(
                 latest_rows[stock_index] = candidate
                 price_indexes[stock_index] += 1
 
-            latest_row = latest_rows[stock_index]
-            if latest_row is None:
-                continue
-
             # Position helper uses an exclusive purchase-date boundary, so use the
             # next day to evaluate end-of-day holdings for this snapshot date.
             quantity = get_quantity_held_on_date(
@@ -139,6 +135,10 @@ def collect_missing_portfolio_history_rows(
             if quantity <= 0:
                 continue
             eligible_positions += 1
+
+            latest_row = latest_rows[stock_index]
+            if latest_row is None:
+                continue
 
             price = getattr(latest_row, "price", None)
             if price is None:
@@ -179,26 +179,34 @@ def backfill_portfolio_history_from_prices(
     user_id: int,
     *,
     start_date: Optional[date] = None,
+    portfolio_history_model: Any = None,
+    stock_model: Any = None,
+    stock_price_history_model: Any = None,
 ) -> int:
-    from app.main import PortfolioHistory, Stock, StockPriceHistory
+    if portfolio_history_model is None or stock_model is None or stock_price_history_model is None:
+        from app.main import PortfolioHistory, Stock, StockPriceHistory
 
-    stocks = db.query(Stock).filter(Stock.user_id == user_id).all()
+        portfolio_history_model = portfolio_history_model or PortfolioHistory
+        stock_model = stock_model or Stock
+        stock_price_history_model = stock_price_history_model or StockPriceHistory
+
+    stocks = db.query(stock_model).filter(stock_model.user_id == user_id).all()
     tickers = [str(getattr(stock, "ticker", "") or "").upper() for stock in stocks if getattr(stock, "ticker", None)]
     if not tickers:
         return 0
 
-    price_rows = db.query(StockPriceHistory).filter(
-        StockPriceHistory.user_id == user_id,
-        StockPriceHistory.ticker.in_(tickers),
-    ).order_by(StockPriceHistory.ticker.asc(), StockPriceHistory.recorded_at.asc()).all()
+    price_rows = db.query(stock_price_history_model).filter(
+        stock_price_history_model.user_id == user_id,
+        stock_price_history_model.ticker.in_(tickers),
+    ).order_by(stock_price_history_model.ticker.asc(), stock_price_history_model.recorded_at.asc()).all()
     if not price_rows:
         return 0
 
-    existing_history_query = db.query(PortfolioHistory).filter(PortfolioHistory.user_id == user_id)
+    existing_history_query = db.query(portfolio_history_model).filter(portfolio_history_model.user_id == user_id)
     if start_date is not None:
         normalized_start = _normalize_history_timestamp(start_date)
         existing_history_query = existing_history_query.filter(
-            PortfolioHistory.date >= normalized_start,
+            portfolio_history_model.date >= normalized_start,
         )
     existing_history_rows = existing_history_query.all()
 
@@ -225,7 +233,7 @@ def backfill_portfolio_history_from_prices(
     if not rows_to_upsert:
         return 0
 
-    stmt = insert(PortfolioHistory).values([
+    stmt = insert(portfolio_history_model).values([
         {
             "user_id": user_id,
             "date": _normalize_history_timestamp(row["date"]),
@@ -234,7 +242,7 @@ def backfill_portfolio_history_from_prices(
         for row in rows_to_upsert
     ])
     stmt = stmt.on_conflict_do_update(
-        index_elements=[PortfolioHistory.user_id, PortfolioHistory.date],
+        index_elements=[portfolio_history_model.user_id, portfolio_history_model.date],
         set_={"total_value": stmt.excluded.total_value},
     )
     db.execute(stmt)
