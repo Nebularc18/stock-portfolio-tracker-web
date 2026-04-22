@@ -55,7 +55,7 @@ def _is_close_portfolio_total(existing_value: Any, recalculated_value: float) ->
         normalized_existing = float(existing_value)
     except (TypeError, ValueError):
         return False
-    if not math.isfinite(normalized_existing):
+    if not math.isfinite(normalized_existing) or not math.isfinite(recalculated_value):
         return False
     return math.isclose(
         normalized_existing,
