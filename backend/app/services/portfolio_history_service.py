@@ -5,6 +5,7 @@ from datetime import date, datetime, timedelta, timezone
 import logging
 from typing import Any, Optional, Sequence
 
+from sqlalchemy import and_, func
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.orm import Session
 
@@ -186,9 +187,9 @@ def backfill_portfolio_history_from_prices(
     if portfolio_history_model is None or stock_model is None or stock_price_history_model is None:
         from app.main import PortfolioHistory, Stock, StockPriceHistory
 
-        portfolio_history_model = portfolio_history_model or PortfolioHistory
-        stock_model = stock_model or Stock
-        stock_price_history_model = stock_price_history_model or StockPriceHistory
+        portfolio_history_model = PortfolioHistory if portfolio_history_model is None else portfolio_history_model
+        stock_model = Stock if stock_model is None else stock_model
+        stock_price_history_model = StockPriceHistory if stock_price_history_model is None else stock_price_history_model
 
     stocks = db.query(stock_model).filter(stock_model.user_id == user_id).all()
     tickers = [str(getattr(stock, "ticker", "") or "").upper() for stock in stocks if getattr(stock, "ticker", None)]
@@ -206,12 +207,42 @@ def backfill_portfolio_history_from_prices(
             stock_price_history_model.recorded_at.asc(),
         ).all()
     else:
-        anchor_rows = price_query.filter(
+        anchor_day_subquery = db.query(
+            stock_price_history_model.ticker.label("ticker"),
+            func.max(func.date_trunc("day", stock_price_history_model.recorded_at)).label("anchor_day"),
+        ).filter(
+            stock_price_history_model.user_id == user_id,
+            stock_price_history_model.ticker.in_(tickers),
             stock_price_history_model.recorded_at < normalized_start,
+        ).group_by(
+            stock_price_history_model.ticker,
+        ).subquery()
+        anchor_timestamp_subquery = db.query(
+            stock_price_history_model.ticker.label("ticker"),
+            func.max(stock_price_history_model.recorded_at).label("recorded_at"),
+        ).join(
+            anchor_day_subquery,
+            and_(
+                stock_price_history_model.ticker == anchor_day_subquery.c.ticker,
+                func.date_trunc("day", stock_price_history_model.recorded_at) == anchor_day_subquery.c.anchor_day,
+            ),
+        ).filter(
+            stock_price_history_model.user_id == user_id,
+        ).group_by(
+            stock_price_history_model.ticker,
+        ).subquery()
+        anchor_rows = db.query(stock_price_history_model).join(
+            anchor_timestamp_subquery,
+            and_(
+                stock_price_history_model.ticker == anchor_timestamp_subquery.c.ticker,
+                stock_price_history_model.recorded_at == anchor_timestamp_subquery.c.recorded_at,
+            ),
+        ).filter(
+            stock_price_history_model.user_id == user_id,
         ).order_by(
             stock_price_history_model.ticker.asc(),
-            stock_price_history_model.recorded_at.desc(),
-        ).distinct(stock_price_history_model.ticker).all()
+            stock_price_history_model.recorded_at.asc(),
+        ).all()
         from_start_rows = price_query.filter(
             stock_price_history_model.recorded_at >= normalized_start,
         ).order_by(
