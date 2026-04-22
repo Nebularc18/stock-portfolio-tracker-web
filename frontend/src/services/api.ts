@@ -351,6 +351,12 @@ export interface ManualDividend {
   updated_at?: string
 }
 
+export interface StockHistoryBackfillResponse {
+  ticker: string
+  purchase_date: string
+  backfilled_rows: number
+}
+
 export interface MarketIndex {
   symbol: string
   name: string
@@ -754,6 +760,10 @@ export const api = {
         return value
       }),
     refresh: (ticker: string) => fetchAPI<Stock>(`/stocks/${encodePathSegment(ticker)}/refresh`, { method: 'POST' }).then((value) => {
+      clearPortfolioDataCaches()
+      return value
+    }),
+    backfillHistory: (ticker: string) => fetchAPI<StockHistoryBackfillResponse>(`/stocks/${encodePathSegment(ticker)}/backfill-history`, { method: 'POST' }).then((value) => {
       clearPortfolioDataCaches()
       return value
     }),

@@ -301,6 +301,7 @@ export default function StockDetail() {
   const [verificationLoading, setVerificationLoading] = useState(false)
   const [marketstackStatus, setMarketstackStatus] = useState<MarketstackUsage | null>(null)
   const [refreshing, setRefreshing] = useState(false)
+  const [backfilling, setBackfilling] = useState(false)
   const [logoFailed, setLogoFailed] = useState(false)
   const editModalRef = useRef<HTMLDivElement | null>(null)
   const dividendModalRef = useRef<HTMLDivElement | null>(null)
@@ -560,6 +561,7 @@ export default function StockDetail() {
     setIsLookupMode(false)
     setError(null)
     setRefreshing(false)
+    setBackfilling(false)
     setCompanyProfile(null)
     setFinancialMetrics(null)
     setPeers([])
@@ -954,6 +956,47 @@ export default function StockDetail() {
     }
   }
 
+  const handleBackfillHistory = async () => {
+    if (!ticker || isLookupMode) return
+
+    try {
+      setBackfilling(true)
+      setError(null)
+
+      await api.stocks.backfillHistory(ticker)
+      const data = await loadStockPageData(ticker)
+
+      if (tickerRef.current !== ticker) return
+
+      applyLoadedStockPageData(data)
+      notifyPortfolioDataUpdated()
+      setVerificationResult(null)
+
+      const followUpRequests: Promise<unknown>[] = []
+      if (activeTab === 'profile' || finnhubDataLoaded) {
+        followUpRequests.push(loadFinnhubData(true))
+      }
+      if (activeTab === 'analyst' || analystDataLoaded) {
+        followUpRequests.push(loadAnalystData(true))
+      }
+      if (activeTab === 'dividends' || marketstackStatus) {
+        followUpRequests.push(loadMarketstackStatus(true))
+      }
+
+      if (followUpRequests.length > 0) {
+        await Promise.allSettled(followUpRequests)
+      }
+    } catch (err) {
+      if (tickerRef.current === ticker) {
+        setError(err instanceof Error ? err.message : t(language, 'stockDetail.failedLoad'))
+      }
+    } finally {
+      if (tickerRef.current === ticker) {
+        setBackfilling(false)
+      }
+    }
+  }
+
   const openAddDividendModal = () => {
     setDividendError(null)
     setEditingDividend(null)
@@ -1341,6 +1384,9 @@ export default function StockDetail() {
               <button className="btn btn-primary" onClick={openEditModal}>{t(language, 'stockDetail.addToPortfolio')}</button>
             ) : (
               <>
+                <button className="btn btn-secondary" onClick={handleBackfillHistory} disabled={backfilling || refreshing}>
+                  {backfilling ? t(language, 'stockDetail.backfillingHistory') : t(language, 'stockDetail.backfillHistory')}
+                </button>
                 <button className="btn btn-secondary" onClick={openEditModal}>{t(language, 'stockDetail.edit')}</button>
                 <button className="btn btn-danger" onClick={handleDelete}>{t(language, 'common.delete')}</button>
               </>

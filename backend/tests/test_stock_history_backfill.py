@@ -218,6 +218,54 @@ def test_backfill_after_commit_uses_separate_session(monkeypatch):
     assert history_db.closed is True
 
 
+def test_manual_backfill_endpoint_uses_resolved_purchase_date(monkeypatch):
+    stock = SimpleNamespace(
+        ticker="MSFT",
+        current_price=123.45,
+        currency="USD",
+        quantity=2,
+        purchase_price=100.0,
+        purchase_date=None,
+        position_entries=[{"id": "lot-1", "quantity": 2, "purchase_date": "2025-04-01", "purchase_price": 100.0, "sell_date": None}],
+    )
+    db = FakeDB(stocks_list=[stock])
+    captured = {}
+
+    class FakeStockService:
+        pass
+
+    def fake_backfill(user_id, ticker, purchase_date, stock_service, current_price=None, current_currency=None):
+        captured["user_id"] = user_id
+        captured["ticker"] = ticker
+        captured["purchase_date"] = purchase_date
+        captured["stock_service"] = stock_service
+        captured["current_price"] = current_price
+        captured["current_currency"] = current_currency
+        return 8
+
+    monkeypatch.setattr("app.services.stock_service.StockService", FakeStockService)
+    monkeypatch.setattr(stocks, "_resolve_stock_purchase_date", lambda _stock: date(2025, 4, 1))
+    monkeypatch.setattr(stocks, "_backfill_stock_price_history_after_commit", fake_backfill)
+
+    result = stocks.backfill_stock_history(
+        ticker="msft",
+        db=db,
+        current_user=SimpleNamespace(id=7),
+    )
+
+    assert db.committed is True
+    assert captured["user_id"] == 7
+    assert captured["ticker"] == "MSFT"
+    assert captured["purchase_date"] == date(2025, 4, 1)
+    assert captured["current_price"] == 123.45
+    assert captured["current_currency"] == "USD"
+    assert result == {
+        "ticker": "MSFT",
+        "purchase_date": "2025-04-01",
+        "backfilled_rows": 8,
+    }
+
+
 def test_create_stock_triggers_post_commit_price_history_backfill(monkeypatch):
     captured = {}
     fixed_now = datetime(2026, 4, 22, 9, 30, tzinfo=timezone.utc)

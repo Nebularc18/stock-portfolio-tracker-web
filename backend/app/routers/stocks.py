@@ -1253,6 +1253,50 @@ def refresh_stock(ticker: str, db: Session = Depends(get_db), current_user: User
     return stock
 
 
+@router.post("/{ticker}/backfill-history")
+def backfill_stock_history(ticker: str, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
+    """
+    Manually backfill daily stock price history for an existing holding.
+
+    The stock lookup uses the request-scoped session, then commits that session before
+    calling the Yahoo-backed backfill helper in a separate session so the external HTTP
+    request does not keep the request transaction open.
+    """
+    from app.services.stock_service import StockService
+
+    stock = db.query(Stock).filter(
+        Stock.user_id == current_user.id,
+        Stock.ticker == ticker.upper(),
+    ).first()
+    if not stock:
+        raise HTTPException(status_code=404, detail="Stock not found")
+
+    purchase_date = _resolve_stock_purchase_date(stock)
+    if purchase_date is None:
+        raise HTTPException(status_code=400, detail="Stock has no purchase date to backfill from")
+
+    normalized_ticker = stock.ticker or ticker.upper()
+    current_price = stock.current_price
+    current_currency = stock.currency
+    db.commit()
+
+    stock_service = StockService()
+    backfilled_rows = _backfill_stock_price_history_after_commit(
+        current_user.id,
+        normalized_ticker,
+        purchase_date,
+        stock_service,
+        current_price=current_price,
+        current_currency=current_currency,
+    )
+
+    return {
+        "ticker": normalized_ticker,
+        "purchase_date": purchase_date.isoformat(),
+        "backfilled_rows": backfilled_rows,
+    }
+
+
 @router.get("/{ticker}/dividends")
 def get_stock_dividends(ticker: str, years: int = 5, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
     """
