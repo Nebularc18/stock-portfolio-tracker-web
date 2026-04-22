@@ -18,6 +18,9 @@ type TimedCacheEntry<T> = {
   value: T
   expiresAt: number
 }
+type APIRequestOptions = RequestInit & {
+  timeoutMs?: number
+}
 
 // These caches deduplicate in-flight requests and retain short-lived resolved values.
 const exchangeRatesRequestCache = new Map<string, Promise<Record<string, number | null>>>()
@@ -220,20 +223,21 @@ export function clearStoredAuthUser(notify: boolean = false) {
  *   field when available, otherwise `"Request failed"`. The thrown error also has a `status` property set to
  *   the HTTP status code.
  */
-async function fetchAPI<T = unknown>(endpoint: string, options?: RequestInit): Promise<T> {
+async function fetchAPI<T = unknown>(endpoint: string, options?: APIRequestOptions): Promise<T> {
   const authUser = getStoredAuthUser()
   const startedAt = typeof performance !== 'undefined' ? performance.now() : Date.now()
   const externalSignal = options?.signal ?? undefined
-  const { signal, cleanup } = createTimeoutSignal(API_REQUEST_TIMEOUT_MS, externalSignal)
+  const { timeoutMs, ...requestOptions } = options ?? {}
+  const { signal, cleanup } = createTimeoutSignal(timeoutMs ?? API_REQUEST_TIMEOUT_MS, externalSignal)
 
   try {
     const response = await fetch(`${API_BASE}${endpoint}`, {
-      ...options,
+      ...requestOptions,
       signal,
       headers: {
         'Content-Type': 'application/json',
         ...(authUser ? { Authorization: `Bearer ${authUser.token}` } : {}),
-        ...options?.headers,
+        ...requestOptions.headers,
       },
     })
     const durationMs = (typeof performance !== 'undefined' ? performance.now() : Date.now()) - startedAt
@@ -355,6 +359,14 @@ export interface StockHistoryBackfillResponse {
   ticker: string
   purchase_date: string
   backfilled_rows: number
+}
+
+export interface BulkStockHistoryBackfillResponse {
+  stocks_processed: number
+  stocks_backfilled: number
+  backfilled_rows: number
+  portfolio_history_rows: number
+  start_date: string | null
 }
 
 export interface MarketIndex {
@@ -764,6 +776,10 @@ export const api = {
       return value
     }),
     backfillHistory: (ticker: string) => fetchAPI<StockHistoryBackfillResponse>(`/stocks/${encodePathSegment(ticker)}/backfill-history`, { method: 'POST' }).then((value) => {
+      clearPortfolioDataCaches()
+      return value
+    }),
+    backfillAllHistory: () => fetchAPI<BulkStockHistoryBackfillResponse>('/stocks/backfill-all-history', { method: 'POST', timeoutMs: 120000 }).then((value) => {
       clearPortfolioDataCaches()
       return value
     }),

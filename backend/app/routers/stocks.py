@@ -199,6 +199,7 @@ def _backfill_stock_price_history(
     stock_service,
     current_price: Optional[float] = None,
     current_currency: Optional[str] = None,
+    full_range: bool = False,
 ) -> int:
     if purchase_date is None:
         return 0
@@ -208,17 +209,20 @@ def _backfill_stock_price_history(
         return 0
 
     ticker_upper = ticker.upper()
-    earliest_existing_row = db.query(StockPriceHistory).filter(
-        StockPriceHistory.user_id == user_id,
-        StockPriceHistory.ticker == ticker_upper,
-    ).order_by(StockPriceHistory.recorded_at.asc()).first()
-
     rows_to_upsert: list[dict] = []
-    if earliest_existing_row is not None:
-        earliest_existing_date = _normalize_history_timestamp(earliest_existing_row.recorded_at).date()
-        fetch_end_date = min(today - timedelta(days=1), earliest_existing_date - timedelta(days=1))
-    else:
+    if full_range:
         fetch_end_date = today - timedelta(days=1)
+    else:
+        earliest_existing_row = db.query(StockPriceHistory).filter(
+            StockPriceHistory.user_id == user_id,
+            StockPriceHistory.ticker == ticker_upper,
+        ).order_by(StockPriceHistory.recorded_at.asc()).first()
+
+        if earliest_existing_row is not None:
+            earliest_existing_date = _normalize_history_timestamp(earliest_existing_row.recorded_at).date()
+            fetch_end_date = min(today - timedelta(days=1), earliest_existing_date - timedelta(days=1))
+        else:
+            fetch_end_date = today - timedelta(days=1)
 
     if purchase_date <= fetch_end_date:
         rows_to_upsert.extend(stock_service.get_daily_price_history(ticker_upper, purchase_date, fetch_end_date))
@@ -241,6 +245,7 @@ def _backfill_stock_price_history_after_commit(
     stock_service,
     current_price: Optional[float] = None,
     current_currency: Optional[str] = None,
+    full_range: bool = False,
 ) -> int:
     from app.services.portfolio_history_service import backfill_portfolio_history_from_prices
 
@@ -254,6 +259,7 @@ def _backfill_stock_price_history_after_commit(
             stock_service,
             current_price=current_price,
             current_currency=current_currency,
+            full_range=full_range,
         )
         if backfilled_rows > 0:
             history_db.commit()
@@ -275,6 +281,90 @@ def _backfill_stock_price_history_after_commit(
         history_db.rollback()
         logger.exception("Failed to backfill price history for %s", ticker)
         return 0
+    finally:
+        history_db.close()
+
+
+def _backfill_multiple_stock_price_histories_after_commit(
+    user_id: int,
+    requests: list[dict[str, object]],
+    stock_service,
+    *,
+    full_range: bool = False,
+) -> dict[str, int | str | None]:
+    from app.services.portfolio_history_service import backfill_portfolio_history_from_prices
+
+    normalized_requests = [
+        request for request in requests
+        if isinstance(request.get("ticker"), str) and request.get("purchase_date") is not None
+    ]
+    if not normalized_requests:
+        return {
+            "stocks_processed": 0,
+            "stocks_backfilled": 0,
+            "backfilled_rows": 0,
+            "portfolio_history_rows": 0,
+            "start_date": None,
+        }
+
+    start_dates = [
+        request["purchase_date"]
+        for request in normalized_requests
+        if isinstance(request.get("purchase_date"), date)
+    ]
+    rebuild_start_date = min(start_dates) if start_dates else None
+
+    history_db = SessionLocal()
+    try:
+        total_backfilled_rows = 0
+        stocks_backfilled = 0
+
+        for request in normalized_requests:
+            purchase_date = request.get("purchase_date")
+            if not isinstance(purchase_date, date):
+                continue
+            backfilled_rows = _backfill_stock_price_history(
+                history_db,
+                user_id,
+                str(request["ticker"]),
+                purchase_date,
+                stock_service,
+                current_price=request.get("current_price") if isinstance(request.get("current_price"), (int, float)) else None,
+                current_currency=request.get("current_currency") if isinstance(request.get("current_currency"), str) else None,
+                full_range=full_range,
+            )
+            total_backfilled_rows += backfilled_rows
+            if backfilled_rows > 0:
+                stocks_backfilled += 1
+
+        if total_backfilled_rows > 0:
+            history_db.commit()
+            portfolio_history_rows = backfill_portfolio_history_from_prices(
+                history_db,
+                user_id,
+                start_date=rebuild_start_date,
+            )
+            history_db.commit()
+        else:
+            portfolio_history_rows = 0
+
+        return {
+            "stocks_processed": len(normalized_requests),
+            "stocks_backfilled": stocks_backfilled,
+            "backfilled_rows": total_backfilled_rows,
+            "portfolio_history_rows": portfolio_history_rows,
+            "start_date": rebuild_start_date.isoformat() if rebuild_start_date else None,
+        }
+    except Exception:
+        history_db.rollback()
+        logger.exception("Failed to backfill stock price history for multiple holdings")
+        return {
+            "stocks_processed": len(normalized_requests),
+            "stocks_backfilled": 0,
+            "backfilled_rows": 0,
+            "portfolio_history_rows": 0,
+            "start_date": rebuild_start_date.isoformat() if rebuild_start_date else None,
+        }
     finally:
         history_db.close()
 
@@ -1303,6 +1393,7 @@ def backfill_stock_history(ticker: str, db: Session = Depends(get_db), current_u
         stock_service,
         current_price=current_price,
         current_currency=current_currency,
+        full_range=True,
     )
 
     return {
@@ -1310,6 +1401,50 @@ def backfill_stock_history(ticker: str, db: Session = Depends(get_db), current_u
         "purchase_date": purchase_date.isoformat(),
         "backfilled_rows": backfilled_rows,
     }
+
+
+@router.post("/backfill-all-history")
+def backfill_all_stock_history(db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
+    """
+    Rebuild daily price history for every holding and recompute portfolio history.
+
+    Unlike the lightweight per-stock prepend backfill used during some write flows,
+    this endpoint refetches each stock's full daily range from its purchase date so
+    missing interior gaps and bad historical snapshots can be repaired.
+    """
+    from app.services.stock_service import StockService
+
+    holdings = db.query(Stock).filter(Stock.user_id == current_user.id).all()
+    if not holdings:
+        return {
+            "stocks_processed": 0,
+            "stocks_backfilled": 0,
+            "backfilled_rows": 0,
+            "portfolio_history_rows": 0,
+            "start_date": None,
+        }
+
+    requests: list[dict[str, object]] = []
+    for stock in holdings:
+        purchase_date = _resolve_stock_purchase_date(stock)
+        if purchase_date is None:
+            continue
+        requests.append({
+            "ticker": stock.ticker or "",
+            "purchase_date": purchase_date,
+            "current_price": stock.current_price,
+            "current_currency": stock.currency,
+        })
+
+    db.commit()
+
+    stock_service = StockService()
+    return _backfill_multiple_stock_price_histories_after_commit(
+        current_user.id,
+        requests,
+        stock_service,
+        full_range=True,
+    )
 
 
 @router.get("/{ticker}/dividends")

@@ -214,6 +214,7 @@ export default function Stocks() {
   const [splitError, setSplitError] = useState<string | null>(null)
   const [splitting, setSplitting] = useState(false)
   const [refreshingAll, setRefreshingAll] = useState(false)
+  const [backfillingAllHistory, setBackfillingAllHistory] = useState(false)
   const [lastUpdate, setLastUpdate] = useState<string | null>(null)
   const [failedLogos, setFailedLogos] = useState<Record<string, boolean>>({})
   const editModalRef = useRef<HTMLDivElement | null>(null)
@@ -568,6 +569,20 @@ export default function Stocks() {
     }
   }
 
+  const handleBackfillAllHistory = async () => {
+    try {
+      setBackfillingAllHistory(true)
+      setError(null)
+      await api.stocks.backfillAllHistory()
+      notifyPortfolioDataUpdated()
+      await fetchStocks()
+    } catch (err) {
+      setError(t(language, 'stocks.failedBackfillHistory'))
+    } finally {
+      setBackfillingAllHistory(false)
+    }
+  }
+
   const openSellModal = (stock: Stock) => {
     const openEntries = (stock.position_entries || []).filter((entry) => getRemainingEntryQuantity(entry) > 0)
     if (openEntries.length === 0) return
@@ -915,6 +930,9 @@ export default function Stocks() {
         <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', justifyContent: 'flex-end' }}>
           <button className="btn btn-secondary" onClick={handleRefreshAllStocks} disabled={refreshingAll}>
             {refreshingAll ? t(language, 'common.refreshing') : t(language, 'common.refresh')}
+          </button>
+          <button className="btn btn-secondary" onClick={handleBackfillAllHistory} disabled={backfillingAllHistory || refreshingAll}>
+            {backfillingAllHistory ? t(language, 'stocks.backfillingAllHistory') : t(language, 'stocks.backfillAllHistory')}
           </button>
           <button className="btn btn-primary" onClick={() => setShowAddForm(!showAddForm)}>
             {showAddForm ? t(language, 'stocks.cancel') : t(language, 'stocks.addStock')}
