@@ -3,7 +3,7 @@ import json
 import importlib
 import os
 import re
-from datetime import datetime, timezone, timedelta
+from datetime import date, datetime, timezone, timedelta
 from typing import Optional, Dict, Any, List
 import logging
 
@@ -62,6 +62,7 @@ CURRENCY_MAP = {
 
 _TICKER_CACHE: Dict[str, tuple] = {}
 _CACHE_TTL = 300
+_YAHOO_REQUEST_TIMEOUT_SECONDS = float(os.getenv("YAHOO_REQUEST_TIMEOUT_SECONDS", "10"))
 
 _DIVIDEND_CACHE: Dict[str, tuple] = {}
 _DIVIDEND_CACHE_TTL = 86400 * 30
@@ -423,6 +424,106 @@ class StockService:
     def __init__(self):
         """Initialize StockService with default cache TTL."""
         self.cache_ttl = 300
+
+    def get_daily_price_history(
+        self,
+        ticker: str,
+        start_date: date,
+        end_date: Optional[date] = None,
+    ) -> List[Dict[str, Any]]:
+        """
+        Fetch daily historical close prices from Yahoo Finance for an inclusive date range.
+
+        Returned rows are normalized to the app's day-level storage format by rounding
+        each trading day to UTC midnight so they can be stored in `stock_price_history`
+        alongside the scheduler-generated daily snapshots.
+        """
+        ticker_upper = ticker.upper()
+        today = datetime.now(timezone.utc).date()
+        resolved_end_date = min(end_date or today, today)
+
+        if start_date > resolved_end_date:
+            return []
+
+        period_start = datetime(start_date.year, start_date.month, start_date.day, tzinfo=timezone.utc)
+        period_end = datetime(
+            resolved_end_date.year,
+            resolved_end_date.month,
+            resolved_end_date.day,
+            tzinfo=timezone.utc,
+        ) + timedelta(days=1)
+
+        session = get_session()
+
+        try:
+            url = (
+                f"https://query1.finance.yahoo.com/v8/finance/chart/{ticker_upper}"
+                f"?period1={int(period_start.timestamp())}"
+                f"&period2={int(period_end.timestamp())}"
+                f"&interval=1d"
+            )
+            response = session.get(url, timeout=_YAHOO_REQUEST_TIMEOUT_SECONDS)
+
+            if response.status_code == 429:
+                logger.warning("Rate limited by Yahoo Finance while fetching history for %s", ticker_upper)
+                return []
+
+            if response.status_code != 200:
+                logger.error(
+                    "Yahoo Finance returned %s while fetching history for %s",
+                    response.status_code,
+                    ticker_upper,
+                )
+                return []
+
+            data = response.json()
+            result = data.get("chart", {}).get("result") or []
+            if not result:
+                logger.warning("No historical chart data returned for %s", ticker_upper)
+                return []
+
+            chart = result[0]
+            meta = chart.get("meta", {})
+            raw_currency = meta.get("currency", detect_currency(ticker_upper))
+            quote = chart.get("indicators", {}).get("quote", [{}])[0]
+            closes = quote.get("close", [])
+            timestamps = chart.get("timestamp", [])
+
+            history: List[Dict[str, Any]] = []
+            seen_dates: set[date] = set()
+            for timestamp, close in zip(timestamps, closes, strict=False):
+                if close is None:
+                    continue
+
+                recorded_at = datetime.fromtimestamp(timestamp, tz=timezone.utc).replace(
+                    hour=0,
+                    minute=0,
+                    second=0,
+                    microsecond=0,
+                )
+                recorded_date = recorded_at.date()
+                if recorded_date < start_date or recorded_date > resolved_end_date or recorded_date in seen_dates:
+                    continue
+
+                normalized_currency, normalized_price = _normalize_yahoo_quote_currency_and_price(
+                    ticker_upper,
+                    raw_currency,
+                    close,
+                )
+                if normalized_price is None:
+                    continue
+
+                history.append({
+                    "recorded_at": recorded_at,
+                    "price": normalized_price,
+                    "currency": normalized_currency,
+                })
+                seen_dates.add(recorded_date)
+
+            return history
+        except Exception as exc:
+            logger.error("Error fetching historical prices for %s: %s", ticker_upper, exc)
+            return []
 
     def fetch_ticker_data(self, ticker: str) -> Optional[Dict]:
         """Fetch comprehensive data for a ticker from Yahoo Finance.
