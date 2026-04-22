@@ -2,6 +2,7 @@ from datetime import date, datetime, timezone
 from types import SimpleNamespace
 
 from app.routers import stocks
+from app.services.portfolio_history_service import collect_missing_portfolio_history_rows
 from app.services.stock_service import StockService
 
 
@@ -193,8 +194,17 @@ def test_backfill_after_commit_uses_separate_session(monkeypatch):
         captured["current_currency"] = current_currency
         return 2
 
+    def fake_portfolio_backfill(db, user_id, start_date=None):
+        captured["portfolio_backfill"] = {
+            "db": db,
+            "user_id": user_id,
+            "start_date": start_date,
+        }
+        return 5
+
     monkeypatch.setattr(stocks, "SessionLocal", lambda: history_db)
     monkeypatch.setattr(stocks, "_backfill_stock_price_history", fake_backfill)
+    monkeypatch.setattr("app.services.portfolio_history_service.backfill_portfolio_history_from_prices", fake_portfolio_backfill)
 
     service = FakeStockService()
     count = stocks._backfill_stock_price_history_after_commit(
@@ -214,8 +224,170 @@ def test_backfill_after_commit_uses_separate_session(monkeypatch):
     assert captured["stock_service"] is service
     assert captured["current_price"] == 123.45
     assert captured["current_currency"] == "USD"
+    assert captured["portfolio_backfill"]["db"] is history_db
+    assert captured["portfolio_backfill"]["user_id"] == 7
+    assert captured["portfolio_backfill"]["start_date"] == date(2025, 4, 1)
     assert history_db.committed is True
     assert history_db.closed is True
+
+
+def test_collect_missing_portfolio_history_rows_uses_purchase_day_and_skips_existing_dates():
+    stocks_list = [
+        SimpleNamespace(
+            ticker="MSFT",
+            currency="USD",
+            quantity=2,
+            purchase_price=100.0,
+            purchase_date=date(2026, 1, 1),
+            position_entries=None,
+        ),
+    ]
+    price_rows = [
+        SimpleNamespace(
+            ticker="MSFT",
+            price=100.0,
+            currency="USD",
+            recorded_at=datetime(2026, 1, 1, tzinfo=timezone.utc),
+        ),
+        SimpleNamespace(
+            ticker="MSFT",
+            price=110.0,
+            currency="USD",
+            recorded_at=datetime(2026, 1, 2, tzinfo=timezone.utc),
+        ),
+        SimpleNamespace(
+            ticker="MSFT",
+            price=120.0,
+            currency="USD",
+            recorded_at=datetime(2026, 1, 3, tzinfo=timezone.utc),
+        ),
+    ]
+    existing_history_rows = [
+        SimpleNamespace(date=datetime(2026, 1, 3, 12, 0, tzinfo=timezone.utc)),
+    ]
+
+    rows = collect_missing_portfolio_history_rows(
+        stocks_list,
+        price_rows,
+        existing_history_rows,
+        {"USD_SEK": 10.0},
+        start_date=date(2026, 1, 1),
+    )
+
+    assert rows == [
+        {
+            "date": datetime(2026, 1, 1, tzinfo=timezone.utc),
+            "total_value": 2000.0,
+        },
+        {
+            "date": datetime(2026, 1, 2, tzinfo=timezone.utc),
+            "total_value": 2200.0,
+        },
+    ]
+
+
+def test_collect_missing_portfolio_history_rows_carries_forward_latest_stock_price():
+    stocks_list = [
+        SimpleNamespace(
+            ticker="AAPL",
+            currency="USD",
+            quantity=1,
+            purchase_price=90.0,
+            purchase_date=date(2026, 1, 1),
+            position_entries=None,
+        ),
+        SimpleNamespace(
+            ticker="SAP",
+            currency="EUR",
+            quantity=2,
+            purchase_price=45.0,
+            purchase_date=date(2026, 1, 1),
+            position_entries=None,
+        ),
+    ]
+    price_rows = [
+        SimpleNamespace(
+            ticker="AAPL",
+            price=100.0,
+            currency="USD",
+            recorded_at=datetime(2026, 1, 1, tzinfo=timezone.utc),
+        ),
+        SimpleNamespace(
+            ticker="SAP",
+            price=50.0,
+            currency="EUR",
+            recorded_at=datetime(2026, 1, 2, tzinfo=timezone.utc),
+        ),
+    ]
+
+    rows = collect_missing_portfolio_history_rows(
+        stocks_list,
+        price_rows,
+        [],
+        {"USD_SEK": 10.0, "EUR_SEK": 11.0},
+        start_date=date(2026, 1, 1),
+    )
+
+    assert rows == [
+        {
+            "date": datetime(2026, 1, 1, tzinfo=timezone.utc),
+            "total_value": 1000.0,
+        },
+        {
+            "date": datetime(2026, 1, 2, tzinfo=timezone.utc),
+            "total_value": 2100.0,
+        },
+    ]
+
+
+def test_collect_missing_portfolio_history_rows_keeps_pre_start_baseline_for_other_holdings():
+    stocks_list = [
+        SimpleNamespace(
+            ticker="AAPL",
+            currency="USD",
+            quantity=1,
+            purchase_price=90.0,
+            purchase_date=date(2026, 1, 1),
+            position_entries=None,
+        ),
+        SimpleNamespace(
+            ticker="SAP",
+            currency="EUR",
+            quantity=2,
+            purchase_price=45.0,
+            purchase_date=date(2026, 1, 1),
+            position_entries=None,
+        ),
+    ]
+    price_rows = [
+        SimpleNamespace(
+            ticker="AAPL",
+            price=100.0,
+            currency="USD",
+            recorded_at=datetime(2026, 1, 1, tzinfo=timezone.utc),
+        ),
+        SimpleNamespace(
+            ticker="SAP",
+            price=50.0,
+            currency="EUR",
+            recorded_at=datetime(2026, 1, 2, tzinfo=timezone.utc),
+        ),
+    ]
+
+    rows = collect_missing_portfolio_history_rows(
+        stocks_list,
+        price_rows,
+        [],
+        {"USD_SEK": 10.0, "EUR_SEK": 11.0},
+        start_date=date(2026, 1, 2),
+    )
+
+    assert rows == [
+        {
+            "date": datetime(2026, 1, 2, tzinfo=timezone.utc),
+            "total_value": 2100.0,
+        },
+    ]
 
 
 def test_manual_backfill_endpoint_uses_resolved_purchase_date(monkeypatch):
