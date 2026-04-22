@@ -292,7 +292,7 @@ def backfill_portfolio_history_from_prices(
         for row in rows_to_upsert
     ])
     stmt = stmt.on_conflict_do_update(
-        index_elements=[portfolio_history_model.user_id, portfolio_history_model.date],
+        index_elements=["user_id", "date"],
         set_={"total_value": stmt.excluded.total_value},
     )
     db.execute(stmt)
