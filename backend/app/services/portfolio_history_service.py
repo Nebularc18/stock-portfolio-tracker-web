@@ -195,16 +195,35 @@ def backfill_portfolio_history_from_prices(
     if not tickers:
         return 0
 
-    price_rows = db.query(stock_price_history_model).filter(
+    normalized_start = _normalize_history_timestamp(start_date) if start_date is not None else None
+    price_query = db.query(stock_price_history_model).filter(
         stock_price_history_model.user_id == user_id,
         stock_price_history_model.ticker.in_(tickers),
-    ).order_by(stock_price_history_model.ticker.asc(), stock_price_history_model.recorded_at.asc()).all()
+    )
+    if normalized_start is None:
+        price_rows = price_query.order_by(
+            stock_price_history_model.ticker.asc(),
+            stock_price_history_model.recorded_at.asc(),
+        ).all()
+    else:
+        anchor_rows = price_query.filter(
+            stock_price_history_model.recorded_at < normalized_start,
+        ).order_by(
+            stock_price_history_model.ticker.asc(),
+            stock_price_history_model.recorded_at.desc(),
+        ).distinct(stock_price_history_model.ticker).all()
+        from_start_rows = price_query.filter(
+            stock_price_history_model.recorded_at >= normalized_start,
+        ).order_by(
+            stock_price_history_model.ticker.asc(),
+            stock_price_history_model.recorded_at.asc(),
+        ).all()
+        price_rows = [*anchor_rows, *from_start_rows]
     if not price_rows:
         return 0
 
     existing_history_query = db.query(portfolio_history_model).filter(portfolio_history_model.user_id == user_id)
-    if start_date is not None:
-        normalized_start = _normalize_history_timestamp(start_date)
+    if normalized_start is not None:
         existing_history_query = existing_history_query.filter(
             portfolio_history_model.date >= normalized_start,
         )
