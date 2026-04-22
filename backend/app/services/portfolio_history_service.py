@@ -228,6 +228,7 @@ def backfill_portfolio_history_from_prices(
             ),
         ).filter(
             stock_price_history_model.user_id == user_id,
+            stock_price_history_model.ticker.in_(tickers),
         ).group_by(
             stock_price_history_model.ticker,
         ).subquery()
@@ -255,6 +256,8 @@ def backfill_portfolio_history_from_prices(
 
     existing_history_query = db.query(portfolio_history_model).filter(portfolio_history_model.user_id == user_id)
     if normalized_start is not None:
+        # Snapshot days are also bounded to start_date, so loading existing history
+        # from normalized_start onward is enough to suppress same-day rewrites.
         existing_history_query = existing_history_query.filter(
             portfolio_history_model.date >= normalized_start,
         )
