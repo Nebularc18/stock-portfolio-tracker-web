@@ -242,6 +242,8 @@ def _backfill_stock_price_history_after_commit(
     current_price: Optional[float] = None,
     current_currency: Optional[str] = None,
 ) -> int:
+    from app.services.portfolio_history_service import backfill_portfolio_history_from_prices
+
     history_db = SessionLocal()
     try:
         backfilled_rows = _backfill_stock_price_history(
@@ -255,6 +257,19 @@ def _backfill_stock_price_history_after_commit(
         )
         if backfilled_rows > 0:
             history_db.commit()
+            try:
+                backfill_portfolio_history_from_prices(
+                    history_db,
+                    user_id,
+                    start_date=purchase_date,
+                )
+                history_db.commit()
+            except Exception:
+                history_db.rollback()
+                logger.exception(
+                    "Failed to backfill portfolio history after price backfill for %s",
+                    ticker,
+                )
         return backfilled_rows
     except Exception:
         history_db.rollback()
