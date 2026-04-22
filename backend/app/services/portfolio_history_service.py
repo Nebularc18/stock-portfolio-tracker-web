@@ -3,6 +3,7 @@ from __future__ import annotations
 from collections import defaultdict
 from datetime import date, datetime, timedelta, timezone
 import logging
+import math
 from typing import Any, Optional, Sequence
 
 from sqlalchemy import and_, func
@@ -13,6 +14,8 @@ from app.services.exchange_rate_service import ExchangeRateService
 from app.services.position_service import get_quantity_held_on_date, has_position_history, normalize_position_entries
 
 logger = logging.getLogger(__name__)
+PORTFOLIO_HISTORY_BACKFILL_REL_TOL = 0.001
+PORTFOLIO_HISTORY_BACKFILL_ABS_TOL_SEK = 25.0
 
 
 def _normalize_history_timestamp(value: datetime | date) -> datetime:
@@ -45,6 +48,21 @@ def _convert_value(value: float, from_currency: str, to_currency: str, rates: di
         return _convert_value(sek_value, "SEK", to_currency, rates)
 
     return None
+
+
+def _is_close_portfolio_total(existing_value: Any, recalculated_value: float) -> bool:
+    try:
+        normalized_existing = float(existing_value)
+    except (TypeError, ValueError):
+        return False
+    if not math.isfinite(normalized_existing) or not math.isfinite(recalculated_value):
+        return False
+    return math.isclose(
+        normalized_existing,
+        recalculated_value,
+        rel_tol=PORTFOLIO_HISTORY_BACKFILL_REL_TOL,
+        abs_tol=PORTFOLIO_HISTORY_BACKFILL_ABS_TOL_SEK,
+    )
 
 
 def collect_missing_portfolio_history_rows(
@@ -98,8 +116,8 @@ def collect_missing_portfolio_history_rows(
     if not tracked_stocks:
         return []
 
-    existing_history_days = {
-        _normalize_history_timestamp(getattr(row, "date")).date()
+    existing_history_by_day = {
+        _normalize_history_timestamp(getattr(row, "date")).date(): getattr(row, "total_value", None)
         for row in existing_history_rows
         if getattr(row, "date", None) is not None
     }
@@ -110,7 +128,11 @@ def collect_missing_portfolio_history_rows(
     latest_rows: list[Any | None] = [None] * len(tracked_stocks)
 
     for snapshot_day in sorted_snapshot_days:
-        if snapshot_day.date() in existing_history_days:
+        # When backfilling from a specific purchase date we need to recompute the
+        # affected window, not just fill gaps, because existing rows may have been
+        # persisted from partial data before the missing stock history was added.
+        existing_total_value = existing_history_by_day.get(snapshot_day.date())
+        if start_date is None and existing_total_value is not None:
             continue
 
         total_value_sek = 0.0
@@ -166,6 +188,9 @@ def collect_missing_portfolio_history_rows(
                 included_positions,
                 eligible_positions,
             )
+
+        if start_date is not None and existing_total_value is not None and _is_close_portfolio_total(existing_total_value, total_value_sek):
+            continue
 
         missing_rows.append({
             "date": snapshot_day,

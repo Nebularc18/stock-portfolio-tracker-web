@@ -40,6 +40,8 @@ const HOLDINGS_RETURN_RANGE_OPTIONS: Array<{ key: ReturnRangeKey; labelKey: Tran
 
 type ChartPoint = { date: string; value: number; isBaseline?: boolean; displayDate?: string }
 type BenchmarkChartPoint = ChartPoint & { portfolioReturn: number; benchmarkReturn: number | null }
+type RenderedChartPoint = ChartPoint & { xValue: number }
+type RenderedBenchmarkChartPoint = BenchmarkChartPoint & { xValue: number }
 type DashboardHistoryEntry = { date: string; value: number }
 type DashboardDataCache = {
   summary: PortfolioSummary
@@ -592,6 +594,12 @@ function getPointTimeMs(point: Pick<ChartPoint, 'date'>): number {
   return Number.isFinite(parsed) ? parsed : Number.NaN
 }
 
+function addChartPointTime<T extends ChartPoint>(point: T): (T & { xValue: number }) | null {
+  const xValue = getPointTimeMs(point)
+  if (!Number.isFinite(xValue)) return null
+  return { ...point, xValue }
+}
+
 function formatSignedPercentValue(value: number | null | undefined): string {
   if (value === null || value === undefined || !Number.isFinite(value)) return '-'
   return `${value >= 0 ? '+' : ''}${value.toFixed(2)}%`
@@ -602,12 +610,12 @@ function getReturnPercent(value: number, baseline: number): number {
 }
 
 function buildBenchmarkComparisonData(
-  portfolioPoints: ChartPoint[],
+  portfolioPoints: RenderedChartPoint[],
   benchmarkHistory: MarketIndexHistory | null,
 ) {
   if (portfolioPoints.length === 0 || !benchmarkHistory?.points?.length) {
     return {
-      data: [] as BenchmarkChartPoint[],
+      data: [] as RenderedBenchmarkChartPoint[],
       portfolioFinalReturn: null as number | null,
       benchmarkFinalReturn: null as number | null,
       yMin: -1,
@@ -623,7 +631,7 @@ function buildBenchmarkComparisonData(
 
   if (benchmarkPoints.length === 0) {
     return {
-      data: [] as BenchmarkChartPoint[],
+      data: [] as RenderedBenchmarkChartPoint[],
       portfolioFinalReturn: null as number | null,
       benchmarkFinalReturn: null as number | null,
       yMin: -1,
@@ -632,7 +640,7 @@ function buildBenchmarkComparisonData(
   }
 
   const portfolioBaseline = portfolioPoints[0].value
-  const firstPortfolioTime = getPointTimeMs(portfolioPoints[0])
+  const firstPortfolioTime = portfolioPoints[0].xValue
   let benchmarkCursor = 0
   let latestBenchmarkValue: number | null = null
 
@@ -646,7 +654,7 @@ function buildBenchmarkComparisonData(
   latestBenchmarkValue = null
 
   const comparisonData = portfolioPoints.map((point) => {
-    const pointTime = getPointTimeMs(point)
+    const pointTime = point.xValue
     while (benchmarkCursor < benchmarkPoints.length && benchmarkPoints[benchmarkCursor].timeMs <= pointTime) {
       latestBenchmarkValue = benchmarkPoints[benchmarkCursor].value
       benchmarkCursor += 1
@@ -1207,11 +1215,14 @@ export default function Dashboard() {
     baselineValue,
   } = useMemo(() => {
     const rangeTargetPoints = getRangeTargetPoints(historyRange)
-    const nextDisplayedChartData = rangeTargetPoints
+    const sampledChartData = rangeTargetPoints
       ? downsampleChartData(rangeChartData, rangeTargetPoints)
       : rangeChartData
+    const nextDisplayedChartData = sampledChartData
+      .map(addChartPointTime)
+      .filter((point): point is RenderedChartPoint => point !== null)
     const nextXAxisTicks = historyRange === '1D'
-      ? nextDisplayedChartData.filter((point) => !point.isBaseline).map((point) => point.date)
+      ? nextDisplayedChartData.filter((point) => !point.isBaseline).map((point) => point.xValue)
       : undefined
     const nextHasChartData = rangeChartData.length > 0
     let nextMinValue = 0
@@ -1613,13 +1624,15 @@ export default function Dashboard() {
                     </defs>
                     <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.04)" vertical={false} />
                     <XAxis
-                      dataKey="date"
+                      dataKey="xValue"
+                      type="number"
+                      scale="time"
+                      domain={['dataMin', 'dataMax']}
                       stroke="var(--border2)"
                       tick={{ fill: 'var(--muted)', fontSize: 10, fontFamily: "'Fira Code', monospace" }}
                       interval="preserveStartEnd"
                       minTickGap={32}
                       ticks={xAxisTicks}
-                      padding={{ left: 6, right: 10 }}
                       tickLine={false}
                       axisLine={false}
                       tickFormatter={(v) => formatXAxisTick(String(v), historyRange, locale, timezone)}
@@ -1640,12 +1653,12 @@ export default function Dashboard() {
                         if (!active || !payload || !payload.length) return null
                         const currentPoint = payload[0].payload as (ChartPoint | BenchmarkChartPoint | undefined)
                         if (comparisonMode) {
-                          const comparisonPoint = currentPoint as BenchmarkChartPoint | undefined
+                          const comparisonPoint = currentPoint as RenderedBenchmarkChartPoint | undefined
                           const portfolioReturn = comparisonPoint?.portfolioReturn ?? null
                           const benchmarkReturn = comparisonPoint?.benchmarkReturn ?? null
                           return (
                             <div style={{ background: 'var(--bg3)', border: '1px solid var(--border2)', borderRadius: 8, padding: '10px 14px', fontSize: 12, boxShadow: '0 4px 16px rgba(0,0,0,0.4)' }}>
-                              <div style={{ color: 'var(--muted)', marginBottom: 8, fontSize: 11 }}>{formatTooltipDate(String(comparisonPoint?.displayDate ?? label), historyRange, locale, timezone)}</div>
+                              <div style={{ color: 'var(--muted)', marginBottom: 8, fontSize: 11 }}>{formatTooltipDate(String(comparisonPoint?.displayDate ?? comparisonPoint?.date ?? label), historyRange, locale, timezone)}</div>
                               <div style={{ color: (portfolioReturn ?? 0) >= 0 ? 'var(--green)' : 'var(--red)', fontWeight: 700, marginBottom: 5, fontFamily: "'Fira Code', monospace" }}>
                                 {t(language, 'dashboard.portfolio')}: {formatSignedPercentValue(portfolioReturn)}
                               </div>
@@ -1657,14 +1670,14 @@ export default function Dashboard() {
                         }
 
                         const currentValue = Number(payload[0].value ?? 0)
-                        const chartPoint = currentPoint as ChartPoint | undefined
+                        const chartPoint = currentPoint as RenderedChartPoint | undefined
                         const absoluteChange = currentValue - baselineValue
                         const percentChange = baselineValue !== 0 ? (absoluteChange / baselineValue) * 100 : 0
                         const changeColor = absoluteChange >= 0 ? 'var(--green)' : 'var(--red)'
                         const sign = percentChange >= 0 ? '+' : ''
                         return (
                           <div style={{ background: 'var(--bg3)', border: '1px solid var(--border2)', borderRadius: 8, padding: '10px 14px', fontSize: 12, boxShadow: '0 4px 16px rgba(0,0,0,0.4)' }}>
-                            <div style={{ color: 'var(--muted)', marginBottom: 6, fontSize: 11 }}>{formatTooltipDate(String(chartPoint?.displayDate ?? label), historyRange, locale, timezone)}</div>
+                            <div style={{ color: 'var(--muted)', marginBottom: 6, fontSize: 11 }}>{formatTooltipDate(String(chartPoint?.displayDate ?? chartPoint?.date ?? label), historyRange, locale, timezone)}</div>
                             <div style={{ color: 'var(--text)', fontWeight: 700, marginBottom: 4, fontFamily: "'Fira Code', monospace" }}>{formatCurrency(currentValue, locale, currency)}</div>
                             <div style={{ color: changeColor, fontWeight: 600, fontFamily: "'Fira Code', monospace" }}>
                               {sign}{formatCurrency(absoluteChange, locale, currency)} ({sign}{percentChange.toFixed(2)}%)
