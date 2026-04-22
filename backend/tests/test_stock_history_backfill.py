@@ -267,7 +267,7 @@ def test_backfill_after_commit_keeps_price_history_when_portfolio_backfill_fails
     assert history_db.closed is True
 
 
-def test_collect_missing_portfolio_history_rows_uses_purchase_day_and_skips_existing_dates():
+def test_collect_missing_portfolio_history_rows_preserves_close_existing_values_in_backfill_window():
     stocks_list = [
         SimpleNamespace(
             ticker="MSFT",
@@ -299,7 +299,111 @@ def test_collect_missing_portfolio_history_rows_uses_purchase_day_and_skips_exis
         ),
     ]
     existing_history_rows = [
-        SimpleNamespace(date=datetime(2026, 1, 3, 12, 0, tzinfo=timezone.utc)),
+        SimpleNamespace(date=datetime(2026, 1, 2, 12, 0, tzinfo=timezone.utc), total_value=2190.0),
+        SimpleNamespace(date=datetime(2026, 1, 3, 12, 0, tzinfo=timezone.utc), total_value=2405.0),
+    ]
+
+    rows = collect_missing_portfolio_history_rows(
+        stocks_list,
+        price_rows,
+        existing_history_rows,
+        {"USD_SEK": 10.0},
+        start_date=date(2026, 1, 1),
+    )
+
+    assert rows == [
+        {
+            "date": datetime(2026, 1, 1, tzinfo=timezone.utc),
+            "total_value": 2000.0,
+        },
+    ]
+
+
+def test_collect_missing_portfolio_history_rows_skips_existing_dates_without_backfill_window():
+    stocks_list = [
+        SimpleNamespace(
+            ticker="MSFT",
+            currency="USD",
+            quantity=2,
+            purchase_price=100.0,
+            purchase_date=date(2026, 1, 1),
+            position_entries=None,
+        ),
+    ]
+    price_rows = [
+        SimpleNamespace(
+            ticker="MSFT",
+            price=100.0,
+            currency="USD",
+            recorded_at=datetime(2026, 1, 1, tzinfo=timezone.utc),
+        ),
+        SimpleNamespace(
+            ticker="MSFT",
+            price=110.0,
+            currency="USD",
+            recorded_at=datetime(2026, 1, 2, tzinfo=timezone.utc),
+        ),
+        SimpleNamespace(
+            ticker="MSFT",
+            price=120.0,
+            currency="USD",
+            recorded_at=datetime(2026, 1, 3, tzinfo=timezone.utc),
+        ),
+    ]
+    existing_history_rows = [
+        SimpleNamespace(date=datetime(2026, 1, 2, 12, 0, tzinfo=timezone.utc), total_value=2190.0),
+        SimpleNamespace(date=datetime(2026, 1, 3, 12, 0, tzinfo=timezone.utc), total_value=2405.0),
+    ]
+
+    rows = collect_missing_portfolio_history_rows(
+        stocks_list,
+        price_rows,
+        existing_history_rows,
+        {"USD_SEK": 10.0},
+    )
+
+    assert rows == [
+        {
+            "date": datetime(2026, 1, 1, tzinfo=timezone.utc),
+            "total_value": 2000.0,
+        },
+    ]
+
+
+def test_collect_missing_portfolio_history_rows_rewrites_existing_dates_when_values_are_not_close():
+    stocks_list = [
+        SimpleNamespace(
+            ticker="MSFT",
+            currency="USD",
+            quantity=2,
+            purchase_price=100.0,
+            purchase_date=date(2026, 1, 1),
+            position_entries=None,
+        ),
+    ]
+    price_rows = [
+        SimpleNamespace(
+            ticker="MSFT",
+            price=100.0,
+            currency="USD",
+            recorded_at=datetime(2026, 1, 1, tzinfo=timezone.utc),
+        ),
+        SimpleNamespace(
+            ticker="MSFT",
+            price=110.0,
+            currency="USD",
+            recorded_at=datetime(2026, 1, 2, tzinfo=timezone.utc),
+        ),
+        SimpleNamespace(
+            ticker="MSFT",
+            price=120.0,
+            currency="USD",
+            recorded_at=datetime(2026, 1, 3, tzinfo=timezone.utc),
+        ),
+    ]
+    existing_history_rows = [
+        SimpleNamespace(date=datetime(2026, 1, 2, 12, 0, tzinfo=timezone.utc), total_value=1800.0),
+        SimpleNamespace(date=datetime(2026, 1, 3, 12, 0, tzinfo=timezone.utc), total_value=100.0),
     ]
 
     rows = collect_missing_portfolio_history_rows(
@@ -318,6 +422,10 @@ def test_collect_missing_portfolio_history_rows_uses_purchase_day_and_skips_exis
         {
             "date": datetime(2026, 1, 2, tzinfo=timezone.utc),
             "total_value": 2200.0,
+        },
+        {
+            "date": datetime(2026, 1, 3, tzinfo=timezone.utc),
+            "total_value": 2400.0,
         },
     ]
 
