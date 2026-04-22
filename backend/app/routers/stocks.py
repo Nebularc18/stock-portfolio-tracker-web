@@ -18,7 +18,7 @@ import hashlib
 import threading
 from datetime import date, datetime, timedelta, timezone
 
-from app.main import get_db, get_current_user, User, Stock, StockCreate, StockUpdate, StockResponse, StockPriceHistory
+from app.main import SessionLocal, get_db, get_current_user, User, Stock, StockCreate, StockUpdate, StockResponse, StockPriceHistory
 from app.utils.time import utc_now
 from app.services.brandfetch_service import brandfetch_service
 from app.services.position_service import apply_stock_split, calculate_position_snapshot, get_quantity_held_on_date, get_remaining_quantity, has_position_history, normalize_position_entries, validate_position_entries
@@ -232,6 +232,36 @@ def _backfill_stock_price_history(
         })
 
     return _upsert_stock_price_history_rows(db, user_id, ticker_upper, rows_to_upsert)
+
+
+def _backfill_stock_price_history_after_commit(
+    user_id: int,
+    ticker: str,
+    purchase_date: Optional[date],
+    stock_service,
+    current_price: Optional[float] = None,
+    current_currency: Optional[str] = None,
+) -> int:
+    history_db = SessionLocal()
+    try:
+        backfilled_rows = _backfill_stock_price_history(
+            history_db,
+            user_id,
+            ticker,
+            purchase_date,
+            stock_service,
+            current_price=current_price,
+            current_currency=current_currency,
+        )
+        if backfilled_rows > 0:
+            history_db.commit()
+        return backfilled_rows
+    except Exception:
+        history_db.rollback()
+        logger.exception("Failed to backfill price history for %s", ticker)
+        return 0
+    finally:
+        history_db.close()
 
 
 def _build_dividends_batch_cache_key(user_id: int, years: int, normalized_tickers: list[str], stocks_by_ticker: dict[str, Stock]) -> str:
@@ -801,8 +831,9 @@ def create_stock(payload: dict = Body(...), db: Session = Depends(get_db), curre
     ).first()
     if existing:
         _append_position_entries(existing, snapshot['position_entries'])
-        backfilled_rows = _backfill_stock_price_history(
-            db,
+        db.commit()
+        db.refresh(existing)
+        backfilled_rows = _backfill_stock_price_history_after_commit(
             current_user.id,
             ticker,
             existing.purchase_date,
@@ -810,8 +841,6 @@ def create_stock(payload: dict = Body(...), db: Session = Depends(get_db), curre
             current_price=existing.current_price,
             current_currency=existing.currency,
         )
-        db.commit()
-        db.refresh(existing)
         logger.info("Added new lot to existing stock: %s (backfilled %s history rows)", ticker, backfilled_rows)
         return existing
 
@@ -849,8 +878,9 @@ def create_stock(payload: dict = Body(...), db: Session = Depends(get_db), curre
     )
 
     db.add(stock)
-    backfilled_rows = _backfill_stock_price_history(
-        db,
+    db.commit()
+    db.refresh(stock)
+    backfilled_rows = _backfill_stock_price_history_after_commit(
         current_user.id,
         ticker,
         purchase_date,
@@ -858,8 +888,6 @@ def create_stock(payload: dict = Body(...), db: Session = Depends(get_db), curre
         current_price=stock.current_price,
         current_currency=stock.currency,
     )
-    db.commit()
-    db.refresh(stock)
     logger.info("Successfully added stock: %s (backfilled %s history rows)", ticker, backfilled_rows)
     return stock
 

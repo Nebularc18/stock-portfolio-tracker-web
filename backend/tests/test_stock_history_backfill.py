@@ -38,6 +38,8 @@ class FakeDB:
         self.stocks = stocks_list or []
         self.history_rows = history_rows or []
         self.committed = False
+        self.closed = False
+        self.rolled_back = False
 
     def query(self, model):
         if model is stocks.Stock:
@@ -52,8 +54,14 @@ class FakeDB:
     def commit(self):
         self.committed = True
 
+    def rollback(self):
+        self.rolled_back = True
+
     def refresh(self, _value):
         return None
+
+    def close(self):
+        self.closed = True
 
 
 def test_get_daily_price_history_parses_yahoo_chart_rows(monkeypatch):
@@ -168,7 +176,49 @@ def test_backfill_stock_price_history_fetches_missing_range_and_today_quote(monk
     }
 
 
-def test_create_stock_triggers_price_history_backfill(monkeypatch):
+def test_backfill_after_commit_uses_separate_session(monkeypatch):
+    captured = {}
+    history_db = FakeDB()
+
+    class FakeStockService:
+        pass
+
+    def fake_backfill(db, user_id, ticker, purchase_date, stock_service, current_price=None, current_currency=None):
+        captured["db"] = db
+        captured["user_id"] = user_id
+        captured["ticker"] = ticker
+        captured["purchase_date"] = purchase_date
+        captured["stock_service"] = stock_service
+        captured["current_price"] = current_price
+        captured["current_currency"] = current_currency
+        return 2
+
+    monkeypatch.setattr(stocks, "SessionLocal", lambda: history_db)
+    monkeypatch.setattr(stocks, "_backfill_stock_price_history", fake_backfill)
+
+    service = FakeStockService()
+    count = stocks._backfill_stock_price_history_after_commit(
+        user_id=7,
+        ticker="MSFT",
+        purchase_date=date(2025, 4, 1),
+        stock_service=service,
+        current_price=123.45,
+        current_currency="USD",
+    )
+
+    assert count == 2
+    assert captured["db"] is history_db
+    assert captured["user_id"] == 7
+    assert captured["ticker"] == "MSFT"
+    assert captured["purchase_date"] == date(2025, 4, 1)
+    assert captured["stock_service"] is service
+    assert captured["current_price"] == 123.45
+    assert captured["current_currency"] == "USD"
+    assert history_db.committed is True
+    assert history_db.closed is True
+
+
+def test_create_stock_triggers_post_commit_price_history_backfill(monkeypatch):
     captured = {}
     fixed_now = datetime(2026, 4, 22, 9, 30, tzinfo=timezone.utc)
 
@@ -189,9 +239,8 @@ def test_create_stock_triggers_price_history_backfill(monkeypatch):
                 "dividend_per_share": 2.0,
             }
 
-    def fake_backfill(db, user_id, ticker, purchase_date, stock_service, current_price=None, current_currency=None):
+    def fake_backfill(user_id, ticker, purchase_date, stock_service, current_price=None, current_currency=None):
         captured["backfill"] = {
-            "db": db,
             "user_id": user_id,
             "ticker": ticker,
             "purchase_date": purchase_date,
@@ -204,7 +253,7 @@ def test_create_stock_triggers_price_history_backfill(monkeypatch):
     monkeypatch.setattr("app.services.stock_service.StockService", FakeStockService)
     monkeypatch.setattr("app.services.avanza_service.avanza_service.ensure_mapping_for_ticker", lambda *_args, **_kwargs: None)
     monkeypatch.setattr("app.services.brandfetch_service.brandfetch_service.get_logo_url_for_ticker", lambda *_args, **_kwargs: "logo-url")
-    monkeypatch.setattr(stocks, "_backfill_stock_price_history", fake_backfill)
+    monkeypatch.setattr(stocks, "_backfill_stock_price_history_after_commit", fake_backfill)
     monkeypatch.setattr(stocks, "utc_now", lambda: fixed_now)
 
     db = FakeDB()
