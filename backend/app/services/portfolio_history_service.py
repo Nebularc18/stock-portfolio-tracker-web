@@ -12,6 +12,8 @@ from app.services.position_service import get_quantity_held_on_date, has_positio
 
 
 def _normalize_history_timestamp(value: datetime | date) -> datetime:
+    # PortfolioHistory and StockPriceHistory are treated as one-row-per-UTC-day
+    # stores, so callers must normalize timestamps before writing them.
     if isinstance(value, datetime):
         normalized = value.astimezone(timezone.utc) if value.tzinfo else value.replace(tzinfo=timezone.utc)
         return normalized.replace(hour=0, minute=0, second=0, microsecond=0)
@@ -24,12 +26,12 @@ def _convert_value(value: float, from_currency: str, to_currency: str, rates: di
 
     key = f"{from_currency}_{to_currency}"
     direct_rate = rates.get(key)
-    if direct_rate:
+    if direct_rate is not None:
         return value * direct_rate
 
     inverse_key = f"{to_currency}_{from_currency}"
     inverse_rate = rates.get(inverse_key)
-    if inverse_rate:
+    if inverse_rate is not None and inverse_rate != 0:
         return value / inverse_rate
 
     if from_currency != "SEK" and to_currency != "SEK":
@@ -181,8 +183,9 @@ def backfill_portfolio_history_from_prices(
 
     existing_history_query = db.query(PortfolioHistory).filter(PortfolioHistory.user_id == user_id)
     if start_date is not None:
+        normalized_start = _normalize_history_timestamp(start_date)
         existing_history_query = existing_history_query.filter(
-            PortfolioHistory.date >= datetime(start_date.year, start_date.month, start_date.day, tzinfo=timezone.utc),
+            PortfolioHistory.date >= normalized_start,
         )
     existing_history_rows = existing_history_query.all()
 
@@ -212,7 +215,7 @@ def backfill_portfolio_history_from_prices(
     stmt = insert(PortfolioHistory).values([
         {
             "user_id": user_id,
-            "date": row["date"],
+            "date": _normalize_history_timestamp(row["date"]),
             "total_value": row["total_value"],
         }
         for row in rows_to_upsert
