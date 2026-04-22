@@ -39,8 +39,10 @@ class FakeDB:
         self.stocks = stocks_list or []
         self.history_rows = history_rows or []
         self.committed = False
+        self.commit_count = 0
         self.closed = False
         self.rolled_back = False
+        self.rollback_count = 0
 
     def query(self, model):
         if model is stocks.Stock:
@@ -54,9 +56,11 @@ class FakeDB:
 
     def commit(self):
         self.committed = True
+        self.commit_count += 1
 
     def rollback(self):
         self.rolled_back = True
+        self.rollback_count += 1
 
     def refresh(self, _value):
         return None
@@ -228,6 +232,38 @@ def test_backfill_after_commit_uses_separate_session(monkeypatch):
     assert captured["portfolio_backfill"]["user_id"] == 7
     assert captured["portfolio_backfill"]["start_date"] == date(2025, 4, 1)
     assert history_db.committed is True
+    assert history_db.commit_count == 2
+    assert history_db.closed is True
+
+
+def test_backfill_after_commit_keeps_price_history_when_portfolio_backfill_fails(monkeypatch):
+    history_db = FakeDB()
+
+    class FakeStockService:
+        pass
+
+    def fake_backfill(db, user_id, ticker, purchase_date, stock_service, current_price=None, current_currency=None):
+        return 2
+
+    def fake_portfolio_backfill(db, user_id, start_date=None):
+        raise RuntimeError("exchange-rate API unavailable")
+
+    monkeypatch.setattr(stocks, "SessionLocal", lambda: history_db)
+    monkeypatch.setattr(stocks, "_backfill_stock_price_history", fake_backfill)
+    monkeypatch.setattr("app.services.portfolio_history_service.backfill_portfolio_history_from_prices", fake_portfolio_backfill)
+
+    count = stocks._backfill_stock_price_history_after_commit(
+        user_id=7,
+        ticker="MSFT",
+        purchase_date=date(2025, 4, 1),
+        stock_service=FakeStockService(),
+        current_price=123.45,
+        current_currency="USD",
+    )
+
+    assert count == 2
+    assert history_db.commit_count == 1
+    assert history_db.rollback_count == 1
     assert history_db.closed is True
 
 
