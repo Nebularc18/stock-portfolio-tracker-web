@@ -914,7 +914,7 @@ export default function StockDetail() {
   }
 
   const handleRefresh = async () => {
-    if (!ticker) return
+    if (!ticker || backfilling) return
 
     try {
       setRefreshing(true)
@@ -1377,7 +1377,7 @@ export default function StockDetail() {
 
           {/* Right: action buttons */}
           <div style={{ display: 'flex', gap: 8, flexShrink: 0 }}>
-            <button className="btn btn-secondary" onClick={handleRefresh} disabled={refreshing}>
+            <button className="btn btn-secondary" onClick={handleRefresh} disabled={refreshing || backfilling}>
               {refreshing ? t(language, 'common.refreshing') : t(language, 'common.refresh')}
             </button>
             {isLookupMode ? (
