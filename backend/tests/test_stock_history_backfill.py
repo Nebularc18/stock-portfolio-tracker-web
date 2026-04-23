@@ -243,7 +243,7 @@ def test_backfill_after_commit_uses_separate_session(monkeypatch):
     class FakeStockService:
         pass
 
-    def fake_backfill(db, user_id, ticker, purchase_date, stock_service, current_price=None, current_currency=None):
+    def fake_backfill(db, user_id, ticker, purchase_date, stock_service, current_price=None, current_currency=None, full_range=False):
         captured["db"] = db
         captured["user_id"] = user_id
         captured["ticker"] = ticker
@@ -325,7 +325,7 @@ def test_backfill_after_commit_keeps_price_history_when_portfolio_backfill_fails
     class FakeStockService:
         pass
 
-    def fake_backfill(db, user_id, ticker, purchase_date, stock_service, current_price=None, current_currency=None):
+    def fake_backfill(db, user_id, ticker, purchase_date, stock_service, current_price=None, current_currency=None, full_range=False):
         return 2
 
     def fake_portfolio_backfill(db, user_id, start_date=None):
@@ -801,6 +801,38 @@ def test_bulk_backfill_keeps_partial_progress_when_one_stock_fails(monkeypatch):
         "portfolio_history_rows": 7,
         "start_date": "2025-04-01",
     }
+
+
+def test_bulk_backfill_skips_empty_tickers(monkeypatch):
+    history_db = FakeDB()
+    captured = {"tickers": []}
+
+    class FakeStockService:
+        pass
+
+    def fake_backfill(db, user_id, ticker, purchase_date, stock_service, current_price=None, current_currency=None, full_range=False):
+        captured["tickers"].append(ticker)
+        return 2
+
+    monkeypatch.setattr(stocks, "SessionLocal", lambda: history_db)
+    monkeypatch.setattr(stocks, "_backfill_stock_price_history", fake_backfill)
+    monkeypatch.setattr("app.services.portfolio_history_service.backfill_portfolio_history_from_prices", lambda *_args, **_kwargs: 4)
+
+    result = stocks._backfill_multiple_stock_price_histories_after_commit(
+        user_id=7,
+        requests=[
+            {"ticker": "", "purchase_date": date(2025, 4, 1)},
+            {"ticker": "   ", "purchase_date": date(2025, 4, 2)},
+            {"ticker": " msft ", "purchase_date": date(2025, 4, 3)},
+        ],
+        stock_service=FakeStockService(),
+        full_range=True,
+    )
+
+    assert captured["tickers"] == ["MSFT"]
+    assert result["stocks_processed"] == 1
+    assert result["stocks_backfilled"] == 1
+    assert result["backfilled_rows"] == 2
 
 
 def test_create_stock_triggers_post_commit_price_history_backfill(monkeypatch):

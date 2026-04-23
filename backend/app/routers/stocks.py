@@ -250,6 +250,7 @@ def _backfill_stock_price_history_after_commit(
     from app.services.portfolio_history_service import backfill_portfolio_history_from_prices
 
     history_db = SessionLocal()
+    committed_backfilled_rows = 0
     try:
         backfilled_rows = _backfill_stock_price_history(
             history_db,
@@ -263,6 +264,7 @@ def _backfill_stock_price_history_after_commit(
         )
         if backfilled_rows > 0:
             history_db.commit()
+            committed_backfilled_rows = backfilled_rows
             try:
                 backfill_portfolio_history_from_prices(
                     history_db,
@@ -280,7 +282,7 @@ def _backfill_stock_price_history_after_commit(
     except Exception:
         history_db.rollback()
         logger.exception("Failed to backfill price history for %s", ticker)
-        return 0
+        return committed_backfilled_rows
     finally:
         history_db.close()
 
@@ -294,10 +296,15 @@ def _backfill_multiple_stock_price_histories_after_commit(
 ) -> dict[str, int | str | None]:
     from app.services.portfolio_history_service import backfill_portfolio_history_from_prices
 
-    normalized_requests = [
-        request for request in requests
-        if isinstance(request.get("ticker"), str) and request.get("purchase_date") is not None
-    ]
+    normalized_requests: list[dict[str, object]] = []
+    for request in requests:
+        raw_ticker = request.get("ticker")
+        if not isinstance(raw_ticker, str) or not raw_ticker.strip() or request.get("purchase_date") is None:
+            continue
+        normalized_requests.append({
+            **request,
+            "ticker": raw_ticker.strip().upper(),
+        })
     if not normalized_requests:
         return {
             "stocks_processed": 0,
