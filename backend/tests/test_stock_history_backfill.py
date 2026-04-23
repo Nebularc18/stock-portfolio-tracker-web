@@ -721,7 +721,7 @@ def test_bulk_backfill_endpoint_rebuilds_all_holdings(monkeypatch):
         current_user=SimpleNamespace(id=7),
     )
 
-    assert db.committed is True
+    assert db.committed is False
     assert captured["user_id"] == 7
     assert captured["full_range"] is True
     assert isinstance(captured["stock_service"], FakeStockService)
@@ -744,6 +744,61 @@ def test_bulk_backfill_endpoint_rebuilds_all_holdings(monkeypatch):
         "stocks_backfilled": 2,
         "backfilled_rows": 50,
         "portfolio_history_rows": 300,
+        "start_date": "2025-04-01",
+    }
+
+
+def test_bulk_backfill_keeps_partial_progress_when_one_stock_fails(monkeypatch):
+    history_db = FakeDB()
+    captured = {"calls": []}
+
+    class FakeStockService:
+        pass
+
+    def fake_backfill(db, user_id, ticker, purchase_date, stock_service, current_price=None, current_currency=None, full_range=False):
+        captured["calls"].append(ticker)
+        if ticker == "AAPL":
+            raise RuntimeError("rate limited")
+        return 3
+
+    def fake_portfolio_backfill(db, user_id, start_date=None):
+        captured["portfolio_start_date"] = start_date
+        return 7
+
+    monkeypatch.setattr(stocks, "SessionLocal", lambda: history_db)
+    monkeypatch.setattr(stocks, "_backfill_stock_price_history", fake_backfill)
+    monkeypatch.setattr("app.services.portfolio_history_service.backfill_portfolio_history_from_prices", fake_portfolio_backfill)
+
+    result = stocks._backfill_multiple_stock_price_histories_after_commit(
+        user_id=7,
+        requests=[
+            {
+                "ticker": "MSFT",
+                "purchase_date": date(2025, 4, 1),
+                "current_price": 123.45,
+                "current_currency": "USD",
+            },
+            {
+                "ticker": "AAPL",
+                "purchase_date": date(2025, 5, 1),
+                "current_price": 200.0,
+                "current_currency": "USD",
+            },
+        ],
+        stock_service=FakeStockService(),
+        full_range=True,
+    )
+
+    assert captured["calls"] == ["MSFT", "AAPL"]
+    assert captured["portfolio_start_date"] == date(2025, 4, 1)
+    assert history_db.commit_count == 2
+    assert history_db.rollback_count == 1
+    assert history_db.closed is True
+    assert result == {
+        "stocks_processed": 2,
+        "stocks_backfilled": 1,
+        "backfilled_rows": 3,
+        "portfolio_history_rows": 7,
         "start_date": "2025-04-01",
     }
 

@@ -323,22 +323,30 @@ def _backfill_multiple_stock_price_histories_after_commit(
             purchase_date = request.get("purchase_date")
             if not isinstance(purchase_date, date):
                 continue
-            backfilled_rows = _backfill_stock_price_history(
-                history_db,
-                user_id,
-                str(request["ticker"]),
-                purchase_date,
-                stock_service,
-                current_price=request.get("current_price") if isinstance(request.get("current_price"), (int, float)) else None,
-                current_currency=request.get("current_currency") if isinstance(request.get("current_currency"), str) else None,
-                full_range=full_range,
-            )
-            total_backfilled_rows += backfilled_rows
-            if backfilled_rows > 0:
-                stocks_backfilled += 1
+            try:
+                backfilled_rows = _backfill_stock_price_history(
+                    history_db,
+                    user_id,
+                    str(request["ticker"]),
+                    purchase_date,
+                    stock_service,
+                    current_price=request.get("current_price") if isinstance(request.get("current_price"), (int, float)) else None,
+                    current_currency=request.get("current_currency") if isinstance(request.get("current_currency"), str) else None,
+                    full_range=full_range,
+                )
+                if backfilled_rows > 0:
+                    history_db.commit()
+                    total_backfilled_rows += backfilled_rows
+                    stocks_backfilled += 1
+            except Exception:
+                history_db.rollback()
+                logger.exception(
+                    "Failed to backfill %s for user %s",
+                    request.get("ticker"),
+                    user_id,
+                )
 
         if total_backfilled_rows > 0:
-            history_db.commit()
             portfolio_history_rows = backfill_portfolio_history_from_prices(
                 history_db,
                 user_id,
@@ -357,11 +365,11 @@ def _backfill_multiple_stock_price_histories_after_commit(
         }
     except Exception:
         history_db.rollback()
-        logger.exception("Failed to backfill stock price history for multiple holdings")
+        logger.exception("Failed to rebuild portfolio history after bulk price backfill")
         return {
             "stocks_processed": len(normalized_requests),
-            "stocks_backfilled": 0,
-            "backfilled_rows": 0,
+            "stocks_backfilled": stocks_backfilled,
+            "backfilled_rows": total_backfilled_rows,
             "portfolio_history_rows": 0,
             "start_date": rebuild_start_date.isoformat() if rebuild_start_date else None,
         }
@@ -1435,8 +1443,6 @@ def backfill_all_stock_history(db: Session = Depends(get_db), current_user: User
             "current_price": stock.current_price,
             "current_currency": stock.currency,
         })
-
-    db.commit()
 
     stock_service = StockService()
     return _backfill_multiple_stock_price_histories_after_commit(
