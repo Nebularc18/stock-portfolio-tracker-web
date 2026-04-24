@@ -38,7 +38,7 @@ const HOLDINGS_RETURN_RANGE_OPTIONS: Array<{ key: ReturnRangeKey; labelKey: Tran
   { key: 'SINCE_START', labelKey: 'dashboard.rangeSinceStart' },
 ]
 
-type ChartPoint = { date: string; value: number; isBaseline?: boolean; displayDate?: string }
+type ChartPoint = { date: string; value: number; isBaseline?: boolean; displayDate?: string; displayDateOnly?: boolean }
 type BenchmarkChartPoint = ChartPoint & { portfolioReturn: number; benchmarkReturn: number | null }
 type RenderedChartPoint = ChartPoint & { xValue: number }
 type RenderedBenchmarkChartPoint = BenchmarkChartPoint & { xValue: number }
@@ -546,11 +546,10 @@ function formatXAxisTick(dateValue: string, range: HistoryRangeKey, locale: stri
  * @param timezone - IANA timezone identifier used for display formatting
  * @returns A localized, human-readable date string; returns `dateValue` unchanged when the input cannot be parsed as a date
  */
-function formatTooltipDate(dateValue: string, range: HistoryRangeKey, locale: string, timezone: string): string {
+function formatTooltipDate(dateValue: string, range: HistoryRangeKey, locale: string, timezone: string, dateOnly = false): string {
   const date = parseHistoryDate(dateValue)
   if (Number.isNaN(date.getTime())) return dateValue
-  const isUtcMidnightPoint = date.getUTCHours() === 0 && date.getUTCMinutes() === 0 && date.getUTCSeconds() === 0 && date.getUTCMilliseconds() === 0
-  if (range !== '1D' && isUtcMidnightPoint) {
+  if (dateOnly) {
     return date.toLocaleDateString(locale, { weekday: 'short', month: 'short', day: 'numeric', year: 'numeric', timeZone: timezone })
   }
   if (range === '1D' || range === '1W') {
@@ -572,6 +571,15 @@ export function isHistoryPointInCurrentDay(dateValue: string, timezone: string, 
   const date = parseHistoryDate(dateValue)
   if (Number.isNaN(date.getTime())) return false
   return formatDateKeyInTimezone(date, timezone) === formatDateKeyInTimezone(now, timezone)
+}
+
+function isUtcMidnightHistoryPoint(dateValue: string): boolean {
+  const date = parseHistoryDate(dateValue)
+  return !Number.isNaN(date.getTime())
+    && date.getUTCHours() === 0
+    && date.getUTCMinutes() === 0
+    && date.getUTCSeconds() === 0
+    && date.getUTCMilliseconds() === 0
 }
 
 /**
@@ -1143,14 +1151,18 @@ export default function Dashboard() {
   const dividendYieldPercent = summary?.dividend_yield ?? 0
   const lastUpdate = summary?.last_updated ?? null
 
-  const rawChartData = useMemo(() => (
+  const rawChartData = useMemo<ChartPoint[]>(() => (
     portfolioHistory
-      .map((entry) => {
+      .map((entry): ChartPoint | null => {
         if (!Number.isFinite(entry.value)) return null
-        return { date: entry.date, value: entry.value }
+        return {
+          date: entry.date,
+          value: entry.value,
+          displayDateOnly: historyRange !== '1D' && isUtcMidnightHistoryPoint(entry.date),
+        }
       })
       .filter((point): point is ChartPoint => point !== null)
-  ), [portfolioHistory])
+  ), [historyRange, portfolioHistory])
 
   const currentDayChartData = useMemo(() => (
     rawChartData.filter((point) => isHistoryPointInCurrentDay(point.date, timezone))
@@ -1650,7 +1662,7 @@ export default function Dashboard() {
                     <XAxis
                       dataKey="xValue"
                       type="number"
-                      scale="time"
+                      scale="linear"
                       domain={['dataMin', 'dataMax']}
                       stroke="var(--border2)"
                       tick={{ fill: 'var(--muted)', fontSize: 10, fontFamily: "'Fira Code', monospace" }}
@@ -1682,7 +1694,7 @@ export default function Dashboard() {
                           const benchmarkReturn = comparisonPoint?.benchmarkReturn ?? null
                           return (
                             <div style={{ background: 'var(--bg3)', border: '1px solid var(--border2)', borderRadius: 8, padding: '10px 14px', fontSize: 12, boxShadow: '0 4px 16px rgba(0,0,0,0.4)' }}>
-                              <div style={{ color: 'var(--muted)', marginBottom: 8, fontSize: 11 }}>{formatTooltipDate(String(comparisonPoint?.displayDate ?? comparisonPoint?.date ?? label), historyRange, locale, timezone)}</div>
+                              <div style={{ color: 'var(--muted)', marginBottom: 8, fontSize: 11 }}>{formatTooltipDate(String(comparisonPoint?.displayDate ?? comparisonPoint?.date ?? label), historyRange, locale, timezone, Boolean(comparisonPoint?.displayDateOnly))}</div>
                               <div style={{ color: (portfolioReturn ?? 0) >= 0 ? 'var(--green)' : 'var(--red)', fontWeight: 700, marginBottom: 5, fontFamily: "'Fira Code', monospace" }}>
                                 {t(language, 'dashboard.portfolio')}: {formatSignedPercentValue(portfolioReturn)}
                               </div>
@@ -1701,7 +1713,7 @@ export default function Dashboard() {
                         const sign = percentChange >= 0 ? '+' : ''
                         return (
                           <div style={{ background: 'var(--bg3)', border: '1px solid var(--border2)', borderRadius: 8, padding: '10px 14px', fontSize: 12, boxShadow: '0 4px 16px rgba(0,0,0,0.4)' }}>
-                            <div style={{ color: 'var(--muted)', marginBottom: 6, fontSize: 11 }}>{formatTooltipDate(String(chartPoint?.displayDate ?? chartPoint?.date ?? label), historyRange, locale, timezone)}</div>
+                            <div style={{ color: 'var(--muted)', marginBottom: 6, fontSize: 11 }}>{formatTooltipDate(String(chartPoint?.displayDate ?? chartPoint?.date ?? label), historyRange, locale, timezone, Boolean(chartPoint?.displayDateOnly))}</div>
                             <div style={{ color: 'var(--text)', fontWeight: 700, marginBottom: 4, fontFamily: "'Fira Code', monospace" }}>{formatCurrency(currentValue, locale, currency)}</div>
                             <div style={{ color: changeColor, fontWeight: 600, fontFamily: "'Fira Code', monospace" }}>
                               {sign}{formatCurrency(absoluteChange, locale, currency)} ({sign}{percentChange.toFixed(2)}%)
