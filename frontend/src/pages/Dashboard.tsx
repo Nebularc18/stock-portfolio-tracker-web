@@ -42,6 +42,13 @@ type ChartPoint = { date: string; value: number; isBaseline?: boolean; displayDa
 type BenchmarkChartPoint = ChartPoint & { portfolioReturn: number; benchmarkReturn: number | null }
 type RenderedChartPoint = ChartPoint & { xValue: number }
 type RenderedBenchmarkChartPoint = BenchmarkChartPoint & { xValue: number }
+type RenderedChartGapPoint = Omit<RenderedChartPoint, 'value'> & { value: null; isGap: true }
+type RenderedBenchmarkChartGapPoint = Omit<RenderedBenchmarkChartPoint, 'value' | 'portfolioReturn' | 'benchmarkReturn'> & {
+  value: null
+  portfolioReturn: null
+  benchmarkReturn: null
+  isGap: true
+}
 type DashboardHistoryEntry = { date: string; value: number }
 type DashboardDataCache = {
   summary: PortfolioSummary
@@ -600,6 +607,63 @@ function addChartPointTime<T extends ChartPoint>(point: T): (T & { xValue: numbe
   return { ...point, xValue }
 }
 
+function getChartGapThresholdMs(range: HistoryRangeKey): number | null {
+  if (range === '1D' || range === '1W') return 45 * 60 * 1000
+  if (range === '1M' || range === 'YTD' || range === '1Y') return 36 * 60 * 60 * 1000
+  return null
+}
+
+function insertChartGaps<T extends RenderedChartPoint, G>(
+  data: T[],
+  range: HistoryRangeKey,
+  makeGap: (previousPoint: T, gapTime: number) => G,
+): Array<T | G> {
+  const thresholdMs = getChartGapThresholdMs(range)
+  if (thresholdMs === null || data.length < 2) return data
+
+  const withGaps: Array<T | G> = [data[0]]
+  for (let index = 1; index < data.length; index += 1) {
+    const previousPoint = data[index - 1]
+    const point = data[index]
+    if (!previousPoint.isBaseline && point.xValue - previousPoint.xValue > thresholdMs) {
+      const gapTime = previousPoint.xValue + Math.min(1000, Math.max(1, Math.floor((point.xValue - previousPoint.xValue) / 2)))
+      withGaps.push(makeGap(previousPoint, gapTime))
+    }
+    withGaps.push(point)
+  }
+  return withGaps
+}
+
+export function insertChartDataGaps<T extends RenderedChartPoint>(
+  data: T[],
+  range: HistoryRangeKey,
+): Array<T | RenderedChartGapPoint> {
+  return insertChartGaps(data, range, (previousPoint, gapTime) => ({
+    ...previousPoint,
+    date: new Date(gapTime).toISOString(),
+    displayDate: undefined,
+    value: null,
+    xValue: gapTime,
+    isGap: true,
+  }))
+}
+
+function insertBenchmarkChartDataGaps(
+  data: RenderedBenchmarkChartPoint[],
+  range: HistoryRangeKey,
+): Array<RenderedBenchmarkChartPoint | RenderedBenchmarkChartGapPoint> {
+  return insertChartGaps(data, range, (previousPoint, gapTime) => ({
+    ...previousPoint,
+    date: new Date(gapTime).toISOString(),
+    displayDate: undefined,
+    value: null,
+    portfolioReturn: null,
+    benchmarkReturn: null,
+    xValue: gapTime,
+    isGap: true,
+  }))
+}
+
 function formatSignedPercentValue(value: number | null | undefined): string {
   if (value === null || value === undefined || !Number.isFinite(value)) return '-'
   return `${value >= 0 ? '+' : ''}${value.toFixed(2)}%`
@@ -687,18 +751,12 @@ function buildBenchmarkComparisonData(
   }
 }
 
-export function extendFrozenDayChartDataToNow(
+export function freezeDayChartDataAtLastPoint(
   data: ChartPoint[],
   shouldFreeze: boolean,
-  now: Date = new Date(),
 ): ChartPoint[] {
   if (!shouldFreeze || data.length === 0) return data
-  const lastPoint = data[data.length - 1]
-  const lastPointDate = parseHistoryDate(lastPoint.date)
-  if (Number.isNaN(lastPointDate.getTime()) || lastPointDate.getTime() >= now.getTime()) {
-    return data
-  }
-  return [...data, { date: now.toISOString(), value: lastPoint.value }]
+  return data
 }
 
 export function getPreviousCloseBaselineValue(
@@ -1144,7 +1202,7 @@ export default function Dashboard() {
   ), [summary])
 
   const frozenCurrentDayChartData = useMemo(() => (
-    extendFrozenDayChartDataToNow(
+    freezeDayChartDataAtLastPoint(
       currentDayChartData,
       historyRange === '1D' && !shouldAutoRefreshDashboard(summary),
     )
@@ -1206,6 +1264,7 @@ export default function Dashboard() {
 
   const {
     displayedChartData,
+    gappedDisplayedChartData,
     xAxisTicks,
     hasChartData,
     minValue,
@@ -1221,6 +1280,7 @@ export default function Dashboard() {
     const nextDisplayedChartData = sampledChartData
       .map(addChartPointTime)
       .filter((point): point is RenderedChartPoint => point !== null)
+    const nextGappedDisplayedChartData = insertChartDataGaps(nextDisplayedChartData, historyRange)
     const nextXAxisTicks = historyRange === '1D'
       ? nextDisplayedChartData.filter((point) => !point.isBaseline).map((point) => point.xValue)
       : undefined
@@ -1240,6 +1300,7 @@ export default function Dashboard() {
     const valueRange = nextMaxValue - nextMinValue || 1
     return {
       displayedChartData: nextDisplayedChartData,
+      gappedDisplayedChartData: nextGappedDisplayedChartData,
       xAxisTicks: nextXAxisTicks,
       hasChartData: nextHasChartData,
       minValue: nextMinValue,
@@ -1259,7 +1320,10 @@ export default function Dashboard() {
   ), [benchmarkHistory, displayedChartData])
 
   const comparisonMode = Boolean(benchmarkSymbol && benchmarkComparison.data.length > 0)
-  const chartData = comparisonMode ? benchmarkComparison.data : displayedChartData
+  const gappedBenchmarkComparisonData = useMemo(() => (
+    insertBenchmarkChartDataGaps(benchmarkComparison.data, historyRange)
+  ), [benchmarkComparison.data, historyRange])
+  const chartData = comparisonMode ? gappedBenchmarkComparisonData : gappedDisplayedChartData
 
   const groupedDividends = useMemo(() => (
     upcomingDividends
@@ -1651,7 +1715,8 @@ export default function Dashboard() {
                     <Tooltip
                       content={({ active, payload, label }) => {
                         if (!active || !payload || !payload.length) return null
-                        const currentPoint = payload[0].payload as (ChartPoint | BenchmarkChartPoint | undefined)
+                        const currentPoint = payload[0].payload as (ChartPoint | BenchmarkChartPoint | { isGap?: boolean } | undefined)
+                        if (currentPoint && 'isGap' in currentPoint && currentPoint.isGap) return null
                         if (comparisonMode) {
                           const comparisonPoint = currentPoint as RenderedBenchmarkChartPoint | undefined
                           const portfolioReturn = comparisonPoint?.portfolioReturn ?? null
@@ -1703,7 +1768,6 @@ export default function Dashboard() {
                         stroke="#fbbf24"
                         strokeWidth={1.6}
                         dot={false}
-                        connectNulls
                         activeDot={{ r: 4, fill: '#fbbf24', stroke: 'var(--bg)', strokeWidth: 2 }}
                       />
                     )}

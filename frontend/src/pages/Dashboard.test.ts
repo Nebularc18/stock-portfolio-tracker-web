@@ -5,7 +5,7 @@ import {
   DASHBOARD_DATA_CACHE_STORAGE_KEY,
   DASHBOARD_HISTORY_RANGE_STORAGE_KEY,
   downsampleChartData,
-  extendFrozenDayChartDataToNow,
+  freezeDayChartDataAtLastPoint,
   getDashboardDataCacheKey,
   getDashboardHistoryCacheKey,
   getDashboardRefreshBucketMs,
@@ -13,6 +13,7 @@ import {
   getNextDashboardRefreshDelayMs,
   getPreviousCloseBaselineValue,
   getStoredHistoryRange,
+  insertChartDataGaps,
   isHistoryPointInCurrentDay,
   prependDailyBaselinePoint,
   readDashboardDataCache,
@@ -215,14 +216,30 @@ describe('dashboard storage helpers', () => {
     expect(isHistoryPointInCurrentDay('2026-03-25T22:30:00Z', 'Europe/Stockholm', now)).toBe(false)
   })
 
-  it('extends frozen 1D chart data with a flat point at the current time', () => {
-    expect(extendFrozenDayChartDataToNow([
+  it('leaves frozen 1D chart data bounded to actual data points', () => {
+    expect(freezeDayChartDataAtLastPoint([
       { date: '2026-03-26T15:30:00Z', value: 100 },
       { date: '2026-03-26T16:30:00Z', value: 125 },
-    ], true, new Date('2026-03-26T18:00:00Z'))).toEqual([
+    ], true)).toEqual([
       { date: '2026-03-26T15:30:00Z', value: 100 },
       { date: '2026-03-26T16:30:00Z', value: 125 },
-      { date: '2026-03-26T18:00:00.000Z', value: 125 },
+    ])
+  })
+
+  it('inserts null chart breaks across closed-market gaps', () => {
+    expect(insertChartDataGaps([
+      { date: '2026-04-17T19:50:00Z', value: 100, xValue: Date.parse('2026-04-17T19:50:00Z') },
+      { date: '2026-04-20T07:00:00Z', value: 110, xValue: Date.parse('2026-04-20T07:00:00Z') },
+    ], '1W')).toEqual([
+      { date: '2026-04-17T19:50:00Z', value: 100, xValue: Date.parse('2026-04-17T19:50:00Z') },
+      {
+        date: '2026-04-17T19:50:01.000Z',
+        value: null,
+        xValue: Date.parse('2026-04-17T19:50:01.000Z'),
+        isGap: true,
+        displayDate: undefined,
+      },
+      { date: '2026-04-20T07:00:00Z', value: 110, xValue: Date.parse('2026-04-20T07:00:00Z') },
     ])
   })
 
@@ -232,7 +249,7 @@ describe('dashboard storage helpers', () => {
       { date: '2026-03-26T16:30:00Z', value: 125 },
     ]
 
-    expect(extendFrozenDayChartDataToNow(data, false, new Date('2026-03-26T18:00:00Z'))).toBe(data)
+    expect(freezeDayChartDataAtLastPoint(data, false)).toBe(data)
   })
 
   it('derives the previous-close baseline from total value and daily change', () => {
