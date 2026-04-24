@@ -620,14 +620,23 @@ export function compressChartDataTime<T extends RenderedChartPoint>(data: T[]): 
 
 function compressBenchmarkComparisonData(
   benchmarkData: RenderedBenchmarkChartPoint[],
-  compressedPortfolioData: RenderedChartPoint[],
+  portfolioData: RenderedChartPoint[],
 ): RenderedBenchmarkChartPoint[] {
-  if (benchmarkData.length !== compressedPortfolioData.length) return compressChartDataTime(benchmarkData)
-  return benchmarkData.map((point, index) => ({
-    ...point,
-    xValue: compressedPortfolioData[index].xValue,
-    displayDate: point.displayDate ?? compressedPortfolioData[index].displayDate,
-  }))
+  const compressedPortfolioByTime = new Map(
+    compressChartDataTime(portfolioData).map((point) => [getPointTimeMs(point), point]),
+  )
+  const compressed: RenderedBenchmarkChartPoint[] = []
+  for (const point of benchmarkData) {
+    const portfolioPoint = compressedPortfolioByTime.get(getPointTimeMs(point))
+    if (!portfolioPoint) continue
+    compressed.push({
+      ...point,
+      xValue: portfolioPoint.xValue,
+      displayDate: point.displayDate ?? portfolioPoint.displayDate,
+    })
+  }
+
+  return compressed.length > 0 ? compressed : compressChartDataTime(benchmarkData)
 }
 
 function getCompressedChartTicks(data: RenderedChartPoint[], range: HistoryRangeKey): number[] | undefined {
@@ -1304,8 +1313,8 @@ export default function Dashboard() {
 
   const comparisonMode = Boolean(benchmarkSymbol && benchmarkComparison.data.length > 0)
   const compressedBenchmarkComparisonData = useMemo(() => (
-    compressBenchmarkComparisonData(benchmarkComparison.data, compressedDisplayedChartData)
-  ), [benchmarkComparison.data, compressedDisplayedChartData])
+    compressBenchmarkComparisonData(benchmarkComparison.data, displayedChartData)
+  ), [benchmarkComparison.data, displayedChartData])
   const chartData = comparisonMode ? compressedBenchmarkComparisonData : compressedDisplayedChartData
   const chartXAxisTickDates = useMemo(() => (
     new Map(chartData.map((point) => [point.xValue, point.displayDate ?? point.date]))
