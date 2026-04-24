@@ -4,6 +4,7 @@ import {
   DASHBOARD_CACHE_VERSION,
   DASHBOARD_DATA_CACHE_STORAGE_KEY,
   DASHBOARD_HISTORY_RANGE_STORAGE_KEY,
+  compressChartDataTime,
   downsampleChartData,
   freezeDayChartDataAtLastPoint,
   getDashboardDataCacheKey,
@@ -13,7 +14,6 @@ import {
   getNextDashboardRefreshDelayMs,
   getPreviousCloseBaselineValue,
   getStoredHistoryRange,
-  insertChartDataGaps,
   isHistoryPointInCurrentDay,
   prependDailyBaselinePoint,
   readDashboardDataCache,
@@ -226,20 +226,13 @@ describe('dashboard storage helpers', () => {
     ])
   })
 
-  it('inserts null chart breaks across closed-market gaps', () => {
-    expect(insertChartDataGaps([
+  it('compresses chart x-values to remove closed-market gaps', () => {
+    expect(compressChartDataTime([
       { date: '2026-04-17T19:50:00Z', value: 100, xValue: Date.parse('2026-04-17T19:50:00Z') },
       { date: '2026-04-20T07:00:00Z', value: 110, xValue: Date.parse('2026-04-20T07:00:00Z') },
-    ], '1W')).toEqual([
-      { date: '2026-04-17T19:50:00Z', value: 100, xValue: Date.parse('2026-04-17T19:50:00Z') },
-      {
-        date: '2026-04-17T19:50:01.000Z',
-        value: null,
-        xValue: Date.parse('2026-04-17T19:50:01.000Z'),
-        isGap: true,
-        displayDate: undefined,
-      },
-      { date: '2026-04-20T07:00:00Z', value: 110, xValue: Date.parse('2026-04-20T07:00:00Z') },
+    ])).toEqual([
+      { date: '2026-04-17T19:50:00Z', value: 100, xValue: 0 },
+      { date: '2026-04-20T07:00:00Z', value: 110, xValue: 1 },
     ])
   })
 
