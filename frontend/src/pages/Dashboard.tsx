@@ -613,60 +613,55 @@ function getChartGapThresholdMs(range: HistoryRangeKey): number | null {
   return null
 }
 
-export function insertChartDataGaps<T extends RenderedChartPoint>(
+function insertChartGaps<T extends RenderedChartPoint, G>(
   data: T[],
   range: HistoryRangeKey,
-): Array<T | RenderedChartGapPoint> {
+  makeGap: (previousPoint: T, gapTime: number) => G,
+): Array<T | G> {
   const thresholdMs = getChartGapThresholdMs(range)
   if (thresholdMs === null || data.length < 2) return data
 
-  const withGaps: Array<T | RenderedChartGapPoint> = [data[0]]
+  const withGaps: Array<T | G> = [data[0]]
   for (let index = 1; index < data.length; index += 1) {
     const previousPoint = data[index - 1]
     const point = data[index]
     if (!previousPoint.isBaseline && point.xValue - previousPoint.xValue > thresholdMs) {
       const gapTime = previousPoint.xValue + Math.min(1000, Math.max(1, Math.floor((point.xValue - previousPoint.xValue) / 2)))
-      withGaps.push({
-        ...previousPoint,
-        date: new Date(gapTime).toISOString(),
-        displayDate: undefined,
-        value: null,
-        xValue: gapTime,
-        isGap: true,
-      })
+      withGaps.push(makeGap(previousPoint, gapTime))
     }
     withGaps.push(point)
   }
   return withGaps
 }
 
+export function insertChartDataGaps<T extends RenderedChartPoint>(
+  data: T[],
+  range: HistoryRangeKey,
+): Array<T | RenderedChartGapPoint> {
+  return insertChartGaps(data, range, (previousPoint, gapTime) => ({
+    ...previousPoint,
+    date: new Date(gapTime).toISOString(),
+    displayDate: undefined,
+    value: null,
+    xValue: gapTime,
+    isGap: true,
+  }))
+}
+
 function insertBenchmarkChartDataGaps(
   data: RenderedBenchmarkChartPoint[],
   range: HistoryRangeKey,
 ): Array<RenderedBenchmarkChartPoint | RenderedBenchmarkChartGapPoint> {
-  const thresholdMs = getChartGapThresholdMs(range)
-  if (thresholdMs === null || data.length < 2) return data
-
-  const withGaps: Array<RenderedBenchmarkChartPoint | RenderedBenchmarkChartGapPoint> = [data[0]]
-  for (let index = 1; index < data.length; index += 1) {
-    const previousPoint = data[index - 1]
-    const point = data[index]
-    if (!previousPoint.isBaseline && point.xValue - previousPoint.xValue > thresholdMs) {
-      const gapTime = previousPoint.xValue + Math.min(1000, Math.max(1, Math.floor((point.xValue - previousPoint.xValue) / 2)))
-      withGaps.push({
-        ...previousPoint,
-        date: new Date(gapTime).toISOString(),
-        displayDate: undefined,
-        value: null,
-        portfolioReturn: null,
-        benchmarkReturn: null,
-        xValue: gapTime,
-        isGap: true,
-      })
-    }
-    withGaps.push(point)
-  }
-  return withGaps
+  return insertChartGaps(data, range, (previousPoint, gapTime) => ({
+    ...previousPoint,
+    date: new Date(gapTime).toISOString(),
+    displayDate: undefined,
+    value: null,
+    portfolioReturn: null,
+    benchmarkReturn: null,
+    xValue: gapTime,
+    isGap: true,
+  }))
 }
 
 function formatSignedPercentValue(value: number | null | undefined): string {
@@ -759,7 +754,6 @@ function buildBenchmarkComparisonData(
 export function freezeDayChartDataAtLastPoint(
   data: ChartPoint[],
   shouldFreeze: boolean,
-  _now: Date = new Date(),
 ): ChartPoint[] {
   if (!shouldFreeze || data.length === 0) return data
   return data

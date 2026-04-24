@@ -220,7 +220,7 @@ describe('dashboard storage helpers', () => {
     expect(freezeDayChartDataAtLastPoint([
       { date: '2026-03-26T15:30:00Z', value: 100 },
       { date: '2026-03-26T16:30:00Z', value: 125 },
-    ], true, new Date('2026-03-26T18:00:00Z'))).toEqual([
+    ], true)).toEqual([
       { date: '2026-03-26T15:30:00Z', value: 100 },
       { date: '2026-03-26T16:30:00Z', value: 125 },
     ])
@@ -249,7 +249,7 @@ describe('dashboard storage helpers', () => {
       { date: '2026-03-26T16:30:00Z', value: 125 },
     ]
 
-    expect(freezeDayChartDataAtLastPoint(data, false, new Date('2026-03-26T18:00:00Z'))).toBe(data)
+    expect(freezeDayChartDataAtLastPoint(data, false)).toBe(data)
   })
 
   it('derives the previous-close baseline from total value and daily change', () => {
