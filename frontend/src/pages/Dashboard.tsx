@@ -613,7 +613,21 @@ function addChartPointTime<T extends ChartPoint>(point: T): (T & { xValue: numbe
 }
 
 export function compressChartDataTime<T extends RenderedChartPoint>(data: T[]): T[] {
-  return data.map((point, index) => ({ ...point, xValue: index }))
+  return [...data]
+    .sort((a, b) => a.xValue - b.xValue)
+    .map((point, index) => ({ ...point, xValue: index }))
+}
+
+function compressBenchmarkComparisonData(
+  benchmarkData: RenderedBenchmarkChartPoint[],
+  compressedPortfolioData: RenderedChartPoint[],
+): RenderedBenchmarkChartPoint[] {
+  if (benchmarkData.length !== compressedPortfolioData.length) return compressChartDataTime(benchmarkData)
+  return benchmarkData.map((point, index) => ({
+    ...point,
+    xValue: compressedPortfolioData[index].xValue,
+    displayDate: point.displayDate ?? compressedPortfolioData[index].displayDate,
+  }))
 }
 
 function getCompressedChartTicks(data: RenderedChartPoint[], range: HistoryRangeKey): number[] | undefined {
@@ -1237,7 +1251,6 @@ export default function Dashboard() {
     displayedChartData,
     compressedDisplayedChartData,
     xAxisTicks,
-    xAxisTickDates,
     hasChartData,
     minValue,
     maxValue,
@@ -1254,7 +1267,6 @@ export default function Dashboard() {
       .filter((point): point is RenderedChartPoint => point !== null)
     const nextCompressedDisplayedChartData = compressChartDataTime(nextDisplayedChartData)
     const nextXAxisTicks = getCompressedChartTicks(nextCompressedDisplayedChartData, historyRange)
-    const nextXAxisTickDates = new Map(nextCompressedDisplayedChartData.map((point) => [point.xValue, point.displayDate ?? point.date]))
     const nextHasChartData = rangeChartData.length > 0
     let nextMinValue = 0
     let nextMaxValue = 0
@@ -1273,7 +1285,6 @@ export default function Dashboard() {
       displayedChartData: nextDisplayedChartData,
       compressedDisplayedChartData: nextCompressedDisplayedChartData,
       xAxisTicks: nextXAxisTicks,
-      xAxisTickDates: nextXAxisTickDates,
       hasChartData: nextHasChartData,
       minValue: nextMinValue,
       maxValue: nextMaxValue,
@@ -1293,9 +1304,12 @@ export default function Dashboard() {
 
   const comparisonMode = Boolean(benchmarkSymbol && benchmarkComparison.data.length > 0)
   const compressedBenchmarkComparisonData = useMemo(() => (
-    compressChartDataTime(benchmarkComparison.data)
-  ), [benchmarkComparison.data])
+    compressBenchmarkComparisonData(benchmarkComparison.data, compressedDisplayedChartData)
+  ), [benchmarkComparison.data, compressedDisplayedChartData])
   const chartData = comparisonMode ? compressedBenchmarkComparisonData : compressedDisplayedChartData
+  const chartXAxisTickDates = useMemo(() => (
+    new Map(chartData.map((point) => [point.xValue, point.displayDate ?? point.date]))
+  ), [chartData])
 
   const groupedDividends = useMemo(() => (
     upcomingDividends
@@ -1671,7 +1685,7 @@ export default function Dashboard() {
                       ticks={xAxisTicks}
                       tickLine={false}
                       axisLine={false}
-                      tickFormatter={(v) => formatXAxisTick(xAxisTickDates.get(Number(v)) ?? String(v), historyRange, locale, timezone)}
+                      tickFormatter={(v) => formatXAxisTick(chartXAxisTickDates.get(Number(v)) ?? String(v), historyRange, locale, timezone)}
                     />
                     <YAxis
                       stroke="var(--border2)"

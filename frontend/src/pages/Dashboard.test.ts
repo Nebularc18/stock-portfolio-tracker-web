@@ -228,8 +228,8 @@ describe('dashboard storage helpers', () => {
 
   it('compresses chart x-values to remove closed-market gaps', () => {
     expect(compressChartDataTime([
-      { date: '2026-04-17T19:50:00Z', value: 100, xValue: Date.parse('2026-04-17T19:50:00Z') },
       { date: '2026-04-20T07:00:00Z', value: 110, xValue: Date.parse('2026-04-20T07:00:00Z') },
+      { date: '2026-04-17T19:50:00Z', value: 100, xValue: Date.parse('2026-04-17T19:50:00Z') },
     ])).toEqual([
       { date: '2026-04-17T19:50:00Z', value: 100, xValue: 0 },
       { date: '2026-04-20T07:00:00Z', value: 110, xValue: 1 },
