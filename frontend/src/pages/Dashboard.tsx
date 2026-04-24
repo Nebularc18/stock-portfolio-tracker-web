@@ -38,17 +38,10 @@ const HOLDINGS_RETURN_RANGE_OPTIONS: Array<{ key: ReturnRangeKey; labelKey: Tran
   { key: 'SINCE_START', labelKey: 'dashboard.rangeSinceStart' },
 ]
 
-type ChartPoint = { date: string; value: number; isBaseline?: boolean; displayDate?: string }
+type ChartPoint = { date: string; value: number; isBaseline?: boolean; displayDate?: string; displayDateOnly?: boolean }
 type BenchmarkChartPoint = ChartPoint & { portfolioReturn: number; benchmarkReturn: number | null }
 type RenderedChartPoint = ChartPoint & { xValue: number }
 type RenderedBenchmarkChartPoint = BenchmarkChartPoint & { xValue: number }
-type RenderedChartGapPoint = Omit<RenderedChartPoint, 'value'> & { value: null; isGap: true }
-type RenderedBenchmarkChartGapPoint = Omit<RenderedBenchmarkChartPoint, 'value' | 'portfolioReturn' | 'benchmarkReturn'> & {
-  value: null
-  portfolioReturn: null
-  benchmarkReturn: null
-  isGap: true
-}
 type DashboardHistoryEntry = { date: string; value: number }
 type DashboardDataCache = {
   summary: PortfolioSummary
@@ -553,9 +546,12 @@ function formatXAxisTick(dateValue: string, range: HistoryRangeKey, locale: stri
  * @param timezone - IANA timezone identifier used for display formatting
  * @returns A localized, human-readable date string; returns `dateValue` unchanged when the input cannot be parsed as a date
  */
-function formatTooltipDate(dateValue: string, range: HistoryRangeKey, locale: string, timezone: string): string {
+function formatTooltipDate(dateValue: string, range: HistoryRangeKey, locale: string, timezone: string, dateOnly = false): string {
   const date = parseHistoryDate(dateValue)
   if (Number.isNaN(date.getTime())) return dateValue
+  if (dateOnly) {
+    return date.toLocaleDateString(locale, { weekday: 'short', month: 'short', day: 'numeric', year: 'numeric', timeZone: timezone })
+  }
   if (range === '1D' || range === '1W') {
     return date.toLocaleDateString(locale, { weekday: 'short', month: 'short', day: 'numeric', year: 'numeric', hour: '2-digit', minute: '2-digit', hour12: false, timeZone: timezone })
   }
@@ -575,6 +571,15 @@ export function isHistoryPointInCurrentDay(dateValue: string, timezone: string, 
   const date = parseHistoryDate(dateValue)
   if (Number.isNaN(date.getTime())) return false
   return formatDateKeyInTimezone(date, timezone) === formatDateKeyInTimezone(now, timezone)
+}
+
+function isUtcMidnightHistoryPoint(dateValue: string): boolean {
+  const date = parseHistoryDate(dateValue)
+  return !Number.isNaN(date.getTime())
+    && date.getUTCHours() === 0
+    && date.getUTCMinutes() === 0
+    && date.getUTCSeconds() === 0
+    && date.getUTCMilliseconds() === 0
 }
 
 /**
@@ -607,61 +612,46 @@ function addChartPointTime<T extends ChartPoint>(point: T): (T & { xValue: numbe
   return { ...point, xValue }
 }
 
-function getChartGapThresholdMs(range: HistoryRangeKey): number | null {
-  if (range === '1D' || range === '1W') return 45 * 60 * 1000
-  if (range === '1M' || range === 'YTD' || range === '1Y') return 36 * 60 * 60 * 1000
-  return null
+export function compressChartDataTime<T extends RenderedChartPoint>(data: T[]): T[] {
+  return [...data]
+    .sort((a, b) => a.xValue - b.xValue)
+    .map((point, index) => ({ ...point, xValue: index }))
 }
 
-function insertChartGaps<T extends RenderedChartPoint, G>(
-  data: T[],
-  range: HistoryRangeKey,
-  makeGap: (previousPoint: T, gapTime: number) => G,
-): Array<T | G> {
-  const thresholdMs = getChartGapThresholdMs(range)
-  if (thresholdMs === null || data.length < 2) return data
-
-  const withGaps: Array<T | G> = [data[0]]
-  for (let index = 1; index < data.length; index += 1) {
-    const previousPoint = data[index - 1]
-    const point = data[index]
-    if (!previousPoint.isBaseline && point.xValue - previousPoint.xValue > thresholdMs) {
-      const gapTime = previousPoint.xValue + Math.min(1000, Math.max(1, Math.floor((point.xValue - previousPoint.xValue) / 2)))
-      withGaps.push(makeGap(previousPoint, gapTime))
-    }
-    withGaps.push(point)
+function compressBenchmarkComparisonData(
+  benchmarkData: RenderedBenchmarkChartPoint[],
+  portfolioData: RenderedChartPoint[],
+): RenderedBenchmarkChartPoint[] {
+  const compressedPortfolioByTime = new Map(
+    compressChartDataTime(portfolioData).map((point) => [getPointTimeMs(point), point]),
+  )
+  const compressed: RenderedBenchmarkChartPoint[] = []
+  for (const point of benchmarkData) {
+    const portfolioPoint = compressedPortfolioByTime.get(getPointTimeMs(point))
+    if (!portfolioPoint) continue
+    compressed.push({
+      ...point,
+      xValue: portfolioPoint.xValue,
+      displayDate: point.displayDate ?? portfolioPoint.displayDate,
+    })
   }
-  return withGaps
+
+  return compressed.length > 0 ? compressed : compressChartDataTime(benchmarkData)
 }
 
-export function insertChartDataGaps<T extends RenderedChartPoint>(
-  data: T[],
-  range: HistoryRangeKey,
-): Array<T | RenderedChartGapPoint> {
-  return insertChartGaps(data, range, (previousPoint, gapTime) => ({
-    ...previousPoint,
-    date: new Date(gapTime).toISOString(),
-    displayDate: undefined,
-    value: null,
-    xValue: gapTime,
-    isGap: true,
-  }))
-}
+function getCompressedChartTicks(data: RenderedChartPoint[], range: HistoryRangeKey): number[] | undefined {
+  if (data.length === 0) return undefined
+  if (range === '1D') return data.filter((point) => !point.isBaseline).map((point) => point.xValue)
 
-function insertBenchmarkChartDataGaps(
-  data: RenderedBenchmarkChartPoint[],
-  range: HistoryRangeKey,
-): Array<RenderedBenchmarkChartPoint | RenderedBenchmarkChartGapPoint> {
-  return insertChartGaps(data, range, (previousPoint, gapTime) => ({
-    ...previousPoint,
-    date: new Date(gapTime).toISOString(),
-    displayDate: undefined,
-    value: null,
-    portfolioReturn: null,
-    benchmarkReturn: null,
-    xValue: gapTime,
-    isGap: true,
-  }))
+  const targetTickCount = range === '1W' ? 7 : 6
+  if (data.length <= targetTickCount) return data.map((point) => point.xValue)
+
+  const ticks: number[] = []
+  const step = (data.length - 1) / (targetTickCount - 1)
+  for (let index = 0; index < targetTickCount; index += 1) {
+    ticks.push(data[Math.round(index * step)].xValue)
+  }
+  return Array.from(new Set(ticks))
 }
 
 function formatSignedPercentValue(value: number | null | undefined): string {
@@ -1184,14 +1174,18 @@ export default function Dashboard() {
   const dividendYieldPercent = summary?.dividend_yield ?? 0
   const lastUpdate = summary?.last_updated ?? null
 
-  const rawChartData = useMemo(() => (
+  const rawChartData = useMemo<ChartPoint[]>(() => (
     portfolioHistory
-      .map((entry) => {
+      .map((entry): ChartPoint | null => {
         if (!Number.isFinite(entry.value)) return null
-        return { date: entry.date, value: entry.value }
+        return {
+          date: entry.date,
+          value: entry.value,
+          displayDateOnly: historyRange !== '1D' && isUtcMidnightHistoryPoint(entry.date),
+        }
       })
       .filter((point): point is ChartPoint => point !== null)
-  ), [portfolioHistory])
+  ), [historyRange, portfolioHistory])
 
   const currentDayChartData = useMemo(() => (
     rawChartData.filter((point) => isHistoryPointInCurrentDay(point.date, timezone))
@@ -1264,7 +1258,7 @@ export default function Dashboard() {
 
   const {
     displayedChartData,
-    gappedDisplayedChartData,
+    compressedDisplayedChartData,
     xAxisTicks,
     hasChartData,
     minValue,
@@ -1280,10 +1274,8 @@ export default function Dashboard() {
     const nextDisplayedChartData = sampledChartData
       .map(addChartPointTime)
       .filter((point): point is RenderedChartPoint => point !== null)
-    const nextGappedDisplayedChartData = insertChartDataGaps(nextDisplayedChartData, historyRange)
-    const nextXAxisTicks = historyRange === '1D'
-      ? nextDisplayedChartData.filter((point) => !point.isBaseline).map((point) => point.xValue)
-      : undefined
+    const nextCompressedDisplayedChartData = compressChartDataTime(nextDisplayedChartData)
+    const nextXAxisTicks = getCompressedChartTicks(nextCompressedDisplayedChartData, historyRange)
     const nextHasChartData = rangeChartData.length > 0
     let nextMinValue = 0
     let nextMaxValue = 0
@@ -1300,7 +1292,7 @@ export default function Dashboard() {
     const valueRange = nextMaxValue - nextMinValue || 1
     return {
       displayedChartData: nextDisplayedChartData,
-      gappedDisplayedChartData: nextGappedDisplayedChartData,
+      compressedDisplayedChartData: nextCompressedDisplayedChartData,
       xAxisTicks: nextXAxisTicks,
       hasChartData: nextHasChartData,
       minValue: nextMinValue,
@@ -1320,10 +1312,13 @@ export default function Dashboard() {
   ), [benchmarkHistory, displayedChartData])
 
   const comparisonMode = Boolean(benchmarkSymbol && benchmarkComparison.data.length > 0)
-  const gappedBenchmarkComparisonData = useMemo(() => (
-    insertBenchmarkChartDataGaps(benchmarkComparison.data, historyRange)
-  ), [benchmarkComparison.data, historyRange])
-  const chartData = comparisonMode ? gappedBenchmarkComparisonData : gappedDisplayedChartData
+  const compressedBenchmarkComparisonData = useMemo(() => (
+    compressBenchmarkComparisonData(benchmarkComparison.data, displayedChartData)
+  ), [benchmarkComparison.data, displayedChartData])
+  const chartData = comparisonMode ? compressedBenchmarkComparisonData : compressedDisplayedChartData
+  const chartXAxisTickDates = useMemo(() => (
+    new Map(chartData.map((point) => [point.xValue, point.displayDate ?? point.date]))
+  ), [chartData])
 
   const groupedDividends = useMemo(() => (
     upcomingDividends
@@ -1690,7 +1685,7 @@ export default function Dashboard() {
                     <XAxis
                       dataKey="xValue"
                       type="number"
-                      scale="time"
+                      scale="linear"
                       domain={['dataMin', 'dataMax']}
                       stroke="var(--border2)"
                       tick={{ fill: 'var(--muted)', fontSize: 10, fontFamily: "'Fira Code', monospace" }}
@@ -1699,7 +1694,7 @@ export default function Dashboard() {
                       ticks={xAxisTicks}
                       tickLine={false}
                       axisLine={false}
-                      tickFormatter={(v) => formatXAxisTick(String(v), historyRange, locale, timezone)}
+                      tickFormatter={(v) => formatXAxisTick(chartXAxisTickDates.get(Number(v)) ?? String(v), historyRange, locale, timezone)}
                     />
                     <YAxis
                       stroke="var(--border2)"
@@ -1715,15 +1710,14 @@ export default function Dashboard() {
                     <Tooltip
                       content={({ active, payload, label }) => {
                         if (!active || !payload || !payload.length) return null
-                        const currentPoint = payload[0].payload as (ChartPoint | BenchmarkChartPoint | { isGap?: boolean } | undefined)
-                        if (currentPoint && 'isGap' in currentPoint && currentPoint.isGap) return null
+                        const currentPoint = payload[0].payload as (ChartPoint | BenchmarkChartPoint | undefined)
                         if (comparisonMode) {
                           const comparisonPoint = currentPoint as RenderedBenchmarkChartPoint | undefined
                           const portfolioReturn = comparisonPoint?.portfolioReturn ?? null
                           const benchmarkReturn = comparisonPoint?.benchmarkReturn ?? null
                           return (
                             <div style={{ background: 'var(--bg3)', border: '1px solid var(--border2)', borderRadius: 8, padding: '10px 14px', fontSize: 12, boxShadow: '0 4px 16px rgba(0,0,0,0.4)' }}>
-                              <div style={{ color: 'var(--muted)', marginBottom: 8, fontSize: 11 }}>{formatTooltipDate(String(comparisonPoint?.displayDate ?? comparisonPoint?.date ?? label), historyRange, locale, timezone)}</div>
+                              <div style={{ color: 'var(--muted)', marginBottom: 8, fontSize: 11 }}>{formatTooltipDate(String(comparisonPoint?.displayDate ?? comparisonPoint?.date ?? label), historyRange, locale, timezone, Boolean(comparisonPoint?.displayDateOnly))}</div>
                               <div style={{ color: (portfolioReturn ?? 0) >= 0 ? 'var(--green)' : 'var(--red)', fontWeight: 700, marginBottom: 5, fontFamily: "'Fira Code', monospace" }}>
                                 {t(language, 'dashboard.portfolio')}: {formatSignedPercentValue(portfolioReturn)}
                               </div>
@@ -1742,7 +1736,7 @@ export default function Dashboard() {
                         const sign = percentChange >= 0 ? '+' : ''
                         return (
                           <div style={{ background: 'var(--bg3)', border: '1px solid var(--border2)', borderRadius: 8, padding: '10px 14px', fontSize: 12, boxShadow: '0 4px 16px rgba(0,0,0,0.4)' }}>
-                            <div style={{ color: 'var(--muted)', marginBottom: 6, fontSize: 11 }}>{formatTooltipDate(String(chartPoint?.displayDate ?? chartPoint?.date ?? label), historyRange, locale, timezone)}</div>
+                            <div style={{ color: 'var(--muted)', marginBottom: 6, fontSize: 11 }}>{formatTooltipDate(String(chartPoint?.displayDate ?? chartPoint?.date ?? label), historyRange, locale, timezone, Boolean(chartPoint?.displayDateOnly))}</div>
                             <div style={{ color: 'var(--text)', fontWeight: 700, marginBottom: 4, fontFamily: "'Fira Code', monospace" }}>{formatCurrency(currentValue, locale, currency)}</div>
                             <div style={{ color: changeColor, fontWeight: 600, fontFamily: "'Fira Code', monospace" }}>
                               {sign}{formatCurrency(absoluteChange, locale, currency)} ({sign}{percentChange.toFixed(2)}%)
