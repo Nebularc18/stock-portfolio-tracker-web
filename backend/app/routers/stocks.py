@@ -1447,8 +1447,11 @@ def backfill_all_stock_history(db: Session = Depends(get_db), current_user: User
         requests.append({
             "ticker": stock.ticker or "",
             "purchase_date": purchase_date,
-            "current_price": stock.current_price,
-            "current_currency": stock.currency,
+            # Full historical rebuilds should only write completed daily closes.
+            # Current-price rows are partial snapshots and can be stale on
+            # weekends or market holidays.
+            "current_price": None,
+            "current_currency": None,
         })
 
     stock_service = StockService()

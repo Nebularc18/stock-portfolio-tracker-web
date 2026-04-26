@@ -925,6 +925,49 @@ def _select_price_baseline_for_range(
     return latest_before.price if latest_before is not None else None
 
 
+def _is_utc_midnight(value: datetime) -> bool:
+    normalized = value.astimezone(timezone.utc) if value.tzinfo else value.replace(tzinfo=timezone.utc)
+    return (
+        normalized.hour == 0
+        and normalized.minute == 0
+        and normalized.second == 0
+        and normalized.microsecond == 0
+    )
+
+
+def _coalesce_portfolio_history_daily(history: list[PortfolioHistory]) -> list[PortfolioHistory]:
+    """
+    Collapse portfolio history to one row per UTC day for multi-day charts.
+
+    Backfilled daily close snapshots are stored at UTC midnight. Scheduler/manual
+    refreshes can add intraday rows for the same day; for historical ranges those
+    rows should not override the close snapshot because they mix sampling modes
+    and can include stale position states from earlier app versions.
+    """
+    rows_by_day: dict[date, PortfolioHistory] = {}
+    for row in history:
+        row_date = row.date
+        if row_date is None:
+            continue
+        normalized_date = row_date.astimezone(timezone.utc) if row_date.tzinfo else row_date.replace(tzinfo=timezone.utc)
+        day = normalized_date.date()
+        existing = rows_by_day.get(day)
+        if existing is None:
+            rows_by_day[day] = row
+            continue
+
+        existing_date = existing.date
+        existing_is_midnight = existing_date is not None and _is_utc_midnight(existing_date)
+        row_is_midnight = _is_utc_midnight(row_date)
+        if row_is_midnight and not existing_is_midnight:
+            rows_by_day[day] = row
+            continue
+        if row_is_midnight == existing_is_midnight and row_date > existing_date:
+            rows_by_day[day] = row
+
+    return [rows_by_day[day] for day in sorted(rows_by_day)]
+
+
 def _build_stock_performance_windows(
     stock: Stock,
     snapshot: PositionSnapshot,
@@ -1680,11 +1723,19 @@ def get_portfolio_history(
         days = max(1, min(days, 3650))
         since = now - timedelta(days=days)
 
+    if since is not None and normalized_range != "1d":
+        since = datetime(since.year, since.month, since.day, tzinfo=timezone.utc)
+
     query = db.query(PortfolioHistory).filter(PortfolioHistory.user_id == current_user.id)
     if since is not None:
         query = query.filter(PortfolioHistory.date >= since)
+    if normalized_range != "1d":
+        today = datetime(now.year, now.month, now.day, tzinfo=timezone.utc)
+        query = query.filter(PortfolioHistory.date < today)
 
     history = query.order_by(PortfolioHistory.date.asc()).all()
+    if normalized_range != "1d":
+        history = _coalesce_portfolio_history_daily(history)
     return [{"date": h.date, "value": h.total_value} for h in history]
 
 

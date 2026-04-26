@@ -348,3 +348,20 @@ def test_import_portfolio_data_replaces_user_records(monkeypatch):
         "yahoo_ticker": "VOLV-B.ST",
         "instrument_id": "145016",
     }]
+
+
+def test_coalesce_portfolio_history_daily_prefers_midnight_close_rows():
+    history = [
+        SimpleNamespace(date=datetime(2026, 3, 24, 0, 0, tzinfo=timezone.utc), total_value=195000.0),
+        SimpleNamespace(date=datetime(2026, 3, 24, 14, 45, tzinfo=timezone.utc), total_value=1212000.0),
+        SimpleNamespace(date=datetime(2026, 3, 24, 19, 0, tzinfo=timezone.utc), total_value=1223000.0),
+        SimpleNamespace(date=datetime(2026, 3, 25, 9, 15, tzinfo=timezone.utc), total_value=1211000.0),
+        SimpleNamespace(date=datetime(2026, 3, 25, 20, 0, tzinfo=timezone.utc), total_value=1214000.0),
+    ]
+
+    coalesced = portfolio._coalesce_portfolio_history_daily(history)
+
+    assert [(row.date, row.total_value) for row in coalesced] == [
+        (datetime(2026, 3, 24, 0, 0, tzinfo=timezone.utc), 195000.0),
+        (datetime(2026, 3, 25, 20, 0, tzinfo=timezone.utc), 1214000.0),
+    ]

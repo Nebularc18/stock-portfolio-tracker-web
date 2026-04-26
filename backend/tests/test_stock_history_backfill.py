@@ -117,6 +117,45 @@ def test_get_daily_price_history_parses_yahoo_chart_rows(monkeypatch):
     ]
 
 
+def test_get_daily_price_history_uses_local_trading_date_for_australia(monkeypatch):
+    captured = {}
+    timestamps = [
+        int(datetime(2026, 3, 29, 13, 0, tzinfo=timezone.utc).timestamp()),
+    ]
+    payload = {
+        "chart": {
+            "result": [{
+                "meta": {"currency": "AUD"},
+                "timestamp": timestamps,
+                "indicators": {
+                    "quote": [{
+                        "close": [160.78],
+                    }]
+                },
+            }]
+        }
+    }
+
+    class FakeSession:
+        def get(self, url, timeout):
+            captured["url"] = url
+            captured["timeout"] = timeout
+            return FakeResponse(200, payload)
+
+    monkeypatch.setattr("app.services.stock_service.get_session", lambda: FakeSession())
+
+    service = StockService()
+    rows = service.get_daily_price_history("RIO.AX", date(2026, 3, 30), date(2026, 3, 30))
+
+    assert rows == [
+        {
+            "recorded_at": datetime(2026, 3, 30, tzinfo=timezone.utc),
+            "price": 160.78,
+            "currency": "AUD",
+        },
+    ]
+
+
 def test_backfill_stock_price_history_fetches_missing_range_and_today_quote(monkeypatch):
     existing_rows = [
         SimpleNamespace(
@@ -729,14 +768,14 @@ def test_bulk_backfill_endpoint_rebuilds_all_holdings(monkeypatch):
         {
             "ticker": "MSFT",
             "purchase_date": date(2025, 4, 1),
-            "current_price": 123.45,
-            "current_currency": "USD",
+            "current_price": None,
+            "current_currency": None,
         },
         {
             "ticker": "AAPL",
             "purchase_date": date(2025, 5, 1),
-            "current_price": 200.0,
-            "current_currency": "USD",
+            "current_price": None,
+            "current_currency": None,
         },
     ]
     assert result == {
