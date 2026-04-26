@@ -93,7 +93,7 @@ def _get_timezone(timezone_name: str):
         from zoneinfo import ZoneInfo
 
         return ZoneInfo(timezone_name)
-    except Exception:
+    except ImportError:
         import pytz
 
         return pytz.timezone(timezone_name)
@@ -107,6 +107,8 @@ def _normalize_daily_history_timestamp(ticker: str, timestamp: int | float) -> d
             local_date = timestamp_utc.astimezone(_get_timezone(timezone_name)).date()
             return datetime(local_date.year, local_date.month, local_date.day, tzinfo=timezone.utc)
     return timestamp_utc.replace(hour=0, minute=0, second=0, microsecond=0)
+
+
 _YAHOO_ANALYST_PAGE_CACHE_TTL = 3600
 _ANALYST_SINGLE_CACHE_KIND = "single_analyst_recommendations"
 _ANALYST_ALL_CACHE_KIND = "all_analyst_recommendations"
