@@ -60,6 +60,14 @@ CURRENCY_MAP = {
     ".NZ": "NZD", ".HK": "HKD", ".T": "JPY", ".KS": "KRW",
 }
 
+HISTORY_TIMEZONE_BY_SUFFIX = {
+    ".AX": "Australia/Sydney",
+    ".HK": "Asia/Hong_Kong",
+    ".KS": "Asia/Seoul",
+    ".NZ": "Pacific/Auckland",
+    ".T": "Asia/Tokyo",
+}
+
 _TICKER_CACHE: Dict[str, tuple] = {}
 _CACHE_TTL = 300
 _YAHOO_REQUEST_TIMEOUT_SECONDS = float(os.getenv("YAHOO_REQUEST_TIMEOUT_SECONDS", "10"))
@@ -78,6 +86,27 @@ _PRICE_TARGETS_CACHE: Dict[str, tuple] = {}
 _PRICE_TARGETS_CACHE_TTL = 43200
 _PRICE_TARGETS_FALLBACK_CACHE_TTL = 300
 _YAHOO_ANALYST_PAGE_CACHE: Dict[str, tuple] = {}
+
+
+def _get_timezone(timezone_name: str):
+    try:
+        from zoneinfo import ZoneInfo
+
+        return ZoneInfo(timezone_name)
+    except Exception:
+        import pytz
+
+        return pytz.timezone(timezone_name)
+
+
+def _normalize_daily_history_timestamp(ticker: str, timestamp: int | float) -> datetime:
+    timestamp_utc = datetime.fromtimestamp(timestamp, tz=timezone.utc)
+    ticker_upper = ticker.upper()
+    for suffix, timezone_name in HISTORY_TIMEZONE_BY_SUFFIX.items():
+        if ticker_upper.endswith(suffix):
+            local_date = timestamp_utc.astimezone(_get_timezone(timezone_name)).date()
+            return datetime(local_date.year, local_date.month, local_date.day, tzinfo=timezone.utc)
+    return timestamp_utc.replace(hour=0, minute=0, second=0, microsecond=0)
 _YAHOO_ANALYST_PAGE_CACHE_TTL = 3600
 _ANALYST_SINGLE_CACHE_KIND = "single_analyst_recommendations"
 _ANALYST_ALL_CACHE_KIND = "all_analyst_recommendations"
@@ -495,12 +524,7 @@ class StockService:
                 if close is None:
                     continue
 
-                recorded_at = datetime.fromtimestamp(timestamp, tz=timezone.utc).replace(
-                    hour=0,
-                    minute=0,
-                    second=0,
-                    microsecond=0,
-                )
+                recorded_at = _normalize_daily_history_timestamp(ticker_upper, timestamp)
                 recorded_date = recorded_at.date()
                 if recorded_date < start_date or recorded_date > resolved_end_date or recorded_date in seen_dates:
                     continue

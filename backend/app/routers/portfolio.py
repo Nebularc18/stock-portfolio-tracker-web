@@ -1723,9 +1723,15 @@ def get_portfolio_history(
         days = max(1, min(days, 3650))
         since = now - timedelta(days=days)
 
+    if since is not None and normalized_range != "1d":
+        since = datetime(since.year, since.month, since.day, tzinfo=timezone.utc)
+
     query = db.query(PortfolioHistory).filter(PortfolioHistory.user_id == current_user.id)
     if since is not None:
         query = query.filter(PortfolioHistory.date >= since)
+    if normalized_range != "1d":
+        today = datetime(now.year, now.month, now.day, tzinfo=timezone.utc)
+        query = query.filter(PortfolioHistory.date < today)
 
     history = query.order_by(PortfolioHistory.date.asc()).all()
     if normalized_range != "1d":
