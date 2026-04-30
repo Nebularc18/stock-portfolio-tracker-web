@@ -987,7 +987,12 @@ def get_market_index_history(
     cached = _load_json_cache(cache_key, INDICES_CACHE_TTL)
     if cached is not None:
         cached_points = cached.get("points") if isinstance(cached, dict) else None
-        if canonical_symbol not in NASDAQ_INDEX_HISTORY_SYMBOLS or (isinstance(cached_points, list) and len(cached_points) >= 2):
+        cache_has_fallback_attempted = isinstance(cached, dict) and cached.get("fallback_attempted")
+        if (
+            canonical_symbol not in NASDAQ_INDEX_HISTORY_SYMBOLS
+            or (isinstance(cached_points, list) and len(cached_points) >= 2)
+            or cache_has_fallback_attempted
+        ):
             return cached
 
     session = get_session()
@@ -1006,6 +1011,7 @@ def get_market_index_history(
         "range": normalized_range,
         "interval": interval,
         "points": points,
+        "fallback_attempted": canonical_symbol in NASDAQ_INDEX_HISTORY_SYMBOLS,
         "updated_at": datetime.now(timezone.utc).isoformat(),
     }
 
