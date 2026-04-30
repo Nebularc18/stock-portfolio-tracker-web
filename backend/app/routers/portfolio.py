@@ -1067,7 +1067,7 @@ def _calculate_historical_cost_basis(
             continue
         purchase_price = entry.get("purchase_price")
         if purchase_price is None:
-            continue
+            return None
 
         trade_cost_native = float(purchase_price) * held_quantity
         converted_trade_cost = _convert_historical_cost(
