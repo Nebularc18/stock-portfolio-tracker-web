@@ -1436,8 +1436,10 @@ export default function Dashboard() {
     availableBenchmarkIndices.find((index) => index.symbol === benchmarkSymbol) ?? null
   ), [availableBenchmarkIndices, benchmarkSymbol])
 
-  const benchmarkPortfolioChartData = displayedPerformanceChartData.length > 0 ? displayedPerformanceChartData : displayedChartData
-  const benchmarkPortfolioChartDataIsReturn = displayedPerformanceChartData.length > 0
+  const benchmarkPortfolioChartData = useMemo(() => (
+    displayedPerformanceChartData.length > 0 ? displayedPerformanceChartData : displayedChartData
+  ), [displayedChartData, displayedPerformanceChartData])
+  const benchmarkPortfolioChartDataIsReturn = benchmarkPortfolioChartData === displayedPerformanceChartData
 
   const benchmarkComparison = useMemo(() => (
     buildBenchmarkComparisonData(benchmarkPortfolioChartData, benchmarkHistory, benchmarkPortfolioChartDataIsReturn)

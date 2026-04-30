@@ -1026,7 +1026,7 @@ def _historical_quantity_for_entry(entry: dict[str, Any], target_day: date) -> f
     if purchase_date and purchase_date > target_day:
         return 0.0
 
-    if sell_date and sell_date < target_day:
+    if sell_date and sell_date <= target_day:
         return get_remaining_quantity(entry)
     return entry_quantity
 
