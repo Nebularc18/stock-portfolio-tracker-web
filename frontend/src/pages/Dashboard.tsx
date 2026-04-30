@@ -214,6 +214,15 @@ function isDashboardHistoryEntry(value: unknown): value is DashboardHistoryEntry
   return isRecord(value) && typeof value.date === 'string' && isFiniteNumber(value.value)
 }
 
+function isPortfolioPerformanceHistoryEntry(value: unknown): value is PortfolioPerformanceHistoryEntry {
+  return isRecord(value)
+    && typeof value.date === 'string'
+    && isFiniteNumber(value.value)
+    && isFiniteNumber(value.total_value)
+    && isFiniteNumber(value.cost_basis)
+    && typeof value.partial === 'boolean'
+}
+
 function isAbortError(error: unknown, signal?: AbortSignal): boolean {
   return Boolean(signal?.aborted || (error instanceof DOMException && error.name === 'AbortError'))
 }
@@ -670,12 +679,6 @@ function rebasePercentChartData<T extends ChartPoint>(data: T[]): T[] {
   return data.map((point) => ({ ...point, value: point.value - baseline }))
 }
 
-function rebaseRenderedPercentChartData<T extends RenderedChartPoint>(data: T[]): T[] {
-  if (data.length === 0) return data
-  const baseline = data[0].value
-  return data.map((point) => ({ ...point, value: point.value - baseline }))
-}
-
 function appendCurrentValuePoint(
   data: ChartPoint[],
   summary: PortfolioSummary | null,
@@ -790,7 +793,7 @@ function buildBenchmarkComparisonData(
       portfolioReturn: portfolioPointsAreReturns ? point.value - portfolioReturnBaseline : getReturnPercent(point.value, portfolioBaseline),
       benchmarkReturn: latestBenchmarkValue !== null
         ? getReturnPercent(latestBenchmarkValue, benchmarkBaseline)
-        : 0,
+        : null,
     }
   })
 
@@ -965,7 +968,7 @@ export default function Dashboard() {
       setPortfolioHistory(historyData)
       if (performanceHistoryResult.status === 'fulfilled') {
         const performanceHistoryData = Array.isArray(performanceHistoryResult.value)
-          ? performanceHistoryResult.value.filter(isDashboardHistoryEntry) as PortfolioPerformanceHistoryEntry[]
+          ? performanceHistoryResult.value.filter(isPortfolioPerformanceHistoryEntry)
           : []
         portfolioPerformanceHistoryRef.current = performanceHistoryData
         setPortfolioPerformanceHistory(performanceHistoryData)
@@ -1434,7 +1437,7 @@ export default function Dashboard() {
   ), [availableBenchmarkIndices, benchmarkSymbol])
 
   const rebasedBenchmarkPerformanceChartData = useMemo(() => (
-    rebaseRenderedPercentChartData(displayedPerformanceChartData)
+    rebasePercentChartData(displayedPerformanceChartData)
   ), [displayedPerformanceChartData])
   const benchmarkPortfolioChartData = rebasedBenchmarkPerformanceChartData.length > 0 ? rebasedBenchmarkPerformanceChartData : displayedChartData
   const benchmarkPortfolioChartDataIsReturn = rebasedBenchmarkPerformanceChartData.length > 0

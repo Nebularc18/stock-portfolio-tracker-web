@@ -212,7 +212,7 @@ def _fetch_nasdaq_index_history_series(
         return []
 
     if response.status_code != 200:
-        _log_non_200_yahoo_response(url, response, f"Nasdaq index history {symbol}")
+        logger.warning("Nasdaq index history returned %s for %s from %s", response.status_code, symbol, url)
         return []
 
     try:
