@@ -52,6 +52,9 @@ EXCHANGE_RATE_FETCH_WORKERS = _get_int_env('EXCHANGE_RATE_FETCH_WORKERS', 6)
 SPARKLINE_SYMBOL_OVERRIDES = {
     "^OMXS30": "^OMX",
 }
+NASDAQ_INDEX_HISTORY_SYMBOLS = {
+    "^OMXS30GI": "OMXS30GI",
+}
 MARKET_INDEX_HISTORY_RANGES = {"1d", "1w", "1m", "ytd", "1y", "since_start", "all"}
 
 
@@ -175,6 +178,68 @@ def _fetch_index_history_series(
         points.append({
             "date": datetime.fromtimestamp(timestamp, tz=timezone.utc).isoformat(),
             "value": value,
+        })
+
+    return points
+
+
+def _fetch_nasdaq_index_history_series(
+    symbol: str,
+    period_start: datetime,
+    period_end: datetime,
+    session: requests.Session,
+) -> list[dict]:
+    nasdaq_symbol = NASDAQ_INDEX_HISTORY_SYMBOLS.get(symbol)
+    if not nasdaq_symbol:
+        return []
+
+    url = "https://indexes.nasdaqomx.com/Index/HistoryChartData"
+    headers = {
+        "Accept": "application/json, text/javascript, */*; q=0.01",
+        "Referer": f"https://indexes.nasdaqomx.com/Index/History/{nasdaq_symbol}",
+        "X-Requested-With": "XMLHttpRequest",
+    }
+    payload = {
+        "id": nasdaq_symbol,
+        "startDate": period_start.date().isoformat(),
+        "endDate": period_end.date().isoformat(),
+    }
+
+    try:
+        response = session.post(url, data=payload, headers=headers, timeout=10)
+    except requests.RequestException as exc:
+        logger.warning("Failed to fetch Nasdaq index history for %s: %s", symbol, exc)
+        return []
+
+    if response.status_code != 200:
+        _log_non_200_yahoo_response(url, response, f"Nasdaq index history {symbol}")
+        return []
+
+    try:
+        data = response.json()
+    except ValueError:
+        logger.warning("Nasdaq index history returned invalid JSON for %s", symbol)
+        return []
+
+    if not isinstance(data, list):
+        return []
+
+    points = []
+    for row in data:
+        if not isinstance(row, dict):
+            continue
+        timestamp_ms = row.get("x")
+        value = row.get("y")
+        try:
+            timestamp = float(timestamp_ms) / 1000
+            parsed_value = float(value)
+        except (TypeError, ValueError):
+            continue
+        if not math.isfinite(timestamp) or not math.isfinite(parsed_value):
+            continue
+        points.append({
+            "date": datetime.fromtimestamp(timestamp, tz=timezone.utc).isoformat(),
+            "value": parsed_value,
         })
 
     return points
@@ -921,11 +986,17 @@ def get_market_index_history(
     cache_key = _index_history_cache_key(canonical_symbol, normalized_range, interval, period_start)
     cached = _load_json_cache(cache_key, INDICES_CACHE_TTL)
     if cached is not None:
-        return cached
+        cached_points = cached.get("points") if isinstance(cached, dict) else None
+        if canonical_symbol not in NASDAQ_INDEX_HISTORY_SYMBOLS or (isinstance(cached_points, list) and len(cached_points) >= 2):
+            return cached
 
     session = get_session()
     try:
         points = _fetch_index_history_series(canonical_symbol, interval, period_start, period_end, session)
+        if len(points) < 2 and canonical_symbol in NASDAQ_INDEX_HISTORY_SYMBOLS:
+            fallback_points = _fetch_nasdaq_index_history_series(canonical_symbol, period_start, period_end, session)
+            if len(fallback_points) > len(points):
+                points = fallback_points
     finally:
         session.close()
 

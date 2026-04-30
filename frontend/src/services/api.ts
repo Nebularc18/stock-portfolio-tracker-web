@@ -32,6 +32,8 @@ const portfolioSummaryRequestCache = new Map<string, Promise<PortfolioSummary>>(
 const portfolioSummaryValueCache = new Map<string, TimedCacheEntry<PortfolioSummary>>()
 const portfolioHistoryRequestCache = new Map<string, Promise<Array<{ date: string; value: number }>>>()
 const portfolioHistoryValueCache = new Map<string, TimedCacheEntry<Array<{ date: string; value: number }>>>()
+const portfolioPerformanceHistoryRequestCache = new Map<string, Promise<PortfolioPerformanceHistoryEntry[]>>()
+const portfolioPerformanceHistoryValueCache = new Map<string, TimedCacheEntry<PortfolioPerformanceHistoryEntry[]>>()
 const marketIndexHistoryRequestCache = new Map<string, Promise<MarketIndexHistory>>()
 const marketIndexHistoryValueCache = new Map<string, TimedCacheEntry<MarketIndexHistory>>()
 const portfolioDistributionRequestCache = new Map<string, Promise<DistributionResponse>>()
@@ -70,6 +72,8 @@ function clearPortfolioDataCaches(): void {
   portfolioDistributionValueCache.clear()
   portfolioHistoryRequestCache.clear()
   portfolioHistoryValueCache.clear()
+  portfolioPerformanceHistoryRequestCache.clear()
+  portfolioPerformanceHistoryValueCache.clear()
   marketIndexHistoryRequestCache.clear()
   marketIndexHistoryValueCache.clear()
   portfolioUpcomingDividendsRequestCache.clear()
@@ -395,6 +399,14 @@ export interface PortfolioSummary {
   stocks: PortfolioSummaryStock[]
   stock_count: number
   auto_refresh_active: boolean
+}
+
+export interface PortfolioPerformanceHistoryEntry {
+  date: string
+  value: number
+  total_value: number
+  cost_basis: number
+  partial: boolean
 }
 
 export interface PortfolioPerformanceWindow {
@@ -928,6 +940,38 @@ export const api = {
         })
 
       portfolioHistoryRequestCache.set(key, request)
+      return request
+    },
+    performanceHistory: (options: number | { days?: number; range?: string } = 30, userId?: number | null, requestOptions?: RequestInit) => {
+      const params = new URLSearchParams()
+      if (typeof options === 'number') {
+        params.set('days', String(options))
+      } else {
+        if (options.days !== undefined) {
+          params.set('days', String(options.days))
+        }
+        if (options.range) {
+          params.set('range', options.range)
+        }
+      }
+      const query = params.toString()
+      const key = `${getRequestUserCacheScope(userId)}:${query || '__default__'}`
+      const endpoint = `/portfolio/performance-history${query ? `?${query}` : ''}`
+      if (requestOptions?.signal) {
+        return fetchAPI<PortfolioPerformanceHistoryEntry[]>(endpoint, requestOptions)
+      }
+      const cachedValue = getCachedValue(portfolioPerformanceHistoryValueCache, key)
+      if (cachedValue) return Promise.resolve(cachedValue)
+      const cached = portfolioPerformanceHistoryRequestCache.get(key)
+      if (cached) return cached
+
+      const request = fetchAPI<PortfolioPerformanceHistoryEntry[]>(endpoint, requestOptions)
+        .then((value) => setCachedValue(portfolioPerformanceHistoryValueCache, key, value, PORTFOLIO_HISTORY_CACHE_TTL_MS))
+        .finally(() => {
+          portfolioPerformanceHistoryRequestCache.delete(key)
+        })
+
+      portfolioPerformanceHistoryRequestCache.set(key, request)
       return request
     },
     upcomingDividends: (
