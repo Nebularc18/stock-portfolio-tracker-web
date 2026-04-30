@@ -1852,6 +1852,11 @@ def get_portfolio_performance_history(
     The value series remains raw total portfolio value, but this endpoint divides
     each stored value snapshot by the cost basis of positions held on that date.
     That keeps deposits and newly added positions from appearing as return.
+
+    Foreign-currency cost basis uses a lot's stored purchase-time exchange rate
+    when present. Lots without a stored exchange rate fall back to current rates,
+    so long-range historical percentages can be skewed by FX movement for those
+    positions.
     """
     _, history = _get_portfolio_history_rows(db, current_user.id, days, range_key)
     if not history:
@@ -1860,7 +1865,7 @@ def get_portfolio_performance_history(
     stocks = db.query(Stock).filter(Stock.user_id == current_user.id).all()
     currencies = {s.currency for s in stocks if s.currency}
     currencies.add("SEK")
-    rates = ExchangeRateService.get_rates_for_currencies(currencies, "SEK")
+    current_fallback_rates = ExchangeRateService.get_rates_for_currencies(currencies, "SEK")
 
     rows: list[dict[str, Any]] = []
     for point in history:
@@ -1872,7 +1877,7 @@ def get_portfolio_performance_history(
         total_cost = 0.0
         partial = False
         for stock in stocks:
-            cost_basis = _calculate_historical_cost_basis(stock, target_day, "SEK", rates)
+            cost_basis = _calculate_historical_cost_basis(stock, target_day, "SEK", current_fallback_rates)
             if cost_basis is None:
                 partial = True
                 continue
