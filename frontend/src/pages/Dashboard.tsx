@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { ResponsiveContainer, Tooltip, ComposedChart, Area, Line, XAxis, YAxis, CartesianGrid } from 'recharts'
-import { api, AvailableIndex, MarketIndexHistory, PortfolioSummary, UpcomingDividend } from '../services/api'
+import { api, AvailableIndex, MarketIndexHistory, PortfolioPerformanceHistoryEntry, PortfolioSummary, UpcomingDividend } from '../services/api'
 import { useAuth } from '../AuthContext'
 import { useSettings } from '../SettingsContext'
 import { formatTimeInTimezone, parseDatePreservingUtc } from '../utils/time'
@@ -13,6 +13,7 @@ import { sortTableItems, useTableSort } from '../utils/tableSort'
 import { subscribeToPortfolioDataUpdates } from '../utils/portfolioSync'
 type HistoryRangeKey = '1D' | '1W' | '1M' | 'YTD' | '1Y' | 'SINCE_START'
 type FetchOptions = { background?: boolean; signal?: AbortSignal }
+type ChartMetricMode = 'value' | 'percent'
 
 const HISTORY_RANGE_OPTIONS: Array<{ key: HistoryRangeKey; labelKey: TranslationKey; query: string }> = [
   { key: '1D', labelKey: 'dashboard.range1D', query: '1d' },
@@ -38,7 +39,7 @@ const HOLDINGS_RETURN_RANGE_OPTIONS: Array<{ key: ReturnRangeKey; labelKey: Tran
   { key: 'SINCE_START', labelKey: 'dashboard.rangeSinceStart' },
 ]
 
-type ChartPoint = { date: string; value: number; isBaseline?: boolean; displayDate?: string; displayDateOnly?: boolean }
+type ChartPoint = { date: string; value: number; isBaseline?: boolean; displayDate?: string; displayDateOnly?: boolean; totalValue?: number; costBasis?: number; partial?: boolean }
 type BenchmarkChartPoint = ChartPoint & { portfolioReturn: number; benchmarkReturn: number | null }
 type RenderedChartPoint = ChartPoint & { xValue: number }
 type RenderedBenchmarkChartPoint = BenchmarkChartPoint & { xValue: number }
@@ -211,6 +212,15 @@ function isUpcomingDividend(value: unknown): value is UpcomingDividend {
 
 function isDashboardHistoryEntry(value: unknown): value is DashboardHistoryEntry {
   return isRecord(value) && typeof value.date === 'string' && isFiniteNumber(value.value)
+}
+
+function isPortfolioPerformanceHistoryEntry(value: unknown): value is PortfolioPerformanceHistoryEntry {
+  return isRecord(value)
+    && typeof value.date === 'string'
+    && isFiniteNumber(value.value)
+    && isFiniteNumber(value.total_value)
+    && isFiniteNumber(value.cost_basis)
+    && typeof value.partial === 'boolean'
 }
 
 function isAbortError(error: unknown, signal?: AbortSignal): boolean {
@@ -663,9 +673,64 @@ function getReturnPercent(value: number, baseline: number): number {
   return baseline !== 0 ? ((value - baseline) / baseline) * 100 : 0
 }
 
+function rebasePercentChartData<T extends ChartPoint>(data: T[]): T[] {
+  if (data.length === 0) return data
+  const baseline = data[0].value
+  return data.map((point) => ({ ...point, value: point.value - baseline }))
+}
+
+function appendCurrentValuePoint(
+  data: ChartPoint[],
+  summary: PortfolioSummary | null,
+  historyRange: HistoryRangeKey,
+  timezone: string,
+): ChartPoint[] {
+  if (historyRange === '1D' || !summary || !Number.isFinite(summary.total_value)) return data
+  if (data.some((point) => isHistoryPointInCurrentDay(point.date, timezone))) return data
+  return [
+    ...data,
+    {
+      date: new Date().toISOString(),
+      value: summary.total_value,
+      displayDateOnly: false,
+    },
+  ]
+}
+
+function appendCurrentPerformancePoint(
+  data: ChartPoint[],
+  summary: PortfolioSummary | null,
+  historyRange: HistoryRangeKey,
+  timezone: string,
+): ChartPoint[] {
+  if (
+    historyRange === '1D'
+    || !summary
+    || !Number.isFinite(summary.total_gain_loss_percent)
+    || !Number.isFinite(summary.total_value)
+    || !Number.isFinite(summary.total_cost)
+    || summary.total_cost <= 0
+  ) {
+    return data
+  }
+  if (data.some((point) => isHistoryPointInCurrentDay(point.date, timezone))) return data
+  return [
+    ...data,
+    {
+      date: new Date().toISOString(),
+      value: summary.total_gain_loss_percent,
+      totalValue: summary.total_value,
+      costBasis: summary.total_cost,
+      partial: summary.total_gain_loss_partial || summary.total_cost_partial,
+      displayDateOnly: false,
+    },
+  ]
+}
+
 function buildBenchmarkComparisonData(
   portfolioPoints: RenderedChartPoint[],
   benchmarkHistory: MarketIndexHistory | null,
+  portfolioPointsAreReturns = false,
 ) {
   if (portfolioPoints.length === 0 || !benchmarkHistory?.points?.length) {
     return {
@@ -704,19 +769,28 @@ function buildBenchmarkComparisonData(
   }
 
   const benchmarkBaseline = latestBenchmarkValue ?? benchmarkPoints[0].value
+  const portfolioReturnBaseline = portfolioPointsAreReturns ? portfolioBaseline : 0
   benchmarkCursor = 0
   latestBenchmarkValue = null
 
-  const comparisonData = portfolioPoints.map((point) => {
+  const comparisonData = portfolioPoints.map((point, index) => {
     const pointTime = point.xValue
     while (benchmarkCursor < benchmarkPoints.length && benchmarkPoints[benchmarkCursor].timeMs <= pointTime) {
       latestBenchmarkValue = benchmarkPoints[benchmarkCursor].value
       benchmarkCursor += 1
     }
 
+    if (index === 0) {
+      return {
+        ...point,
+        portfolioReturn: 0,
+        benchmarkReturn: 0,
+      }
+    }
+
     return {
       ...point,
-      portfolioReturn: getReturnPercent(point.value, portfolioBaseline),
+      portfolioReturn: portfolioPointsAreReturns ? point.value - portfolioReturnBaseline : getReturnPercent(point.value, portfolioBaseline),
       benchmarkReturn: latestBenchmarkValue !== null
         ? getReturnPercent(latestBenchmarkValue, benchmarkBaseline)
         : null,
@@ -816,7 +890,9 @@ export default function Dashboard() {
   const [upcomingDividends, setUpcomingDividends] = useState<UpcomingDividend[]>(() => initialDashboardState.cachedData?.upcomingDividends ?? [])
   const [totalRemainingDividends, setTotalRemainingDividends] = useState(() => initialDashboardState.cachedData?.totalRemainingDividends ?? 0)
   const [portfolioHistory, setPortfolioHistory] = useState<DashboardHistoryEntry[]>(() => initialDashboardState.cachedHistory?.history ?? [])
+  const [portfolioPerformanceHistory, setPortfolioPerformanceHistory] = useState<PortfolioPerformanceHistoryEntry[]>([])
   const [historyRange, setHistoryRange] = useState<HistoryRangeKey>(() => initialDashboardState.initialHistoryRange)
+  const [chartMetricMode, setChartMetricMode] = useState<ChartMetricMode>('value')
   const [availableBenchmarkIndices, setAvailableBenchmarkIndices] = useState<AvailableIndex[]>([])
   const [benchmarkSymbol, setBenchmarkSymbol] = useState('')
   const [benchmarkHistory, setBenchmarkHistory] = useState<MarketIndexHistory | null>(null)
@@ -834,6 +910,7 @@ export default function Dashboard() {
   const upcomingDividendsRef = useRef<UpcomingDividend[]>(initialDashboardState.cachedData?.upcomingDividends ?? [])
   const totalRemainingDividendsRef = useRef(initialDashboardState.cachedData?.totalRemainingDividends ?? 0)
   const portfolioHistoryRef = useRef<DashboardHistoryEntry[]>(initialDashboardState.cachedHistory?.history ?? [])
+  const portfolioPerformanceHistoryRef = useRef<PortfolioPerformanceHistoryEntry[]>([])
   const initialDataReadPendingRef = useRef(true)
   const initialHistoryReadPendingRef = useRef(true)
   const autoRefreshTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
@@ -854,6 +931,7 @@ export default function Dashboard() {
   upcomingDividendsRef.current = upcomingDividends
   totalRemainingDividendsRef.current = totalRemainingDividends
   portfolioHistoryRef.current = portfolioHistory
+  portfolioPerformanceHistoryRef.current = portfolioPerformanceHistory
   summaryRef.current = summary
 
   useEffect(() => {
@@ -873,14 +951,32 @@ export default function Dashboard() {
     }
     const rangeQuery = HISTORY_RANGE_QUERY_BY_KEY[range]
     try {
-      const historyResponse: unknown = await api.portfolio.history({ range: rangeQuery }, requestUserId, signal ? { signal } : undefined)
+      const [historyResult, performanceHistoryResult] = await Promise.allSettled([
+        api.portfolio.history({ range: rangeQuery }, requestUserId, signal ? { signal } : undefined),
+        api.portfolio.performanceHistory({ range: rangeQuery }, requestUserId, signal ? { signal } : undefined),
+      ])
       if (requestId !== historyRequestIdRef.current) return
+      if (historyResult.status === 'rejected') {
+        throw historyResult.reason
+      }
+      const historyResponse: unknown = historyResult.value
       if (!Array.isArray(historyResponse) || !historyResponse.every(isDashboardHistoryEntry)) {
         throw new Error('Invalid portfolio history response')
       }
       const historyData = historyResponse
       portfolioHistoryRef.current = historyData
       setPortfolioHistory(historyData)
+      if (performanceHistoryResult.status === 'fulfilled') {
+        const performanceHistoryData = Array.isArray(performanceHistoryResult.value)
+          ? performanceHistoryResult.value.filter(isPortfolioPerformanceHistoryEntry)
+          : []
+        portfolioPerformanceHistoryRef.current = performanceHistoryData
+        setPortfolioPerformanceHistory(performanceHistoryData)
+      } else {
+        logDashboardIssue('Failed to load portfolio performance history:', performanceHistoryResult.reason)
+        portfolioPerformanceHistoryRef.current = []
+        setPortfolioPerformanceHistory([])
+      }
       setHistoryError(null)
       writeDashboardHistoryCache(range, requestUserId, historyData)
     } catch (error) {
@@ -1187,6 +1283,22 @@ export default function Dashboard() {
       .filter((point): point is ChartPoint => point !== null)
   ), [historyRange, portfolioHistory])
 
+  const rawPerformanceChartData = useMemo<ChartPoint[]>(() => (
+    portfolioPerformanceHistory
+      .map((entry): ChartPoint | null => {
+        if (!Number.isFinite(entry.value)) return null
+        return {
+          date: entry.date,
+          value: entry.value,
+          totalValue: entry.total_value,
+          costBasis: entry.cost_basis,
+          partial: entry.partial,
+          displayDateOnly: historyRange !== '1D' && isUtcMidnightHistoryPoint(entry.date),
+        }
+      })
+      .filter((point): point is ChartPoint => point !== null)
+  ), [historyRange, portfolioPerformanceHistory])
+
   const currentDayChartData = useMemo(() => (
     rawChartData.filter((point) => isHistoryPointInCurrentDay(point.date, timezone))
   ), [rawChartData, timezone])
@@ -1205,10 +1317,17 @@ export default function Dashboard() {
   const rangeChartData = useMemo(() => (
     historyRange === '1D'
       ? prependDailyBaselinePoint(frozenCurrentDayChartData, previousCloseBaselineValue, historyRange)
-      : rawChartData
-  ), [frozenCurrentDayChartData, historyRange, previousCloseBaselineValue, rawChartData])
+      : appendCurrentValuePoint(rawChartData, summary, historyRange, timezone)
+  ), [frozenCurrentDayChartData, historyRange, previousCloseBaselineValue, rawChartData, summary, timezone])
+  const rangePerformanceChartData = useMemo(() => {
+    const periodData = historyRange === '1D'
+      ? rawPerformanceChartData.filter((point) => isHistoryPointInCurrentDay(point.date, timezone))
+      : appendCurrentPerformancePoint(rawPerformanceChartData, summary, historyRange, timezone)
+    return rebasePercentChartData(periodData)
+  }, [historyRange, rawPerformanceChartData, summary, timezone])
+  const activeRangeChartData = chartMetricMode === 'percent' ? rangePerformanceChartData : rangeChartData
 
-  const benchmarkStartDate = historyRange === 'SINCE_START' ? rangeChartData[0]?.date : undefined
+  const benchmarkStartDate = historyRange === 'SINCE_START' ? activeRangeChartData[0]?.date ?? rangeChartData[0]?.date : undefined
 
   useEffect(() => {
     if (!benchmarkSymbol) {
@@ -1269,23 +1388,23 @@ export default function Dashboard() {
   } = useMemo(() => {
     const rangeTargetPoints = getRangeTargetPoints(historyRange)
     const sampledChartData = rangeTargetPoints
-      ? downsampleChartData(rangeChartData, rangeTargetPoints)
-      : rangeChartData
+      ? downsampleChartData(activeRangeChartData, rangeTargetPoints)
+      : activeRangeChartData
     const nextDisplayedChartData = sampledChartData
       .map(addChartPointTime)
       .filter((point): point is RenderedChartPoint => point !== null)
     const nextCompressedDisplayedChartData = compressChartDataTime(nextDisplayedChartData)
     const nextXAxisTicks = getCompressedChartTicks(nextCompressedDisplayedChartData, historyRange)
-    const nextHasChartData = rangeChartData.length > 0
+    const nextHasChartData = activeRangeChartData.length > 0
     let nextMinValue = 0
     let nextMaxValue = 0
 
     if (nextHasChartData) {
-      nextMinValue = rangeChartData[0].value
-      nextMaxValue = rangeChartData[0].value
-      for (let index = 1; index < rangeChartData.length; index += 1) {
-        if (rangeChartData[index].value < nextMinValue) nextMinValue = rangeChartData[index].value
-        if (rangeChartData[index].value > nextMaxValue) nextMaxValue = rangeChartData[index].value
+      nextMinValue = activeRangeChartData[0].value
+      nextMaxValue = activeRangeChartData[0].value
+      for (let index = 1; index < activeRangeChartData.length; index += 1) {
+        if (activeRangeChartData[index].value < nextMinValue) nextMinValue = activeRangeChartData[index].value
+        if (activeRangeChartData[index].value > nextMaxValue) nextMaxValue = activeRangeChartData[index].value
       }
     }
 
@@ -1297,24 +1416,39 @@ export default function Dashboard() {
       hasChartData: nextHasChartData,
       minValue: nextMinValue,
       maxValue: nextMaxValue,
-      yMin: Math.max(0, nextMinValue - valueRange * 0.1),
+      yMin: chartMetricMode === 'percent' ? nextMinValue - valueRange * 0.1 : Math.max(0, nextMinValue - valueRange * 0.1),
       yMax: nextMaxValue + valueRange * 0.1,
       baselineValue: nextDisplayedChartData.length > 0 ? nextDisplayedChartData[0].value : 0,
     }
-  }, [historyRange, rangeChartData])
+  }, [activeRangeChartData, chartMetricMode, historyRange])
+
+  const displayedPerformanceChartData = useMemo(() => {
+    const rangeTargetPoints = getRangeTargetPoints(historyRange)
+    const sampledChartData = rangeTargetPoints
+      ? downsampleChartData(rangePerformanceChartData, rangeTargetPoints)
+      : rangePerformanceChartData
+    return sampledChartData
+      .map(addChartPointTime)
+      .filter((point): point is RenderedChartPoint => point !== null)
+  }, [historyRange, rangePerformanceChartData])
 
   const selectedBenchmark = useMemo(() => (
     availableBenchmarkIndices.find((index) => index.symbol === benchmarkSymbol) ?? null
   ), [availableBenchmarkIndices, benchmarkSymbol])
 
+  const benchmarkPortfolioChartData = useMemo(() => (
+    displayedPerformanceChartData.length > 0 ? displayedPerformanceChartData : displayedChartData
+  ), [displayedChartData, displayedPerformanceChartData])
+  const benchmarkPortfolioChartDataIsReturn = benchmarkPortfolioChartData === displayedPerformanceChartData
+
   const benchmarkComparison = useMemo(() => (
-    buildBenchmarkComparisonData(displayedChartData, benchmarkHistory)
-  ), [benchmarkHistory, displayedChartData])
+    buildBenchmarkComparisonData(benchmarkPortfolioChartData, benchmarkHistory, benchmarkPortfolioChartDataIsReturn)
+  ), [benchmarkHistory, benchmarkPortfolioChartData, benchmarkPortfolioChartDataIsReturn])
 
   const comparisonMode = Boolean(benchmarkSymbol && benchmarkComparison.data.length > 0)
   const compressedBenchmarkComparisonData = useMemo(() => (
-    compressBenchmarkComparisonData(benchmarkComparison.data, displayedChartData)
-  ), [benchmarkComparison.data, displayedChartData])
+    compressBenchmarkComparisonData(benchmarkComparison.data, benchmarkPortfolioChartData)
+  ), [benchmarkComparison.data, benchmarkPortfolioChartData])
   const chartData = comparisonMode ? compressedBenchmarkComparisonData : compressedDisplayedChartData
   const chartXAxisTickDates = useMemo(() => (
     new Map(chartData.map((point) => [point.xValue, point.displayDate ?? point.date]))
@@ -1607,13 +1741,53 @@ export default function Dashboard() {
                   )
                 })}
               </div>
+              <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }} aria-label="Chart mode">
+                {([
+                  { key: 'value', label: t(language, 'dashboard.currencyMode') },
+                  { key: 'percent', label: t(language, 'dashboard.percentMode') },
+                ] as Array<{ key: ChartMetricMode; label: string }>).map((option) => {
+                  const selected = option.key === chartMetricMode
+                  return (
+                    <button
+                      key={option.key}
+                      type="button"
+                      onClick={() => {
+                        setChartMetricMode(option.key)
+                        if (option.key === 'value') {
+                          setBenchmarkSymbol('')
+                        }
+                      }}
+                      style={{
+                        border: `1px solid ${selected ? 'var(--green)' : 'var(--border2)'}`,
+                        borderRadius: 5,
+                        padding: '3px 9px',
+                        fontSize: 11,
+                        fontWeight: 700,
+                        color: selected ? 'var(--green)' : 'var(--muted)',
+                        background: selected ? 'rgba(16,185,129,0.10)' : 'transparent',
+                        cursor: 'pointer',
+                        fontFamily: "'Plus Jakarta Sans', sans-serif",
+                        transition: 'all 0.15s',
+                      }}
+                    >
+                      {option.label}
+                    </button>
+                  )
+                })}
+              </div>
               <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 11, color: 'var(--muted)' }}>
                 <span style={{ letterSpacing: '0.08em', textTransform: 'uppercase', fontWeight: 700 }}>
                   {t(language, 'dashboard.compareTo')}
                 </span>
                 <select
                   value={benchmarkSymbol}
-                  onChange={(event) => setBenchmarkSymbol(event.target.value)}
+                  onChange={(event) => {
+                    const nextSymbol = event.target.value
+                    setBenchmarkSymbol(nextSymbol)
+                    if (nextSymbol) {
+                      setChartMetricMode('percent')
+                    }
+                  }}
                   style={{
                     minWidth: 180,
                     border: '1px solid var(--border2)',
@@ -1652,8 +1826,8 @@ export default function Dashboard() {
                   </span>
                 ) : (
                   <>
-                    <span>{t(language, 'dashboard.low')}: {formatCurrency(minValue, locale, currency)}</span>
-                    <span>{t(language, 'dashboard.high')}: {formatCurrency(maxValue, locale, currency)}</span>
+                    <span>{t(language, 'dashboard.low')}: {chartMetricMode === 'percent' ? formatSignedPercentValue(minValue) : formatCurrency(minValue, locale, currency)}</span>
+                    <span>{t(language, 'dashboard.high')}: {chartMetricMode === 'percent' ? formatSignedPercentValue(maxValue) : formatCurrency(maxValue, locale, currency)}</span>
                   </>
                 )}
               </div>
@@ -1703,7 +1877,7 @@ export default function Dashboard() {
                       tickLine={false}
                       axisLine={false}
                       width={60}
-                      tickFormatter={(v) => comparisonMode
+                      tickFormatter={(v) => (comparisonMode || chartMetricMode === 'percent')
                         ? `${Number(v).toFixed(1)}%`
                         : (Math.abs(v) >= 1000 ? `${(v / 1000).toFixed(0)}k` : v.toFixed(0))}
                     />
@@ -1730,6 +1904,21 @@ export default function Dashboard() {
 
                         const currentValue = Number(payload[0].value ?? 0)
                         const chartPoint = currentPoint as RenderedChartPoint | undefined
+                        if (chartMetricMode === 'percent') {
+                          return (
+                            <div style={{ background: 'var(--bg3)', border: '1px solid var(--border2)', borderRadius: 8, padding: '10px 14px', fontSize: 12, boxShadow: '0 4px 16px rgba(0,0,0,0.4)' }}>
+                              <div style={{ color: 'var(--muted)', marginBottom: 6, fontSize: 11 }}>{formatTooltipDate(String(chartPoint?.displayDate ?? chartPoint?.date ?? label), historyRange, locale, timezone, Boolean(chartPoint?.displayDateOnly))}</div>
+                              <div style={{ color: currentValue >= 0 ? 'var(--green)' : 'var(--red)', fontWeight: 700, marginBottom: 4, fontFamily: "'Fira Code', monospace" }}>
+                                {t(language, 'dashboard.portfolio')}: {formatSignedPercentValue(currentValue)}
+                              </div>
+                              {Number.isFinite(chartPoint?.totalValue) && (
+                                <div style={{ color: 'var(--text)', fontWeight: 600, fontFamily: "'Fira Code', monospace" }}>
+                                  {formatCurrency(chartPoint?.totalValue ?? 0, locale, currency)}
+                                </div>
+                              )}
+                            </div>
+                          )
+                        }
                         const absoluteChange = currentValue - baselineValue
                         const percentChange = baselineValue !== 0 ? (absoluteChange / baselineValue) * 100 : 0
                         const changeColor = absoluteChange >= 0 ? 'var(--green)' : 'var(--red)'

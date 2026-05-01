@@ -22,7 +22,7 @@ from app.main import get_db, get_current_user, User, Stock, Dividend, PortfolioH
 from app.services.brandfetch_service import brandfetch_service
 from app.services.exchange_rate_service import ExchangeRateService
 from app.services.market_hours_service import DEFAULT_REFRESH_INTERVAL_MINUTES
-from app.services.position_service import calculate_position_cost_basis, calculate_position_snapshot, get_quantity_held_on_date, get_remaining_quantity, has_position_history, normalize_position_entries
+from app.services.position_service import calculate_position_cost_basis, calculate_position_snapshot, get_quantity_held_on_date, get_remaining_quantity, has_position_history, normalize_position_entries, parse_position_date
 from app.utils.time import floor_datetime_to_interval, utc_now
 
 router = APIRouter()
@@ -968,6 +968,140 @@ def _coalesce_portfolio_history_daily(history: list[PortfolioHistory]) -> list[P
     return [rows_by_day[day] for day in sorted(rows_by_day)]
 
 
+def _get_history_range_start(range_key: Optional[str], days: int, now: datetime) -> tuple[str, datetime | None]:
+    normalized_range = (range_key or "").strip().lower()
+
+    if normalized_range == "1d":
+        return normalized_range, now - timedelta(days=1)
+    if normalized_range == "1w":
+        return normalized_range, now - timedelta(days=7)
+    if normalized_range == "1m":
+        return normalized_range, now - timedelta(days=30)
+    if normalized_range == "ytd":
+        return normalized_range, datetime(now.year, 1, 1, tzinfo=timezone.utc)
+    if normalized_range == "1y":
+        return normalized_range, now - timedelta(days=365)
+    if normalized_range in {"since_start", "all"}:
+        return normalized_range, None
+
+    days = max(1, min(days, 3650))
+    return normalized_range, now - timedelta(days=days)
+
+
+def _get_portfolio_history_rows(
+    db: Session,
+    user_id: int,
+    days: int,
+    range_key: Optional[str],
+) -> tuple[str, list[PortfolioHistory]]:
+    now = utc_now()
+    normalized_range, since = _get_history_range_start(range_key, days, now)
+
+    if since is not None and normalized_range != "1d":
+        since = datetime(since.year, since.month, since.day, tzinfo=timezone.utc)
+
+    query = db.query(PortfolioHistory).filter(PortfolioHistory.user_id == user_id)
+    if since is not None:
+        query = query.filter(PortfolioHistory.date >= since)
+    if normalized_range != "1d":
+        today = datetime(now.year, now.month, now.day, tzinfo=timezone.utc)
+        query = query.filter(PortfolioHistory.date < today)
+
+    history = query.order_by(PortfolioHistory.date.asc()).all()
+    if normalized_range != "1d":
+        history = _coalesce_portfolio_history_daily(history)
+    return normalized_range, history
+
+
+def _historical_quantity_for_entry(entry: dict[str, Any], target_day: date) -> float:
+    try:
+        entry_quantity = float(entry.get("quantity") or 0.0)
+    except (TypeError, ValueError):
+        return 0.0
+    if entry_quantity <= 0:
+        return 0.0
+
+    purchase_date = parse_position_date(entry.get("purchase_date"))
+    sell_date = parse_position_date(entry.get("sell_date"))
+    if purchase_date and purchase_date > target_day:
+        return 0.0
+
+    if sell_date and sell_date <= target_day:
+        return get_remaining_quantity(entry)
+    return entry_quantity
+
+
+def _convert_historical_cost(
+    amount: float,
+    source_currency: str,
+    target_currency: str,
+    entry: dict[str, Any],
+    rates: dict[str, float | None],
+) -> Optional[float]:
+    if source_currency == target_currency:
+        return amount
+    if entry.get("exchange_rate") is not None and entry.get("exchange_rate_currency") == target_currency:
+        return amount * float(entry["exchange_rate"])
+    return convert_value(amount, source_currency, target_currency, rates)
+
+
+def _calculate_historical_cost_basis(
+    stock: Stock,
+    target_day: date,
+    target_currency: str,
+    rates: dict[str, float | None],
+) -> Optional[float]:
+    entries = normalize_position_entries(
+        stock.position_entries,
+        fallback_quantity=stock.quantity,
+        fallback_purchase_price=stock.purchase_price,
+        fallback_purchase_date=stock.purchase_date,
+    )
+    stock_currency = (stock.currency or target_currency).upper()
+    total_cost = 0.0
+    has_cost = False
+
+    for entry in entries:
+        held_quantity = _historical_quantity_for_entry(entry, target_day)
+        if held_quantity <= 0:
+            continue
+        purchase_price = entry.get("purchase_price")
+        if purchase_price is None:
+            return None
+
+        trade_cost_native = float(purchase_price) * held_quantity
+        converted_trade_cost = _convert_historical_cost(
+            trade_cost_native,
+            stock_currency,
+            target_currency,
+            entry,
+            rates,
+        )
+        if converted_trade_cost is None:
+            return None
+
+        quantity_ratio = held_quantity / float(entry["quantity"])
+        courtage_amount = float(entry.get("courtage") or 0.0) * quantity_ratio
+        courtage_currency = (entry.get("courtage_currency") or stock_currency).upper()
+        if courtage_amount:
+            converted_courtage = _convert_historical_cost(
+                courtage_amount,
+                courtage_currency,
+                target_currency,
+                entry,
+                rates,
+            )
+            if converted_courtage is None:
+                return None
+        else:
+            converted_courtage = 0.0
+
+        total_cost += float(converted_trade_cost) + float(converted_courtage)
+        has_cost = True
+
+    return total_cost if has_cost else 0.0
+
+
 def _build_stock_performance_windows(
     stock: Stock,
     snapshot: PositionSnapshot,
@@ -1701,42 +1835,66 @@ def get_portfolio_history(
     Returns:
         List[dict]: Ordered list of records with keys `date` (timestamp) and `value` (total portfolio value) sorted ascending by date.
     """
-    from datetime import timedelta
-    
-    now = utc_now()
-    since = None
-    normalized_range = (range_key or "").strip().lower()
-
-    if normalized_range == "1d":
-        since = now - timedelta(days=1)
-    elif normalized_range == "1w":
-        since = now - timedelta(days=7)
-    elif normalized_range == "1m":
-        since = now - timedelta(days=30)
-    elif normalized_range == "ytd":
-        since = datetime(now.year, 1, 1, tzinfo=timezone.utc)
-    elif normalized_range == "1y":
-        since = now - timedelta(days=365)
-    elif normalized_range in {"since_start", "all"}:
-        since = None
-    else:
-        days = max(1, min(days, 3650))
-        since = now - timedelta(days=days)
-
-    if since is not None and normalized_range != "1d":
-        since = datetime(since.year, since.month, since.day, tzinfo=timezone.utc)
-
-    query = db.query(PortfolioHistory).filter(PortfolioHistory.user_id == current_user.id)
-    if since is not None:
-        query = query.filter(PortfolioHistory.date >= since)
-    if normalized_range != "1d":
-        today = datetime(now.year, now.month, now.day, tzinfo=timezone.utc)
-        query = query.filter(PortfolioHistory.date < today)
-
-    history = query.order_by(PortfolioHistory.date.asc()).all()
-    if normalized_range != "1d":
-        history = _coalesce_portfolio_history_daily(history)
+    _, history = _get_portfolio_history_rows(db, current_user.id, days, range_key)
     return [{"date": h.date, "value": h.total_value} for h in history]
+
+
+@router.get("/performance-history", response_model=List[dict])
+def get_portfolio_performance_history(
+    days: int = Query(30, ge=1),
+    range_key: Optional[str] = Query(None, alias="range"),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """
+    Return historical portfolio return percentages for charting.
+
+    The value series remains raw total portfolio value, but this endpoint divides
+    each stored value snapshot by the cost basis of positions held on that date.
+    That keeps deposits and newly added positions from appearing as return.
+
+    Foreign-currency cost basis uses a lot's stored purchase-time exchange rate
+    when present. Lots without a stored exchange rate fall back to current rates,
+    so long-range historical percentages can be skewed by FX movement for those
+    positions.
+    """
+    _, history = _get_portfolio_history_rows(db, current_user.id, days, range_key)
+    if not history:
+        return []
+
+    stocks = db.query(Stock).filter(Stock.user_id == current_user.id).all()
+    currencies = {s.currency for s in stocks if s.currency}
+    currencies.add("SEK")
+    current_fallback_rates = ExchangeRateService.get_rates_for_currencies(currencies, "SEK")
+
+    rows: list[dict[str, Any]] = []
+    for point in history:
+        if point.date is None or point.total_value is None:
+            continue
+        point_date = point.date.astimezone(timezone.utc) if point.date.tzinfo else point.date.replace(tzinfo=timezone.utc)
+        target_day = point_date.date()
+
+        total_cost = 0.0
+        partial = False
+        for stock in stocks:
+            cost_basis = _calculate_historical_cost_basis(stock, target_day, "SEK", current_fallback_rates)
+            if cost_basis is None:
+                partial = True
+                continue
+            total_cost += cost_basis
+
+        if total_cost <= 0:
+            continue
+
+        rows.append({
+            "date": point.date,
+            "value": ((point.total_value - total_cost) / total_cost) * 100,
+            "total_value": point.total_value,
+            "cost_basis": total_cost,
+            "partial": partial,
+        })
+
+    return rows
 
 
 @router.get("/distribution")
