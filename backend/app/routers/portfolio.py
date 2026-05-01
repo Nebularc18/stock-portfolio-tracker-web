@@ -1099,7 +1099,7 @@ def _calculate_historical_cost_basis(
         total_cost += float(converted_trade_cost) + float(converted_courtage)
         has_cost = True
 
-    return total_cost if has_cost else None
+    return total_cost if has_cost else 0.0
 
 
 def _build_stock_performance_windows(
