@@ -381,6 +381,7 @@ def test_import_portfolio_data_skips_shared_mappings_for_non_admin(monkeypatch):
 
     assert result["ticker_mappings_imported"] == 0
     assert result["ticker_mappings_skipped"] == 1
+    assert result["ticker_mappings_skipped_reason"] == "non-admin users cannot import shared ticker mappings"
     assert imported_mappings == []
 
 

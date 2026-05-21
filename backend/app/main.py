@@ -840,7 +840,7 @@ def get_current_user(
 
 def is_admin_user(user: User) -> bool:
     """Return whether the user can modify shared application-wide state."""
-    admin_username = os.getenv("DEFAULT_USERNAME")
+    admin_username = (os.getenv("DEFAULT_USERNAME") or "").strip()
     return bool(
         admin_username
         and not getattr(user, "is_guest", False)
@@ -857,6 +857,10 @@ def require_non_guest_user(current_user: User = Depends(get_current_user)) -> Us
 
 def require_admin_user(current_user: User = Depends(get_current_user)) -> User:
     """Require the configured admin account for shared/global mutations."""
+    admin_username = (os.getenv("DEFAULT_USERNAME") or "").strip()
+    if not admin_username:
+        logger.error("Admin-only endpoint called but DEFAULT_USERNAME is not configured")
+        raise HTTPException(status_code=500, detail="Admin user is not configured")
     if not is_admin_user(current_user):
         raise HTTPException(status_code=403, detail="Admin privileges required")
     return current_user

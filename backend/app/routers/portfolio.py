@@ -1696,6 +1696,11 @@ def import_portfolio_data(
         "stock_price_history_imported": len(seen_price_history_keys),
         "ticker_mappings_imported": imported_mapping_count,
         "ticker_mappings_skipped": skipped_mapping_count,
+        **(
+            {"ticker_mappings_skipped_reason": "non-admin users cannot import shared ticker mappings"}
+            if ticker_mappings_payload and not can_import_shared_mappings
+            else {}
+        ),
     }
 
 

@@ -76,6 +76,25 @@ def test_require_admin_user_accepts_configured_admin(monkeypatch):
     assert user.username == "admin"
 
 
+def test_require_admin_user_reports_missing_admin_configuration(monkeypatch):
+    monkeypatch.delenv("DEFAULT_USERNAME", raising=False)
+
+    with pytest.raises(HTTPException) as exc_info:
+        require_admin_user(SimpleNamespace(id=1, username="admin", is_guest=False))
+
+    assert exc_info.value.status_code == 500
+    assert exc_info.value.detail == "Admin user is not configured"
+
+
+def test_guest_cannot_read_market_exchange_rates(client):
+    _override_user(SimpleNamespace(id=2, username="guest", is_guest=True))
+
+    response = client.get("/api/market/exchange-rates")
+
+    assert response.status_code == 403
+    assert response.json()["detail"] == "Guest accounts are read-only"
+
+
 def test_exchange_rate_batch_rejects_too_many_dates():
     payload = market.ExchangeRatesBatchRequest(
         dates=["2026-01-01"] * (market.MAX_EXCHANGE_RATE_BATCH_DATES + 1),

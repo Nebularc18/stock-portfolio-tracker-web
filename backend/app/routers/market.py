@@ -20,7 +20,7 @@ import math
 
 from app.services.market_hours_service import MarketHoursService
 from app.services.market_data_service import get_header_market_data, HEADER_INDICES
-from app.main import User, get_current_user, is_admin_user
+from app.main import User, get_current_user, is_admin_user, require_non_guest_user
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -977,7 +977,7 @@ def get_market_index_history(
     symbol: str,
     range_key: str = Query("1m", alias="range"),
     start_date: str | None = Query(None),
-    _current_user: User = Depends(get_current_user),
+    _current_user: User = Depends(require_non_guest_user),
 ):
     """
     Return historical price points for one of the tracked market indices.
@@ -1036,7 +1036,7 @@ def get_market_index_history(
 
 
 @router.get("/exchange-rates")
-def get_exchange_rates(date: str | None = Query(None), _current_user: User = Depends(get_current_user)):
+def get_exchange_rates(date: str | None = Query(None), _current_user: User = Depends(require_non_guest_user)):
     """
     Retrieve exchange rates for major currency pairs, optionally for a specific ISO date.
     
@@ -1072,7 +1072,7 @@ class ExchangeRatesBatchRequest(BaseModel):
 @router.post("/exchange-rates/batch")
 def get_exchange_rates_batch(
     payload: ExchangeRatesBatchRequest = Body(...),
-    _current_user: User = Depends(get_current_user),
+    _current_user: User = Depends(require_non_guest_user),
 ):
     """
     Return exchange rate maps for multiple ISO date strings provided in the request body.
