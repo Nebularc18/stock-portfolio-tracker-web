@@ -847,7 +847,6 @@ export function prependDailyBaselinePoint(
       date: new Date(firstPointDate.getTime() - 1000).toISOString(),
       value: baselineValue,
       isBaseline: true,
-      displayDate: data[0].date,
     },
     ...data,
   ]
@@ -924,6 +923,7 @@ export default function Dashboard() {
   const summaryRef = useRef<PortfolioSummary | null>(initialDashboardState.cachedData?.summary ?? null)
   const currentUserId = user?.id
   const locale = getLocaleForLanguage(language)
+  const previousCloseLabel = language === 'sv' ? 'Foregaende stangning' : 'Previous close'
   const { sortState: holdingsSortState, requestSort: requestHoldingsSort } = useTableSort<HoldingSortField>({ field: 'ticker', direction: 'asc' })
   const { sortState: upcomingSortState, requestSort: requestUpcomingSort } = useTableSort<UpcomingSortField>({ field: 'name', direction: 'asc' })
   const [holdingsMetricMode, setHoldingsMetricMode] = useState<HoldingsMetricMode>('currency')
@@ -1891,7 +1891,9 @@ export default function Dashboard() {
                           const benchmarkReturn = comparisonPoint?.benchmarkReturn ?? null
                           return (
                             <div style={{ background: 'var(--bg3)', border: '1px solid var(--border2)', borderRadius: 8, padding: '10px 14px', fontSize: 12, boxShadow: '0 4px 16px rgba(0,0,0,0.4)' }}>
-                              <div style={{ color: 'var(--muted)', marginBottom: 8, fontSize: 11 }}>{formatTooltipDate(String(comparisonPoint?.displayDate ?? comparisonPoint?.date ?? label), historyRange, locale, timezone, Boolean(comparisonPoint?.displayDateOnly))}</div>
+                              <div style={{ color: 'var(--muted)', marginBottom: 8, fontSize: 11 }}>
+                                {comparisonPoint?.isBaseline ? previousCloseLabel : formatTooltipDate(String(comparisonPoint?.displayDate ?? comparisonPoint?.date ?? label), historyRange, locale, timezone, Boolean(comparisonPoint?.displayDateOnly))}
+                              </div>
                               <div style={{ color: (portfolioReturn ?? 0) >= 0 ? 'var(--green)' : 'var(--red)', fontWeight: 700, marginBottom: 5, fontFamily: "'Fira Code', monospace" }}>
                                 {t(language, 'dashboard.portfolio')}: {formatSignedPercentValue(portfolioReturn)}
                               </div>
@@ -1907,7 +1909,9 @@ export default function Dashboard() {
                         if (chartMetricMode === 'percent') {
                           return (
                             <div style={{ background: 'var(--bg3)', border: '1px solid var(--border2)', borderRadius: 8, padding: '10px 14px', fontSize: 12, boxShadow: '0 4px 16px rgba(0,0,0,0.4)' }}>
-                              <div style={{ color: 'var(--muted)', marginBottom: 6, fontSize: 11 }}>{formatTooltipDate(String(chartPoint?.displayDate ?? chartPoint?.date ?? label), historyRange, locale, timezone, Boolean(chartPoint?.displayDateOnly))}</div>
+                              <div style={{ color: 'var(--muted)', marginBottom: 6, fontSize: 11 }}>
+                                {chartPoint?.isBaseline ? previousCloseLabel : formatTooltipDate(String(chartPoint?.displayDate ?? chartPoint?.date ?? label), historyRange, locale, timezone, Boolean(chartPoint?.displayDateOnly))}
+                              </div>
                               <div style={{ color: currentValue >= 0 ? 'var(--green)' : 'var(--red)', fontWeight: 700, marginBottom: 4, fontFamily: "'Fira Code', monospace" }}>
                                 {t(language, 'dashboard.portfolio')}: {formatSignedPercentValue(currentValue)}
                               </div>
@@ -1925,7 +1929,9 @@ export default function Dashboard() {
                         const sign = percentChange >= 0 ? '+' : ''
                         return (
                           <div style={{ background: 'var(--bg3)', border: '1px solid var(--border2)', borderRadius: 8, padding: '10px 14px', fontSize: 12, boxShadow: '0 4px 16px rgba(0,0,0,0.4)' }}>
-                            <div style={{ color: 'var(--muted)', marginBottom: 6, fontSize: 11 }}>{formatTooltipDate(String(chartPoint?.displayDate ?? chartPoint?.date ?? label), historyRange, locale, timezone, Boolean(chartPoint?.displayDateOnly))}</div>
+                            <div style={{ color: 'var(--muted)', marginBottom: 6, fontSize: 11 }}>
+                              {chartPoint?.isBaseline ? previousCloseLabel : formatTooltipDate(String(chartPoint?.displayDate ?? chartPoint?.date ?? label), historyRange, locale, timezone, Boolean(chartPoint?.displayDateOnly))}
+                            </div>
                             <div style={{ color: 'var(--text)', fontWeight: 700, marginBottom: 4, fontFamily: "'Fira Code', monospace" }}>{formatCurrency(currentValue, locale, currency)}</div>
                             <div style={{ color: changeColor, fontWeight: 600, fontFamily: "'Fira Code', monospace" }}>
                               {sign}{formatCurrency(absoluteChange, locale, currency)} ({sign}{percentChange.toFixed(2)}%)
