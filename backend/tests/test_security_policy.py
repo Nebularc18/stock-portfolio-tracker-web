@@ -118,3 +118,11 @@ def test_index_history_rejects_excessive_start_date(monkeypatch):
 
     assert exc_info.value.status_code == 400
     assert "index history range must not exceed" in exc_info.value.detail
+
+
+def test_index_history_default_all_window_uses_configured_span(monkeypatch):
+    monkeypatch.setattr(market, "MAX_INDEX_HISTORY_SPAN_DAYS", 30)
+
+    _range, period_start, period_end, _interval = market._resolve_index_history_window("all")
+
+    assert 29 <= (period_end - period_start).days <= 30

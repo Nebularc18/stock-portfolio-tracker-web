@@ -112,7 +112,7 @@ def _resolve_index_history_window(
 
     parsed_start_date = _parse_optional_start_date(start_date)
     if parsed_start_date is None:
-        parsed_start_date = now - timedelta(days=3650)
+        parsed_start_date = now - timedelta(days=MAX_INDEX_HISTORY_SPAN_DAYS)
 
     if parsed_start_date >= now:
         raise HTTPException(status_code=400, detail="start_date must be before now")
