@@ -11,7 +11,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 import json
 
-from app.main import get_db, get_current_user, User, UserSettings
+from app.main import get_db, get_current_user, require_non_guest_user, User, UserSettings
 
 router = APIRouter()
 
@@ -148,7 +148,7 @@ def get_available_indices():
 
 
 @router.patch("", response_model=SettingsResponse)
-def update_settings(data: SettingsUpdate, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
+def update_settings(data: SettingsUpdate, db: Session = Depends(get_db), current_user: User = Depends(require_non_guest_user)):
     """Update user display preferences.
     
     Args:
