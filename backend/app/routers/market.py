@@ -20,7 +20,7 @@ import math
 
 from app.services.market_hours_service import MarketHoursService
 from app.services.market_data_service import get_header_market_data, HEADER_INDICES
-from app.main import User, get_current_user, is_admin_user, require_non_guest_user
+from app.main import User, ensure_admin_configured, get_current_user, is_admin_user, require_non_guest_user
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -897,6 +897,7 @@ def get_header_data(
             Filtering by user settings is done on the frontend.
     """
     if force and not is_admin_user(current_user):
+        ensure_admin_configured()
         raise HTTPException(status_code=403, detail="Admin privileges required to force refresh market data")
     return get_header_market_data(force_refresh=force)
 

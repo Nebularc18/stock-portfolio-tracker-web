@@ -5,7 +5,7 @@ from fastapi import HTTPException
 from fastapi.testclient import TestClient
 
 from app.main import app, get_current_user, require_admin_user, require_non_guest_user
-from app.routers import market
+from app.routers import market, marketstack
 
 
 @pytest.fixture()
@@ -61,6 +61,16 @@ def test_non_admin_cannot_force_market_header_refresh(client, monkeypatch):
     assert response.json()["detail"] == "Admin privileges required to force refresh market data"
 
 
+def test_force_market_header_reports_missing_admin_configuration(client, monkeypatch):
+    monkeypatch.delenv("DEFAULT_USERNAME", raising=False)
+    _override_user(SimpleNamespace(id=1, username="admin", is_guest=False))
+
+    response = client.get("/api/market/header?force=true")
+
+    assert response.status_code == 500
+    assert response.json()["detail"] == "Admin user is not configured"
+
+
 def test_require_non_guest_user_rejects_guest():
     with pytest.raises(HTTPException) as exc_info:
         require_non_guest_user(SimpleNamespace(id=2, username="guest", is_guest=True))
@@ -81,6 +91,21 @@ def test_require_admin_user_reports_missing_admin_configuration(monkeypatch):
 
     with pytest.raises(HTTPException) as exc_info:
         require_admin_user(SimpleNamespace(id=1, username="admin", is_guest=False))
+
+    assert exc_info.value.status_code == 500
+    assert exc_info.value.detail == "Admin user is not configured"
+
+
+def test_marketstack_cache_bypass_reports_missing_admin_configuration(monkeypatch):
+    monkeypatch.delenv("DEFAULT_USERNAME", raising=False)
+    monkeypatch.setattr(marketstack.marketstack_service, "is_configured", lambda: True)
+
+    with pytest.raises(HTTPException) as exc_info:
+        marketstack.get_dividends(
+            "AAPL",
+            use_cache=False,
+            current_user=SimpleNamespace(id=1, username="admin", is_guest=False),
+        )
 
     assert exc_info.value.status_code == 500
     assert exc_info.value.detail == "Admin user is not configured"

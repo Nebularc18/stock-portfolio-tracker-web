@@ -7,7 +7,7 @@ API for dividend data and verification, with usage tracking and caching.
 from fastapi import APIRouter, Depends, HTTPException
 from typing import Optional, Dict, Any, List
 
-from app.main import User, is_admin_user, require_admin_user, require_non_guest_user
+from app.main import User, ensure_admin_configured, is_admin_user, require_admin_user, require_non_guest_user
 from app.services.marketstack_service import marketstack_service, FetchError
 from app.services.stock_service import StockService
 
@@ -55,6 +55,7 @@ def get_dividends(
             detail="Marketstack API key not configured. Set MARKETSTACK_API_KEY environment variable."
         )
     if not use_cache and not is_admin_user(current_user):
+        ensure_admin_configured()
         raise HTTPException(status_code=403, detail="Admin privileges required to bypass Marketstack cache")
     
     try:
@@ -109,6 +110,7 @@ def verify_dividends(
             detail="Marketstack API key not configured. Set MARKETSTACK_API_KEY environment variable."
         )
     if not use_cache and not is_admin_user(current_user):
+        ensure_admin_configured()
         raise HTTPException(status_code=403, detail="Admin privileges required to bypass Marketstack cache")
     
     yahoo_dividends = stock_service.get_dividends(ticker, years=1)

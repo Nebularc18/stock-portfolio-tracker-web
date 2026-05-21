@@ -848,6 +848,13 @@ def is_admin_user(user: User) -> bool:
     )
 
 
+def ensure_admin_configured() -> None:
+    """Fail explicitly when admin-only behavior has no configured admin account."""
+    if not (os.getenv("DEFAULT_USERNAME") or "").strip():
+        logger.error("Admin-only endpoint called but DEFAULT_USERNAME is not configured")
+        raise HTTPException(status_code=500, detail="Admin user is not configured")
+
+
 def require_non_guest_user(current_user: User = Depends(get_current_user)) -> User:
     """Require an authenticated account that is allowed to persist mutations."""
     if getattr(current_user, "is_guest", False):
@@ -857,10 +864,7 @@ def require_non_guest_user(current_user: User = Depends(get_current_user)) -> Us
 
 def require_admin_user(current_user: User = Depends(get_current_user)) -> User:
     """Require the configured admin account for shared/global mutations."""
-    admin_username = (os.getenv("DEFAULT_USERNAME") or "").strip()
-    if not admin_username:
-        logger.error("Admin-only endpoint called but DEFAULT_USERNAME is not configured")
-        raise HTTPException(status_code=500, detail="Admin user is not configured")
+    ensure_admin_configured()
     if not is_admin_user(current_user):
         raise HTTPException(status_code=403, detail="Admin privileges required")
     return current_user
