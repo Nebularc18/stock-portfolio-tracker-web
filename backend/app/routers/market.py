@@ -4,7 +4,7 @@ This module provides API endpoints for market index data, exchange rates,
 market hours status, and sparkline charts for the header component.
 """
 
-from fastapi import APIRouter, Body, HTTPException, Query
+from fastapi import APIRouter, Body, Depends, HTTPException, Query
 from pydantic import BaseModel
 from typing import List
 from datetime import date, datetime, timezone, timedelta
@@ -20,6 +20,7 @@ import math
 
 from app.services.market_hours_service import MarketHoursService
 from app.services.market_data_service import get_header_market_data, HEADER_INDICES
+from app.main import User, get_current_user, is_admin_user
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -45,6 +46,9 @@ def _get_int_env(name: str, default: int) -> int:
 
 
 MAX_EXCHANGE_RATE_SPAN_DAYS = _get_int_env('MARKET_MAX_EXCHANGE_RATE_SPAN_DAYS', 3650)
+MAX_INDEX_HISTORY_SPAN_DAYS = _get_int_env('MARKET_MAX_INDEX_HISTORY_SPAN_DAYS', 3650)
+MAX_EXCHANGE_RATE_BATCH_DATES = _get_int_env('MARKET_MAX_EXCHANGE_RATE_BATCH_DATES', 1000)
+MAX_EXCHANGE_RATE_BATCH_CURRENCIES = _get_int_env('MARKET_MAX_EXCHANGE_RATE_BATCH_CURRENCIES', 20)
 INDICES_CACHE_TTL = 900  # 15 minutes
 EXCHANGE_RATES_CACHE_TTL = _get_int_env('EXCHANGE_RATES_CACHE_TTL', 900)
 HISTORICAL_EXCHANGE_RATES_CACHE_TTL = _get_int_env('HISTORICAL_EXCHANGE_RATES_CACHE_TTL', 86400 * 30)
@@ -112,6 +116,11 @@ def _resolve_index_history_window(
 
     if parsed_start_date >= now:
         raise HTTPException(status_code=400, detail="start_date must be before now")
+    if (now - parsed_start_date).days > MAX_INDEX_HISTORY_SPAN_DAYS:
+        raise HTTPException(
+            status_code=400,
+            detail=f"index history range must not exceed {MAX_INDEX_HISTORY_SPAN_DAYS} days",
+        )
 
     return normalized_range, parsed_start_date, now, "1d"
 
@@ -874,7 +883,10 @@ def fetch_index_data(symbol: str, session: requests.Session) -> dict | None:
 
 
 @router.get("/header")
-def get_header_data(force: bool = Query(False)):
+def get_header_data(
+    force: bool = Query(False),
+    current_user: User = Depends(get_current_user),
+):
     """Retrieve market data for the header component.
     
     Args:
@@ -884,6 +896,8 @@ def get_header_data(force: bool = Query(False)):
         dict: Header market data with all indices and exchange rates.
             Filtering by user settings is done on the frontend.
     """
+    if force and not is_admin_user(current_user):
+        raise HTTPException(status_code=403, detail="Admin privileges required to force refresh market data")
     return get_header_market_data(force_refresh=force)
 
 
@@ -963,6 +977,7 @@ def get_market_index_history(
     symbol: str,
     range_key: str = Query("1m", alias="range"),
     start_date: str | None = Query(None),
+    _current_user: User = Depends(get_current_user),
 ):
     """
     Return historical price points for one of the tracked market indices.
@@ -1021,7 +1036,7 @@ def get_market_index_history(
 
 
 @router.get("/exchange-rates")
-def get_exchange_rates(date: str | None = Query(None)):
+def get_exchange_rates(date: str | None = Query(None), _current_user: User = Depends(get_current_user)):
     """
     Retrieve exchange rates for major currency pairs, optionally for a specific ISO date.
     
@@ -1055,7 +1070,10 @@ class ExchangeRatesBatchRequest(BaseModel):
 
 
 @router.post("/exchange-rates/batch")
-def get_exchange_rates_batch(payload: ExchangeRatesBatchRequest = Body(...)):
+def get_exchange_rates_batch(
+    payload: ExchangeRatesBatchRequest = Body(...),
+    _current_user: User = Depends(get_current_user),
+):
     """
     Return exchange rate maps for multiple ISO date strings provided in the request body.
     
@@ -1071,6 +1089,16 @@ def get_exchange_rates_batch(payload: ExchangeRatesBatchRequest = Body(...)):
         HTTPException: If any input date is not a valid YYYY-MM-DD string (status code 400).
     """
     dates = payload.dates
+    if len(dates) > MAX_EXCHANGE_RATE_BATCH_DATES:
+        raise HTTPException(
+            status_code=400,
+            detail=f"dates must contain at most {MAX_EXCHANGE_RATE_BATCH_DATES} values",
+        )
+    if payload.currencies is not None and len(payload.currencies) > MAX_EXCHANGE_RATE_BATCH_CURRENCIES:
+        raise HTTPException(
+            status_code=400,
+            detail=f"currencies must contain at most {MAX_EXCHANGE_RATE_BATCH_CURRENCIES} values",
+        )
     requested_rate_keys, requested_pairs = _resolve_requested_pair_metadata(payload.currencies, payload.target_currency)
 
     if not dates:

@@ -267,6 +267,7 @@ def test_export_portfolio_data_includes_user_owned_records(monkeypatch):
 
 def test_import_portfolio_data_replaces_user_records(monkeypatch):
     imported_mappings = []
+    monkeypatch.setenv("DEFAULT_USERNAME", "admin")
 
     monkeypatch.setattr(
         "app.services.avanza_service.avanza_service.add_manual_mapping",
@@ -324,7 +325,7 @@ def test_import_portfolio_data_replaces_user_records(monkeypatch):
     result = portfolio.import_portfolio_data(
         payload=payload,
         db=db,
-        current_user=SimpleNamespace(id=7),
+        current_user=SimpleNamespace(id=7, username="admin", is_guest=False),
     )
 
     assert result["mode"] == "replace"
@@ -348,6 +349,39 @@ def test_import_portfolio_data_replaces_user_records(monkeypatch):
         "yahoo_ticker": "VOLV-B.ST",
         "instrument_id": "145016",
     }]
+
+
+def test_import_portfolio_data_skips_shared_mappings_for_non_admin(monkeypatch):
+    imported_mappings = []
+    monkeypatch.setenv("DEFAULT_USERNAME", "admin")
+    monkeypatch.setattr(
+        "app.services.avanza_service.avanza_service.add_manual_mapping",
+        lambda **kwargs: imported_mappings.append(kwargs) or SimpleNamespace(**kwargs),
+    )
+
+    db = FakeDB([])
+    payload = {
+        "export_version": 1,
+        "stocks": [],
+        "dividends": [],
+        "portfolio_history": [],
+        "stock_price_history": [],
+        "ticker_mappings": [{
+            "avanza_name": "Volvo B",
+            "yahoo_ticker": "VOLV-B.ST",
+            "instrument_id": "145016",
+        }],
+    }
+
+    result = portfolio.import_portfolio_data(
+        payload=payload,
+        db=db,
+        current_user=SimpleNamespace(id=7, username="user", is_guest=False),
+    )
+
+    assert result["ticker_mappings_imported"] == 0
+    assert result["ticker_mappings_skipped"] == 1
+    assert imported_mappings == []
 
 
 def test_coalesce_portfolio_history_daily_prefers_midnight_close_rows():

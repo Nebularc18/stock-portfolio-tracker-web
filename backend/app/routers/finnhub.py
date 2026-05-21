@@ -5,16 +5,17 @@ API for company profiles, financial metrics, peer companies, and
 analyst recommendations.
 """
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
 from typing import Optional, Dict, Any, List
 
+from app.main import User, require_non_guest_user
 from app.services.finnhub_service import finnhub_service
 
 router = APIRouter()
 
 
 @router.get("/profile/{ticker}")
-def get_company_profile(ticker: str) -> Optional[Dict[str, Any]]:
+def get_company_profile(ticker: str, _current_user: User = Depends(require_non_guest_user)) -> Optional[Dict[str, Any]]:
     """Retrieve company profile information from Finnhub.
     
     Args:
@@ -28,7 +29,7 @@ def get_company_profile(ticker: str) -> Optional[Dict[str, Any]]:
 
 
 @router.get("/metrics/{ticker}")
-def get_financial_metrics(ticker: str) -> Optional[Dict[str, Any]]:
+def get_financial_metrics(ticker: str, _current_user: User = Depends(require_non_guest_user)) -> Optional[Dict[str, Any]]:
     """Retrieve financial metrics for a company from Finnhub.
     
     Args:
@@ -42,7 +43,7 @@ def get_financial_metrics(ticker: str) -> Optional[Dict[str, Any]]:
 
 
 @router.get("/peers/{ticker}")
-def get_peers(ticker: str) -> Optional[List[str]]:
+def get_peers(ticker: str, _current_user: User = Depends(require_non_guest_user)) -> Optional[List[str]]:
     """Retrieve peer companies for a stock from Finnhub.
     
     Args:
@@ -57,7 +58,7 @@ def get_peers(ticker: str) -> Optional[List[str]]:
 
 
 @router.get("/recommendations/{ticker}")
-def get_recommendations(ticker: str) -> Optional[List[Dict[str, Any]]]:
+def get_recommendations(ticker: str, _current_user: User = Depends(require_non_guest_user)) -> Optional[List[Dict[str, Any]]]:
     """Retrieve analyst recommendation trends from Finnhub.
     
     Args:

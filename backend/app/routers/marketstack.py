@@ -4,9 +4,10 @@ This module provides API endpoints that proxy requests to the Marketstack
 API for dividend data and verification, with usage tracking and caching.
 """
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
 from typing import Optional, Dict, Any, List
 
+from app.main import User, is_admin_user, require_admin_user, require_non_guest_user
 from app.services.marketstack_service import marketstack_service, FetchError
 from app.services.stock_service import StockService
 
@@ -30,7 +31,8 @@ def get_dividends(
     ticker: str,
     date_from: Optional[str] = None,
     date_to: Optional[str] = None,
-    use_cache: bool = True
+    use_cache: bool = True,
+    current_user: User = Depends(require_non_guest_user),
 ) -> Dict[str, Any]:
     """Retrieve dividend data from Marketstack for a ticker.
     
@@ -52,6 +54,8 @@ def get_dividends(
             status_code=503, 
             detail="Marketstack API key not configured. Set MARKETSTACK_API_KEY environment variable."
         )
+    if not use_cache and not is_admin_user(current_user):
+        raise HTTPException(status_code=403, detail="Admin privileges required to bypass Marketstack cache")
     
     try:
         dividends = marketstack_service.fetch_dividends(
@@ -78,7 +82,11 @@ def get_dividends(
 
 
 @router.post("/verify/{ticker}")
-def verify_dividends(ticker: str, use_cache: bool = True) -> Dict[str, Any]:
+def verify_dividends(
+    ticker: str,
+    use_cache: bool = True,
+    current_user: User = Depends(require_non_guest_user),
+) -> Dict[str, Any]:
     """Verify Yahoo Finance dividends against Marketstack data.
     
     Fetches dividend data from both sources and compares them to
@@ -100,6 +108,8 @@ def verify_dividends(ticker: str, use_cache: bool = True) -> Dict[str, Any]:
             status_code=503, 
             detail="Marketstack API key not configured. Set MARKETSTACK_API_KEY environment variable."
         )
+    if not use_cache and not is_admin_user(current_user):
+        raise HTTPException(status_code=403, detail="Admin privileges required to bypass Marketstack cache")
     
     yahoo_dividends = stock_service.get_dividends(ticker, years=1)
     
@@ -130,7 +140,7 @@ def verify_dividends(ticker: str, use_cache: bool = True) -> Dict[str, Any]:
 
 
 @router.delete("/cache/{ticker}")
-def clear_cache(ticker: str) -> Dict[str, str]:
+def clear_cache(ticker: str, _current_user: User = Depends(require_admin_user)) -> Dict[str, str]:
     """Clear cached Marketstack data for a specific ticker.
     
     Args:

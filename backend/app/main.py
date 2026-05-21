@@ -838,6 +838,30 @@ def get_current_user(
     return user
 
 
+def is_admin_user(user: User) -> bool:
+    """Return whether the user can modify shared application-wide state."""
+    admin_username = os.getenv("DEFAULT_USERNAME")
+    return bool(
+        admin_username
+        and not getattr(user, "is_guest", False)
+        and getattr(user, "username", None) == admin_username
+    )
+
+
+def require_non_guest_user(current_user: User = Depends(get_current_user)) -> User:
+    """Require an authenticated account that is allowed to persist mutations."""
+    if getattr(current_user, "is_guest", False):
+        raise HTTPException(status_code=403, detail="Guest accounts are read-only")
+    return current_user
+
+
+def require_admin_user(current_user: User = Depends(get_current_user)) -> User:
+    """Require the configured admin account for shared/global mutations."""
+    if not is_admin_user(current_user):
+        raise HTTPException(status_code=403, detail="Admin privileges required")
+    return current_user
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Manage application lifecycle events.

@@ -4,7 +4,7 @@ from typing import Optional, List
 import logging
 
 from app.services.avanza_service import avanza_service
-from app.main import User, get_current_user
+from app.main import User, get_current_user, require_admin_user, require_non_guest_user
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -34,7 +34,7 @@ class DividendResponse(BaseModel):
 
 
 @router.get("/dividends")
-def get_avanza_dividends():
+def get_avanza_dividends(_current_user: User = Depends(require_non_guest_user)):
     """
     Fetch upcoming dividends for mapped Swedish stocks.
     
@@ -81,7 +81,7 @@ def get_all_mappings(current_user: User = Depends(get_current_user)):
 
 
 @router.post("/mappings")
-def add_mapping(mapping: TickerMappingCreate, current_user: User = Depends(get_current_user)):
+def add_mapping(mapping: TickerMappingCreate, current_user: User = Depends(require_admin_user)):
     """
     Create and persist a manual ticker mapping for an Avanza instrument.
     
@@ -109,7 +109,7 @@ def add_mapping(mapping: TickerMappingCreate, current_user: User = Depends(get_c
 
 
 @router.delete("/mappings/{avanza_name}")
-def delete_mapping(avanza_name: str, current_user: User = Depends(get_current_user)):
+def delete_mapping(avanza_name: str, current_user: User = Depends(require_admin_user)):
     """
     Remove a ticker mapping identified by an Avanza stock name.
     
@@ -130,7 +130,7 @@ def delete_mapping(avanza_name: str, current_user: User = Depends(get_current_us
 
 
 @router.get("/historical/{ticker}")
-def get_historical_dividends(ticker: str, years: int = 5):
+def get_historical_dividends(ticker: str, years: int = 5, _current_user: User = Depends(require_non_guest_user)):
     """
     Retrieve historical dividend records for a Swedish stock ticker.
     
@@ -149,7 +149,7 @@ def get_historical_dividends(ticker: str, years: int = 5):
 
 
 @router.get("/stock/{instrument_id}")
-def get_stock_info(instrument_id: str):
+def get_stock_info(instrument_id: str, _current_user: User = Depends(require_non_guest_user)):
     """
     Retrieve stock metadata and dividend information for a given Avanza instrument ID.
     

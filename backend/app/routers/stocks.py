@@ -18,7 +18,7 @@ import hashlib
 import threading
 from datetime import date, datetime, timedelta, timezone
 
-from app.main import SessionLocal, get_db, get_current_user, User, Stock, StockCreate, StockUpdate, StockResponse, StockPriceHistory
+from app.main import SessionLocal, get_db, get_current_user, require_non_guest_user, User, Stock, StockCreate, StockUpdate, StockResponse, StockPriceHistory
 from app.utils.time import utc_now
 from app.services.brandfetch_service import brandfetch_service
 from app.services.position_service import apply_stock_split, calculate_position_snapshot, get_quantity_held_on_date, get_remaining_quantity, has_position_history, normalize_position_entries, validate_position_entries
@@ -905,7 +905,7 @@ def get_stock(ticker: str, db: Session = Depends(get_db), current_user: User = D
 
 
 @router.post("", response_model=StockResponse)
-def create_stock(payload: dict = Body(...), db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
+def create_stock(payload: dict = Body(...), db: Session = Depends(get_db), current_user: User = Depends(require_non_guest_user)):
     """
     Create and persist a new stock record in the portfolio.
     
@@ -1013,7 +1013,7 @@ def create_stock(payload: dict = Body(...), db: Session = Depends(get_db), curre
 
 
 @router.patch("/{ticker}", response_model=StockResponse)
-def update_stock(ticker: str, stock_data: StockUpdate, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
+def update_stock(ticker: str, stock_data: StockUpdate, db: Session = Depends(get_db), current_user: User = Depends(require_non_guest_user)):
     """
     Update a stock's quantity, purchase price, and optionally its purchase date.
     
@@ -1262,7 +1262,7 @@ def update_stock(ticker: str, stock_data: StockUpdate, db: Session = Depends(get
 
 
 @router.delete("/{ticker}")
-def delete_stock(ticker: str, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
+def delete_stock(ticker: str, db: Session = Depends(get_db), current_user: User = Depends(require_non_guest_user)):
     """Remove a stock from the portfolio.
     
     Args:
@@ -1292,7 +1292,7 @@ def split_stock(
     ticker: str,
     split_data: StockSplitRequest,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_non_guest_user),
 ):
     stock = db.query(Stock).filter(
         Stock.user_id == current_user.id,
@@ -1317,7 +1317,7 @@ def split_stock(
 
 
 @router.post("/{ticker}/refresh")
-def refresh_stock(ticker: str, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
+def refresh_stock(ticker: str, db: Session = Depends(get_db), current_user: User = Depends(require_non_guest_user)):
     """
     Refreshes a stock's data from external sources and persists any updates.
     
@@ -1374,7 +1374,7 @@ def refresh_stock(ticker: str, db: Session = Depends(get_db), current_user: User
 
 
 @router.post("/{ticker}/backfill-history")
-def backfill_stock_history(ticker: str, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
+def backfill_stock_history(ticker: str, db: Session = Depends(get_db), current_user: User = Depends(require_non_guest_user)):
     """
     Manually backfill daily stock price history for an existing holding.
 
@@ -1419,7 +1419,7 @@ def backfill_stock_history(ticker: str, db: Session = Depends(get_db), current_u
 
 
 @router.post("/backfill-all-history")
-def backfill_all_stock_history(db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
+def backfill_all_stock_history(db: Session = Depends(get_db), current_user: User = Depends(require_non_guest_user)):
     """
     Rebuild daily price history for every holding and recompute portfolio history.
 
@@ -1684,7 +1684,7 @@ def get_analyst_data(ticker: str, db: Session = Depends(get_db), current_user: U
 
 
 @router.post("/{ticker}/manual-dividends", response_model=StockResponse)
-def add_manual_dividend(ticker: str, dividend_data: ManualDividendCreate, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
+def add_manual_dividend(ticker: str, dividend_data: ManualDividendCreate, db: Session = Depends(get_db), current_user: User = Depends(require_non_guest_user)):
     """
     Add a manually recorded dividend to the specified stock's manual dividends list.
     
@@ -1728,7 +1728,7 @@ def update_manual_dividend(
     dividend_id: str, 
     dividend_data: ManualDividendUpdate, 
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_non_guest_user),
 ):
     """
     Update a manual dividend entry for a stock.
@@ -1779,7 +1779,7 @@ def update_manual_dividend(
 
 
 @router.delete("/{ticker}/manual-dividends/{dividend_id}")
-def delete_manual_dividend(ticker: str, dividend_id: str, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
+def delete_manual_dividend(ticker: str, dividend_id: str, db: Session = Depends(get_db), current_user: User = Depends(require_non_guest_user)):
     """Delete a manually recorded dividend.
     
     Args:
@@ -1818,7 +1818,7 @@ class SuppressDividendCreate(BaseModel):
 
 
 @router.post("/{ticker}/suppress-dividend")
-def suppress_broker_dividend(ticker: str, data: SuppressDividendCreate, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
+def suppress_broker_dividend(ticker: str, data: SuppressDividendCreate, db: Session = Depends(get_db), current_user: User = Depends(require_non_guest_user)):
     """Suppress a broker-reported dividend from dividend calculations.
     
     Args:
@@ -1860,7 +1860,7 @@ def suppress_broker_dividend(ticker: str, data: SuppressDividendCreate, db: Sess
 
 
 @router.delete("/{ticker}/suppress-dividend/{date}")
-def restore_broker_dividend(ticker: str, date: str, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
+def restore_broker_dividend(ticker: str, date: str, db: Session = Depends(get_db), current_user: User = Depends(require_non_guest_user)):
     """Restore a previously suppressed broker dividend.
     
     Args:

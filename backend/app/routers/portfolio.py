@@ -18,7 +18,7 @@ import os
 import tempfile
 import threading
 
-from app.main import get_db, get_current_user, User, Stock, Dividend, PortfolioHistory, UserSettings, StockPriceHistory
+from app.main import get_db, get_current_user, is_admin_user, require_non_guest_user, User, Stock, Dividend, PortfolioHistory, UserSettings, StockPriceHistory
 from app.services.brandfetch_service import brandfetch_service
 from app.services.exchange_rate_service import ExchangeRateService
 from app.services.market_hours_service import DEFAULT_REFRESH_INTERVAL_MINUTES
@@ -1511,7 +1511,7 @@ def export_portfolio_data(db: Session = Depends(get_db), current_user: User = De
 def import_portfolio_data(
     payload: dict = Body(...),
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_non_guest_user),
 ):
     """
     Replace the current user's portfolio data with a JSON export produced by this app.
@@ -1662,8 +1662,12 @@ def import_portfolio_data(
 
     imported_mapping_count = 0
     skipped_mapping_count = 0
+    can_import_shared_mappings = is_admin_user(current_user)
     for index, mapping_payload in enumerate(ticker_mappings_payload):
         if not isinstance(mapping_payload, dict):
+            skipped_mapping_count += 1
+            continue
+        if not can_import_shared_mappings:
             skipped_mapping_count += 1
             continue
         avanza_name = _import_string(mapping_payload.get("avanza_name"), f"ticker_mappings[{index}].avanza_name")
@@ -1696,7 +1700,7 @@ def import_portfolio_data(
 
 
 @router.post("/refresh-all")
-def refresh_all_prices(db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
+def refresh_all_prices(db: Session = Depends(get_db), current_user: User = Depends(require_non_guest_user)):
     """
     Refresh current prices and logos for all portfolio stocks, record daily price history, and update the portfolio's total value.
     
