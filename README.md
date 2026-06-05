@@ -407,7 +407,3 @@ stock-portfolio-tracker-web/
 - Yahoo Finance API has rate limits; avoid excessive refresh requests
 - Analyst data (price targets, ratings) is limited due to API restrictions
 - Some Swedish stocks may have limited data coverage
-
-## License
-
-MIT License
